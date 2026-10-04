@@ -1,0 +1,49 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width,initial-scale=1" />
+    <title>Command center · WINDELS</title>
+    <link rel="stylesheet" href="/css/style.css" />
+    <script src="/js/admin.js" defer></script>
+  </head>
+  <body>
+    <header class="top">
+      <a class="brand" href="/"
+        ><span class="mark">W</span
+        ><span>WINDELS <small>ADMIN COMMAND CENTER</small></span></a
+      >
+      <nav>
+        <a href="/">Public site</a
+        ><button class="link" id="logout">Sign out</button>
+      </nav>
+    </header>
+    <main class="admin-layout">
+      <aside id="sidebar">
+        <div class="eyebrow">WORKSPACE</div>
+        <nav class="side-nav" id="tabs">
+          <button data-tab="dashboard">Dashboard</button
+          ><button data-tab="today">Today's ticket</button
+          ><button data-tab="fixtures">Fixtures</button
+          ><button data-tab="odds">Odds</button
+          ><button data-tab="predictions">Predictions</button
+          ><button data-tab="tickets">Ticket history</button
+          ><button data-tab="analytics">Analytics</button
+          ><button data-tab="settings">Settings</button
+          ><button data-tab="api">API status</button
+          ><button data-tab="logs">System logs</button>
+        </nav>
+      </aside>
+      <section class="admin-content">
+        <div class="section-head">
+          <div>
+            <span class="eyebrow">WINDELS OPERATIONS</span>
+            <h1 id="heading">Dashboard</h1>
+          </div>
+          <span class="pill">OVER 1.5 ONLY</span>
+        </div>
+        <div id="content" aria-live="polite">Loading…</div>
+      </section>
+    </main>
+  </body>
+</html>

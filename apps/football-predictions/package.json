@@ -1,0 +1,26 @@
+{
+  "name": "windels-football-predictions",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "engines": {
+    "node": ">=22"
+  },
+  "scripts": {
+    "test": "node --test tests/*.test.js",
+    "migrate": "node server/migrate.js",
+    "start": "node server.js",
+    "sync:fixtures": "node server/jobs/cli.js fixtures",
+    "sync:odds": "node server/jobs/cli.js odds",
+    "sync:statistics": "node server/jobs/cli.js statistics",
+    "sync:results": "node server/jobs/cli.js results",
+    "sync:freshness": "node server/jobs/cli.js freshness",
+    "sync:health": "node server/jobs/cli.js health"
+  },
+  "dependencies": {
+    "express": "^5.2.1",
+    "express-rate-limit": "^8.7.0",
+    "helmet": "^8.3.0",
+    "mysql2": "^3.24.5"
+  }
+}

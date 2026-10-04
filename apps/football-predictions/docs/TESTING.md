@@ -1,0 +1,5 @@
+# Testing
+
+`npm ci --workspaces=false && npm test`: deterministic isolated unit and HTTP-contract tests only; test fixtures never enter production. Provider normalization, odds exactness, rejected statuses/markets, bounded optimization, correlation veto, evidence model, fail-closed generation, health cron isolation and settlement are covered. Node syntax check: `node --check server.js` (and other modules).
+
+Integration acceptance requires a disposable MySQL 8+/MariaDB instance and a separate database. Apply migration; provision a test admin; authenticate, verify CSRF/role denial, inject only test-scoped provider responses through an isolated test process, run synchronization, generate/publish, settle and repeat; compare immutable snapshots and rollback behavior after forced failure. Do not connect these fixtures to production. This environment did not have MySQL, an API-Football subscription or a cPanel Node Application Manager, so those acceptance tests and live provider/SSL deployment validation remain **unverified**. Existing CI3 PHP regression suite (`php index.php tools tests`) was not executable here if PHP is absent; do not claim it ran.

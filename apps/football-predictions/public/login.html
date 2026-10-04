@@ -1,0 +1,43 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width,initial-scale=1" />
+    <title>Sign in · WINDELS</title>
+    <link rel="stylesheet" href="/css/style.css" />
+    <script src="/js/app.js" defer></script>
+  </head>
+  <body data-page="login">
+    <header class="top">
+      <a class="brand" href="/"
+        ><span class="mark">W</span
+        ><span>WINDELS <small>FOOTBALL PREDICTIONS</small></span></a
+      >
+      <nav>
+        <a href="/">Home</a><a href="/ticket.html">Today's ticket</a
+        ><a href="/history.html">History</a>
+      </nav>
+    </header>
+    <main class="section narrow">
+      <span class="eyebrow">AUTHORIZED ACCESS</span>
+      <h1>Administrator sign in</h1>
+      <form id="login" class="panel stack">
+        <label
+          >Email<input
+            type="email"
+            name="email"
+            autocomplete="username"
+            required
+            maxlength="254" /></label
+        ><label
+          >Password<input
+            type="password"
+            name="password"
+            autocomplete="current-password"
+            required /></label
+        ><button class="button primary">Sign in →</button>
+        <p id="message" role="alert"></p>
+      </form>
+    </main>
+  </body>
+</html>
