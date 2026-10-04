@@ -261,7 +261,7 @@ export function createApp(pool) {
   app.get("/api/predictions", async (req, res) => {
     const { limit, offset, page } = paginate(req);
     const data = await query(
-      "SELECT p.fixture_id,p.probability,p.confidence,p.risk,p.quality,p.reason FROM fp_predictions p JOIN fp_selections s ON s.prediction_id=p.id JOIN fp_tickets t ON t.id=s.ticket_id WHERE t.status='PUBLISHED' ORDER BY p.id DESC LIMIT ? OFFSET ?",
+      "SELECT p.fixture_id,p.probability,p.implied_probability,p.confidence,p.risk,p.quality,p.reason FROM fp_predictions p JOIN fp_selections s ON s.prediction_id=p.id JOIN fp_tickets t ON t.id=s.ticket_id WHERE t.status='PUBLISHED' ORDER BY p.id DESC LIMIT ? OFFSET ?",
       [limit, offset],
     );
     res.json({ data, page, calibration: "NOT_EMPIRICALLY_CALIBRATED" });
@@ -538,7 +538,7 @@ export function createApp(pool) {
   app.get("/api/admin/predictions", async (req, res) => {
     const { limit, offset, page } = paginate(req);
     const data = await query(
-      "SELECT p.fixture_id,p.probability,p.confidence,p.risk,p.quality,p.reason,p.explanation,g.day FROM fp_predictions p JOIN fp_generation g ON g.id=p.generation_id ORDER BY p.id DESC LIMIT ? OFFSET ?",
+      "SELECT p.fixture_id,p.probability,p.implied_probability,p.confidence,p.risk,p.quality,p.reason,p.explanation,g.day FROM fp_predictions p JOIN fp_generation g ON g.id=p.generation_id ORDER BY p.id DESC LIMIT ? OFFSET ?",
       [limit, offset],
     );
     res.json({ data, page, calibration: "NOT_EMPIRICALLY_CALIBRATED" });

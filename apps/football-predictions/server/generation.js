@@ -160,12 +160,13 @@ export async function generate(
       }
       if (reason) rejected(reason);
       const [saved] = await pool.execute(
-        "INSERT INTO fp_predictions(generation_id,fixture_id,odds_id,probability,confidence,quality,risk,reason,explanation,model_version) VALUES(?,?,?,?,?,?,?,?,?,1)",
+        "INSERT INTO fp_predictions(generation_id,fixture_id,odds_id,probability,implied_probability,confidence,quality,risk,reason,explanation,model_version) VALUES(?,?,?,?,?,?,?,?,?,?,1)",
         [
           id,
           f.id,
           chosen?.oddsId || null,
           prediction?.probability ?? null,
+          chosen ? Number((1 / Number(chosen.price)).toFixed(6)) : null,
           prediction?.confidence ?? null,
           prediction?.quality ?? null,
           prediction?.risk ?? null,
@@ -266,7 +267,7 @@ export async function generate(
                 kickoff: c.kickoff,
               }),
               c.bookmaker,
-              "empirical-form-1",
+              "empirical-form-2",
               c.probability,
               c.confidence,
               c.risk,

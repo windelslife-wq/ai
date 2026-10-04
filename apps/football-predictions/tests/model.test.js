@@ -4,6 +4,7 @@ import { analyze } from "../server/prediction/model.js";
 const now = Date.parse("2026-10-04T12:00:00Z");
 const mk = (id, venue, team, goals) => ({
   fixtureId: id,
+  status: "FT",
   timestamp: new Date(now - (id + 1) * 86400000).toISOString(),
   homeId: venue === "home" ? team : 300 + id,
   awayId: venue === "away" ? team : 400 + id,

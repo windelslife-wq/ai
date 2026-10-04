@@ -18,6 +18,7 @@ export function analyze(
     parse(input)
       .filter(
         (m) =>
+          ["FT", "AET", "PEN"].includes(m.status) &&
           Date.parse(m.timestamp) < now &&
           Number.isInteger(m.homeGoals) &&
           Number.isInteger(m.awayGoals) &&
@@ -31,15 +32,33 @@ export function analyze(
     rows.filter((m) => (isHome ? m.homeId === id : m.awayId === id));
   const h = venue(home, fixture.homeTeamId, true),
     a = venue(away, fixture.awayTeamId, false);
-  const metrics = (rows) => ({
-    n: rows.length,
-    over: rows.filter((m) => m.homeGoals + m.awayGoals >= 2).length,
-    goals: rows.reduce((v, m) => v + m.homeGoals + m.awayGoals, 0),
-  });
-  const H = metrics(home),
-    A = metrics(away),
-    VH = metrics(h),
-    VA = metrics(a);
+  const metrics = (rows, teamId) => {
+    const n = rows.length;
+    const over = rows.filter((m) => m.homeGoals + m.awayGoals >= 2).length;
+    const goals = rows.reduce((v, m) => v + m.homeGoals + m.awayGoals, 0);
+    const scored = rows.map((m) =>
+      m.homeId === teamId ? m.homeGoals : m.awayGoals,
+    );
+    const conceded = rows.map((m) =>
+      m.homeId === teamId ? m.awayGoals : m.homeGoals,
+    );
+    return {
+      n,
+      over,
+      goals,
+      averageTotalGoals: n ? goals / n : null,
+      averageScored: n ? scored.reduce((v, x) => v + x, 0) / n : null,
+      averageConceded: n ? conceded.reduce((v, x) => v + x, 0) / n : null,
+      scoringConsistency: n ? scored.filter((x) => x > 0).length / n : null,
+      concedingConsistency: n ? conceded.filter((x) => x > 0).length / n : null,
+    };
+  };
+  const H = metrics(home, fixture.homeTeamId),
+    A = metrics(away, fixture.awayTeamId),
+    H5 = metrics(home.slice(0, 5), fixture.homeTeamId),
+    A5 = metrics(away.slice(0, 5), fixture.awayTeamId),
+    VH = metrics(h, fixture.homeTeamId),
+    VA = metrics(a, fixture.awayTeamId);
   const newest = Math.max(
     Date.parse(home[0]?.timestamp) || 0,
     Date.parse(away[0]?.timestamp) || 0,
@@ -47,10 +66,12 @@ export function analyze(
   const explanation = {
     homeLast10: H,
     awayLast10: A,
+    homeLast5: H5,
+    awayLast5: A5,
     homeVenue: VH,
     awayVenue: VA,
     method:
-      "Smoothed historical over-1.5 frequencies: (hits+2)/(matches+4); 35% home overall, 35% away overall, 15% home venue, 15% away venue. Confidence is data completeness/freshness. No bookmaker odds in the probability formula.",
+      "Smoothed historical over-1.5 frequencies: (hits+2)/(matches+4); 20% home last ten, 20% away last ten, 15% home last five, 15% away last five, 15% home venue, 15% away venue. Confidence is data completeness/freshness. No bookmaker odds in the probability formula.",
     excluded:
       "Injuries, H2H and league environment are not included without verified usable samples.",
   };
@@ -65,7 +86,12 @@ export function analyze(
     return { reason: "DATA_UNAVAILABLE", explanation };
   const rate = (m) => (m.over + 2) / (m.n + 4);
   const probability = clamp(
-    0.35 * rate(H) + 0.35 * rate(A) + 0.15 * rate(VH) + 0.15 * rate(VA),
+    0.2 * rate(H) +
+      0.2 * rate(A) +
+      0.15 * rate(H5) +
+      0.15 * rate(A5) +
+      0.15 * rate(VH) +
+      0.15 * rate(VA),
     0.01,
     0.99,
   );
@@ -85,8 +111,13 @@ export function analyze(
     0,
     95,
   );
+  const scoringPenalty = Math.round(
+    10 * (1 - (H.scoringConsistency + A.scoringConsistency) / 2),
+  );
   const risk = clamp(
-    Math.round(100 * (1 - probability) * 0.6 + (100 - quality) * 0.4),
+    Math.round(
+      100 * (1 - probability) * 0.6 + (100 - quality) * 0.4 + scoringPenalty,
+    ),
     0,
     100,
   );
@@ -101,6 +132,7 @@ export function analyze(
       quality,
       confidence,
       risk,
+      scoringPenalty,
       calibration: "NOT_EMPIRICALLY_CALIBRATED",
     },
   };

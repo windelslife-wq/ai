@@ -107,6 +107,7 @@ async function render(name = tab) {
             : [
                 ["Fixture ID", "fixture_id"],
                 ["Model probability", "probability"],
+                ["Bookmaker implied", "implied_probability"],
                 ["Evidence confidence", "confidence"],
                 ["Quality", "quality"],
                 ["Risk", "risk"],
