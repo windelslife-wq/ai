@@ -1,0 +1,15 @@
+{
+  "name": "@aegis/runtime-bridge",
+  "private": true,
+  "version": "0.3.0",
+  "type": "module",
+  "description": "Offline dev runtime: hosts the CodeIgniter 3 app in WASM PHP with the pdo_sqlite dev driver (production uses native PHP + MySQL/MariaDB).",
+  "scripts": {
+    "start": "node server.mjs",
+    "test": "node run-tests.mjs"
+  },
+  "dependencies": {
+    "@php-wasm/node": "3.1.50",
+    "@php-wasm/universal": "3.1.50"
+  }
+}

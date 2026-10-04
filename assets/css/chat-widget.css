@@ -1,0 +1,232 @@
+/* WINDELS Assistant — floating AI chat widget.
+   Self-contained stylesheet loaded by the chat_widget partial itself, so the
+   widget renders identically on the dashboard shell (aegis.css) AND the
+   public marketing site (public.css). The fixed positioning, stacking and
+   sizing never depend on host-page layout, overflow or footer structure. */
+
+.aegis-chat {
+  position: fixed;
+  right: 24px;
+  bottom: 24px;
+  z-index: 900; /* above topbar (12), profile menu (30), mobile sidebar drawer (40), footer */
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 12px;
+  font: 13.5px/1.5 system-ui, -apple-system, "Segoe UI", Roboto, Inter, sans-serif;
+  color: #e7ecf4;
+  pointer-events: none; /* launcher + open panel re-enable clicks */
+}
+.aegis-chat-launch,
+.aegis-chat.is-open .aegis-chat-panel {
+  pointer-events: auto;
+}
+
+/* ---------- Launcher (floating circular button + brand label) ---------- */
+.aegis-chat-launch {
+  position: relative;
+  width: 64px;
+  height: 64px;
+  border-radius: 50%;
+  border: 1px solid #2f6bff66;
+  background: #0d1422;
+  box-shadow: 0 8px 24px #00000066, 0 2px 6px #0000004d;
+  cursor: pointer;
+  padding: 0;
+  display: grid;
+  place-items: center;
+  transition: transform .15s ease, border-color .15s ease, box-shadow .15s ease;
+}
+.aegis-chat-launch:hover { border-color: #2f6bff; transform: translateY(-1px); box-shadow: 0 10px 28px #00000073, 0 2px 6px #0000004d; }
+.aegis-chat-launch:focus-visible { outline: 2px solid #2f6bff; outline-offset: 2px; }
+.aegis-chat-launch .aegis-chat-avatar { width: 46px; height: 46px; }
+.aegis-chat-launch .aegis-chat-launch-label {
+  position: absolute;
+  right: calc(100% + 10px);
+  top: 50%;
+  transform: translateY(-50%);
+  white-space: nowrap;
+  font-size: 12px;
+  font-weight: 700;
+  color: #e7ecf4;
+  background: #0d1422;
+  border: 1px solid #2a3548;
+  border-radius: 999px;
+  padding: 7px 12px;
+  box-shadow: 0 6px 18px #00000059;
+  pointer-events: none;
+  opacity: .96;
+}
+
+.aegis-chat-avatar {
+  position: relative;
+  display: inline-grid;
+  place-items: center;
+  width: 34px;
+  height: 34px;
+  aspect-ratio: 1 / 1;
+  border-radius: 50%;
+  overflow: hidden;
+  background: linear-gradient(135deg, #2f6bff, #6366f1);
+  flex: none;
+  isolation: isolate;
+}
+.aegis-chat-avatar img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  object-position: center;
+  display: block;
+  max-width: 100%;
+  max-height: 100%;
+  /* Prevent stretch/crop issues: cover keeps aspect, center keeps focus */
+}
+.aegis-chat-fallback { display: none; color: #fff; font-weight: 800; font-size: 14px; line-height: 1; }
+.aegis-chat-avatar.is-fallback .aegis-chat-fallback { display: block; }
+.aegis-chat-avatar.is-fallback img { display: none; }
+
+/* ---------- Panel ---------- */
+.aegis-chat-panel {
+  width: min(380px, calc(100vw - 32px));
+  height: min(560px, calc(100vh - 140px));
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  border: 1px solid #2a3548;
+  border-radius: 16px;
+  background: #070b13;
+  box-shadow: 0 24px 70px #000000b3, 0 2px 8px #00000066;
+  transform-origin: bottom right;
+  opacity: 0;
+  transform: translateY(10px) scale(.97);
+  /* At rest the panel is invisible AND inert: without visibility/pointer-events
+     the display:flex (which overrides the `hidden` attribute's display:none)
+     would leave a huge transparent overlay that swallows clicks from nearby
+     controls — e.g. the mobile sidebar "Menu" button. */
+  visibility: hidden;
+  pointer-events: none;
+  transition: opacity .18s ease, transform .18s ease, visibility 0s linear .18s;
+}
+.aegis-chat-panel[hidden] { display: none; }
+.aegis-chat.is-open .aegis-chat-panel {
+  opacity: 1;
+  transform: translateY(0) scale(1);
+  visibility: visible;
+  pointer-events: auto;
+  transition-delay: 0s;
+}
+
+.aegis-chat-panel > header {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 12px 14px;
+  border-bottom: 1px solid #1e2738;
+  background: #131c2c;
+  flex: none;
+}
+.aegis-chat-id { min-width: 0; }
+.aegis-chat-id strong { display: block; color: #fff; font-size: 13.5px; font-weight: 700; }
+.aegis-chat-id small { display: block; margin-top: 1px; color: #9aa7bd; font-size: 10.5px; }
+.aegis-chat-close {
+  margin-left: auto;
+  width: 30px;
+  height: 30px;
+  display: grid;
+  place-items: center;
+  border: 0;
+  border-radius: 8px;
+  background: transparent;
+  color: #9aa7bd;
+  cursor: pointer;
+  font-size: 18px;
+  line-height: 1;
+  flex: none;
+}
+.aegis-chat-close:hover { background: #1e2738; color: #fff; }
+.aegis-chat-close:focus-visible { outline: 2px solid #2f6bff; }
+
+.aegis-chat-messages {
+  flex: 1 1 auto;
+  min-height: 120px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  overflow-y: auto;
+  padding: 14px;
+}
+.aegis-chat-messages::-webkit-scrollbar { width: 6px; }
+.aegis-chat-messages::-webkit-scrollbar-thumb { background: #1e2738; border-radius: 6px; }
+.aegis-chat-message {
+  max-width: 88%;
+  padding: 8px 11px;
+  border-radius: 12px;
+  line-height: 1.45;
+  white-space: pre-wrap;
+  word-break: break-word;
+  font-size: 13px;
+}
+.aegis-chat-message.agent { align-self: flex-start; background: #131c2c; color: #cbd5e1; border-bottom-left-radius: 4px; }
+.aegis-chat-message.user { align-self: flex-end; background: #2f6bff; color: #fff; border-bottom-right-radius: 4px; }
+.aegis-chat-message.error { align-self: flex-start; background: #3b121d; color: #fda4af; }
+
+.aegis-chat-form {
+  display: flex;
+  gap: 8px;
+  padding: 10px 12px;
+  border-top: 1px solid #1e2738;
+  flex: none;
+}
+.aegis-chat-form input {
+  min-width: 0;
+  flex: 1;
+  border: 1px solid #2a3548;
+  border-radius: 10px;
+  background: #0f1623;
+  color: #fff;
+  padding: 9px 11px;
+  font: inherit;
+  font-size: 13px;
+}
+.aegis-chat-form input:focus { outline: none; border-color: #2f6bff; box-shadow: 0 0 0 3px #2f6bff22; }
+.aegis-chat-form button {
+  border: 0;
+  border-radius: 10px;
+  background: #2f6bff;
+  color: #fff;
+  padding: 0 14px;
+  font-weight: 700;
+  font-size: 13px;
+  cursor: pointer;
+  flex: none;
+  transition: background .15s ease;
+}
+.aegis-chat-form button:hover { background: #1f5ae0; }
+.aegis-chat-form button:disabled { opacity: .5; cursor: wait; }
+.aegis-chat-form button:focus-visible { outline: 2px solid #fff; outline-offset: 1px; }
+
+.aegis-chat-note {
+  margin: 0;
+  padding: 0 14px 10px;
+  color: #5e6b82;
+  font-size: 10px;
+  line-height: 1.4;
+  flex: none;
+}
+
+/* ---------- Mobile ---------- */
+@media (max-width: 820px) {
+  /* Stay on the right so it never covers the left-side mobile Menu button. */
+  .aegis-chat { right: 14px; bottom: calc(72px + env(safe-area-inset-bottom, 0px)); }
+}
+@media (max-width: 560px) {
+  .aegis-chat { right: 14px; bottom: calc(72px + env(safe-area-inset-bottom, 0px)); }
+  .aegis-chat-launch { width: 52px; height: 52px; }
+  .aegis-chat-launch .aegis-chat-launch-label { display: none; }
+  .aegis-chat-launch .aegis-chat-avatar { width: 36px; height: 36px; }
+  .aegis-chat-panel { width: calc(100vw - 28px); height: min(440px, calc(100vh - 180px)); }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .aegis-chat-panel, .aegis-chat-launch { transition: none; }
+}

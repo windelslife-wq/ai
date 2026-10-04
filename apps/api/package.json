@@ -1,0 +1,23 @@
+{
+  "name": "@lead-discovery/api",
+  "private": true,
+  "version": "0.1.0",
+  "type": "module",
+  "scripts": {
+    "dev": "tsx watch src/server.ts",
+    "start": "tsx src/server.ts",
+    "migrate": "tsx src/migrate.ts",
+    "bootstrap": "tsx src/bootstrap.ts",
+    "test": "node --import tsx --test test/*.test.ts"
+  },
+  "dependencies": {
+    "@fastify/jwt": "10.2.2",
+    "fastify": "5.12.1",
+    "bcryptjs": "3.0.2",
+    "@fastify/cors": "11.3.0",
+    "pg": "8.15.6",
+    "ioredis": "5.6.1",
+    "zod": "3.24.4"
+  },
+  "devDependencies": { "@types/pg": "8.11.13" }
+}

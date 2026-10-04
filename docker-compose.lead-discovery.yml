@@ -1,0 +1,32 @@
+# Independent Scout Lead Discovery infrastructure.
+# The root docker-compose.yml remains the legacy AEGIS trading stack.
+services:
+  lead-postgres:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_DB: ${LEAD_POSTGRES_DB:-lead_discovery}
+      POSTGRES_USER: ${LEAD_POSTGRES_USER:-lead_user}
+      POSTGRES_PASSWORD: ${LEAD_POSTGRES_PASSWORD:?LEAD_POSTGRES_PASSWORD must be set}
+    ports:
+      - "${LEAD_POSTGRES_PORT:-5432}:5432"
+    volumes:
+      - lead-postgres-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${LEAD_POSTGRES_USER:-lead_user} -d ${LEAD_POSTGRES_DB:-lead_discovery}"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+
+  lead-redis:
+    image: redis:7-alpine
+    command: ["redis-server", "--appendonly", "no"]
+    ports:
+      - "${LEAD_REDIS_PORT:-6379}:6379"
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+
+volumes:
+  lead-postgres-data:

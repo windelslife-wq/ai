@@ -1,0 +1,45 @@
+# AEGIS — production stack (CodeIgniter 3 + MySQL/MariaDB)
+#
+# NOTE (honesty per project rules): this compose file targets the documented
+# production stack (PHP-FPM + MySQL). It was NOT exercised in the development
+# sandbox (no Docker there); the identical application IS tested there via
+# WASM PHP + pdo_sqlite (runtime/). Validate on your host before use.
+
+services:
+  db:
+    image: mariadb:11
+    environment:
+      MARIADB_ROOT_PASSWORD: ${AEGIS_DB_PASS:-aegis}
+      MARIADB_DATABASE: aegis_trading
+      MARIADB_USER: aegis
+      MARIADB_PASSWORD: ${AEGIS_DB_PASS:-aegis}
+    volumes:
+      - db-data:/var/lib/mysql
+    healthcheck:
+      test: ["CMD", "healthcheck.sh", "--connect", "--innodb_initialized"]
+      interval: 5s
+      retries: 20
+
+  app:
+    image: php:8.2-apache
+    working_dir: /var/www/html
+    environment:
+      AEGIS_DB_HOST: db
+      AEGIS_DB_USER: aegis
+      AEGIS_DB_PASS: ${AEGIS_DB_PASS:-aegis}
+      AEGIS_DB_NAME: aegis_trading
+    volumes:
+      - .:/var/www/html
+    ports:
+      - "8080:80"
+    depends_on:
+      db:
+        condition: service_healthy
+    command: >
+      bash -c "
+        docker-php-ext-install mysqli >/dev/null &&
+        a2enmod rewrite &&
+        apache2-foreground"
+
+volumes:
+  db-data:

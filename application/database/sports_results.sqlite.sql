@@ -1,0 +1,2 @@
+CREATE TABLE IF NOT EXISTS sports_results (id INTEGER PRIMARY KEY AUTOINCREMENT, match_id INTEGER NOT NULL, provider_id INTEGER NOT NULL, home_score INTEGER, away_score INTEGER, status TEXT NOT NULL, verified INTEGER NOT NULL DEFAULT 0, source_timestamp TEXT NOT NULL, verified_at TEXT, payload TEXT NOT NULL, UNIQUE(provider_id, match_id));
+CREATE INDEX IF NOT EXISTS idx_sports_results_match ON sports_results(match_id, verified);
