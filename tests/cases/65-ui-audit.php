@@ -20,11 +20,13 @@ test('dashboard sidebar contains every required item with a real route and an ic
         'Pipeline'        => '/lead-pipeline',
         'Paper Trading'   => '/paper',
         'Strategy Lab'    => '/strategy',
+        'Portfolio Optimizer' => '/portfolio',
         'Analytics'       => '/journal',
         'Execution'       => '/execution',
         'Brokers'         => '/brokers',
         'Risk Center'     => '/risk',
         'Sports Intel'    => '/sports',
+        'Lottery Console' => '/lottery',
         'Alerts'          => '/notifications',
         'Settings'        => '/account',
         'Help'            => '/faq',
@@ -148,7 +150,7 @@ test('auth pages are routed and protected-dashboard routes redirect to login', f
     assert_contains("redirect('/login')", $core, 'requireLogin redirects visitors to /login');
     assert_contains('function requireAdminPage', $core);
     assert_contains("redirect('/access-denied')", $core, 'requireAdminPage redirects non-admins to /access-denied');
-    foreach (['Welcome', 'Workspace', 'Paper', 'Admin', 'Sports', 'Lang_learn', 'Leads', 'Execution', 'Brokers', 'Risk_center', 'Journal', 'Notifications', 'Strategy_lab'] as $name) {
+    foreach (['Welcome', 'Workspace', 'Paper', 'Admin', 'Sports', 'Lottery', 'Lang_learn', 'Leads', 'Execution', 'Brokers', 'Risk_center', 'Journal', 'Notifications', 'Strategy_lab'] as $name) {
         $src = file_get_contents(FCPATH . 'application/controllers/' . $name . '.php');
         assert_contains('extends App_Controller', $src, "$name must extend App_Controller (login gate)");
     }

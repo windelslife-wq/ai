@@ -17,7 +17,8 @@ test('lottery api: routes, RBAC matrix and honest feature matrix', function () {
 
     $c = file_get_contents(FCPATH . 'application/controllers/Api_lottery.php');
     assert_contains("requirePermission('lottery.view', false)", $c, 'reads require lottery.view');
-    assert_contains("requirePermission('lottery.manage')", $c, 'sync requires lottery.manage + CSRF (csrf default true)');
+    assert_contains("requirePostPermission('lottery.manage')", $c, 'sync requires an explicit POST, lottery.manage and session CSRF');
+    assert_contains("!== 'POST'", $c, 'mutating actions reject GET before any operation');
     assert_true(!str_contains($c, 'WIN CHANCE') && !str_contains($c, 'predict'), 'API exposes no prediction claims');
 
     $rbac = file_get_contents(FCPATH . 'tools/rbac.php');

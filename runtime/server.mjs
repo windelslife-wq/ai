@@ -47,12 +47,14 @@ async function createPhp() {
  */
 async function bootstrapDemoOperator() {
   const php = await createPhp();
+  const root = APP_ROOT.replaceAll("'", "\\'");
   try {
-    await php.run({
+    const result = await php.run({
       code: `<?php
-chdir('/home/user/Africa-Mobility');
+chdir('${root}');
 putenv('AEGIS_DB_DRIVER=pdo_sqlite');
-putenv('AEGIS_SQLITE_PATH=/home/user/Africa-Mobility/application/data/aegis.sqlite');
+putenv('AEGIS_SESSION_DRIVER=database');
+putenv('AEGIS_SQLITE_PATH=${root}/application/data/aegis.sqlite');
 putenv('AEGIS_BOOTSTRAP_ADMIN_EMAIL=demo-operator@aegis.local');
 putenv('AEGIS_BOOTSTRAP_ADMIN_PASSWORD=demo-only-long-password-123456');
 putenv('AEGIS_BOOTSTRAP_ADMIN_NAME=Demo Operator (dev bridge)');
@@ -62,9 +64,10 @@ define('STDERR', fopen('php://stderr', 'w'));
 $_SERVER['argv'] = ['index.php', 'tools', 'bootstrap_admin'];
 $_SERVER['argc'] = 3;
 $_SERVER['REMOTE_ADDR'] = '127.0.0.1';
-require '/home/user/Africa-Mobility/index.php';
+require '${root}/index.php';
 `,
     });
+    console.log('[aegis] demo operator:', (result.text ?? '').trim().split('\\n').slice(-1)[0]);
   } catch (e) {
     console.error('[aegis] demo operator bootstrap failed:', e?.message ?? e);
   }

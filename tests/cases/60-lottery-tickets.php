@@ -190,6 +190,7 @@ test('lottery tickets: api routes, permissions and user-scoping wiring', functio
     $c = file_get_contents(FCPATH . 'application/controllers/Api_lottery.php');
     assert_contains('public function create_ticket()', $c);
     assert_contains('public function tickets()', $c);
+    assert_contains('$this->create_ticket();', $c, 'POST /tickets dispatches to the CSRF-protected creation action');
     assert_contains('$admin ? null : (int) $user[\'id\']', $c, 'non-admin ticket reads are user-scoped');
     assert_contains('(int) $user[\'id\'], (string) $user[\'id\']', $c, 'check is scoped to the caller');
 

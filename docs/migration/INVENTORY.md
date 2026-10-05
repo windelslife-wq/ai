@@ -1,8 +1,10 @@
 # Phase 0 — Repository Inventory (Read-Only Audit)
 
-**Audit date:** 2026-10-05
-**Audited commit:** `675a05c` ("docs: add full Node.js and cPanel migration master plan"), branch `arena/01a10934-ai` (includes `migration/javascript-node-cpanel`)
-**Method:** full inspection of every tracked file and directory in `windelslife-wq/ai` (690 tracked files), cross-checked against README claims, with every test suite executed (see `BASELINE_TESTS.md`). No application code was modified during this audit.
+**Original audit date:** 2026-10-05
+**Original audited commit:** `675a05c` ("docs: add full Node.js and cPanel migration master plan")
+**Method:** the original audit inspected every tracked file and directory then present in `windelslife-wq/ai`, cross-checked README claims, and executed every then-existing test suite (see the historical section of `BASELINE_TESTS.md`). No application code was modified during that original audit.
+
+**Current-tree note (2026-10-05):** later changes added Lottery and portfolio features, a Node migration foundation and a single-use identity importer. Counts and specific status claims below describe the original audit snapshot and are not the live Node backlog. Use [`STATUS.md`](STATUS.md), the current-tree test addendum in [`BASELINE_TESTS.md`](BASELINE_TESTS.md), and [`UNFINISHED_MODULES.md`](UNFINISHED_MODULES.md) for current implementation status and remaining work; refresh this full inventory before declaring Phase 0 complete.
 
 This document is the deliverable required by the migration master plan (§11 Phase 0): what exists, where, and whether it is actually implemented versus planned/scaffolded. Companion documents: `ROUTE_MAP.md`, `DATA_DICTIONARY.md`, `RISK_REGISTER.md`, `BASELINE_TESTS.md`.
 

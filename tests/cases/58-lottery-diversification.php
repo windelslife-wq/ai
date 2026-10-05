@@ -107,8 +107,8 @@ test('lottery api: new routes, permissions and honest feature matrix', function 
     assert_contains("\$route['api/lottery/combinations/(:num)'] = 'api_lottery/show_combination/\$1';", $routes);
 
     $c = file_get_contents(FCPATH . 'application/controllers/Api_lottery.php');
-    // generate/diversity are mutations: requirePermission without the `false` arg = session CSRF enforced
-    assert_true(substr_count($c, "requirePermission('lottery.view')") >= 2, 'mutations use lottery.view + CSRF');
+    // Mutations require an explicit POST, lottery.view and session CSRF.
+    assert_true(substr_count($c, "requirePostPermission('lottery.view')") >= 2, 'mutations use POST + lottery.view + CSRF');
     assert_true(substr_count($c, "requirePermission('lottery.view', false)") >= 7, 'reads use lottery.view without CSRF');
     assert_contains('$this->platform->lottery->saveGeneration($report, (string) $user[\'id\'])', $c, 'generations attributed to the signed-in user');
 

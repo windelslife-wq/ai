@@ -178,6 +178,139 @@ class Platform
         return $report;
     }
 
+    /**
+     * Phase 6 research-only portfolio optimization. Historical candles are
+     * fetched through the normal provenance-aware provider chain; synthetic
+     * observations require an explicit caller opt-in, mixed synthetic/live
+     * universes are refused, and the result can never route an order.
+     */
+    public function optimizePortfolio(array $input, string $actor = 'system'): array
+    {
+        $rawAssets = $input['assets'] ?? null;
+        if (!is_array($rawAssets) || count($rawAssets) < \Aegis\Optimization\PortfolioOptimizer::MIN_ASSETS
+            || count($rawAssets) > \Aegis\Optimization\PortfolioOptimizer::MAX_ASSETS) {
+            throw new \InvalidArgumentException(sprintf(
+                'assets must contain %d–%d {symbol, marketClass} entries',
+                \Aegis\Optimization\PortfolioOptimizer::MIN_ASSETS,
+                \Aegis\Optimization\PortfolioOptimizer::MAX_ASSETS
+            ));
+        }
+        $timeframe = strtolower(trim((string) ($input['timeframe'] ?? '1d')));
+        if (!in_array($timeframe, ['15m', '1h', '4h', '1d'], true)) {
+            throw new \InvalidArgumentException('timeframe must be one of 15m, 1h, 4h or 1d');
+        }
+        $limit = filter_var($input['limit'] ?? 500, FILTER_VALIDATE_INT);
+        if ($limit === false || $limit < \Aegis\Optimization\PortfolioOptimizer::MIN_RETURN_OBSERVATIONS + 1 || $limit > 2000) {
+            throw new \InvalidArgumentException('limit must be an integer between 31 and 2000');
+        }
+        $allowSynthetic = $input['allowSyntheticData'] ?? false;
+        if (!is_bool($allowSynthetic)) {
+            throw new \InvalidArgumentException('allowSyntheticData must be a boolean');
+        }
+
+        $allowedClasses = ['forex', 'crypto', 'commodity', 'stock', 'etf', 'futures', 'options', 'indices', 'bonds'];
+        $assets = [];
+        $seen = [];
+        $syntheticFlags = [];
+        foreach ($rawAssets as $rawAsset) {
+            if (!is_array($rawAsset)) throw new \InvalidArgumentException('each asset must be an object');
+            $symbol = strtoupper(trim((string) ($rawAsset['symbol'] ?? '')));
+            $marketClass = strtolower(trim((string) ($rawAsset['marketClass'] ?? '')));
+            if ($symbol === '' || !preg_match('/^[A-Z0-9._:-]{1,64}$/', $symbol)) {
+                throw new \InvalidArgumentException('each asset needs a valid symbol');
+            }
+            if (!in_array($marketClass, $allowedClasses, true)) {
+                throw new \InvalidArgumentException("invalid marketClass for {$symbol}");
+            }
+            if (isset($seen[$symbol])) throw new \InvalidArgumentException("duplicate asset symbol: {$symbol}");
+            $seen[$symbol] = true;
+            try {
+                $series = $this->providers->getCandleSeries($symbol, $marketClass, $timeframe, (int) $limit);
+            } catch (\Throwable $e) {
+                throw new \RuntimeException("unable to load {$symbol} history: " . $e->getMessage(), 0, $e);
+            }
+            $synthetic = !empty($series['provenance']['synthetic']);
+            $syntheticFlags[] = $synthetic;
+            $assets[] = [
+                'symbol' => $symbol,
+                'marketClass' => $marketClass,
+                'candles' => $series['candles'],
+                'provenance' => $series['provenance'] + ['validation' => $series['validation'] ?? []],
+            ];
+        }
+
+        $syntheticCount = count(array_filter($syntheticFlags));
+        if ($syntheticCount > 0 && $syntheticCount < count($syntheticFlags)) {
+            throw new \RuntimeException('mixed synthetic and live data is not allowed in one portfolio optimization');
+        }
+        if ($syntheticCount === count($syntheticFlags) && !$allowSynthetic) {
+            throw new \RuntimeException('all available history is synthetic; retry with allowSyntheticData=true for a clearly labeled simulation');
+        }
+
+        $classList = array_values(array_unique(array_map(fn($asset) => $asset['marketClass'], $assets)));
+        $periodsPerYear = $input['periodsPerYear'] ?? $this->portfolioPeriodsPerYear($timeframe, $classList);
+        $options = array_intersect_key($input, array_flip(['objective', 'maxWeight', 'riskFreeRate', 'shrinkage']));
+        $options['timeframe'] = $timeframe;
+        $options['periodsPerYear'] = $periodsPerYear;
+        $report = \Aegis\Optimization\PortfolioOptimizer::optimize($assets, $options);
+        $report['request'] = [
+            'assets' => array_map(fn($asset) => ['symbol' => $asset['symbol'], 'marketClass' => $asset['marketClass']], $assets),
+            'timeframe' => $timeframe,
+            'limit' => (int) $limit,
+            'allowSyntheticData' => $allowSynthetic,
+        ];
+        $report['dataProvenance'] = array_map(fn($asset) => [
+            'symbol' => $asset['symbol'],
+            'source' => $asset['provenance']['source'] ?? 'unknown',
+            'synthetic' => !empty($asset['provenance']['synthetic']),
+            'stale' => !empty($asset['provenance']['stale']),
+            'fetchedAt' => $asset['provenance']['fetchedAt'] ?? null,
+            'dataTimestamp' => $asset['provenance']['dataTimestamp'] ?? null,
+            'validation' => $asset['provenance']['validation'] ?? [],
+        ], $assets);
+        foreach ($report['dataProvenance'] as $provenance) {
+            if ($provenance['stale']) {
+                $report['warnings'][] = $provenance['symbol'] . ' latest candle is marked stale by its market-data provider.';
+            }
+            if (!empty($provenance['validation']['gapCount'])) {
+                $report['warnings'][] = $provenance['symbol'] . ' history contains ' . (int) $provenance['validation']['gapCount'] . ' timeframe gap(s).';
+            }
+        }
+        if ($syntheticCount > 0) {
+            $report['warnings'][] = 'SIMULATION: every input series is synthetic; weights and statistics do not represent real market behavior.';
+        }
+        $report['warnings'] = array_values(array_unique($report['warnings']));
+
+        $this->model->audit->emit('PORTFOLIO_OPTIMIZATION_RUN', sprintf(
+            'Portfolio optimization (%s, %d assets, %d aligned returns)',
+            $report['objective'], count($assets), $report['window']['returnObservations']
+        ), [
+            'assets' => array_map(fn($asset) => $asset['symbol'], $assets),
+            'timeframe' => $timeframe,
+            'objective' => $report['objective'],
+            'synthetic' => $syntheticCount > 0,
+            'selectedWeights' => $report['allocations']['selected']['weights'],
+        ], $actor);
+        return $report;
+    }
+
+    /** Infer conventional annualization only for a single market calendar. */
+    private function portfolioPeriodsPerYear(string $timeframe, array $marketClasses): int
+    {
+        if (count($marketClasses) !== 1) {
+            throw new \InvalidArgumentException('periodsPerYear is required when optimizing across different market classes/calendars');
+        }
+        $class = $marketClasses[0];
+        $barsPerDay = ['15m' => 96, '1h' => 24, '4h' => 6, '1d' => 1][$timeframe];
+        if ($class === 'crypto') return 365 * $barsPerDay;
+        if ($class === 'forex') return 252 * $barsPerDay;
+        if ($timeframe === '1d') return 252;
+        // Approximate a regular 6.5-hour exchange session; callers with a
+        // different venue/calendar can override periodsPerYear explicitly.
+        $hoursPerBar = ['15m' => 0.25, '1h' => 1.0, '4h' => 4.0][$timeframe];
+        return max(1, (int) round(252 * 6.5 / $hoursPerBar));
+    }
+
     private function nextVariantVersion(string $id): string
     {
         $max = [0, 0, 0];
