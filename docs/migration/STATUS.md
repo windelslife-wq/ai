@@ -18,6 +18,10 @@ The migration is the whole WINDELS AI WORKFORCE platform, not just the PHP front
 
 This slice is **not** a production replacement. No Node UI or migrated business module is accepted; accounts and permissions are not imported; there is no production MySQL integration test or actual cPanel/Passenger host verification. The root route explicitly reports `productionReplacement: false`. Do not point live traffic at it.
 
+## Proposed full-stack architecture — pending review
+
+The user requested a single-deployment Node platform with a core `http` server, Vanilla JS public site, React/Vite SPA, PWA, and Capacitor apps. They selected cPanel/MySQL, a dependency-free server layer (frontend/native build tools separate), `server.js` as the entry point with internal modules, and **architecture drafting before implementation**. See [`FULL_STACK_ARCHITECTURE_PROPOSAL.md`](FULL_STACK_ARCHITECTURE_PROPOSAL.md). No architecture code has been changed. The MySQL driver and legacy bcrypt verifier remain practical server runtime dependencies; optional `pg@8.16.3` is not a MySQL driver and remains an open decision.
+
 ## Migration inputs still to consolidate
 
 - `application/`: PHP/CodeIgniter platform, still the rollback target.

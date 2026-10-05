@@ -71,7 +71,7 @@ Create a verified inventory from source code, routes, schema, UI, tests, and REA
 
 ## 4. Target architecture
 
-Use a modular monolith for the cPanel edition. Keep clear module boundaries so modules can be extracted later, but do not introduce microservices that require infrastructure unavailable on ordinary shared hosting.
+Use a modular monolith for the cPanel edition. Keep clear module boundaries so modules can be extracted later, but do not introduce microservices that require infrastructure unavailable on ordinary shared hosting. The Fastify preference below describes the original implementation baseline; a later user request proposes replacing it with Node core `http` plus a Vanilla public site, React/Vite SPA, PWA, and Capacitor shell. That replacement remains a proposal until reviewed: see [`FULL_STACK_ARCHITECTURE_PROPOSAL.md`](FULL_STACK_ARCHITECTURE_PROPOSAL.md).
 
 Suggested repository layout:
 
