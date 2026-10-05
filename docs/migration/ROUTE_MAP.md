@@ -114,8 +114,8 @@ Login accepts **username, email, or 6-digit User ID**.
 ### 7.7 Sports intelligence (~35 routes → `Api_sports`)
 `GET /api/sports/{status,dashboard,performance,matches,odds,predictions,providers,models,calibrations,backtests,audit,jobs,configuration,risk,correlation}` · `GET /api/sports/matches/:id` · `GET /api/sports/predictions/:id/decision` · `GET/POST /api/sports/tickets` · `GET /api/sports/tickets/:id` · `POST /api/sports/tickets/:id/{decide,settle}` · `GET /api/sports/daily-tickets` · `GET /api/sports/results` · `POST /api/sports/results/verify` · `POST /api/sports/providers/:id/toggle` · `GET /api/sports/models/performance` · `POST /api/sports/calibrations/fit` · `POST /api/sports/calibrations/:id/{approve,reject}` · `POST /api/sports/backtests/run` · `GET /api/sports/backtests/:id` · `POST /api/sports/jobs/:job/run` · `POST /api/sports/configuration/update` · `POST /api/sports/ticket-engine/run`. RBAC: sports.view / sports.manage / sports.approve / sports.settle.
 
-### 7.8 Lottery intelligence (~30 routes → `Api_lottery`)
-`GET /api/lottery/{status,lotteries,rules,draws,models,performance,tickets,providers,health,jobs}` · `GET /api/lottery/draws/:id` · `GET /api/lottery/statistics/:scope` · `POST /api/lottery/{analyze,generate,diversity,system,backtest,backtest-compare}` · `GET /api/lottery/combinations` · `GET /api/lottery/combinations/:id` · `POST /api/lottery/system-build` · `GET /api/lottery/backtests` · `GET /api/lottery/backtests/:id` · `GET /api/lottery/tickets/:id` · `POST /api/lottery/tickets/:id/check` · `POST /api/lottery/tickets/:id/delete` · `POST /api/lottery/sync`. RBAC: lottery.view / lottery.manage (+CSRF on mutations). Status endpoint public pattern per README.
+### 7.8 Lottery intelligence (`Api_lottery` + `/lottery` operations console)
+`GET /api/lottery/{status,lotteries,rules,draws,models,performance,tickets,providers,health,jobs,ai-decisions}` · `GET /api/lottery/draws/:id` · `GET /api/lottery/statistics/:scope` · `GET /api/lottery/ai-decisions/:id` · `POST /api/lottery/{analyze,generate,diversity,system,backtest,backtest-compare,tickets}` · `GET /api/lottery/combinations` · `GET /api/lottery/combinations/:id` · `POST /api/lottery/system-build` · `GET /api/lottery/backtests` · `GET /api/lottery/backtests/:id` · `GET /api/lottery/tickets/:id` · `POST /api/lottery/tickets/:id/check` · `POST /api/lottery/tickets/:id/delete` · `POST /api/lottery/providers/check` · `POST /api/lottery/sync`. Read APIs require `lottery.view`; provider probes, sync and system builds require `lottery.manage` + session CSRF. The desktop/mobile MVC console shows live and persisted health, source provenance, and full historical AI decision reports; operator probes and manual sync requests are actor-attributed in the audit log. Provider activation remains environment-gated and is not controlled by the console.
 
 ### 7.9 Language learning API (~35 routes under `/api/v1/language-learning` → `Api_lang_learning`)
 `GET /languages` · `GET /languages/:code` · `POST /translate` · `POST /detect` · `GET/POST /profiles` · `GET /profiles/:id` · `POST /profiles/:id/assessment/start` · `GET /profiles/:id/path` · `POST /profiles/:id/path/generate` · `GET /profiles/:id/progress` · `GET /assessment/:id` · `POST /assessment/:id/answer` · `POST /modules/:mod/lesson/start` · `POST /modules/:mod/lesson/answer` · `GET /profiles/:id/conversations` · `POST /profiles/:id/conversations/start` · `POST /conversations/:id/turn` · `GET /profiles/:id/writing/tasks` · `POST /profiles/:id/writing/submit` · `GET /profiles/:id/grammar` · `GET /profiles/:id/grammar/:rule/simple` · `GET/POST /profiles/:id/vocabulary` (+`/add`, `/due`, `/review/start`, `/review/submit`, `/progress`) · `GET /profiles/:id/listening/exercises` · `POST /profiles/:id/listening/attempt` · `GET /profiles/:id/speaking/prompts` · `POST /profiles/:id/speaking/attempt` · `GET /profiles/:id/adaptive/{weaknesses,daily-plan,recommendations,mastery}` · `GET /profiles/:id/history` · `POST /modules/:mod/checkpoint/start` · `POST /modules/:mod/checkpoint/answer`. Strict per-profile ownership isolation.
@@ -127,7 +127,7 @@ Login accepts **username, email, or 6-digit User ID**.
 
 ## 8. CLI routes (`php index.php tools …`, also HTTP-reachable via convention routing — must be blocked or re-homed in Node)
 
-`tools install` (schema installer) · `tools bootstrap_admin` (initial admin) · `tools cron` (portfolio scan + broker transitions + proposal expiry; every-minute) · `tools sports_cron [fixtures|odds|results|quality|ticket|settlement|performance|monitoring|cleanup]` (15 min) · `tools lottery_cron [sync|health|statistics|systems|tickets|backtests|cleanup]` · `tools tests` (runs the 357-test suite).
+`tools install` (schema installer) · `tools bootstrap_admin` (initial admin) · `tools cron` (portfolio scan + broker transitions + proposal expiry; every-minute) · `tools sports_cron [fixtures|odds|results|quality|ticket|settlement|performance|monitoring|cleanup]` (15 min) · `tools lottery_cron [sync|health|statistics|systems|tickets|backtests|cleanup]` · `tools tests` (runs the 367-test suite).
 
 ---
 
@@ -173,4 +173,19 @@ Statics: `index.html`, `login.html`, `admin.html`, `history.html`, `ticket.html`
 4. Verb enforcement and CSRF must be added at the framework level (CI3 tolerated any verb).
 5. `/api/v1/lead-discovery/*` collision between CI3 module and Scout must be resolved by design decision (R-02).
 6. Convention-routed CLI surface (`tools/*`) must NOT remain HTTP-reachable in Node — re-home as cron-invoked scripts only.
-7. Response semantics (JSON envelope, error codes 400/401/403/404, `provenance` fields) are pinned by the 357-test suite; use it as the parity oracle.
+7. Response semantics (JSON envelope, error codes 400/401/403/404, `provenance` fields) are pinned by the 367-test suite; use it as the parity oracle.
+
+## 14. Node foundation routes (candidate only; not yet legacy-compatible)
+
+These routes are implemented in `apps/workforce-platform` as a deployment/auth foundation. They are **not accepted replacements** for the legacy routes until payload, cookie, identity-import, RBAC, and parity behavior are reconciled.
+
+| Node method/path | Intended legacy relationship | Current status |
+|---|---|---|
+| `GET /api/v1/health/live` | New operational liveness endpoint | Implemented; does not imply dependencies are ready. |
+| `GET /api/v1/health/ready` | New deployment-readiness endpoint | Implemented; checks MySQL connectivity and the foundation migration ledger. |
+| `POST /api/v1/auth/login` | Candidate for `POST /api/auth/login` | Implemented using `{identifier,password}` and PHP bcrypt verification; no legacy accounts imported and not wire-compatible by acceptance yet. |
+| `GET /api/v1/auth/me` | Candidate for `GET /api/auth/me` | Implemented with a new opaque `wf_session` cookie and permission list; no legacy session sharing. |
+| `GET /api/v1/auth/csrf` | New CSRF token refresh for same-origin Node UI | Implemented for authenticated sessions. |
+| `POST /api/v1/auth/logout` | Candidate for `POST /api/auth/logout` | Implemented with session-bound CSRF and server-side revocation. |
+| `GET /api/v1/admin/identity/users` | Candidate for a permission-gated admin identity endpoint | Implemented behind `identity.users.view`; no account/tenant migration. |
+| `GET /` | Node staging/status response | Explicitly reports `migrationStatus: in_progress` and `productionReplacement: false`. |
