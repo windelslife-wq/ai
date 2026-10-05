@@ -2,8 +2,8 @@
 
 **Target repository:** `windelslife-wq/ai`  
 **Source branch:** `main`  
-**Migration branch:** `migration/javascript-node-cpanel`  
-**Status:** Architecture and execution contract. This document does not claim that the migration has been implemented.
+**Arena working branch:** `arena/01a10951-ai`
+**Status:** Architecture and execution contract. This document does not claim that the migration has been implemented. For current implementation evidence, see [`STATUS.md`](STATUS.md); for the active, verified port/provider/deployment backlog, see [`UNFINISHED_MODULES.md`](UNFINISHED_MODULES.md).
 
 ## 1. Mission
 

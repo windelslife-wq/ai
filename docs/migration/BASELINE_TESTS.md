@@ -98,17 +98,17 @@ cd apps/football-predictions && npm ci && npm test   # suite 4
 
 ## 9. Addendum — current working tree (`arena/01a10951-ai`, 2026-10-05)
 
-The original audit above records commit `675a05c` and remains historical evidence. After subsequent Lottery/Portfolio work and the initial Node foundation slice, the current tree was re-tested:
+The original audit above records commit `675a05c` and remains historical evidence. After subsequent Lottery/Portfolio work, the Node foundation and identity-import slice, and the unfinished-module inventory, the current tree was re-tested:
 
 | Suite | Exact command | Result |
 |---|---|---|
 | AEGIS PHP/WASM | `npm --prefix runtime test` | **367 passed, 0 failed**, 69 PHP case files |
-| Node modular-monolith foundation | `npm run check --workspace=@windels/workforce-platform` | **17 passed, 0 failed** |
+| Node modular-monolith foundation + identity importer | `npm run check --workspace=@windels/workforce-platform` | **34 passed, 0 failed** |
 | Scout + shared contract tests | `npm run test:contracts` | **12 passed, 0 failed** |
 | Scout/shared TypeScript typecheck | `npm run typecheck` | **clean** |
 | Football Predictions | `npm test --workspace=windels-football-predictions` | **29 passed, 0 failed** |
 | MT5 bridge fake-terminal contracts | `python -m pytest python-services/mt5-bridge/test_bridge.py -q` in a Python 3.11 virtual environment | **9 passed**, one upstream Starlette/httpx deprecation warning |
 
-**Total current automated tests: 434 passed, 0 failed.** Root `npm ci --no-audit --no-fund` completed after refreshing `package-lock.json`; `npm ci --workspace=@windels/workforce-platform --include-workspace-root=false --omit=dev --no-audit --no-fund` also completed, followed by a clean full-workspace reinstall. The committed GitHub Actions workflow has not yet run on GitHub. No real MySQL/MariaDB, live provider, real MetaTrader terminal, production data, or cPanel/Passenger host was available for these tests. The Node migration foundation tests use Fastify injection and fake stores; they are not MySQL integration or deployment evidence.
+**Total current automated tests: 452 passed, 0 failed.** Root `npm ci --no-audit --no-fund` completed after refreshing `package-lock.json`; `npm ci --workspace=@windels/workforce-platform --include-workspace-root=false --omit=dev --no-audit --no-fund` also completed, followed by a clean full-workspace reinstall. The committed GitHub Actions workflow has not yet run on GitHub. No real MySQL/MariaDB, live provider, real MetaTrader terminal, production data, or cPanel/Passenger host was available for these tests. The Node migration foundation tests use Fastify injection and fake stores; they are not MySQL integration or deployment evidence.
 
 — End of Phase 0 test baseline.

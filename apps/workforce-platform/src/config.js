@@ -20,16 +20,27 @@ function boolean(value, name, fallback = false) {
   throw new Error(`${name} must be true or false`);
 }
 
-export function loadDatabaseConfig(env = process.env) {
-  required(env, ["DB_HOST", "DB_NAME", "DB_USER", "DB_PASSWORD"]);
+function prefixedDatabaseConfig(env, prefix) {
+  const keys = ["HOST", "NAME", "USER", "PASSWORD"].map((key) => `${prefix}${key}`);
+  required(env, keys);
   return Object.freeze({
-    host: env.DB_HOST,
-    port: integer(env.DB_PORT, "DB_PORT", { fallback: 3306, max: 65535 }),
-    database: env.DB_NAME,
-    user: env.DB_USER,
-    password: env.DB_PASSWORD,
-    connectionLimit: integer(env.DB_CONNECTION_LIMIT, "DB_CONNECTION_LIMIT", { fallback: 5, max: 20 }),
+    host: env[`${prefix}HOST`],
+    port: integer(env[`${prefix}PORT`], `${prefix}PORT`, { fallback: 3306, max: 65535 }),
+    database: env[`${prefix}NAME`],
+    user: env[`${prefix}USER`],
+    password: env[`${prefix}PASSWORD`],
+    connectionLimit: integer(env[`${prefix}CONNECTION_LIMIT`], `${prefix}CONNECTION_LIMIT`, { fallback: 5, max: 20 }),
   });
+}
+
+export function loadDatabaseConfig(env = process.env) {
+  return prefixedDatabaseConfig(env, "DB_");
+}
+
+// Used only by the one-shot legacy identity import CLI; do not add these
+// credentials to the long-running Passenger application's environment.
+export function loadLegacyDatabaseConfig(env = process.env) {
+  return prefixedDatabaseConfig(env, "LEGACY_DB_");
 }
 
 export function loadConfig(env = process.env) {

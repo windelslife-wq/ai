@@ -67,7 +67,9 @@ function publicUser(user) {
     id: user.id,
     legacyUid: user.legacyUid ?? null,
     username: user.username,
+    displayName: user.displayName || user.username,
     email: user.email ?? null,
+    profileImage: user.profileImage ?? null,
   };
 }
 

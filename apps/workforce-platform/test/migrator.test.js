@@ -52,3 +52,14 @@ test("the production foundation migration is valid UTF-8 and contains only bound
   assert.match(sql, /wf_sessions/);
   assert.match(sql, /wf_audit_events/);
 });
+
+test("identity parity migration creates its profile table idempotently", async () => {
+  const path = new URL("../src/db/migrations/002_identity_import_fields.sql", import.meta.url);
+  const sql = await readFile(path, "utf8");
+  const statements = splitSqlStatements(sql);
+  assert.equal(statements.length, 2);
+  assert.match(statements[0], /CREATE TABLE IF NOT EXISTS wf_user_profiles/);
+  assert.match(statements[0], /FOREIGN KEY \(user_id\) REFERENCES wf_users\(id\)/);
+  assert.match(statements[1], /CREATE TABLE IF NOT EXISTS wf_data_imports/);
+  assert.match(statements[1], /source_checksum CHAR\(64\)/);
+});

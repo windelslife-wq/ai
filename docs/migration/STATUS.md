@@ -11,7 +11,7 @@ The migration is the whole WINDELS AI WORKFORCE platform, not just the PHP front
 `apps/workforce-platform/` is a new JavaScript ES-module Fastify 5 modular-monolith foundation. It currently implements:
 
 - Environment validation and a bounded MySQL connection pool.
-- Checksum-versioned schema migration CLI and isolated `wf_*` identity/session/RBAC/audit tables; no legacy user or business data is imported.
+- Checksum-versioned schema migrations and isolated `wf_*` identity/session/RBAC/audit tables. A dry-run-first, single-use legacy identity importer now validates bcrypt hashes, identity uniqueness and RBAC relations, records an import ledger, and fails closed on target conflicts; **it has not been run against real data**.
 - cPanel Passenger startup entry, health/readiness endpoints, safe error handling, request IDs, security headers, request validation, and per-process rate limits.
 - Username/email/6-digit-UID login verification compatible with PHP bcrypt hashes, opaque hashed server-side session identifiers, HttpOnly/Secure host-only production cookies, session-bound CSRF, audit events, and deny-by-default permission checks.
 - cPanel staging, environment, cron, Apache, health-check, and rollback documentation under `deploy/cpanel/`.
@@ -28,15 +28,18 @@ This slice is **not** a production replacement. No Node UI or migrated business 
 
 ## Next phases
 
-1. Complete the Phase 0 route/schema/dependency inventory refresh for the current branch and reconcile stale baseline counts/documentation.
-2. Verify the foundation against real MySQL/MariaDB and a faithful or real cPanel Passenger host; add restore and packaging tests.
-3. Migrate identity/shared platform with explicit legacy user/role mapping and account-isolation parity, then migrate one business module at a time using `docs/migration/NODEJS_CPANEL_MIGRATION_MASTER_PLAN.md` gates.
-4. Consolidate Scout, Football Predictions, and the MT5 bridge only after their distinct persistence/provider/runtime constraints are mapped.
-5. Rehearse data import, rollback, cPanel resource limits, and cutover; decommission PHP only with separate approval.
+1. Use [`UNFINISHED_MODULES.md`](UNFINISHED_MODULES.md) as the migration backlog and refresh the complete route/schema/dependency inventory for the current tree.
+2. Add real MySQL/MariaDB integration coverage for both migrations, the single-use identity import ledger, uniqueness conflicts, and restore behavior; the importer is unit-tested only and has not run against source data.
+3. Validate the minimal Passenger deployment and clean production packaging on a real or faithful cPanel host.
+4. Accept identity/shared-platform parity after a reviewed import rehearsal, then migrate each business module one at a time using `docs/migration/NODEJS_CPANEL_MIGRATION_MASTER_PLAN.md` gates.
+5. Consolidate Scout, Football Predictions, and the MT5 bridge only after their distinct persistence/provider/runtime constraints are mapped.
+6. Rehearse full data import, rollback, cPanel resource limits, and cutover; decommission PHP only with separate approval.
+
+See [`IDENTITY_IMPORT.md`](IDENTITY_IMPORT.md) for the one-time importer contract and dry-run/apply procedure.
 
 ## Test evidence from this implementation turn
 
-- Node foundation: **17 passed, 0 failed** (`npm run check --workspace=@windels/workforce-platform`).
+- Node foundation + identity-import planning/adapters: **35 passed, 0 failed** (`npm run check --workspace=@windels/workforce-platform`).
 - Scout contracts: **12 passed, 0 failed** (`npm run test:contracts`).
 - Scout/shared TypeScript typecheck: **clean** (`npm run typecheck`).
 - Football Predictions: **29 passed, 0 failed** (`npm test --workspace=windels-football-predictions`).

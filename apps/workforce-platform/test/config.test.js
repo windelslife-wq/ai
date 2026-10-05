@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { loadConfig, loadDatabaseConfig } from "../src/config.js";
+import { loadConfig, loadDatabaseConfig, loadLegacyDatabaseConfig } from "../src/config.js";
 
 function validEnv(overrides = {}) {
   return {
@@ -50,4 +50,24 @@ test("development mode still uses explicit secrets but allows an HTTP-local orig
   assert.equal(config.production, false);
   assert.equal(config.secureCookie, false);
   assert.equal(config.cookieName, "wf_session");
+});
+
+test("legacy database credentials are a separate, prefixed CLI-only configuration", () => {
+  const env = {
+    LEGACY_DB_HOST: "legacy-db",
+    LEGACY_DB_NAME: "legacy_aegis",
+    LEGACY_DB_USER: "readonly_user",
+    LEGACY_DB_PASSWORD: "legacy-secret",
+    LEGACY_DB_CONNECTION_LIMIT: "2",
+  };
+  const config = loadLegacyDatabaseConfig(env);
+  assert.deepEqual(config, {
+    host: "legacy-db",
+    port: 3306,
+    database: "legacy_aegis",
+    user: "readonly_user",
+    password: "legacy-secret",
+    connectionLimit: 2,
+  });
+  assert.throws(() => loadLegacyDatabaseConfig({}), /LEGACY_DB_HOST, LEGACY_DB_NAME, LEGACY_DB_USER, LEGACY_DB_PASSWORD/);
 });
