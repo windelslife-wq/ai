@@ -5,11 +5,11 @@ defined('BASEPATH') or exit('No direct script access allowed');
  * WINDELS Lottery Intelligence JSON API (spec §38/§43).
  *
  * Authorization follows the existing WINDELS RBAC (tools/rbac.php):
- *   - status                          public (no secrets, no PII)
+ *   - status                          authenticated; no secrets or PII
  *   - read endpoints (draws, statistics, providers, jobs,
- *     analyze, combinations)          lottery.view
- *   - generate / diversity (mutations) lottery.view + session CSRF
- *   - provider sync (ingestion)       lottery.manage  (+ session CSRF)
+ *     combinations, decision reports) lottery.view
+ *   - mutating endpoints              POST only + permission + session CSRF
+ *   - provider health probe / sync    lottery.manage + session CSRF
  *
  * Honesty rules: every endpoint returns stored, source-attributed data with
  * the engine's DISCLAIMER; no endpoint claims knowledge of future draws
@@ -81,6 +81,53 @@ class Api_lottery extends Api_controller
         $this->json($this->platform->lottery->providerHealth());
     }
 
+    /** Persist one explicit, audited live-provider health probe (lottery.manage + CSRF). */
+    public function provider_check()
+    {
+        $user = $this->requirePostPermission('lottery.manage');
+        if (!$user) return;
+        try {
+            $this->json($this->platform->lottery->probeProvider((string) $user['id']));
+        } catch (\Throwable $e) {
+            $this->Aegis_model->audit->emit('LOTTERY_PROVIDER_HEALTH_PROBE_FAILED',
+                'Lottery provider health probe could not be persisted',
+                ['provider' => $this->platform->lottery->provider->id(), 'errorType' => get_class($e)],
+                (string) $user['id']);
+            $this->jsonError('provider health check could not be saved; inspect the audit log', 502);
+        }
+    }
+
+    /** Recent persisted AI generation reports with their recorded inputs, newest first. */
+    public function ai_decisions()
+    {
+        if (!$this->requirePermission('lottery.view', false)) return;
+        $g = $this->input->get(NULL, true) ?: [];
+        $rawLimit = $g['limit'] ?? 50;
+        $limit = is_scalar($rawLimit) && is_numeric($rawLimit)
+            ? min(200, max(1, (int) $rawLimit))
+            : 50;
+        $combinationId = null;
+        if (isset($g['combinationId']) && $g['combinationId'] !== '') {
+            if (!is_scalar($g['combinationId'])) return $this->jsonError('combinationId must be a positive integer', 400);
+            $parsed = filter_var((string) $g['combinationId'], FILTER_VALIDATE_INT);
+            if ($parsed === false || $parsed < 1) return $this->jsonError('combinationId must be a positive integer', 400);
+            $combinationId = (int) $parsed;
+        }
+        $this->json([
+            'decisions' => $this->platform->lottery->listDecisions($combinationId, $limit),
+            'limit' => $limit,
+            'combinationId' => $combinationId,
+        ]);
+    }
+
+    public function show_ai_decision(string $id)
+    {
+        if (!$this->requirePermission('lottery.view', false)) return;
+        $row = $this->platform->lottery->decisionDetail((int) $id);
+        if (!$row) return $this->jsonError('AI decision report not found', 404);
+        $this->json(['decision' => $row]);
+    }
+
     public function jobs()
     {
         if (!$this->requirePermission('lottery.view', false)) return;
@@ -133,7 +180,7 @@ class Api_lottery extends Api_controller
      */
     public function generate()
     {
-        $user = $this->requirePermission('lottery.view');
+        $user = $this->requirePostPermission('lottery.view');
         if (!$user) return;
         $body = $this->jsonBody();
         try {
@@ -158,7 +205,7 @@ class Api_lottery extends Api_controller
      */
     public function diversity()
     {
-        if (!$this->requirePermission('lottery.view')) return;
+        if (!$this->requirePostPermission('lottery.view')) return;
         $body = $this->jsonBody();
         try {
             $this->json($this->platform->lottery->diversity(is_array($body['lines'] ?? null) ? $body['lines'] : []));
@@ -176,7 +223,7 @@ class Api_lottery extends Api_controller
      */
     public function system()
     {
-        if (!$this->requirePermission('lottery.view')) return;
+        if (!$this->requirePostPermission('lottery.view')) return;
         $body = $this->jsonBody();
         try {
             $builder = $this->platform->lottery->systemBuilder;
@@ -207,7 +254,7 @@ class Api_lottery extends Api_controller
      */
     public function system_build()
     {
-        $user = $this->requirePermission('lottery.manage');
+        $user = $this->requirePostPermission('lottery.manage');
         if (!$user) return;
         $body = $this->jsonBody();
         try {
@@ -230,7 +277,7 @@ class Api_lottery extends Api_controller
      */
     public function create_ticket()
     {
-        $user = $this->requirePermission('lottery.view');
+        $user = $this->requirePostPermission('lottery.view');
         if (!$user) return;
         $body = $this->jsonBody();
         try {
@@ -252,6 +299,12 @@ class Api_lottery extends Api_controller
     /** Phase 17: the caller's own tickets (never other users' — spec §38). */
     public function tickets()
     {
+        $method = strtoupper((string) $this->input->method(true));
+        if ($method === 'POST') {
+            $this->create_ticket();
+            return;
+        }
+        if (!in_array($method, ['GET', 'HEAD'], true)) return $this->jsonError('method not allowed', 405);
         $user = $this->requirePermission('lottery.view', false);
         if (!$user) return;
         $this->json(['tickets' => $this->platform->lottery->listMyTickets((int) $user['id'])]);
@@ -271,7 +324,7 @@ class Api_lottery extends Api_controller
     /** Phase 18 (spec §29): compare the ticket against stored draws. */
     public function check_ticket(string $id)
     {
-        $user = $this->requirePermission('lottery.view');
+        $user = $this->requirePostPermission('lottery.view');
         if (!$user) return;
         $result = $this->platform->lottery->checkTicket((int) $id, (int) $user['id'], (string) $user['id']);
         if ($result === null) return $this->jsonError('ticket not found', 404);
@@ -282,7 +335,7 @@ class Api_lottery extends Api_controller
     /** Phase 17: archive (soft delete) the caller's own ticket. */
     public function delete_ticket(string $id)
     {
-        $user = $this->requirePermission('lottery.view');
+        $user = $this->requirePostPermission('lottery.view');
         if (!$user) return;
         if (!$this->platform->lottery->archiveTicket((int) $id, (int) $user['id'], (string) $user['id'])) {
             return $this->jsonError('ticket not found', 404);
@@ -300,7 +353,7 @@ class Api_lottery extends Api_controller
      */
     public function backtest()
     {
-        if (!$this->requirePermission('lottery.view')) return;
+        if (!$this->requirePostPermission('lottery.view')) return;
         $body = $this->jsonBody();
         try {
             $this->json($this->platform->lottery->backtest(
@@ -321,7 +374,7 @@ class Api_lottery extends Api_controller
      */
     public function backtest_compare()
     {
-        if (!$this->requirePermission('lottery.view')) return;
+        if (!$this->requirePostPermission('lottery.view')) return;
         $body = $this->jsonBody();
         try {
             $strategies = is_array($body['strategies'] ?? null) ? array_map('strval', $body['strategies']) : [];
@@ -365,11 +418,42 @@ class Api_lottery extends Api_controller
         $this->json($this->platform->lottery->performance());
     }
 
-    /** Synchronize draws from the configured provider (idempotent, audited). */
+    /** Synchronize draws from the configured provider (lottery.manage + CSRF, audited). */
     public function sync()
     {
-        if (!$this->requirePermission('lottery.manage')) return;
-        $limit = (int) ($this->jsonBody()['limit'] ?: 100);
-        $this->json(['result' => $this->platform->lottery->sync(min(1000, max(1, $limit)))]);
+        $user = $this->requirePostPermission('lottery.manage');
+        if (!$user) return;
+        $limit = min(1000, max(1, (int) ($this->jsonBody()['limit'] ?? 100)));
+        try {
+            $result = $this->platform->lottery->sync($limit);
+            $this->Aegis_model->audit->emit(
+                'LOTTERY_ADMIN_SYNC',
+                'Lottery provider sync requested: ' . (string) ($result['status'] ?? 'UNKNOWN'),
+                ['provider' => (string) ($result['provider'] ?? $this->platform->lottery->provider->id()),
+                    'limit' => $limit, 'status' => (string) ($result['status'] ?? 'UNKNOWN'),
+                    'imported' => (int) ($result['imported'] ?? 0), 'failed' => (int) ($result['failed'] ?? 0),
+                    'unchanged' => (int) ($result['unchanged'] ?? 0), 'conflicts' => (int) ($result['conflicts'] ?? 0)],
+                (string) $user['id']
+            );
+            $this->json(['result' => $result]);
+        } catch (\Throwable $e) {
+            $this->Aegis_model->audit->emit(
+                'LOTTERY_ADMIN_SYNC_FAILED',
+                'Lottery provider sync failed',
+                ['provider' => $this->platform->lottery->provider->id(), 'limit' => $limit, 'errorType' => get_class($e)],
+                (string) $user['id']
+            );
+            $this->jsonError('lottery provider sync failed; inspect provider health and audit log', 502);
+        }
+    }
+
+    /** Require an explicit POST verb before permission and session-CSRF checks. */
+    private function requirePostPermission(string $permission): ?array
+    {
+        if (strtoupper((string) $this->input->method(true)) !== 'POST') {
+            $this->jsonError('method not allowed', 405);
+            return null;
+        }
+        return $this->requirePermission($permission);
     }
 }

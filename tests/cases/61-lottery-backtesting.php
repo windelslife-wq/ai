@@ -245,7 +245,7 @@ test('lottery backtesting: routes, RBAC, feature matrix, honesty scan', function
     assert_contains("\$route['api/lottery/performance'] = 'api_lottery/performance';", $routes);
 
     $c = file_get_contents(FCPATH . 'application/controllers/Api_lottery.php');
-    assert_true(substr_count($c, "requirePermission('lottery.view')") >= 4, 'backtest mutations use lottery.view + session CSRF');
+    assert_true(substr_count($c, "requirePostPermission('lottery.view')") >= 4, 'backtest mutations require POST, lottery.view + session CSRF');
     assert_true(substr_count($c, "requirePermission('lottery.view', false)") >= 11, 'backtest reads use lottery.view without CSRF');
 
     require_once FCPATH . 'application/controllers/Api_system.php';

@@ -58,10 +58,10 @@ MARKET DATA  →  ANALYSIS ENGINES  →  SPECIALIZED AI AGENTS  →  TRADING INT
 | **RBAC on the trading API**: trading.view / trading.control / trading.execute (+ CSRF); approval decisions record the deciding operator | **TESTED** |
 | **Notifications**: risk alerts, approval requests, execution outcomes, broker disconnects, kill switch — deduped until acknowledged | **TESTED** |
 | **Scheduled operations worker** (`php index.php tools cron`): portfolio scan, broker transitions, proposal expiry | **TESTED** |
-| **Lottery Intelligence (EuroMillions)**: rule engine, validated idempotent ingestion (verified draws never silently overwritten), frequency/gap/hot-cold/distribution/pair statistics, per-line combination analyzer, 5-mode AI combination generator with lock/exclude + AI decision reports, diversification engine, system builder (C(N,5) combinatorics), user-scoped ticket builder + saved tickets, backtesting (Strategy Lab) with mandatory random baseline + same-period strategy comparison, model versioning, separated performance overview, RBAC (lottery.view/manage), idempotent lottery-cron | **TESTED** (admin controls/UI/security-E2E next; official feeds PLANNED) |
+| **Lottery Intelligence (EuroMillions)**: rule engine, validated idempotent ingestion (verified draws never silently overwritten), frequency/gap/hot-cold/distribution/pair statistics, per-line combination analyzer, 5-mode AI combination generator with lock/exclude + persisted decision reports, diversification engine, system builder (C(N,5) combinatorics), user-scoped ticket builder + saved tickets, backtesting (Strategy Lab), model versioning, separated performance overview, provider-health/decision-report APIs, responsive operations console, audited CSRF-protected health/sync controls, RBAC (lottery.view/manage), idempotent lottery-cron | **TESTED** (result-verification formalization, broader config governance and security/E2E readiness next; official feeds PLANNED) |
 | MT4 / crypto-exchange / stock-broker connectors | **PLANNED** (added one at a time after MT5 is verified) |
 
-**351 automated tests** run through the real CodeIgniter stack
+**367 automated tests** run through the real CodeIgniter stack
 (`php index.php tools tests` on any host; `node run-tests.mjs` in the offline
 sandbox — see below), plus 9 contract tests for the Python bridge
 (`python-services/mt5-bridge/.venv/bin/python -m pytest test_bridge.py`).
@@ -164,7 +164,7 @@ application/
 python-services/mt5-bridge/     Phase 4 bridge: FastAPI + MetaTrader5 service,
                                 contract-tested with a simulated terminal
   helpers/aegis_helper.php      view-safe platform-state access
-tests/                          framework.php + cases/*.php (63 case files, 351 tests, incl. full UI audit `65-ui-audit.php`)
+tests/                          framework.php + cases/*.php (69 case files, 367 tests, incl. full UI audit `65-ui-audit.php` and Lottery console `68-lottery-operations-console.php`)
 tools/install.php               schema installer (mysqli or sqlite by driver)
 runtime/                        offline WASM-PHP bridge (dev only, not production)
 assets/css/aegis.css            dashboard styles (no CDN dependency)
@@ -343,6 +343,16 @@ All five phases of the language-learning module are now complete.
   overfit warnings. Registering a winner creates a **new version with source
   `ai`** — DRAFT lifecycle, human sign-off required before paper/live, same
   as any AI-generated strategy.
+- **Portfolio optimization** (`POST /api/portfolio/optimize`) is a separate,
+  research-only engine: aligned historical returns, diagonal covariance
+  shrinkage, long-only fully invested allocations, a per-asset weight cap,
+  minimum-variance and maximum-Sharpe alternatives, plus an equal-weight
+  benchmark. It requires `trading.view` + CSRF, labels each source, refuses
+  mixed synthetic/live inputs and requires explicit opt-in for all-synthetic
+  data. It never creates orders; market calendars, currencies, costs and
+  future returns are not inferred or guaranteed. See
+  [`docs/PORTFOLIO_OPTIMIZATION.md`](docs/PORTFOLIO_OPTIMIZATION.md) for the
+  request contract, estimation assumptions and limits.
 
 ### Lottery Intelligence (native WINDELS module — EuroMillions first)
 
@@ -449,21 +459,28 @@ Implemented and tested in this increment:
   `lottery_ticket_lines`, `lottery_backtests`, `lottery_model_versions` —
   every artefact stays connected to the model that produced it (spec §33);
   each generation/backtest is audited with the acting user.
-- **API + RBAC + cron**: `api/lottery/*` (status public; reads `lottery.view`;
-  `POST generate` / `POST diversity` / `POST system` / `POST backtest` /
-  `POST backtest-compare` / ticket mutations `lottery.view` + session CSRF;
-  `POST sync` + `POST system-build` `lottery.manage` + CSRF),
-  `lottery_admin` / `lottery_viewer` roles seeded by `tools/rbac.php`,
-  idempotent `php index.php tools lottery-cron
-  [sync|health|statistics|systems|tickets|backtests|cleanup]`
-  (execution-key guarded; integrity sweep audits violations without rewriting
-  verified data).
+- **API + RBAC + cron**: `api/lottery/*` (status endpoint; reads including
+  `GET ai-decisions` / `GET ai-decisions/:id` require `lottery.view`; generation,
+  backtesting, and ticket mutations require `lottery.view` + session CSRF;
+  `POST providers/check` / `POST sync` / `POST system-build` require
+  `lottery.manage` + CSRF), `lottery_admin` / `lottery_viewer` roles seeded by
+  `tools/rbac.php`, idempotent `php index.php tools lottery-cron
+  [sync|health|statistics|systems|tickets|backtests|cleanup]` (execution-key
+  guarded; integrity sweep audits violations without rewriting verified data).
+- **Operations console** (`/lottery`, desktop + mobile): current provider state,
+  stored health observations, latest draw provenance, rules/model summary and
+  recent AI decision reports with actual mode, seed, factors, generated lines
+  and full JSON detail. Reports are labeled as historical records, never
+  predictions. Admin health probes and manual syncs use `lottery.manage` +
+  session CSRF and emit actor-attributed audit events. The console cannot
+  enable a provider or accept credentials; official sources remain gated on
+  verified authorization, source contracts and server-side configuration.
 
-Next increments: result-verification pipeline formalization (spec §28/§19),
-provider-health + AI-decision-report endpoints/UI, admin controls (spec §39,
-every change logged), the WINDELS-styled desktop + mobile lottery console
-(spec §35/§36/§37), security testing (spec §31) and the full E2E +
-production-readiness review (spec §32/§33).
+Next increments: formalize the result-verification workflow (spec §28/§19),
+finish any additional configuration-change governance required by spec §39,
+expand security/role-matrix coverage (spec §31), and complete the full E2E +
+production-readiness review (spec §32/§33). Official feeds remain PLANNED until
+an authorized source contract and credentials are available.
 
 ### Simulated MT5 bridge (offline demo only)
 
@@ -496,6 +513,8 @@ To **demo** the full chain, Broker Center has a *Simulated MT5 bridge* toggle:
 `/api/market-data/{candles,quote,providers}` · `/api/analysis/{run,history}` · `/api/agents/consensus`
 `/api/strategies[/:id[/status]]` · `/api/backtesting/{run,results[/:id]}`
 `/api/accounts[/create|/:id|/:id/order|/:id/positions|/:id/positions/:pid/close|/:id/tick|/:id/deploy|/:id/deployments]`
+`/api/portfolio/optimize` · `/api/portfolio/risk-scan`
+`/api/lottery/{status,draws,statistics,combinations,ai-decisions,providers,health,sync}` · `/lottery` operations console
 `/api/journal[/manual]` · `/api/analytics/{summary,confidence-calibration}` · `/api/risk/limits[/update]`
 
 ## Critical rules enforcement (unchanged from the platform spec)
@@ -550,15 +569,15 @@ The scaffolds are intentionally not marked as working integrations in
   labeled SIMULATED bridge (real routing still requires a deployed bridge).
   Next: verify MT5 against a real demo terminal, then crypto exchanges one at
   a time.
-- **Phase 6 (in progress)** — multi-agent debate and the strategy optimizer
-  are implemented and tested. The fundamentals agent boundary is implemented
-  and explicitly abstains until a licensed, attributable feed is configured.
-  The sentiment feed boundary is implemented next: a `SentimentFeed` contract
-  with provenance + freshness validation (per-observation source, timestamp,
-  license, 1h staleness floor) that votes only on licensed, attributable,
-  fresh data and abstains otherwise.
-  Next: add on-chain and options providers one at a time with the same
-  provenance/freshness contract; portfolio optimization.
+- **Phase 6 (in progress)** — multi-agent debate, strategy optimization and
+  the research-only portfolio optimizer are implemented and tested. The
+  portfolio optimizer uses aligned provider history, long-only capped weights,
+  covariance shrinkage, minimum-variance / maximum-Sharpe alternatives and an
+  equal-weight benchmark. It does not place trades; synthetic inputs require
+  explicit opt-in and stay labeled. The fundamentals and sentiment boundaries
+  abstain until licensed, attributable feeds are configured. Next: add
+  on-chain and options providers one at a time with the same
+  provenance/freshness contract.
 
 ## Disclaimer
 

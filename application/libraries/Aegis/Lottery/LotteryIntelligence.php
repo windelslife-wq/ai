@@ -213,6 +213,17 @@ class LotteryIntelligence
         return (int) $row['id'];
     }
 
+    /** Find a provider registry row without creating one during a read. */
+    private function existingProviderRowId(): ?int
+    {
+        foreach ($this->repo->listProviders() as $row) {
+            if ((string) ($row['provider_code'] ?? '') === $this->provider->id()) {
+                return (int) $row['id'];
+            }
+        }
+        return null;
+    }
+
     // ----------------------------------------------------------------- reads
 
     /** @return array<int,array<string,mixed>> */
@@ -420,7 +431,18 @@ class LotteryIntelligence
     /** @return array<int, array<string, mixed>> newest first */
     public function listDecisions(?int $combinationId = null, int $limit = 50): array
     {
-        return $this->repo->listAiDecisions($combinationId, $limit);
+        $limit = min(200, max(1, $limit));
+        $rows = $this->repo->listAiDecisions($combinationId, 500);
+        $rows = array_values(array_filter($rows, fn($row) => ($row['lottery_code'] ?? null) === self::LOTTERY));
+        return array_slice($rows, 0, $limit);
+    }
+
+    /** @return array<string,mixed>|null Full persisted decision report. */
+    public function decisionDetail(int $id): ?array
+    {
+        $row = $this->repo->findAiDecision($id);
+        if (!$row || ($row['lottery_code'] ?? null) !== self::LOTTERY) return null;
+        return $row;
     }
 
     // ------------------------------------------------------------ saved tickets
@@ -579,11 +601,75 @@ class LotteryIntelligence
 
     // ------------------------------------------------------------------ health
 
-    /** Provider health (spec §32): status + last sync + validation failures. */
+    /**
+     * Explicit operator-triggered health probe (spec §32/§39).
+     * A probe is auditable and stored as a health observation. It never
+     * enables a provider or changes its environment-gated configuration.
+     *
+     * @return array<string,mixed>
+     */
+    public function probeProvider(string $actor = 'system'): array
+    {
+        $started = microtime(true);
+        try {
+            $health = $this->provider->health();
+            if (!is_array($health)) throw new \RuntimeException('invalid provider health response');
+        } catch (\Throwable $e) {
+            // Provider exceptions may contain upstream details; do not expose
+            // them to the browser. The failure state itself is still audited.
+            $health = [
+                'state' => 'ERROR',
+                'licensed' => false,
+                'synthetic' => false,
+                'message' => 'Provider health check failed; inspect server-side logs.',
+            ];
+        }
+        $responseMs = max(0, (int) round((microtime(true) - $started) * 1000));
+        $state = strtoupper((string) ($health['state'] ?? 'UNKNOWN'));
+        if (!in_array($state, ['ONLINE', 'DEGRADED', 'OFFLINE', 'DISABLED', 'UNCONFIGURED', 'ERROR'], true)) {
+            $state = 'UNKNOWN';
+            $health['state'] = $state;
+        }
+        $now = gmdate('c');
+        $provider = $this->repo->ensureProvider($this->provider->id(), $this->provider->name());
+        $providerId = (int) ($provider['id'] ?? 0);
+        $persisted = $providerId > 0;
+        $previousHealth = $persisted ? $this->repo->latestHealth($providerId) : null;
+        if ($persisted) {
+            $this->repo->saveHealth($providerId, [
+                'status' => $state,
+                'response_ms' => $responseMs,
+                'records_received' => 0,
+                'invalid_records' => 0,
+                'last_success_at' => $state === 'ONLINE' ? $now : null,
+                'last_failure_at' => in_array($state, ['DEGRADED', 'OFFLINE', 'ERROR'], true) ? $now : null,
+                'last_draw_retrieved' => $previousHealth['last_draw_retrieved'] ?? null,
+                'synthetic' => !empty($health['synthetic']) ? 1 : 0,
+            ]);
+        }
+        $this->audit->emit(
+            'LOTTERY_PROVIDER_HEALTH_PROBED',
+            'Lottery provider health check: ' . $this->provider->id() . ' (' . $state . ')',
+            ['provider' => $this->provider->id(), 'state' => $state, 'responseMs' => $responseMs,
+                'synthetic' => !empty($health['synthetic']), 'persisted' => $persisted],
+            $actor
+        );
+        return [
+            'provider' => $this->provider->id(),
+            'live' => $health,
+            'checkedAt' => $now,
+            'responseMs' => $responseMs,
+            'latest' => $persisted ? $this->repo->latestHealth($providerId) : null,
+            'history' => $persisted ? $this->repo->listHealth($providerId, 20) : [],
+            'persisted' => $persisted,
+        ];
+    }
+
+    /** Provider health (spec §32): live status + persisted checks/sync history. */
     public function providerHealth(): array
     {
         $health = $this->provider->health();
-        $pid = $this->providerRowId();
+        $pid = $this->existingProviderRowId();
         $latest = $pid !== null ? $this->repo->latestHealth($pid) : null;
         $history = $pid !== null ? $this->repo->listHealth($pid, 20) : [];
         return ['provider' => $this->provider->id(), 'live' => $health, 'latest' => $latest, 'history' => $history];
