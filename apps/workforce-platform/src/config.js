@@ -1,5 +1,13 @@
 const LOG_LEVELS = new Set(["fatal", "error", "warn", "info", "debug", "trace", "silent"]);
 
+export function assertSupportedNodeVersion(version = process.versions.node) {
+  const parts = String(version).replace(/^v/, "").split(".").map((part) => Number.parseInt(part, 10));
+  const [major, minor] = parts;
+  const supported = parts.length >= 2 && parts.every(Number.isSafeInteger)
+    && ((major === 22 && minor >= 20) || major === 23 || major === 24);
+  if (!supported) throw new Error("Node.js >=22.20.0 <25 is required");
+}
+
 function required(env, keys) {
   const missing = keys.filter((key) => typeof env[key] !== "string" || env[key].length === 0);
   if (missing.length) throw new Error(`Missing required environment variable(s): ${missing.join(", ")}`);
@@ -44,6 +52,7 @@ export function loadLegacyDatabaseConfig(env = process.env) {
 }
 
 export function loadConfig(env = process.env) {
+  assertSupportedNodeVersion();
   const mode = env.NODE_ENV || "development";
   if (!["development", "test", "production"].includes(mode)) {
     throw new Error("NODE_ENV must be development, test, or production");

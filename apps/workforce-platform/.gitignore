@@ -2,3 +2,8 @@ node_modules/
 .env
 .env.*.local
 *.log
+client/node_modules/
+native/node_modules/
+public/app/
+native/android/
+native/ios/

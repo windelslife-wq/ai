@@ -89,6 +89,14 @@ sandbox — see below).
 
 ---
 
+## Node.js migration foundation (in progress)
+
+The PHP/CodeIgniter application remains the production source of truth and rollback target. The parallel `apps/workforce-platform/` foundation now uses Node.js `>=22.20.0 <25`, Node's core `http` server, a Vanilla JS public site, a React/Vite SPA, a PWA shell, and a Capacitor wrapper. Its current API is limited to health/readiness and the initial identity/session foundation; the business modules have not yet been ported or accepted.
+
+Because the selected cPanel database is MySQL/MariaDB, the Node server retains `mysql2`; `pg` cannot connect to MySQL. `bcryptjs` remains to verify legacy PHP bcrypt hashes. Client and Capacitor build dependencies are isolated from the HTTP server package. Native sign-in is disabled until the secure token and device-storage flow is implemented. See [`apps/workforce-platform/README.md`](apps/workforce-platform/README.md) and the migration [`STATUS.md`](docs/migration/STATUS.md) for current scope and test evidence. No production import, deployment or cutover is authorized by this foundation.
+
+---
+
 ## Production deployment (cPanel — no terminal required)
 
 Requirements: PHP 8.1–8.3 with `mysqli` + `mbstring`, MySQL 5.7+/MariaDB 10.3+,

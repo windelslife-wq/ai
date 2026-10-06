@@ -1,54 +1,55 @@
 # JavaScript / Node.js / cPanel migration status
 
-**Updated:** 2026-10-05 · **Branch:** `arena/01a10951-ai`
+**Updated:** 2026-10-06 · **Branch:** `arena/01a10add-ai`
 
 ## Decision and safety boundary
 
 The migration is the whole WINDELS AI WORKFORCE platform, not just the PHP front end. Proceed side-by-side, module by module, with MySQL/MariaDB, Passenger-compatible Node.js, parity/security evidence, and rollback. Keep PHP authoritative until the complete replacement is explicitly accepted. Never enable live trading, alter production data, deploy, or cut over traffic without approval.
 
-## Current implementation slice — Node foundation only
+The implementation slice now follows the requested Node-core HTTP + Vanilla public site + React/Vite SPA + PWA + Capacitor-shell shape. The user selected MySQL/MariaDB as the database target. Therefore `mysql2` remains necessary and `pg@8.16.3` is not installed: `pg` cannot connect to MySQL. The legacy PHP bcrypt verifier also remains until an explicitly approved password-reset or hash-migration decision.
 
-`apps/workforce-platform/` is a new JavaScript ES-module Fastify 5 modular-monolith foundation. It currently implements:
+## Current implementation slice — foundation only
 
-- Environment validation and a bounded MySQL connection pool.
-- Checksum-versioned schema migrations and isolated `wf_*` identity/session/RBAC/audit tables. A dry-run-first, single-use legacy identity importer now validates bcrypt hashes, identity uniqueness and RBAC relations, records an import ledger, and fails closed on target conflicts; **it has not been run against real data**.
-- cPanel Passenger startup entry, health/readiness endpoints, safe error handling, request IDs, security headers, request validation, and per-process rate limits.
-- Username/email/6-digit-UID login verification compatible with PHP bcrypt hashes, opaque hashed server-side session identifiers, HttpOnly/Secure host-only production cookies, session-bound CSRF, audit events, and deny-by-default permission checks.
-- cPanel staging, environment, cron, Apache, health-check, and rollback documentation under `deploy/cpanel/`.
+`apps/workforce-platform/` now contains:
 
-This slice is **not** a production replacement. No Node UI or migrated business module is accepted; accounts and permissions are not imported; there is no production MySQL integration test or actual cPanel/Passenger host verification. The root route explicitly reports `productionReplacement: false`. Do not point live traffic at it.
+- **Node.js `>=22.20.0 <25`** and a top-level `server.js` using Node's `http` module. The internal router, bounded JSON parser, static allow-list, security headers, request IDs, request timeouts, generic errors, rate limits and graceful shutdown are implemented with core modules and local project code. Fastify, Express and Fastify plugins are not runtime dependencies of this server.
+- **MySQL identity foundation:** the existing bounded `mysql2` pool, checksum-versioned migrations, isolated `wf_*` identity/session/RBAC/audit tables, and dry-run-first one-time identity importer are retained. The importer has **not** been run against production or source user data.
+- **Authentication/security slice:** username/email/6-digit-UID login compatible with PHP bcrypt hashes, opaque hashed server-side sessions, host-only `HttpOnly`/`Secure` production cookies, session rotation, session-bound CSRF, audit events and deny-by-default permission checks.
+- **Vanilla public site:** semantic HTML/CSS/JavaScript at `/`, with no React hydration or third-party runtime asset calls.
+- **React/Vite SPA:** source in `client/`, built and served under `/app/`. It has the initial sign-in/readiness shell; non-authenticated product domains are plainly marked as not yet migrated.
+- **PWA shell:** manifest and service worker. Only the public shell and compiled static assets are eligible for caching; `/api/`, uploads and private paths bypass the worker. Offline writes and sensitive-operation queuing are not implemented.
+- **Capacitor wrapper:** Android/iOS project configuration and HTTPS API-origin validation. Native sign-in is intentionally disabled: a native token/refresh/revocation contract, API-origin policy and audited Keychain/Android Keystore storage plugin still need design and tests. Native SDK builds, signing and store releases have not been verified.
+- **Separate dependency boundary:** the server package has `mysql2` and `bcryptjs` as its production dependencies. React/Vite and Capacitor dependencies live in their own client/native packages and are build-time/native dependencies; they are not loaded by the HTTP server.
 
-## Proposed full-stack architecture — pending review
-
-The user requested a single-deployment Node platform with a core `http` server, Vanilla JS public site, React/Vite SPA, PWA, and Capacitor apps. They selected cPanel/MySQL, a dependency-free server layer (frontend/native build tools separate), `server.js` as the entry point with internal modules, and **architecture drafting before implementation**. See [`FULL_STACK_ARCHITECTURE_PROPOSAL.md`](FULL_STACK_ARCHITECTURE_PROPOSAL.md). No architecture code has been changed. The MySQL driver and legacy bcrypt verifier remain practical server runtime dependencies; optional `pg@8.16.3` is not a MySQL driver and remains an open decision.
+This is **not** a production replacement. The Node API currently covers health/readiness and the initial identity/session slice; no business module has been ported and accepted. No production database integration test, real import rehearsal, cPanel/Passenger host test, provider/broker validation or traffic cutover has been performed. The PHP application remains intact as the source of truth and rollback target.
 
 ## Migration inputs still to consolidate
 
-- `application/`: PHP/CodeIgniter platform, still the rollback target.
-- `apps/api/` + `apps/web/` + `packages/shared/`: Scout, currently Fastify/TypeScript + Next.js/TypeScript and PostgreSQL/Redis; planned target requires a deliberate MySQL persistence migration and JavaScript-runtime decision.
-- `apps/football-predictions/`: independent Express/JavaScript/MySQL app with its own schema and cPanel notes; not yet consolidated or first-run deployment-verified.
-- `python-services/mt5-bridge/`: Python/FastAPI and Windows-only MetaTrader dependency; remains a separate migration dependency until a safe Node replacement/adapter is designed and tested.
-- `runtime/`: PHP-WASM developer/test runtime, not a production Node target.
+- `application/`: PHP/CodeIgniter platform; authoritative and preserved as rollback target.
+- `apps/api/` + `apps/web/` + `packages/shared/`: Scout, currently Fastify/TypeScript + Next.js/TypeScript and PostgreSQL/Redis; requires a deliberate MySQL persistence and product/API parity migration.
+- `apps/football-predictions/`: independent Express/JavaScript/MySQL app with its own auth, migrations and tests; not yet consolidated or first-run deployment-verified.
+- `python-services/mt5-bridge/`: Python/FastAPI and Windows-only MetaTrader dependency; remains an explicit adapter/migration decision until safely replaced and tested.
+- `runtime/`: PHP-WASM developer/test runtime; not part of the production Node target.
 
 ## Next phases
 
-1. Use [`UNFINISHED_MODULES.md`](UNFINISHED_MODULES.md) as the migration backlog and refresh the complete route/schema/dependency inventory for the current tree.
-2. Add real MySQL/MariaDB integration coverage for both migrations, the single-use identity import ledger, uniqueness conflicts, and restore behavior; the importer is unit-tested only and has not run against source data.
-3. Validate the minimal Passenger deployment and clean production packaging on a real or faithful cPanel host.
-4. Accept identity/shared-platform parity after a reviewed import rehearsal, then migrate each business module one at a time using `docs/migration/NODEJS_CPANEL_MIGRATION_MASTER_PLAN.md` gates.
-5. Consolidate Scout, Football Predictions, and the MT5 bridge only after their distinct persistence/provider/runtime constraints are mapped.
-6. Rehearse full data import, rollback, cPanel resource limits, and cutover; decommission PHP only with separate approval.
+1. Add real MySQL/MariaDB integration coverage for Node migrations, sessions, the single-use identity-import ledger, uniqueness conflicts, transaction behavior and restore.
+2. Finish native authentication architecture (exact allowed API origin, token lifecycle/revocation, secure-storage plugin, CORS/origin/CSRF tests) before enabling native sign-in or signing an app.
+3. Port identity/account management, public/SEO flows, audit/notifications and the shared workspace with route and permission parity.
+4. Migrate domain modules one at a time using [`UNFINISHED_MODULES.md`](UNFINISHED_MODULES.md), preserving the trading Risk Engine, ordered 15-step Execution Supervisor, kill switch, lottery honesty rules, provider provenance and tenant/user isolation.
+5. Consolidate Scout, Football Predictions and the MT5 bridge only after their separate storage/runtime assumptions are mapped and tested.
+6. Rehearse the full data import, backup/restore, cPanel limits, deployment package and rollback; obtain explicit approval before any production cutover.
 
-See [`IDENTITY_IMPORT.md`](IDENTITY_IMPORT.md) for the one-time importer contract and dry-run/apply procedure.
+See [`FULL_STACK_ARCHITECTURE_PROPOSAL.md`](FULL_STACK_ARCHITECTURE_PROPOSAL.md) for the target boundaries and [`IDENTITY_IMPORT.md`](IDENTITY_IMPORT.md) for the one-time importer contract and dry-run/apply procedure.
 
 ## Test evidence from this implementation turn
 
-- Node foundation + identity-import planning/adapters: **35 passed, 0 failed** (`npm run check --workspace=@windels/workforce-platform`).
-- Scout contracts: **12 passed, 0 failed** (`npm run test:contracts`).
-- Scout/shared TypeScript typecheck: **clean** (`npm run typecheck`).
-- Football Predictions: **29 passed, 0 failed** (`npm test --workspace=windels-football-predictions`).
-- Existing PHP/WASM suite: **367 passed, 0 failed** (`npm --prefix runtime test`).
-- MT5 bridge fake-terminal contract suite: **9 passed** (`pytest python-services/mt5-bridge/test_bridge.py -q`, Python 3.11 venv); one upstream Starlette/httpx deprecation warning.
-- Root lockfile: regenerated; both full `npm ci` and the workspace-only production install completed successfully.
+- Node HTTP/auth/database-contract suite: **43 passed, 0 failed** (`npm run check:workforce`). These use deterministic test stores; they do not prove real MySQL behavior.
+- React/Vite production build: **passed** (`npm run build:workforce-client` and clean nested `npm ci`). Build output under `apps/workforce-platform/public/app/` is generated and ignored.
+- Scout contracts: **12 passed**; TypeScript typecheck clean. Football Predictions: **29 passed**. Existing PHP/WASM suite: **367 passed**.
+- Capacitor CLI config validation: **passed**; no Android/iOS platform build or signing was run.
+- Live local HTTP smoke check: public site, PWA manifest/service worker, SPA deep link and built JS/CSS assets returned **200**; a missing JS asset returned **404**; liveness returned **200** and readiness returned **503** without MySQL.
+- Node version in the sandbox: **v22.22.3**. The configured engine range is `>=22.20.0 <25`.
+- Earlier root `npm audit` output reported **10 vulnerabilities (9 high, 1 critical)**; that finding has not been rechecked or addressed in this implementation slice.
 
-No MySQL server, production data migration, real provider, production broker, or cPanel host was exercised in these tests.
+No real MySQL server, production data migration, live provider, production broker, native SDK, signed app or cPanel host was exercised. The broader repository suites should continue to run in CI; this foundation does not replace their evidence.

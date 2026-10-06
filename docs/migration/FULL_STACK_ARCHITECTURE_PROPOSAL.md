@@ -1,8 +1,10 @@
 # Full-stack Node.js platform architecture proposal
 
-**Status:** Draft for review — **proposal only; no server/frontend architecture has been replaced yet.**
+**Status:** Phase 1 foundation implemented; complete product migration, production acceptance and cutover remain pending.
 **Scope:** the requested single-deployment Node monolith, Vanilla JS public site, React/Vite SPA, PWA, and Capacitor native apps.
-**Working branch:** `arena/01a10951-ai` · **Target hosting:** cPanel + MySQL/MariaDB.
+**Working branch:** `arena/01a10add-ai` · **Target hosting:** cPanel + MySQL/MariaDB.
+
+**Implementation note (2026-10-06):** `apps/workforce-platform/server.js` now starts the Node-core `http` server; `public/`, `client/` and `native/` contain the first public-site, SPA/PWA and Capacitor shells. The Node API remains limited to health/readiness and identity/session foundations. MySQL is the selected target, so `mysql2` remains necessary; `bcryptjs` is retained for PHP bcrypt compatibility. No business-module parity, real MySQL rehearsal, cPanel test, native sign-in or production cutover is accepted yet.
 
 ## 1. Recommended shape
 
@@ -46,17 +48,17 @@ The PHP application remains deployable and authoritative while ports, imports, a
 | React/Vite browser build | React, React DOM and Vite in the frontend/build workspace | These packages are needed to build the requested SPA, but need not be server-side runtime dependencies. The compiled browser assets are served by the monolith. |
 | Capacitor | Capacitor CLI/core, platform packages, and any approved native plugins in the native workspace | These are build/native dependencies, not dependencies of the Node HTTP server. Android/iOS SDKs are also required to produce signed apps. |
 
-**Recommended interpretation:** dependency-light Node server with no Express/Fastify, a MySQL driver and bcrypt compatibility as long-lived runtime dependencies, and isolated frontend/native build toolchains. Treat optional PostgreSQL as unresolved and out of the baseline until a host and use case are named. If “only production dependency is `pg@8.16.3`” is mandatory, it conflicts with cPanel/MySQL and legacy bcrypt login; resolve those constraints before implementation.
+**Implemented interpretation:** dependency-light Node server with no Express/Fastify, a MySQL driver and bcrypt compatibility as server runtime dependencies, and isolated frontend/native build toolchains. The user selected MySQL/MariaDB; optional PostgreSQL is excluded from this baseline. If “only production dependency is `pg@8.16.3`” remains mandatory, it conflicts with this MySQL choice and legacy bcrypt login and requires a separate database/password decision.
 
 ## 3. Repository impact map
 
 | Existing path | Current role | Proposed disposition |
 |---|---|---|
-| `apps/workforce-platform/` | Fastify/MySQL modular-monolith foundation, sessions/RBAC, cPanel entry, one-time identity importer | Keep as the target platform. Replace Fastify with a core `http` listener only after this proposal is approved; retain the MySQL data model, security behavior, importer and tests where compatible. |
-| `apps/workforce-platform/src/server.js` | Current Fastify server bootstrap | Evolve into the single Node HTTP entry point (`server.js`). Split internal router, static serving, auth, DB adapters, and domain services into modules. No giant all-in-one file. |
-| `apps/workforce-platform/public/` (proposed) | Not yet created | Host the compiled public site, `/app` SPA output, manifest, service worker, icons, and static assets; ensure uploads/secrets/source are not web-accessible. |
-| `apps/workforce-platform/client/` (proposed) | Not yet created | React/Vite member SPA; source and build dependencies stay separate from the server runtime. Build output is served at `/app`. |
-| `apps/workforce-platform/native/` (proposed) | Not yet created | Capacitor wrapper/project configuration referencing the shared SPA build and remote HTTPS API. Keep generated Android/iOS projects out of the server package unless they are committed intentionally. |
+| `apps/workforce-platform/` | Core-HTTP/MySQL modular-monolith foundation, sessions/RBAC, cPanel entry, one-time identity importer | Active target platform. Keep the core `http` listener, MySQL data model, security behavior, importer and tests; port business domains only with parity evidence. |
+| `apps/workforce-platform/server.js` | Node-core HTTP bootstrap | Single listener and graceful lifecycle; internal router, static serving, auth and DB adapters remain separate modules. |
+| `apps/workforce-platform/public/` | Vanilla public site, manifest, service worker and icons | Serves public assets only. Compiled SPA output is generated under `public/app/` and is excluded from Git. |
+| `apps/workforce-platform/client/` | React/Vite SPA source and isolated build dependencies | Build output is served at `/app`; auth is the initial web-only slice. |
+| `apps/workforce-platform/native/` | Capacitor configuration and isolated native dependencies | Points at the shared SPA build. Native sign-in is disabled until secure token transport and Keychain/Keystore storage are accepted. |
 | `apps/api/`, `apps/web/`, `packages/shared/` | Scout lead-discovery API (Fastify/TypeScript), Next.js/TypeScript UI, PostgreSQL/Redis | Inventory and port the actual product behavior into the monolith; migrate TypeScript runtime code to JavaScript and replace Next.js with the chosen SPA only after route, auth, organization-ID and persistence parity is mapped. Do not delete these sources during the port. |
 | `apps/football-predictions/` | Separate Express/MySQL app with its own auth, migrations and tests | Port its bounded domain/API/UI into the monolith or document a reviewed isolated deployment exception. Preserve its Over-1.5 and admin/CSRF/publication safety contracts. |
 | `application/` and `system/` | Production PHP/CodeIgniter application | Keep live and intact as source of truth and rollback target through migration acceptance. |
@@ -125,19 +127,18 @@ No live provider, broker, SMTP, or data import may be represented as ready merel
 
 ## 7. Migration sequence and acceptance gates
 
-1. **Architecture review:** approve the dependency boundary, whether `pg` is truly needed, legacy bcrypt treatment, route layout, native auth strategy, and whether Football Predictions remains a module or isolated app.
-2. **Core HTTP proof:** implement a throwaway/testable Node-core router and static allow-list on a working branch slice; port health, readiness and the existing auth/security contract. Run negative tests for CSRF, origin, session rotation, path traversal, body limits, headers and RBAC before routing live traffic.
-3. **Public site + SPA shell:** add the Vanilla public site and a minimal React/Vite authenticated shell; verify same-origin API and build output on cPanel staging.
-4. **PWA + Capacitor shell:** add static-only service worker behavior, native API configuration, secure token storage and deep-link tests. Prove Android/iOS packaging separately from cPanel hosting.
+1. **Architecture decisions:** MySQL/MariaDB is selected; `mysql2` is retained, `pg` is not in the baseline, and `bcryptjs` remains for PHP hash compatibility. Native auth strategy and Football Predictions consolidation remain open.
+2. **Core HTTP proof — foundation implemented:** Node-core routing, health/readiness, existing auth/security behavior, body limits, static path checks and rate limiting are implemented and unit-tested. Real MySQL and cPanel/Passenger security verification remain required before production routing.
+3. **Public site + SPA shell — foundation implemented:** the Vanilla site and React/Vite authenticated shell build successfully; same-origin APIs use `/api/v1`. A real cPanel staging/build/asset-path check remains.
+4. **PWA + Capacitor shell — configuration implemented:** the service worker caches only shell/static assets and bypasses APIs; Capacitor configuration and HTTPS-origin validation exist. Secure native token storage, deep links, Android/iOS SDK builds and signed-app verification remain future gates.
 5. **Module parity:** migrate one module at a time using `UNFINISHED_MODULES.md`, preserving the Risk Engine, ordered Execution Supervisor gates, Lottery assertions, Portfolio API auth (`trading.view`), data ownership and provider honesty.
 6. **Data/release acceptance:** finish full route/schema/data mapping, MySQL import rehearsal and reconciliation, backup/restore and rollback, cPanel resource/security checks, PWA/native release checks and an agreed stability period. Keep PHP until the owner approves cutover.
 
 ## 8. Review decisions still open
 
-- Is PostgreSQL (`pg@8.16.3`) required in addition to the selected cPanel/MySQL baseline, or should it be removed from the baseline proposal?
-- For legacy PHP bcrypt passwords, keep the small `bcryptjs` runtime dependency or explicitly require users to reset passwords before Node login?
-- Is a separate native token/refresh flow acceptable, with secure-storage plugin dependencies, or must native clients use the same browser-cookie flow?
+- Is PostgreSQL needed for a separate module/host in a later phase? It is not part of the selected MySQL/MariaDB baseline; adding it would require a second driver and parity tests.
+- Native token/refresh/revocation contract, exact allowed API origin, and approved secure-storage plugin for Keychain/Android Keystore.
 - Should Football Predictions be merged into this monolith, or remain an isolated Node app during the first release?
 - Confirm the actual cPanel provider offers Node `>=22.20.0 <25`, MySQL/MariaDB version, Passenger, HTTPS, cron, outbound network access, and app resource limits.
 
-Until these are reviewed, treat the existing Fastify foundation and current master plan as the implementation baseline; this document is a proposal, not authorization to rewrite the server.
+The PHP application remains the production source of truth and rollback target. The Node foundation is an implementation slice, not authorization to import production data, deploy, or cut over traffic.

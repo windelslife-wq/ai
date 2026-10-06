@@ -16,7 +16,7 @@ export const TEST_CONFIG = Object.freeze({
   publicBaseUrl: null,
 });
 
-export async function createTestApp({ permissions = ["identity.users.view"], readiness = { database: true, schema: true } } = {}) {
+export async function createTestApp({ permissions = ["identity.users.view"], readiness = { database: true, schema: true }, publicDir } = {}) {
   const passwordHash = await bcrypt.hash("Correct horse battery staple", 4);
   const user = {
     id: 7,
@@ -49,6 +49,6 @@ export async function createTestApp({ permissions = ["identity.users.view"], rea
     async recordAudit(event) { audits.push(event); },
     async listUsers() { return [{ id: 7, username: user.username, email: user.email, status: user.status }]; },
   };
-  const app = await buildApp({ config: TEST_CONFIG, store, logger: false });
+  const app = await buildApp({ config: TEST_CONFIG, store, logger: false, publicDir });
   return { app, store, sessions, audits, user };
 }

@@ -17,6 +17,12 @@ jobs:
       - run: npm run typecheck
       - run: npm run test:contracts
       - run: npm run check --workspace=@windels/workforce-platform
+      - run: npm ci --prefix apps/workforce-platform/client
+      - run: npm run build --prefix apps/workforce-platform/client
+      - run: npm ci --prefix apps/workforce-platform/native
+      - run: npm run check:config --prefix apps/workforce-platform/native
+      - run: VITE_API_BASE_URL=https://api.example.invalid npm run build:native --prefix apps/workforce-platform/client
+      - run: npm run build --prefix apps/workforce-platform/client
       - run: npm test --workspace=windels-football-predictions
       - run: npm ci --prefix runtime
       - run: npm --prefix runtime test

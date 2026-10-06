@@ -24,3 +24,10 @@ __pycache__/
 runtime/sessions/aegis_session*
 
 assets/uploads/
+
+# Generated frontend/native outputs for the Node workforce platform.
+apps/workforce-platform/public/app/
+apps/workforce-platform/client/node_modules/
+apps/workforce-platform/native/node_modules/
+apps/workforce-platform/native/android/
+apps/workforce-platform/native/ios/

@@ -2,8 +2,8 @@
 
 **Target repository:** `windelslife-wq/ai`  
 **Source branch:** `main`  
-**Arena working branch:** `arena/01a10951-ai`
-**Status:** Architecture and execution contract. This document does not claim that the migration has been implemented. For current implementation evidence, see [`STATUS.md`](STATUS.md); for the active, verified port/provider/deployment backlog, see [`UNFINISHED_MODULES.md`](UNFINISHED_MODULES.md).
+**Arena working branch:** `arena/01a10add-ai`
+**Status:** Architecture and execution contract. The initial Node-core HTTP/public-site/SPA/PWA/Capacitor shell is implemented; full product migration and production acceptance are not. For current evidence, see [`STATUS.md`](STATUS.md); for the active port/provider/deployment backlog, see [`UNFINISHED_MODULES.md`](UNFINISHED_MODULES.md).
 
 ## 1. Mission
 
@@ -71,7 +71,7 @@ Create a verified inventory from source code, routes, schema, UI, tests, and REA
 
 ## 4. Target architecture
 
-Use a modular monolith for the cPanel edition. Keep clear module boundaries so modules can be extracted later, but do not introduce microservices that require infrastructure unavailable on ordinary shared hosting. The Fastify preference below describes the original implementation baseline; a later user request proposes replacing it with Node core `http` plus a Vanilla public site, React/Vite SPA, PWA, and Capacitor shell. That replacement remains a proposal until reviewed: see [`FULL_STACK_ARCHITECTURE_PROPOSAL.md`](FULL_STACK_ARCHITECTURE_PROPOSAL.md).
+Use a modular monolith for the cPanel edition. Keep clear module boundaries so modules can be extracted later, but do not introduce microservices that require infrastructure unavailable on ordinary shared hosting. The original Fastify preference has been superseded for the active foundation by a Node-core `http` listener plus Vanilla public site, React/Vite SPA, PWA and Capacitor shell. The foundation is implemented; full module parity remains incremental. See [`FULL_STACK_ARCHITECTURE_PROPOSAL.md`](FULL_STACK_ARCHITECTURE_PROPOSAL.md) and [`STATUS.md`](STATUS.md).
 
 Suggested repository layout:
 
@@ -135,17 +135,20 @@ Suggested repository layout:
 The final structure may be adapted after inventory. Do not move or delete the existing Scout application or PHP app until the migration plan explicitly maps every file and capability.
 
 ### Backend
-- Node.js LTS version supported by the target cPanel provider.
-- Fastify preferred for the API because the repository already contains a Fastify-based application; Express is acceptable only if a documented technical reason and consistent conventions justify it.
+- Node.js `>=22.20.0 <25`, subject to verification against the actual cPanel host.
+- Use Node core `http` for the single listener and internal router; do not add Express/Fastify to the selected target. Use ES modules and keep route/domain/database modules testable rather than placing the whole platform in one file.
+- MySQL/MariaDB is the cPanel baseline, so a maintained MySQL driver (`mysql2`) is required; `pg` cannot replace it. Retain `bcryptjs` while imported PHP `$2y$` password hashes need verification.
 - ES modules, asynchronous I/O, schema validation at every input boundary, centralized error handling, structured logging, request IDs, and graceful shutdown.
 - Use a single documented API versioning strategy. Preserve legacy routes through compatibility adapters where needed.
 - Use a modular service/repository/domain separation. Business rules must not live in route handlers.
 - All money, odds, prices, quantities, and risk calculations must use safe decimal arithmetic (e.g. decimal.js or an equivalent audited decimal approach), not binary floating-point shortcuts.
 
 ### Frontend
-- Reuse and consolidate the existing Scout frontend only after its UI and dependencies have been audited.
-- For cPanel compatibility, compile frontend assets during CI/development and deploy build artifacts; do not require a build toolchain on the production host unless the host explicitly supports it.
+- Build public/SEO pages as Vanilla HTML/CSS/JavaScript and the member SPA with React + Vite; audit and selectively port Scout UI behavior rather than copying its Next.js runtime unchanged.
+- Compile frontend assets during CI/development and deploy build artifacts; do not require a build toolchain on the production host.
 - Keep the public document root limited to public assets and the application entry point. Never expose source maps containing secrets, `.env`, uploads, logs, backups, SQL dumps, or private configuration.
+- Keep the PWA service worker limited to the public app shell/static assets; never cache authenticated API responses or queue sensitive writes offline.
+- Use Capacitor to reuse the SPA build. Do not enable native account access before the secure token lifecycle, API-origin policy and Keychain/Android Keystore storage have been implemented and tested.
 - Preserve responsive desktop/mobile behavior, accessibility, existing navigation, dashboards, charts, forms, and user workflows.
 
 ### Database

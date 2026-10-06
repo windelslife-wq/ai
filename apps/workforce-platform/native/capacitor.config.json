@@ -1,0 +1,12 @@
+{
+  "appId": "com.windels.aiworkforce",
+  "appName": "WINDELS AI WORKFORCE",
+  "webDir": "../public/app",
+  "server": {
+    "androidScheme": "https",
+    "cleartext": false
+  },
+  "android": {
+    "allowMixedContent": false
+  }
+}
