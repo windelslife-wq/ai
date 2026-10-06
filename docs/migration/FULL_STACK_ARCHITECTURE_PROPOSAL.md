@@ -50,6 +50,8 @@ The PHP application remains deployable and authoritative while ports, imports, a
 
 **Implemented interpretation:** dependency-light Node server with no Express/Fastify, a MySQL driver and bcrypt compatibility as server runtime dependencies, and isolated frontend/native build toolchains. The user selected MySQL/MariaDB; optional PostgreSQL is excluded from this baseline. If “only production dependency is `pg@8.16.3`” remains mandatory, it conflicts with this MySQL choice and legacy bcrypt login and requires a separate database/password decision.
 
+**Resolution (2026-10-06, branch `arena/9643b72f-ai`):** the decision was requested again and has now been taken. MySQL/MariaDB is confirmed as the target and `pg@8.16.3` is confirmed **out of scope** — `database/production.sql` is 1,159 lines of MySQL DDL (79 tables, all `ENGINE=InnoDB`, 39 `AUTO_INCREMENT`, 36 `LONGTEXT`), which `pg` cannot address. Legacy passwords move to **lazy rehash on next login**, so `bcryptjs` is retained for now and becomes removable only once every imported user has re-authenticated. That rehash path is not yet implemented; see the confirmed-decisions and verified-state sections of [`STATUS.md`](STATUS.md) for the exact gap list and current test evidence.
+
 ## 3. Repository impact map
 
 | Existing path | Current role | Proposed disposition |

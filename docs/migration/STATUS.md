@@ -1,12 +1,42 @@
 # JavaScript / Node.js / cPanel migration status
 
-**Updated:** 2026-10-06 · **Branch:** `arena/01a10add-ai`
+**Updated:** 2026-10-06 · **Branch:** `arena/9643b72f-ai`
 
 ## Decision and safety boundary
 
 The migration is the whole WINDELS AI WORKFORCE platform, not just the PHP front end. Proceed side-by-side, module by module, with MySQL/MariaDB, Passenger-compatible Node.js, parity/security evidence, and rollback. Keep PHP authoritative until the complete replacement is explicitly accepted. Never enable live trading, alter production data, deploy, or cut over traffic without approval.
 
 The implementation slice now follows the requested Node-core HTTP + Vanilla public site + React/Vite SPA + PWA + Capacitor-shell shape. The user selected MySQL/MariaDB as the database target. Therefore `mysql2` remains necessary and `pg@8.16.3` is not installed: `pg` cannot connect to MySQL. The legacy PHP bcrypt verifier also remains until an explicitly approved password-reset or hash-migration decision.
+
+## Confirmed decisions (2026-10-06, branch `arena/9643b72f-ai`)
+
+A feasibility review of the target shape — dependency-light Node monolith, Vanilla JS public site, React/Vite SPA, PWA, Capacitor native apps — was requested with "`pg@8.16.3` as the only production dependency". Two decisions were taken and are recorded here as authoritative.
+
+**1. MySQL/MariaDB is retained; `pg@8.16.3` is out of scope.** The production schema is MySQL/MariaDB DDL: `database/production.sql` is 1,159 lines defining 79 tables, all 79 `ENGINE=InnoDB`, with 39 `AUTO_INCREMENT`, 36 `LONGTEXT` and 80 `utf8mb4` occurrences, targeting cPanel. `pg` implements the PostgreSQL wire protocol and cannot connect to MySQL, so "only `pg`" is not satisfiable against this baseline. No PostgreSQL rewrite is authorized. The only `pg` reference in the repository remains `apps/api/package.json` at `8.15.6`, which is unrelated to this platform.
+
+**2. Legacy passwords move to lazy rehash on next login.** `bcryptjs` is retained now and becomes removable only after the rollout completes. This is a **new feature that does not yet exist**; the following gaps were verified rather than assumed:
+
+- `grep -rn "needsRehash|rehash" src/` returns no matches.
+- `src/db/store.js` exposes exactly seven methods (`readiness`, `findUserByIdentifier`, `createSession`, `findSession`, `revokeSession`, `recordAudit`, `listUsers`); there is no `updatePasswordHash`.
+- `POST /auth/login` (`src/routes/auth.js`) verifies, creates a session and writes an audit event, but never writes back a new hash.
+
+Two facts make the change additive rather than destructive: `wf_users.password_hash` is already `VARCHAR(255) NOT NULL` (`src/db/migrations/001_platform_foundation.sql:16`), so a scrypt-formatted hash fits with **no schema migration**; and `verifyPassword` already normalizes PHP `$2y$` to `$2b$` before comparing (`src/security/passwords.js:13-14`), so legacy login works today. Remaining work: add `store.updatePasswordHash`, make `verifyPassword` return a `needsRehash` discriminator, write back on successful login, and cover it with tests.
+
+## Verified state of the foundation (2026-10-06)
+
+Re-run on Node v22.22.3 in this branch, not carried forward from an earlier claim:
+
+- `npm run check` (`apps/workforce-platform`): **43 passed, 0 failed**. These use deterministic test stores and do not prove real MySQL behavior.
+- `npm run build` (`client/`): Vite transformed **16 modules** to `public/app/`, 231.19 kB JS / **72.20 kB gzip**. Build output is generated and git-ignored.
+- Live server on `0.0.0.0:3000`: `/`, `/manifest.webmanifest`, `/service-worker.js`, `/site.js`, `/styles.css`, `/robots.txt` all returned **200**; `/api/v1/health/live` **200**; `/api/v1/health/ready` **503** with `{"status":"not_ready","database":false,"schema":false}` in the absence of MySQL.
+- `public/index.html` contains **0** React references, confirming the public site is genuinely Vanilla JS.
+- Security headers observed on `/`: full CSP, `x-frame-options: DENY`, `cross-origin-opener-policy: same-origin`, `x-content-type-options: nosniff`, `referrer-policy: no-referrer`, `permissions-policy`, `x-request-id`.
+- Path traversal `/../etc/passwd` returned **404**.
+- The `/app/*` SPA fallback is content-negotiated by design (`src/app.js:220-222`): requests sending `Accept: text/html` receive the SPA shell (**200** for `/app/deep/link`), while requests without it correctly stay **404** so missing assets are not masked. This is intended behavior, not a defect.
+- Runtime production dependencies are exactly `bcryptjs@^3.0.2` and `mysql2@^3.24.5`; every other import in `server.js` and `src/` is `node:*` or local project code.
+
+Still outstanding and unchanged: only 7 API routes are ported (5 auth, 2 health) against 32 PHP controllers; no real MySQL server, production import, cPanel/Passenger host, native SDK build or traffic cutover has been exercised.
+
 
 ## Current implementation slice — foundation only
 
