@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { loadConfig, loadDatabaseConfig, loadLegacyDatabaseConfig } from "../src/config.js";
+import { assertSupportedNodeVersion, loadConfig, loadDatabaseConfig, loadLegacyDatabaseConfig } from "../src/config.js";
 
 function validEnv(overrides = {}) {
   return {
@@ -16,6 +16,14 @@ function validEnv(overrides = {}) {
     ...overrides,
   };
 }
+
+test("runtime enforcement accepts Node 22.20 through 24 and rejects out-of-range versions", () => {
+  assert.doesNotThrow(() => assertSupportedNodeVersion("22.20.0"));
+  assert.doesNotThrow(() => assertSupportedNodeVersion("23.9.1"));
+  assert.doesNotThrow(() => assertSupportedNodeVersion("24.0.0"));
+  assert.throws(() => assertSupportedNodeVersion("22.19.9"), /Node.js >=22.20.0 <25/);
+  assert.throws(() => assertSupportedNodeVersion("25.0.0"), /Node.js >=22.20.0 <25/);
+});
 
 test("production config accepts an HTTPS origin and binds the cPanel-provided port", () => {
   const config = loadConfig(validEnv({ PORT: "49231" }));

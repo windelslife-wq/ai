@@ -1,6 +1,6 @@
 # Unfinished modules and migration work
 
-**Updated:** 2026-10-05 · **Scope:** the full Node.js/cPanel replacement requested by the user.
+**Updated:** 2026-10-06 · **Scope:** the full Node.js/cPanel replacement requested by the user.
 
 ## How to read this list
 
@@ -12,8 +12,8 @@
 |---:|---|---|---|
 | 1 | **Identity, authentication and legacy account import** | Node has initial session/RBAC routes and a dry-run-first identity importer. No source data has been imported; no real MySQL run. | Real-DB import rehearsal, role/permission parity, profile-file plan, session re-login plan, account-isolation and auth parity tests, then approval to import. |
 | 2 | **Account management, registration, password reset and admin users** | PHP has tested account management. Node has no registration/reset/admin-management UI or complete account workflows. | Port the existing behavior, mail/reset security, rate limits, CSRF, audit, and account ownership tests. |
-| 3 | **Shared app shell, dashboards, settings and navigation** | PHP server-rendered UI exists; Node root is only a status response. | Build the target UI and responsive authenticated workspace after the cPanel frontend strategy is decided. |
-| 4 | **Public website, help/contact and SEO** | PHP site and SEO routes exist. | Port public pages, contact handling, robots/sitemap and metadata; preserve safe caching and avoid exposing authenticated pages. |
+| 3 | **Shared app shell, dashboards, settings and navigation** | Node has the first React/Vite sign-in/workspace shell with readiness and permission status; domain dashboards, settings and most navigation are absent. | Port the remaining authenticated shell, account/admin settings and module navigation with responsive and permission-parity tests. |
+| 4 | **Public website, help/contact and SEO** | Node has a Vanilla JS public landing page, metadata, robots policy and safe static serving; the broader PHP public/SEO/help/contact flows are not ported. | Port public pages, contact handling, sitemap and metadata; preserve safe caching and keep authenticated pages out of crawlers. |
 | 5 | **Notifications, audit browser, feature/status reporting and system health** | PHP implementations are tested; Node foundation currently has operational health endpoints and authentication audit events only. | Port notification workflows, audit views, feature honesty matrix, settings, and security-event retention. |
 | 6 | **Market data and provider health** | PHP provider chain and Binance/Frankfurter adapters are tested with deterministic fixtures; Node implementation absent. | Port normalization, provenance, retries, circuit breakers, freshness, cache/fallback and provider-health behavior; add real MySQL/provider contract tests. |
 | 7 | **Analysis engines, specialized agents and consensus/debate** | Implemented/tested in PHP; absent from Node. | Port indicators, candle/timeframe handling, regime/setup logic, agents, abstention rules, consensus, debate and analysis history with parity tests. |
@@ -32,6 +32,7 @@
 | 20 | **Football Predictions app integration** | It is already an independent JavaScript/Express/MySQL app with 29 tests and cPanel notes. | Decide whether it stays an isolated app or is consolidated; verify first-run MySQL, live provider and cPanel staging. Do not break its isolation/safety contract. |
 | 21 | **Python MT5 bridge conversion or explicit exception** | FastAPI/Python bridge is contract-tested against a fake terminal and requires a Windows MT5 host. | Design/test a safe Node-compatible adapter or retain the Python bridge as a documented, bounded exception. A real demo terminal check is still outstanding; do not claim full-JavaScript completion meanwhile. |
 | 22 | **Full legacy data migration and cutover** | Identity importer code is present but unexecuted; no business-data importer, checksum reconciliation, delta plan or restore rehearsal exists. | Map every legacy table, build resumable verified imports, rehearse backups/restore, prove rollback, stage cPanel deployment and obtain explicit cutover approval. |
+| 23 | **PWA + Capacitor release readiness** | The public service worker/manifest and Capacitor configuration exist. The worker bypasses APIs; native sign-in is disabled and no native SDK build/signing has been verified. | Test install/offline behavior in real browsers; implement reviewed native token lifecycle, exact API-origin/CORS policy and secure Keychain/Keystore storage; add deep-link and Android/iOS build/signing checks before release. |
 
 ## Outstanding PHP-side provider / readiness gaps
 
