@@ -1,56 +1,58 @@
+/**
+ * Application assembly for the WINDELS AI WORKFORCE Node monolith.
+ *
+ * The HTTP layer is Node core `http` only: no Express, no Fastify, no middleware
+ * framework. This module wires the pieces together and owns the request
+ * pipeline; behaviour lives in `src/http/*` (transport), `src/security/*`
+ * (policy), `src/modules/*` (business rules) and `src/persistence/*` (storage).
+ *
+ * Request pipeline (every step is asserted by tests in `test/`):
+ *   request id → security headers → static or API
+ *   API: no-store → CORS/preflight → cross-site mutation block → rate limit →
+ *        route match (405/404) → bounded body → validation → guards (auth,
+ *        CSRF, permission) → handler → response
+ *   errors: AppError → status + code (+ Retry-After); anything else → 500 with
+ *        the cause logged and never sent.
+ */
+
 import { createServer } from "node:http";
-import { createReadStream } from "node:fs";
-import { realpath, stat } from "node:fs/promises";
 import path from "node:path";
 import { randomUUID } from "node:crypto";
-import { authRoutes } from "./routes/auth.js";
-import { healthRoutes } from "./routes/health.js";
+import { AppError, normalizeError } from "./http/errors.js";
+import { createRouter, SUPPORTED_METHODS } from "./http/router.js";
+import { readRawBody, contentTypeOf, parseJsonBody, parseFormBody, parseMultipart, boundaryOf } from "./http/bodies.js";
+import { serveStatic, DEFAULT_DENY_PREFIXES } from "./http/static.js";
+import { validateRequest, validationDetails, validationMessage } from "./http/validate.js";
+import { applyCorsHeaders, isCrossSiteMutation, resolveCors, securityHeaders } from "./security/headers.js";
+import { createRateLimiter, createLoginGuard } from "./security/ratelimit.js";
+import { healthRoutes } from "./modules/platform/health.js";
+import { identityRoutes } from "./modules/identity/routes.js";
 
-const BODY_LIMIT = 16 * 1024;
-const API_PREFIX = "/api/v1";
-const MIME_TYPES = Object.freeze({
-  ".avif": "image/avif",
-  ".css": "text/css; charset=utf-8",
-  ".gif": "image/gif",
-  ".html": "text/html; charset=utf-8",
-  ".ico": "image/x-icon",
-  ".jpeg": "image/jpeg",
-  ".jpg": "image/jpeg",
-  ".js": "text/javascript; charset=utf-8",
-  ".json": "application/json; charset=utf-8",
-  ".png": "image/png",
-  ".svg": "image/svg+xml",
-  ".txt": "text/plain; charset=utf-8",
-  ".webmanifest": "application/manifest+json; charset=utf-8",
-  ".webp": "image/webp",
-  ".xml": "application/xml; charset=utf-8",
-  ".woff2": "font/woff2",
-});
+const JSON_TYPE = "application/json; charset=utf-8";
 
-class HttpError extends Error {
-  constructor(statusCode, code, message) {
-    super(message);
-    this.statusCode = statusCode;
-    this.code = code;
-  }
+function writeJson(response, statusCode, body, headOnly = false, extraHeaders = {}) {
+  response.statusCode = statusCode;
+  if (!response.hasHeader("content-type")) response.setHeader("content-type", JSON_TYPE);
+  for (const [name, value] of Object.entries(extraHeaders)) response.setHeader(name, value);
+  const data = body === undefined ? "" : JSON.stringify(body);
+  if (data) response.setHeader("content-length", Buffer.byteLength(data));
+  if (headOnly || statusCode === 204 || statusCode === 304) return response.end();
+  response.end(data);
 }
 
-function normalizeHeaderValue(value) {
-  if (Array.isArray(value)) return value.map(String);
-  return String(value);
-}
-
-function createReply(response) {
+export function createReply(response) {
   return {
     statusCode: 200,
     sent: false,
     payload: undefined,
+    streamBody: null,
+    ended: false,
     code(statusCode) {
       this.statusCode = statusCode;
       return this;
     },
     header(name, value) {
-      response.setHeader(name, normalizeHeaderValue(value));
+      response.setHeader(name, Array.isArray(value) ? value.map(String) : String(value));
       return this;
     },
     send(payload) {
@@ -58,380 +60,325 @@ function createReply(response) {
       this.payload = payload;
       return this;
     },
-  };
-}
-
-function validateSchema(schema, value) {
-  if (!schema) return null;
-  if (schema.type === "object") {
-    if (!value || typeof value !== "object" || Array.isArray(value)) return "body must be an object";
-    for (const key of schema.required || []) {
-      if (!Object.hasOwn(value, key)) return `body.${key} is required`;
-    }
-    if (schema.additionalProperties === false) {
-      const allowed = new Set(Object.keys(schema.properties || {}));
-      if (Object.keys(value).some((key) => !allowed.has(key))) return "body contains an unknown property";
-    }
-    for (const [key, rules] of Object.entries(schema.properties || {})) {
-      const current = value[key];
-      if (current === undefined) continue;
-      if (rules.type === "string" && typeof current !== "string") return `body.${key} must be a string`;
-      if (rules.type === "string" && rules.minLength !== undefined && current.length < rules.minLength) return `body.${key} is too short`;
-      if (rules.type === "string" && rules.maxLength !== undefined && current.length > rules.maxLength) return `body.${key} is too long`;
-    }
-  }
-  return null;
-}
-
-function routePath(prefix, route) {
-  const left = prefix.replace(/\/$/, "");
-  const right = route.startsWith("/") ? route : `/${route}`;
-  return `${left}${right}` || "/";
-}
-
-function isWithin(parent, child) {
-  return child === parent || child.startsWith(`${parent}${path.sep}`);
-}
-
-function makeSecurityHeaders(response, { production, requestId }) {
-  response.setHeader("x-request-id", requestId);
-  response.setHeader("x-content-type-options", "nosniff");
-  response.setHeader("x-frame-options", "DENY");
-  response.setHeader("referrer-policy", "no-referrer");
-  response.setHeader("permissions-policy", "camera=(), microphone=(), geolocation=()");
-  response.setHeader("cross-origin-opener-policy", "same-origin");
-  response.setHeader("content-security-policy", [
-    "default-src 'self'",
-    "base-uri 'self'",
-    "object-src 'none'",
-    "frame-ancestors 'none'",
-    "form-action 'self'",
-    "script-src 'self'",
-    "style-src 'self'",
-    "img-src 'self' data:",
-    "font-src 'self' data:",
-    "connect-src 'self'",
-    "manifest-src 'self'",
-    "worker-src 'self'",
-  ].join("; "));
-  if (production) response.setHeader("strict-transport-security", "max-age=31536000; includeSubDomains");
-}
-
-function createRateLimiter() {
-  const buckets = new Map();
-  return (key, { max, windowMs }, now = Date.now()) => {
-    let bucket = buckets.get(key);
-    if (!bucket || now >= bucket.resetAt) {
-      bucket = { count: 0, resetAt: now + windowMs };
-      buckets.set(key, bucket);
-    }
-    bucket.count += 1;
-    if (buckets.size > 10_000) {
-      for (const [bucketKey, entry] of buckets) {
-        if (now >= entry.resetAt) buckets.delete(bucketKey);
-      }
-    }
-    return bucket.count <= max ? 0 : Math.max(1, Math.ceil((bucket.resetAt - now) / 1000));
-  };
-}
-
-async function readJsonBody(request) {
-  const contentLength = Number(request.headers["content-length"] || 0);
-  if (Number.isFinite(contentLength) && contentLength > BODY_LIMIT) {
-    throw new HttpError(413, "BODY_TOO_LARGE", "The request body is too large");
-  }
-  const chunks = [];
-  let size = 0;
-  for await (const chunk of request) {
-    size += chunk.length;
-    if (size > BODY_LIMIT) throw new HttpError(413, "BODY_TOO_LARGE", "The request body is too large");
-    chunks.push(chunk);
-  }
-  if (size === 0) return undefined;
-  const contentType = String(request.headers["content-type"] || "").split(";")[0].trim().toLowerCase();
-  if (contentType !== "application/json") {
-    throw new HttpError(415, "UNSUPPORTED_MEDIA_TYPE", "API requests must use application/json");
-  }
-  try {
-    return JSON.parse(Buffer.concat(chunks).toString("utf8"));
-  } catch {
-    throw new HttpError(400, "INVALID_JSON", "The request body is not valid JSON");
-  }
-}
-
-function ipAddress(request, trustProxy) {
-  if (trustProxy) {
-    const forwarded = request.headers["x-forwarded-for"];
-    if (typeof forwarded === "string" && forwarded.length < 512) {
-      const candidate = forwarded.split(",")[0].trim();
-      if (candidate) return candidate;
-    }
-  }
-  return request.socket.remoteAddress || "unknown";
-}
-
-function writeJson(response, statusCode, body, headOnly = false) {
-  response.statusCode = statusCode;
-  if (!response.hasHeader("content-type")) response.setHeader("content-type", "application/json; charset=utf-8");
-  const data = body === undefined ? "" : JSON.stringify(body);
-  if (data) response.setHeader("content-length", Buffer.byteLength(data));
-  if (headOnly || statusCode === 204 || statusCode === 304) return response.end();
-  response.end(data);
-}
-
-function staticAssetPath(publicRoot, pathname) {
-  let decoded;
-  try {
-    decoded = decodeURIComponent(pathname);
-  } catch {
-    return null;
-  }
-  if (decoded.includes("\\") || decoded.includes("\0")) return null;
-  const segments = decoded.split("/").filter(Boolean);
-  if (segments.some((segment) => segment === "." || segment === ".." || segment.startsWith("."))) return null;
-  const relative = segments.join(path.sep) || "index.html";
-  const absolute = path.resolve(publicRoot, relative);
-  return isWithin(publicRoot, absolute) ? absolute : null;
-}
-
-async function resolveStaticFile(publicRoot, pathname, allowSpaFallback) {
-  const publicRealPath = await realpath(publicRoot).catch(() => null);
-  if (!publicRealPath) return null;
-  const candidate = staticAssetPath(publicRealPath, pathname);
-  if (!candidate) return null;
-  let targetRealPath = await realpath(candidate).catch(() => null);
-  if (targetRealPath) {
-    const initialDetails = await stat(targetRealPath).catch(() => null);
-    if (initialDetails?.isDirectory()) {
-      targetRealPath = await realpath(path.join(targetRealPath, "index.html")).catch(() => null);
-    }
-  }
-  if (!targetRealPath && allowSpaFallback) {
-    targetRealPath = await realpath(path.join(publicRealPath, "app", "index.html")).catch(() => null);
-  }
-  if (!targetRealPath || !isWithin(publicRealPath, targetRealPath)) return null;
-  const details = await stat(targetRealPath).catch(() => null);
-  if (!details?.isFile()) return null;
-  return { filePath: targetRealPath, details };
-}
-
-async function serveStatic(request, response, publicRoot, pathname, headOnly) {
-  const accept = String(request.headers.accept || "");
-  const appEntry = pathname === "/app" || pathname === "/app/";
-  const appHtmlRoute = pathname.startsWith("/app/") && accept.includes("text/html");
-  const asset = await resolveStaticFile(publicRoot, pathname, appEntry || appHtmlRoute);
-  if (!asset) return false;
-  const extension = path.extname(asset.filePath).toLowerCase();
-  const type = MIME_TYPES[extension];
-  if (!type) return false;
-  const { filePath, details } = asset;
-  const etag = `W/\"${details.size.toString(16)}-${Math.trunc(details.mtimeMs).toString(16)}\"`;
-  response.statusCode = 200;
-  response.setHeader("content-type", type);
-  response.setHeader("content-length", details.size);
-  response.setHeader("last-modified", details.mtime.toUTCString());
-  response.setHeader("etag", etag);
-  const isHtml = extension === ".html";
-  const isServiceWorker = pathname === "/service-worker.js";
-  const isManifest = pathname === "/manifest.webmanifest";
-  const hashedAsset = /[.-][a-f0-9]{8,}[.-]/i.test(pathname);
-  response.setHeader("cache-control", isHtml || isServiceWorker || isManifest
-    ? "no-cache"
-    : hashedAsset ? "public, max-age=31536000, immutable" : "public, max-age=3600");
-  if (request.headers["if-none-match"] === etag) {
-    response.statusCode = 304;
-    response.removeHeader("content-length");
-    response.end();
-    return true;
-  }
-  if (headOnly) {
-    response.end();
-    return true;
-  }
-  await new Promise((resolve, reject) => {
-    const stream = createReadStream(filePath);
-    stream.once("error", reject);
-    response.once("finish", resolve);
-    response.once("close", resolve);
-    stream.pipe(response);
-  });
-  return true;
-}
-
-function errorBody(code, message) {
-  return { error: { code, message } };
-}
-
-export async function buildApp({ config, store, logger = true, publicDir = path.join(process.cwd(), "public") }) {
-  const routes = [];
-  const checkRateLimit = createRateLimiter();
-  const log = {
-    info(fields, message) {
-      if (logger) console.info(JSON.stringify({ level: "info", message, ...fields }));
+    /** Streams a file body; the pipeline pipes it and ends the response. */
+    stream(readable) {
+      this.sent = true;
+      this.streamBody = readable;
+      return this;
     },
-    error(fields, message) {
-      if (logger) console.error(JSON.stringify({ level: "error", message, ...fields }));
+    /** Terminates the response directly (redirects, file downloads). */
+    end(data) {
+      this.sent = true;
+      this.ended = true;
+      if (data !== undefined) response.end(data);
+      else response.end();
+      return this;
     },
   };
+}
 
-  function addRoute(method, url, options, handler) {
-    if (typeof options === "function") {
-      handler = options;
-      options = {};
+/**
+ * Builds the module-facing `app` object: declarative route registration plus a
+ * shared log, mirroring the Fastify-style API the modules were written against
+ * while staying entirely inside Node core.
+ */
+export function createRegistrarFor(router, log) {
+  const makeScoped = (prefix) => {
+    const registrar = { log };
+    for (const method of SUPPORTED_METHODS) {
+      registrar[method.toLowerCase()] = (url, options, handler) => {
+        const target = typeof options === "function" ? {} : options || {};
+        const fn = typeof options === "function" ? options : handler;
+        router.add(method, prefix ? path.posix.join(prefix, url) : url, target, fn);
+      };
     }
-    if (!url.startsWith("/")) throw new TypeError("Routes must start with /");
-    if (routes.some((route) => route.method === method && route.url === url)) {
-      throw new Error(`Duplicate route: ${method} ${url}`);
-    }
-    routes.push({ method, url, options: options || {}, handler });
-  }
-
-  const registrar = {
-    get(url, options, handler) { addRoute("GET", url, options, handler); },
-    post(url, options, handler) { addRoute("POST", url, options, handler); },
+    return registrar;
   };
-  const app = {
-    ...registrar,
+
+  const root = makeScoped("");
+  return {
+    ...root,
     log,
     async register(plugin, options = {}) {
-      const prefix = options.prefix || "";
-      const scoped = {
-        get(url, routeOptions, handler) {
-          addRoute("GET", routePath(prefix, url), routeOptions, handler);
-        },
-        post(url, routeOptions, handler) {
-          addRoute("POST", routePath(prefix, url), routeOptions, handler);
-        },
-      };
+      const scoped = makeScoped(options.prefix || "");
       await plugin(scoped, options);
       return this;
     },
   };
+}
 
-  await app.register(healthRoutes, { prefix: API_PREFIX, store });
-  await app.register(authRoutes, { prefix: API_PREFIX, store, config });
+export async function buildApp({ config, store, logger = true, publicDir = path.join(process.cwd(), "public"), adapter = store?.adapter || null }) {
+  const router = createRouter();
+  const app = createRegistrarFor(router, createLogger(config, logger));
+  const rateLimiter = createRateLimiter({ maxEntries: config.rateLimit?.maxEntries ?? 20_000 });
+  const loginGuard = createLoginGuard({
+    maxFailures: config.rateLimit?.lockout?.failures ?? 5,
+    lockMs: config.rateLimit?.lockout?.lockMs ?? 900_000,
+  });
 
-  const server = createServer(async (incoming, outgoing) => {
+  await app.register(healthRoutes, { prefix: "/api/v1", store, config, adapter, router });
+  if (config.auth !== false) {
+    await app.register(identityRoutes, { prefix: "/api/v1", store, config, loginGuard });
+  }
+  for (const extra of config.modules || []) await app.register(extra, { prefix: "/api/v1", store, config, loginGuard });
+
+  /** Compatibility alias for the pre-pagination admin surface. */
+  app.get("/api/v1/admin/identity/users", { preHandler: [createAuthenticatorLazy(store, config, "identity.users.view")] }, async () => ({
+    users: await store.listUsers(100),
+    deprecated: "Use GET /api/v1/admin/users, which supports search, sort and pagination.",
+  }));
+
+  const server = createServer((incoming, outgoing) => {
+    handle(incoming, outgoing).catch((error) => {
+      app.log.error({ errorCode: error?.code || "UNEXPECTED_REQUEST_FAILURE" }, "Request pipeline failed outside the handler");
+      if (!outgoing.headersSent) writeJson(outgoing, 500, { error: { code: "INTERNAL_ERROR", message: "An unexpected error occurred" } });
+      else outgoing.destroy();
+    });
+  });
+  server.requestTimeout = config.requestTimeoutMs ?? 20_000;
+  server.headersTimeout = Math.min(10_000, config.requestTimeoutMs ?? 20_000);
+  server.keepAliveTimeout = 5_000;
+  server.maxHeadersCount = 100;
+
+  async function handle(incoming, outgoing) {
+    const startedAt = process.hrtime.bigint();
     const requestId = randomUUID();
-    makeSecurityHeaders(outgoing, { production: config.production, requestId });
+    securityHeaders(outgoing, { production: config.production, requestId, contentSecurityPolicy: config.contentSecurityPolicy });
+    const method = incoming.method === "HEAD" ? "GET" : incoming.method;
     const headOnly = incoming.method === "HEAD";
-    const method = headOnly ? "GET" : incoming.method;
-    const originHost = incoming.headers.host || "localhost";
     let parsedUrl;
     try {
-      parsedUrl = new URL(incoming.url || "/", `http://${originHost}`);
+      parsedUrl = new URL(incoming.url || "/", `http://${incoming.headers.host || "localhost"}`);
     } catch {
-      writeJson(outgoing, 400, errorBody("INVALID_REQUEST", "The request target is invalid"), headOnly);
+      writeJson(outgoing, 400, { error: { code: "INVALID_REQUEST", message: "The request target is invalid" } }, headOnly);
       return;
     }
     const pathname = parsedUrl.pathname;
 
-    if (!pathname.startsWith(API_PREFIX)) {
+    const isApi = pathname.startsWith("/api/");
+    if (!isApi) {
       if (!["GET", "HEAD"].includes(incoming.method)) {
         outgoing.setHeader("allow", "GET, HEAD");
-        writeJson(outgoing, 405, errorBody("METHOD_NOT_ALLOWED", "This resource only supports GET and HEAD"), headOnly);
+        writeJson(outgoing, 405, { error: { code: "METHOD_NOT_ALLOWED", message: "This resource only supports GET and HEAD" } }, headOnly);
         return;
       }
       try {
-        const served = await serveStatic(incoming, outgoing, publicDir, pathname, headOnly);
-        if (served) return;
+        const served = await serveStatic(incoming, outgoing, {
+          publicRoot: publicDir,
+          pathname,
+          headOnly,
+          denyPrefixes: DEFAULT_DENY_PREFIXES,
+          spaFallback: (candidate, accept) => candidate === "/app" || candidate === "/app/" || (candidate.startsWith("/app/") && accept.includes("text/html")),
+        });
+        if (!served) writeJson(outgoing, 404, { error: { code: "NOT_FOUND", message: "The requested resource was not found" } }, headOnly);
+        logRequest({ incoming, outgoing, requestId, startedAt, pathname, method, status: outgoing.statusCode, kind: "static" });
       } catch (error) {
-        log.error({ requestId, errorCode: error?.code || "STATIC_ERROR" }, "Static response failed");
-        if (outgoing.headersSent) {
-          outgoing.destroy();
-          return;
-        }
-        writeJson(outgoing, 500, errorBody("INTERNAL_ERROR", "An unexpected error occurred"), headOnly);
-        return;
+        app.log.error({ requestId, errorCode: error?.code || "STATIC_ERROR" }, "Static response failed");
+        if (outgoing.headersSent) outgoing.destroy();
+        else writeJson(outgoing, 500, { error: { code: "INTERNAL_ERROR", message: "An unexpected error occurred" } }, headOnly);
       }
-      writeJson(outgoing, 404, errorBody("NOT_FOUND", "The requested resource was not found"), headOnly);
       return;
     }
 
     outgoing.setHeader("cache-control", "no-store");
-    const crossSiteMutation = !["GET", "HEAD", "OPTIONS"].includes(incoming.method)
-      && incoming.headers["sec-fetch-site"] === "cross-site";
-    if (crossSiteMutation) {
-      writeJson(outgoing, 403, errorBody("ORIGIN_INVALID", "The request origin is not allowed"), headOnly);
-      return;
-    }
-    const client = ipAddress(incoming, config.trustProxy);
-    const route = routes.find((candidate) => candidate.method === method && candidate.url === pathname);
-    const globalWait = checkRateLimit(`api:${client}`, { max: 120, windowMs: 60_000 });
-    if (globalWait) {
-      outgoing.setHeader("retry-after", String(globalWait));
-      writeJson(outgoing, 429, errorBody("RATE_LIMITED", "Too many requests"), headOnly);
-      return;
-    }
-    if (!route) {
-      writeJson(outgoing, 404, errorBody("NOT_FOUND", "The requested resource was not found"), headOnly);
-      return;
-    }
-    const routeLimit = route.options?.config?.rateLimit;
-    if (routeLimit) {
-      const wait = checkRateLimit(`route:${route.url}:${client}`, {
-        max: routeLimit.max,
-        windowMs: routeLimit.timeWindow,
-      });
-      if (wait) {
-        outgoing.setHeader("retry-after", String(wait));
-        writeJson(outgoing, 429, errorBody("RATE_LIMITED", "Too many requests"), headOnly);
-        return;
-      }
-    }
+    const client = clientAddress(incoming, config.trustProxy);
+    const request = buildRequest(incoming, { requestId, client, parsedUrl });
+    const reply = createReply(outgoing);
 
-    let body;
     try {
-      if (method !== "GET" && method !== "HEAD") body = await readJsonBody(incoming);
-      const validationError = validateSchema(route.options?.schema?.body, body);
-      if (validationError) throw new HttpError(400, "INVALID_REQUEST", "Request validation failed");
-      const hostname = new URL(`http://${originHost}`).hostname;
-      const protocolHeader = config.trustProxy && typeof incoming.headers["x-forwarded-proto"] === "string"
-        ? incoming.headers["x-forwarded-proto"].split(",")[0].trim()
-        : null;
-      const request = Object.assign(incoming, {
-        body,
-        hostname,
-        protocol: protocolHeader || (incoming.socket.encrypted ? "https" : "http"),
-        log: { error: (fields, message) => log.error({ requestId, ...fields }, message) },
-      });
-      const reply = createReply(outgoing);
-      for (const preHandler of route.options?.preHandler || []) {
+      const cors = resolveCors(request, config);
+      if (!cors.allowed) throw AppError.forbidden("The request origin is not allowed", { code: "ORIGIN_INVALID" });
+      if (cors.origin) applyCorsHeaders(outgoing, cors.origin);
+      if (method === "OPTIONS") {
+        outgoing.statusCode = 204;
+        outgoing.end();
+        return logRequest({ incoming, outgoing, requestId, startedAt, pathname, method, status: 204, kind: "api" });
+      }
+      if (isCrossSiteMutation(incoming, config)) {
+        throw AppError.forbidden("The request origin is not allowed", { code: "ORIGIN_INVALID" });
+      }
+
+      if (config.rateLimit.enabled !== false) {
+        const wait = rateLimiter.check(`api:${client}`, config.rateLimit.api ?? { max: 120, windowMs: 60_000 });
+        if (wait) throw AppError.tooManyRequests("Too many requests", { retryAfter: wait });
+      }
+
+      const match = router.find(method, pathname);
+      if (!match) throw AppError.notFound();
+      if (match.methodMismatch) {
+        outgoing.setHeader("allow", match.allowed.join(", "));
+        throw new AppError(405, "METHOD_NOT_ALLOWED", "This resource does not support that method");
+      }
+      const { route, params } = match;
+      request.params = params;
+      request.route = route;
+
+      if (route.options?.config?.rateLimit && config.rateLimit.enabled !== false) {
+        const limit = route.options.config.rateLimit;
+        const wait = rateLimiter.check(`route:${route.path}:${client}`, { max: limit.max, windowMs: limit.windowMs ?? limit.timeWindow });
+        if (wait) throw AppError.tooManyRequests("Too many requests", { retryAfter: wait });
+      }
+
+      await readRequestBody(request, route, config);
+
+      const validation = validateRequest({ bodySchema: route.options?.bodySchema, querySchema: route.options?.querySchema, paramsSchema: route.options?.paramsSchema }, request);
+      if (validation.issues.length) {
+        throw AppError.badRequest(validationMessage(validation.issues), {
+          code: "INVALID_REQUEST",
+          details: validationDetails(validation.issues),
+        });
+      }
+      request.body = validation.value.body;
+      request.query = validation.value.query;
+      request.params = { ...request.params, ...validation.value.params };
+
+      for (const preHandler of (route.options?.preHandler || []).flat()) {
         await preHandler(request, reply);
         if (reply.sent) break;
       }
+      if (reply.ended) return logRequest({ incoming, outgoing, requestId, startedAt, pathname, method, status: reply.statusCode, kind: "api" });
+
       if (!reply.sent) {
         const result = await route.handler(request, reply);
-        if (!reply.sent) reply.send(result);
+        // A handler may reply through `reply.send()`/`reply.stream()` and return
+        // the reply itself; only adopt a returned value when nothing was sent.
+        if (!reply.sent && result !== reply) reply.send(result);
       }
-      if (reply.sent) {
-        const payload = reply.payload;
-        if (payload === undefined) {
+
+      if (reply.streamBody) {
+        await new Promise((resolve, reject) => {
+          reply.streamBody.once("error", reject);
+          outgoing.once("finish", resolve);
+          outgoing.once("close", resolve);
+          if (headOnly) {
+            reply.streamBody.destroy();
+            outgoing.end();
+            return;
+          }
+          reply.streamBody.pipe(outgoing);
+        });
+      } else if (!reply.ended && !outgoing.writableEnded) {
+        if (reply.payload === undefined) {
           outgoing.statusCode = reply.statusCode;
           outgoing.end();
         } else {
-          writeJson(outgoing, reply.statusCode, payload, headOnly);
+          writeJson(outgoing, reply.statusCode, reply.payload, headOnly);
         }
       }
+      logRequest({ incoming, outgoing, requestId, startedAt, pathname, method, status: outgoing.statusCode, kind: "api" });
     } catch (error) {
-      const status = error instanceof HttpError ? error.statusCode : 500;
-      const code = error instanceof HttpError ? error.code : "INTERNAL_ERROR";
-      const message = error instanceof HttpError ? error.message
-        : status < 500 ? "Request was rejected" : "An unexpected error occurred";
-      if (status >= 500) log.error({ requestId, errorCode: error?.code || "INTERNAL_ERROR" }, "Request failed");
-      writeJson(outgoing, status, errorBody(code, message), headOnly);
+      const normalized = error instanceof AppError ? error : normalizeError(error);
+      const statusCode = normalized.statusCode || 500;
+      outgoing.statusCode = statusCode;
+      if (normalized.retryAfter) outgoing.setHeader("retry-after", String(normalized.retryAfter));
+      if (statusCode >= 500) {
+        app.log.error({
+          requestId,
+          errorCode: normalized.internalCode || normalized.code,
+          cause: normalized.cause?.code || undefined,
+          path: pathname,
+          // Stack traces are never emitted in production: they leak absolute paths.
+          stack: config.production ? undefined : (error?.stack || normalized.stack),
+        }, "Request failed");
+      } else if (statusCode === 401 || statusCode === 403) {
+        app.log.info({ requestId, code: normalized.code, path: pathname }, "Request rejected by security policy");
+      }
+      if (outgoing.headersSent && statusCode >= 500) {
+        outgoing.destroy();
+        return;
+      }
+      writeJson(outgoing, statusCode, normalized.toBody?.() || { error: { code: normalized.code, message: normalized.message } }, headOnly);
+      logRequest({ incoming, outgoing, requestId, startedAt, pathname, method, status: statusCode, kind: "api", errorCode: normalized.code });
     }
-  });
-  server.requestTimeout = 20_000;
-  server.headersTimeout = 10_000;
-  server.keepAliveTimeout = 5_000;
-  server.maxHeadersCount = 100;
+  }
+
+  function buildRequest(incoming, { requestId, client, parsedUrl }) {
+    const protocol = config.trustProxy && typeof incoming.headers["x-forwarded-proto"] === "string"
+      ? String(incoming.headers["x-forwarded-proto"].split(",")[0]).trim()
+      : null;
+    const query = Object.create(null);
+    for (const [key, value] of parsedUrl.searchParams) {
+      if (Object.hasOwn(query, key)) query[key] = Array.isArray(query[key]) ? [...query[key], value] : [query[key], value];
+      else query[key] = value;
+    }
+    return Object.assign(incoming, {
+      requestId,
+      clientAddress: client,
+      params: Object.create(null),
+      query,
+      body: undefined,
+      rawBody: Buffer.alloc(0),
+      upload: null,
+      hostname: new URL(`http://${incoming.headers.host || "localhost"}`).hostname,
+      protocol: protocol || (incoming.socket.encrypted ? "https" : "http"),
+      log: {
+        info: (fields, message) => app.log.info({ requestId, ...fields }, message),
+        warn: (fields, message) => app.log.warn({ requestId, ...fields }, message),
+        error: (fields, message) => app.log.error({ requestId, ...fields }, message),
+      },
+    });
+  }
+
+  function logRequest({ requestId, startedAt, pathname, method, status, kind, errorCode }) {
+    if (config.logLevel === "silent") return;
+    const durationMs = Number(process.hrtime.bigint() - startedAt) / 1e6;
+    const level = status >= 500 ? "error" : "info";
+    app.log[level](
+      { requestId, kind, method, path: pathname, status, durationMs: Math.round(durationMs * 100) / 100, errorCode: errorCode || undefined },
+      "request",
+    );
+  }
+
+  async function readRequestBody(request, route, config) {
+    const method = request.method;
+    if (["GET", "HEAD", "OPTIONS"].includes(method)) return;
+    const declaredLength = Number(request.headers["content-length"] || 0);
+    if (!Number.isFinite(declaredLength) ? false : declaredLength === 0) {
+      request.body = undefined;
+      return;
+    }
+    const limit = route.options?.config?.multipart ? config.uploads.bodyLimitBytes : config.bodyLimitBytes;
+    const { buffer } = await readRawBody(request, limit);
+    request.rawBody = buffer;
+    const type = contentTypeOf(request);
+    if (type === "application/json" || type === "text/json") {
+      request.body = parseJsonBody(buffer, { required: false });
+      return;
+    }
+    if (type === "application/x-www-form-urlencoded") {
+      request.body = parseFormBody(buffer);
+      return;
+    }
+    if (type === "multipart/form-data") {
+      if (!route.options?.config?.multipart) {
+        throw AppError.unsupportedMediaType("This endpoint does not accept multipart uploads");
+      }
+      const { fields, files } = parseMultipart(buffer, boundaryOf(request), { maxFileBytes: config.uploads.maxBytes });
+      request.body = fields;
+      request.upload = { fields, file: files[0] || null, files };
+      return;
+    }
+    if (buffer.length === 0) return;
+    // Direct binary uploads (avatar PUT-style) are accepted only where declared.
+    if (route.options?.config?.multipart && type.startsWith("image/")) {
+      request.upload = { fields: {}, file: { field: "avatar", filename: null, contentType: type, data: buffer }, files: [{ field: "avatar", data: buffer }] };
+      return;
+    }
+    throw AppError.unsupportedMediaType("API requests must use application/json, x-www-form-urlencoded or multipart/form-data");
+  }
 
   let listening = false;
   let listenPromise = null;
   const api = {
     server,
-    log,
+    log: app.log,
+    config,
+    store,
+    adapter,
+    router,
+    loginGuard,
+    rateLimiter,
+    routes: () => router.list(),
     async listen({ host = config.host, port = config.port } = {}) {
       if (listening) return server.address();
       if (listenPromise) return listenPromise;
@@ -462,7 +409,11 @@ export async function buildApp({ config, store, logger = true, publicDir = path.
       const requestHeaders = new Headers(headers);
       let body;
       if (payload !== undefined) {
-        body = typeof payload === "string" || Buffer.isBuffer(payload) ? payload : JSON.stringify(payload);
+        if (Buffer.isBuffer(payload)) body = payload;
+        else if (typeof payload === "string") body = payload;
+        else body = JSON.stringify(payload);
+        // A default JSON content type mirrors a browser fetch; tests that need to
+        // exercise content-type negotiation set the header explicitly.
         if (!requestHeaders.has("content-type")) requestHeaders.set("content-type", "application/json");
       }
       const response = await fetch(`http://127.0.0.1:${address.port}${url}`, {
@@ -476,18 +427,23 @@ export async function buildApp({ config, store, logger = true, publicDir = path.
         const cookies = response.headers.getSetCookie();
         if (cookies.length) responseHeaders["set-cookie"] = cookies.length === 1 ? cookies[0] : cookies;
       }
-      const responseBody = await response.text();
+      const responseBody = await response.arrayBuffer();
+      const text = Buffer.from(responseBody).toString("utf8");
       return {
         statusCode: response.status,
         headers: responseHeaders,
-        body: responseBody,
-        json() { return responseBody ? JSON.parse(responseBody) : null; },
+        body: text,
+        buffer: Buffer.from(responseBody),
+        json() {
+          return text ? JSON.parse(text) : null;
+        },
       };
     },
     async close() {
       if (!listening) return;
+      server.closeIdleConnections?.();
       await new Promise((resolve, reject) => {
-        server.close((error) => error ? reject(error) : resolve());
+        server.close((error) => (error ? reject(error) : resolve()));
       });
       listening = false;
       listenPromise = null;
@@ -495,3 +451,62 @@ export async function buildApp({ config, store, logger = true, publicDir = path.
   };
   return api;
 }
+
+/**
+ * Client address used for rate limiting. `x-forwarded-for` is only trusted when
+ * TRUST_PROXY is explicitly enabled, otherwise a client could spoof around limits.
+ */
+export function clientAddress(request, trustProxy) {
+  if (trustProxy) {
+    const forwarded = request.headers["x-forwarded-for"];
+    if (typeof forwarded === "string" && forwarded.length < 512) {
+      const candidate = forwarded.split(",")[0].trim();
+      if (candidate && candidate.length <= 128) return candidate;
+    }
+  }
+  return request.socket?.remoteAddress || "unknown";
+}
+
+function createLogger(config, enabled) {
+  const levels = { fatal: 0, error: 1, warn: 2, info: 3, debug: 4, trace: 5, silent: -1 };
+  const threshold = levels[config.logLevel] ?? 3;
+  const emit = (level, fields, message) => {
+    if (!enabled || levels[level] > threshold) return;
+    const line = JSON.stringify({ level, time: new Date().toISOString(), message, ...fields });
+    if (level === "error" || level === "fatal") console.error(line);
+    else console.info(line);
+  };
+  return {
+    info: (fields, message) => emit("info", fields, message),
+    warn: (fields, message) => emit("warn", fields, message),
+    error: (fields, message) => emit("error", fields, message),
+    debug: (fields, message) => emit("debug", fields, message),
+    fatal: (fields, message) => emit("fatal", fields, message),
+    trace: (fields, message) => emit("trace", fields, message),
+  };
+}
+
+/**
+ * The compatibility alias needs the guards before the module list is built; it
+ * is resolved lazily so the authenticator shares the identity module's store.
+ */
+function createAuthenticatorLazy(store, config, permission) {
+  let inner = null;
+  const guard = async (request, reply) => {
+    if (!inner) {
+      const { createAuthenticator, requirePermission } = await import("./modules/platform/guards.js");
+      inner = async (req, rep) => {
+        await createAuthenticator({ store, config })(req, rep);
+        await requirePermission(permission, config)(req, rep);
+      };
+    }
+    await inner(request, reply);
+  };
+  // The route inventory is the parity ledger, so an inline guard has to declare its
+  // permission the same way `guarded(permission)` does — otherwise a protected route
+  // reads as unprotected in `GET /api/v1/system/routes`.
+  if (permission) guard.permission = permission;
+  return guard;
+}
+
+export { AppError };

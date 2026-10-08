@@ -13,15 +13,25 @@ test("health endpoints distinguish liveness from database/schema readiness", asy
   const live = await ready.app.inject({ method: "GET", url: "/api/v1/health/live" });
   const health = await ready.app.inject({ method: "GET", url: "/api/v1/health/ready" });
   assert.equal(live.statusCode, 200);
-  assert.deepEqual(live.json(), { status: "ok" });
+  // Liveness must stay cheap and truthful: uptime + runtime, no database probe.
+  assert.equal(live.json().status, "ok");
+  assert.match(live.json().node, /^22\./);
   assert.equal(health.statusCode, 200);
-  assert.deepEqual(health.json(), { status: "ready", database: true, schema: true });
+  // A non-production adapter is announced as such instead of pretending to be ready.
+  assert.deepEqual(health.json(), { status: "ready", database: true, schema: true, adapter: "test", durability: "development-only" });
 
-  const unready = await createTestApp({ readiness: { database: true, schema: false } });
+  const unready = await createTestApp({ readiness: { database: true, schema: false, adapter: "mysql", detail: "missing-schema" } });
   t.after(() => unready.app.close());
   const response = await unready.app.inject({ method: "GET", url: "/api/v1/health/ready" });
   assert.equal(response.statusCode, 503);
-  assert.deepEqual(response.json(), { status: "not_ready", database: true, schema: false });
+  assert.deepEqual(response.json(), {
+    status: "not_ready",
+    database: true,
+    schema: false,
+    adapter: "mysql",
+    detail: "missing-schema",
+    durability: "development-only",
+  });
 });
 
 test("login accepts legacy username, email, or six-digit UID and returns a secure opaque session", async (t) => {
@@ -76,7 +86,8 @@ test("invalid credentials use a generic response and are audited without storing
   assert.equal(response.statusCode, 401);
   assert.deepEqual(response.json(), { error: { code: "LOGIN_INVALID", message: "The supplied credentials are invalid" } });
   assert.equal(response.headers["set-cookie"], undefined);
-  assert.equal(audits[0].action, "auth.login.failed");
+  assert.equal(audits[0].action, "identity.login.failed");
+  assert.equal(audits[0].details.legacyAction, "LOGIN_FAILED");
   assert.equal(JSON.stringify(audits[0]).includes("unknown@example.test"), false);
 });
 

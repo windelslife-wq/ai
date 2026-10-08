@@ -16,17 +16,14 @@ A feasibility review of the target shape — dependency-light Node monolith, Van
 
 **2. Legacy passwords move to lazy rehash on next login.** `bcryptjs` is retained now and becomes removable only after the rollout completes. This is a **new feature that does not yet exist**; the following gaps were verified rather than assumed:
 
-- `grep -rn "needsRehash|rehash" src/` returns no matches.
-- `src/db/store.js` exposes exactly seven methods (`readiness`, `findUserByIdentifier`, `createSession`, `findSession`, `revokeSession`, `recordAudit`, `listUsers`); there is no `updatePasswordHash`.
-- `POST /auth/login` (`src/routes/auth.js`) verifies, creates a session and writes an audit event, but never writes back a new hash.
-
-Two facts make the change additive rather than destructive: `wf_users.password_hash` is already `VARCHAR(255) NOT NULL` (`src/db/migrations/001_platform_foundation.sql:16`), so a scrypt-formatted hash fits with **no schema migration**; and `verifyPassword` already normalizes PHP `$2y$` to `$2b$` before comparing (`src/security/passwords.js:13-14`), so legacy login works today. Remaining work: add `store.updatePasswordHash`, make `verifyPassword` return a `needsRehash` discriminator, write back on successful login, and cover it with tests.
+- `verifyPassword` normalizes PHP `$2y$` to `$2b$` before comparing, so legacy login works.
+- **Update (2026-10-09):** the store surface is no longer seven methods — `src/persistence/contract.js` defines 30, `updatePasswordHash` included, and both adapters implement it under contract assertion at boot. Lazy bcrypt→scrypt rehash remains **deliberately deferred**: re-hashing live credentials is a security decision that needs approval, a rollback path and its own tests. It is the only item from this list still open.
 
 ## Verified state of the foundation (2026-10-06)
 
 Re-run on Node v22.22.3 in this branch, not carried forward from an earlier claim:
 
-- `npm run check` (`apps/workforce-platform`): **43 passed, 0 failed**. These use deterministic test stores and do not prove real MySQL behavior.
+- `npm run check` (`apps/workforce-platform`): **43 passed, 0 failed** at that date. Replaced by the Phase 2 measurement below (85 tests). These use deterministic test stores and do not prove real MySQL behavior.
 - `npm run build` (`client/`): Vite transformed **16 modules** to `public/app/`, 231.19 kB JS / **72.20 kB gzip**. Build output is generated and git-ignored.
 - Live server on `0.0.0.0:3000`: `/`, `/manifest.webmanifest`, `/service-worker.js`, `/site.js`, `/styles.css`, `/robots.txt` all returned **200**; `/api/v1/health/live` **200**; `/api/v1/health/ready` **503** with `{"status":"not_ready","database":false,"schema":false}` in the absence of MySQL.
 - `public/index.html` contains **0** React references, confirming the public site is genuinely Vanilla JS.
@@ -36,6 +33,46 @@ Re-run on Node v22.22.3 in this branch, not carried forward from an earlier clai
 - Runtime production dependencies are exactly `bcryptjs@^3.0.2` and `mysql2@^3.24.5`; every other import in `server.js` and `src/` is `node:*` or local project code.
 
 Still outstanding and unchanged: only 7 API routes are ported (5 auth, 2 health) against 32 PHP controllers; no real MySQL server, production import, cPanel/Passenger host, native SDK build or traffic cutover has been exercised.
+
+---
+
+## Phase 2 — identity, accounts and the platform core (2026-10-09, branch `arena/c204b9d0-ai`)
+
+**This section supersedes the route counts, the dependency story and the "no storage
+adapter" gaps above.** Full record: [`PHASE2_IDENTITY.md`](PHASE2_IDENTITY.md); finding
+by finding: [`PHASE0_AUDIT_20261008.md`](PHASE0_AUDIT_20261008.md) §10.
+
+- **28 API routes** across identity, accounts, administration, health and the status
+  surface — listed by `GET /api/v1/system/routes`, mirrored in `docs/migration/ROUTE_MAP.md`.
+- **Storage adapters**: `STORAGE_ADAPTER=mysql|file|auto` behind one 30-method
+  repository contract, asserted before the server listens. The file adapter exists so
+  the platform runs where no database is reachable; it is refused in production unless
+  `ALLOW_FILE_STORE_IN_PRODUCTION=1` is set deliberately.
+- **Platform core rebuilt**: 7-verb router with path params and 405/`Allow`, full
+  validation with field-level issues, multipart + upload policy with signature sniffing,
+  exact-origin CORS, bounded rate limits with per-account lockout, `AppError` taxonomy
+  (dependency outage = 503 + `Retry-After`, never 500), request logging, fatal-error
+  handlers, static serving that distinguishes document/asset/SPA route.
+- **RBAC parity**: migration `003_account_management.sql` plus
+  `src/db/platform-baseline.js` seed the legacy 8 roles / 14 permissions including
+  `system.super_admin`; a test asserts the SQL and the code agree key for key.
+- **Operations**: `verify:install` (21 checks), `verify:data`, `seed:platform`,
+  `backup` / `restore` (sha256 manifest, `mysqldump --single-transaction`, password in a
+  `0600` defaults file), `migrate:status` / `migrate:dry-run`.
+- **Dependencies unchanged**: `mysql2` + `bcryptjs`, nothing else, no `devDependencies`;
+  tests are `node:test`. `.env.example` documents all 38 config variables and a check
+  keeps it true.
+
+Measured in this sandbox on 2026-10-09: **85** app tests passing, **367** legacy runtime
+tests passing, **21/21** install checks, `verify:data` exit 1 on an unseeded store and
+exit 0 after `seed:platform`, backup → verify → wipe → restore round trip proven by test.
+**Not** exercised: a real MySQL server, production data, a cPanel/Passenger host, any
+provider, any native build, any cutover.
+
+Unchanged and still true: the PHP application is the source of truth and the rollback
+target; `application-deployment.zip` remains stale and the deployment docs now say so;
+F-09/F-10 (PWA/SEO) belong to Phase 3; F-11/F-12 await approval-gated decisions; F-15
+cannot be closed without a staging database.
 
 
 ## Current implementation slice — foundation only

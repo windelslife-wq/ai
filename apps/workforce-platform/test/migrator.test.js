@@ -3,14 +3,14 @@ import assert from "node:assert/strict";
 import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { runMigrations, splitSqlStatements } from "../src/db/migrator.js";
+import { listMigrationFiles, migrationStatus, runMigrations, splitSqlStatements } from "../src/db/migrator.js";
 
 class FakeMigrationPool {
   constructor() { this.ledger = new Map(); this.statements = []; }
   async execute(sql, values = []) {
-    if (sql.startsWith("SELECT checksum")) {
-      const checksum = this.ledger.get(values[0]);
-      return [checksum ? [{ checksum }] : [], []];
+    if (sql.startsWith("SELECT migration_name, checksum, applied_at")) {
+      const entry = this.ledger.get(values[0]);
+      return [entry ? [{ migration_name: values[0], checksum: entry, applied_at: "2026-10-08 00:00:00.000" }] : [], []];
     }
     if (sql.startsWith("INSERT INTO wf_schema_migrations")) {
       this.ledger.set(values[0], values[1]);
@@ -62,4 +62,26 @@ test("identity parity migration creates its profile table idempotently", async (
   assert.match(statements[0], /FOREIGN KEY \(user_id\) REFERENCES wf_users\(id\)/);
   assert.match(statements[1], /CREATE TABLE IF NOT EXISTS wf_data_imports/);
   assert.match(statements[1], /source_checksum CHAR\(64\)/);
+});
+
+test("migration status reports pending, applied and drifted without writing", async (t) => {
+  const directory = await mkdtemp(join(tmpdir(), "wf-migration-status-"));
+  t.after(() => rm(directory, { recursive: true, force: true }));
+  await writeFile(join(directory, "001_first.sql"), "CREATE TABLE first_table (id INT);\n");
+  await writeFile(join(directory, "002_second.sql"), "CREATE TABLE second_table (id INT);\n");
+  const pool = new FakeMigrationPool();
+
+  const before = await migrationStatus(pool, directory);
+  assert.deepEqual(before.map((row) => [row.name, row.state]), [["001_first", "pending"], ["002_second", "pending"]]);
+  assert.equal(pool.ledger.size, 0, "status must not touch the ledger");
+
+  await runMigrations(pool, directory);
+  const after = await migrationStatus(pool, directory);
+  assert.deepEqual(after.map((row) => row.state), ["applied", "applied"]);
+  assert.equal(after[0].appliedAt, "2026-10-08 00:00:00.000");
+  assert.match(after[0].checksum, /^[a-f0-9]{64}$/);
+
+  await writeFile(join(directory, "002_second.sql"), "CREATE TABLE rewritten (id INT);\n");
+  assert.deepEqual((await migrationStatus(pool, directory)).map((row) => row.state), ["applied", "drifted"], "an edited applied migration is a host with unreproducible schema, and status must say so");
+  assert.deepEqual(await listMigrationFiles(directory), ["001_first.sql", "002_second.sql"]);
 });

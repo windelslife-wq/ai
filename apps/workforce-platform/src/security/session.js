@@ -27,6 +27,18 @@ export function readSessionCookie(header, cookieName) {
   return /^[A-Za-z0-9_-]{43}$/.test(value) ? value : null;
 }
 
+/**
+ * Native (Capacitor) clients cannot rely on cookies, so they present an opaque
+ * bearer token. The value shape is identical to a session token; the lookup is
+ * server-side and revocable, and the token is never stored in localStorage by
+ * the platform (see docs/native-auth.md).
+ */
+export function readBearerToken(header) {
+  if (typeof header !== "string") return null;
+  const match = /^Bearer[ \t]+([A-Za-z0-9_-]{43})$/i.exec(header.trim());
+  return match ? match[1] : null;
+}
+
 export function sessionCookie(cookieName, token, { maxAge, secure }) {
   const attributes = [
     `${cookieName}=${token}`,
