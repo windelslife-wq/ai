@@ -51,6 +51,7 @@ export async function createTestApp({ permissions = ["identity.users.view"], rea
   const sessions = new Map();
   const audits = [];
   const inquiries = [];
+  const analysisRuns = new Map();
   const passwordUpdates = [];
   const store = {
     adapter: "test",
@@ -130,6 +131,28 @@ export async function createTestApp({ permissions = ["identity.users.view"], rea
       rows.sort((a, b) => (String(a[column]).localeCompare(String(b[column])) || a.id - b.id) * factor);
       return { total: rows.length, inquiries: rows.slice(offset, offset + limit) };
     },
+    /**
+     * Mirrors the durable adapters: `saveAnalysisRun` upserts by id, the listing
+     * returns summaries newest first with no payload, and `findAnalysisRun`
+     * returns the stored payload (or null), which is what the route serves.
+     */
+    async saveAnalysisRun({ id, symbol, timeframe, bias, confidence, regime, recommendation, synthetic, source, completedAt, payload }) {
+      analysisRuns.set(String(id), {
+        id: String(id), symbol, timeframe, bias, confidence: Number(confidence), regime, recommendation,
+        synthetic: Boolean(synthetic), source, completedAt, payload: payload ?? null,
+      });
+      return { id: String(id), completedAt };
+    },
+    async listAnalysisRuns({ limit = 20 } = {}) {
+      const bounded = Math.min(Math.max(Number.parseInt(limit, 10) || 20, 1), 100);
+      return [...analysisRuns.values()]
+        .sort((a, b) => (String(b.completedAt).localeCompare(String(a.completedAt)) || String(a.id).localeCompare(String(b.id))))
+        .slice(0, bounded)
+        .map(({ payload, ...summary }) => summary);
+    },
+    async findAnalysisRun(id) {
+      return analysisRuns.get(String(id))?.payload ?? null;
+    },
     async listUsers() { return [{ id: 7, username: user.username, email: user.email, status: user.status }]; },
     async pageUsers() { return { total: 1, users: [{ id: 7, username: user.username, email: user.email, status: user.status }] }; },
     async listRoles() { return [{ id: 1, role_key: "platform_member", display_name: "Platform member" }]; },
@@ -137,7 +160,7 @@ export async function createTestApp({ permissions = ["identity.users.view"], rea
   };
   const config = testConfig();
   const app = await buildApp({ config, store, logger: false, publicDir });
-  return { app, store, sessions, audits, inquiries, user, passwordUpdates };
+  return { app, store, sessions, audits, inquiries, analysisRuns, user, passwordUpdates };
 }
 
 /**

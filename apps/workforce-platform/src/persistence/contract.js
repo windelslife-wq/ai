@@ -49,6 +49,10 @@ export const REPOSITORY_METHODS = Object.freeze([
   // public site (Phase 3): visitor contact intake
   "recordContactInquiry",
   "pageContactInquiries",
+  // analysis (Phase 5): persisted intelligence runs
+  "saveAnalysisRun",
+  "listAnalysisRuns",
+  "findAnalysisRun",
   // operational
   "readiness",
 ]);

@@ -31,6 +31,8 @@ import { siteRoutes } from "./modules/site/routes.js";
 import { createSiteDocuments } from "./modules/site/documents.js";
 import { marketDataRoutes } from "./modules/market-data/routes.js";
 import { createMarketDataService } from "./modules/market-data/service.js";
+import { analysisRoutes } from "./modules/analysis/routes.js";
+import { createAnalysisService } from "./modules/analysis/service.js";
 
 const JSON_TYPE = "application/json; charset=utf-8";
 
@@ -127,7 +129,12 @@ export async function buildApp({ config, store, logger = true, publicDir = path.
   // read the same instance rather than each building their own view of the world.
   const marketData = createMarketDataService({ config, store, log: app.log });
 
-  await app.register(healthRoutes, { prefix: "/api/v1", store, config, adapter, router, marketData });
+  // One analysis engine per app, built on that same market-data service: the engine
+  // reads provider provenance to decide how much to trust its own opinion, so it
+  // must see the same caches, breakers and provenance stamps as the API does.
+  const analysis = createAnalysisService({ store, marketData, log: app.log });
+
+  await app.register(healthRoutes, { prefix: "/api/v1", store, config, adapter, router, marketData, analysis });
   if (config.auth !== false) {
     await app.register(identityRoutes, { prefix: "/api/v1", store, config, loginGuard });
   }
@@ -135,6 +142,7 @@ export async function buildApp({ config, store, logger = true, publicDir = path.
   // transport consults before it falls back to static files.
   await app.register(siteRoutes, { prefix: "/api/v1", store, config });
   await app.register(marketDataRoutes, { prefix: "/api/v1", store, config, service: marketData });
+  await app.register(analysisRoutes, { prefix: "/api/v1", store, config, service: analysis });
   const siteDocuments = createSiteDocuments({ config, store, log: app.log, rateLimiter, publicDir });
   for (const extra of config.modules || []) await app.register(extra, { prefix: "/api/v1", store, config, loginGuard });
 

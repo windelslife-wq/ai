@@ -20,7 +20,7 @@ import { open, mkdir, readFile, rename, stat, writeFile } from "node:fs/promises
 import { createHash } from "node:crypto";
 import path from "node:path";
 
-const ENTITIES = ["users", "profiles", "sessions", "roles", "permissions", "userRoles", "rolePermissions", "audit", "inquiries"];
+const ENTITIES = ["users", "profiles", "sessions", "roles", "permissions", "userRoles", "rolePermissions", "audit", "inquiries", "analysisRuns"];
 const COMPACTION_ENTRIES = 2_000;
 const USERNAME_PATTERN = /^[a-z][a-z0-9_]{2,19}$/;
 
@@ -596,6 +596,50 @@ export async function createFileStore({ dir, logger = console, idFactory = () =>
           createdAt: row.created_at,
         })),
       };
+    },
+
+    // ---- analysis runs (Phase 5) ----------------------------------------
+    // Keyed by the run's own UUID, so `nextId` is not involved: the engine mints
+    // the identifier and the store only has to be able to find it again.
+    async saveAnalysisRun({ id, symbol, timeframe, bias, confidence, regime, recommendation, synthetic, source, completedAt, payload }) {
+      await mutate("analysisRuns", "upsert", {
+        id: String(id),
+        symbol,
+        timeframe,
+        bias,
+        confidence: Number(confidence),
+        regime,
+        recommendation,
+        synthetic: Boolean(synthetic),
+        source,
+        completed_at: completedAt,
+        payload: payload ?? null,
+      });
+      return { id: String(id), completedAt };
+    },
+
+    async listAnalysisRuns({ limit = 20 } = {}) {
+      const boundedLimit = Math.min(Math.max(Number.parseInt(limit, 10) || 20, 1), 100);
+      const rows = [...tables.get("analysisRuns").values()];
+      // ISO-8601 UTC strings sort chronologically as text; the id is the tie-break
+      // so two runs completed in the same millisecond keep a stable order.
+      rows.sort((a, b) => (String(b.completed_at).localeCompare(String(a.completed_at)) || String(a.id).localeCompare(String(b.id))));
+      return rows.slice(0, boundedLimit).map((row) => ({
+        id: row.id,
+        symbol: row.symbol,
+        timeframe: row.timeframe,
+        bias: row.bias,
+        confidence: Number(row.confidence),
+        regime: row.regime,
+        recommendation: row.recommendation,
+        synthetic: Boolean(row.synthetic),
+        source: row.source,
+        completedAt: row.completed_at,
+      }));
+    },
+
+    async findAnalysisRun(id) {
+      return tables.get("analysisRuns").get(String(id))?.payload ?? null;
     },
 
     // ---- profile files --------------------------------------------------

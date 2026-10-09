@@ -627,7 +627,7 @@ test("F-01 the durable file adapter replays its log, survives a torn write, and 
   const { total, events } = await reopened.listAuditEvents({ userId: user.id });
   assert.equal(total, 1);
   assert.equal(events[0].action, "identity.test");
-  assert.deepEqual(await reopened.stats(), { users: 1, profiles: 1, sessions: 1, roles: 0, permissions: 0, userRoles: 0, rolePermissions: 0, audit: 1, inquiries: 0 });
+  assert.deepEqual(await reopened.stats(), { users: 1, profiles: 1, sessions: 1, roles: 0, permissions: 0, userRoles: 0, rolePermissions: 0, audit: 1, inquiries: 0, analysisRuns: 0 });
 
   await reopened.compact();
   const compacted = (await readFile(fileStorePaths(dir).log, "utf8")).trim();
@@ -660,7 +660,7 @@ test("F-01 the file store and the SQL store implement one repository contract, s
     () => assertRepositoryContract({ adapter: "stub", capabilities: {}, readiness: async () => ({}) }, { adapter: "stub" }),
     /does not implement the repository contract.*findUserByIdentifier/s,
   );
-  assert.equal(REPOSITORY_METHODS.length, 32, "8 identity + 6 session + 9 RBAC + 2 admin + 4 audit/profile + 2 contact intake + 1 readiness");
+  assert.equal(REPOSITORY_METHODS.length, 35, "8 identity + 6 session + 9 RBAC + 2 admin + 4 audit/profile + 2 contact intake + 3 analysis runs + 1 readiness");
   assert.equal(file.adapter, "file");
   assert.equal(file.capabilities.durable, true);
   assert.equal(file.capabilities.transactions, false);
@@ -1001,9 +1001,15 @@ test("F-02 the status surface is honest about unported modules, and F-03 the rou
   assert.match(body.trading.reason, /not ported/i);
   assert.equal(body.modules.find((module) => module.key === "identity").state, "ported");
   assert.equal(body.modules.find((module) => module.key === "marketData").state, "ported", "market data was ported in Phase 4");
-  assert.equal(body.modules.filter((module) => module.state === "ported").length, 2, "only identity and market data may be claimed as ported");
+  assert.equal(body.modules.find((module) => module.key === "analysis").state, "ported", "the analysis engines were ported in Phase 5");
+  assert.equal(body.modules.filter((module) => module.state === "ported").length, 3, "only identity, market data and analysis may be claimed as ported");
   assert.equal(body.modules.find((module) => module.key === "audit").state, "partial");
-  assert.equal(body.modules.filter((module) => module.state === "not-ported").length, 11);
+  // Risk is partial, not ported: the veto gate lives inside analysis, while the
+  // kill-switch control surface and the portfolio snapshot are still legacy-only.
+  assert.equal(body.modules.find((module) => module.key === "risk").state, "partial");
+  assert.equal(body.modules.filter((module) => module.state === "partial").length, 3);
+  assert.equal(body.modules.filter((module) => module.state === "not-ported").length, 9);
+  assert.equal(body.modules.length, 15, "the ledger keeps listing every module, ported or not");
   // The public status surface carries a market-data snapshot that must not have
   // probed an external host to produce it.
   assert.ok(body.marketData && Array.isArray(body.marketData.providers), "status reports the provider registry");
@@ -1042,6 +1048,9 @@ test("F-02 the status surface is honest about unported modules, and F-03 the rou
   assert.equal(features.json().features.paperTrading, "not-ported");
   assert.equal(features.json().features.identity, "ported");
   assert.equal(features.json().features.marketData, "ported");
+  assert.equal(features.json().features.analysis, "ported");
+  assert.equal(features.json().features.risk, "partial");
+  assert.equal(features.json().features.execution, "not-ported", "analysis producing proposals must not imply an execution path");
   assert.match(features.json().honesty, /No module is reported as ready/i);
 });
 

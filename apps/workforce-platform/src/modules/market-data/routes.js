@@ -14,30 +14,9 @@
 
 import { AppError } from "../../http/errors.js";
 import { createAuthenticator } from "../platform/guards.js";
-import { CANDLE_QUERY, PROVIDERS_QUERY, QUOTE_QUERY, messages } from "./contracts.js";
+import { CANDLE_QUERY, PROVIDERS_QUERY, QUOTE_QUERY } from "./contracts.js";
+import { marketDataFailure } from "./errors.js";
 import { createMarketDataService } from "./service.js";
-
-const RETRY_AFTER_SECONDS = 30;
-
-function providerFailure(error) {
-  const failed = Array.isArray(error?.failedProviders) ? error.failedProviders : [];
-  const syntheticRefused = /synthetic data is refused/i.test(String(error?.message || ""));
-  return new AppError(
-    503,
-    syntheticRefused ? "SYNTHETIC_DATA_DISABLED" : "MARKET_DATA_UNAVAILABLE",
-    syntheticRefused ? messages.SYNTHETIC_REFUSED : messages.PROVIDER_UNAVAILABLE,
-    {
-      details: {
-        failedProviders: failed,
-        syntheticAllowed: !syntheticRefused,
-        // The provider's own words are the useful part of this failure: "Invalid
-        // symbol." beats a generic outage message when a caller typo'd a ticker.
-        reason: String(error?.message || error).slice(0, 240),
-      },
-      retryAfter: RETRY_AFTER_SECONDS,
-    },
-  );
-}
 
 export function marketDataRoutes(app, { store, config, service = null }) {
   const marketData = service || createMarketDataService({ config, store, log: app.log });
@@ -52,7 +31,7 @@ export function marketDataRoutes(app, { store, config, service = null }) {
     } catch (error) {
       if (error instanceof AppError) throw error;
       if (error?.statusCode === 400) throw AppError.badRequest(String(error.message));
-      throw providerFailure(error);
+      throw marketDataFailure(error);
     }
   });
 
@@ -65,7 +44,7 @@ export function marketDataRoutes(app, { store, config, service = null }) {
     } catch (error) {
       if (error instanceof AppError) throw error;
       if (error?.statusCode === 400) throw AppError.badRequest(String(error.message));
-      throw providerFailure(error);
+      throw marketDataFailure(error);
     }
   });
 
