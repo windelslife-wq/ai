@@ -281,6 +281,26 @@ every route lives under `/api/v1/analysis/*`; and no run can ever carry an appro
 engine is ported as a veto gate with the kill switch engaged at boot (§14.7 of
 `PHASE5_ANALYSIS.md`).
 
+**Cost controls added by the Phase 5 hardening pass (R-26 closed).** These two routes are the most
+expensive authenticated surface on the platform — one run is up to 8 upstream series, one scan up to 80 —
+so they carry limits the legacy routes never had:
+
+| Control | `POST /analysis/run` | `POST /analysis/consensus` | The three GET routes |
+|---|---|---|---|
+| Per-route window limit (`rateLimited` in the live inventory) | **12 / 10 min** per client address | **4 / 10 min** per client address | `false` — they read the store and cost no upstream calls |
+| Refusal | `429 RATE_LIMITED` + `Retry-After` | `429 RATE_LIMITED` + `Retry-After` | — |
+| Per-session in-flight cap | **2** slots (`ANALYSIS_MAX_CONCURRENT_RUNS`, `0` disables) | **1** slot for the whole scan, not one per symbol | — |
+| Cap refusal | `429 TOO_MANY_CONCURRENT_ANALYSES` + `Retry-After: 1` | same | — |
+
+The window limit is charged **before** body validation, so a malformed request still costs budget and the
+contract cannot be hammered for free. The cap is keyed by **session**, not address, so a shared office NAT
+cannot let one colleague's scan starve another's — the reasoning that keeps login lockout per account — and
+its slot is released in `finally`, so a run that throws cannot lock a session out. `RATE_LIMITED` and
+`TOO_MANY_CONCURRENT_ANALYSES` are distinct codes because the client's remedy differs: slow down, versus
+wait for the run you already started. These are per **process**, so N Passenger workers each get their own
+(F-24). **No route was added or removed:** retention is CLI-only, and a test asserts this module registers
+no `DELETE` verb at all.
+
 5 + 7 + 11 + 6 + 1 + 3 + 5 = **38** routes, matching the `count` the live inventory reports.
 
 ## 15. Node rendered document routes (22)

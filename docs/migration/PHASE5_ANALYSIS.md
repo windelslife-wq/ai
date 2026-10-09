@@ -6,16 +6,18 @@ data, enables live trading or deletes legacy code (master plan §11, §13).
 
 | | |
 |---|---|
-| App version | `@windels/workforce-platform` **0.5.0 → 0.6.0** |
+| App version | `@windels/workforce-platform` **0.5.0 → 0.6.0 → 0.6.1** (the patch release is the hardening pass, §13) |
 | New source | **3 369 lines** — `src/modules/analysis/**` (1 854) + `src/modules/analysis/agents/**` (1 331) + `src/db/analysis-repository.js`, `src/db/migrations/005_analysis_runs.sql`, `src/modules/market-data/errors.js` (184) |
-| New tests | **2 178 lines, 95 tests** — `test/analysis.test.js` (71, pure layer) + `test/analysis_http.test.js` (24, engine/HTTP/persistence/status) |
-| App suite | **235 tests / 15 files, 235 passed, 0 failed** (~36 s) |
-| Installation checks | `npm run verify:install` **30/30** (53 documented env vars — unchanged; this phase adds no configuration) |
-| Legacy oracle | `node runtime/run-tests.mjs` **367 passed, 0 failed** in 19.3 s (PHP 8 in WASM; no native `php` here) |
+| Hardening pass | **+1 654 lines across 21 files** — 926 insertions / 83 deletions in tracked files, plus two new ones: `tools/prune-analysis-runs.mjs` (198) and `test/retention.test.js` (530) |
+| New tests | **2 930 lines, 115 tests** — `test/analysis.test.js` (75, pure layer) + `test/analysis_http.test.js` (26, engine/HTTP/persistence/status) + `test/retention.test.js` (14, R-27 on both adapters and the CLI); 95 tests / 2 178 lines before the hardening pass, which added 20 more plus 1 in `config.test.js` and 1 in `backup.test.js` |
+| App suite | **257 tests / 16 files, 257 passed, 0 failed** (~33 s); 235/15 before hardening |
+| Installation checks | `npm run verify:install` **30/30** — **59 documented env vars** (53 + 5 for R-26 + 1 for R-27) |
+| Legacy oracle | `node runtime/run-tests.mjs` **367 passed, 0 failed** in 19.2 s (PHP 8 in WASM; no native `php` here) — **unchanged by the hardening pass, because the legacy PHP is untouched** |
 | Typecheck | `tsc --noEmit -p tsconfig.json` clean |
-| Egress | 235/235 both with and without `--import /tmp/egress-shim.mjs` (a whole-suite fetch interceptor that fails any non-loopback call) — **no test in this phase can reach the network** |
-| Routes | 33 → **38** API routes; 22 document routes unchanged |
-| Repository contract | 32 → **35** methods; migrations 001–004 → **001–005** |
+| Egress | 257/257 both with and without `--import /tmp/egress-shim.mjs` (a whole-suite fetch interceptor that fails any non-loopback call); the shim reports **"no outbound requests attempted"** for all 16 files — **no test in this phase can reach the network** |
+| Other suites | contracts 12/12 · football 29/29 · icons 4/4 · client build exit 0 ⇒ **665 `node:test` cases passed, 0 failed** across the workspace (257 + 367 + 12 + 29; the 4 icon checks and the build are assertions, not cases) |
+| Routes | 33 → **38** API routes; 22 document routes unchanged. Hardening added **no route** — retention is deliberately CLI-only |
+| Repository contract | 32 → 35 → **36** methods (`pruneAnalysisRuns`); migrations 001–004 → **001–005** |
 | Dependencies | unchanged — `bcryptjs` + `mysql2` only, no `devDependencies` |
 
 ---
@@ -58,8 +60,13 @@ data, enables live trading or deletes legacy code (master plan §11, §13).
 * **`src/modules/market-data/errors.js`** (47 lines, new) — `marketDataFailure` / `isProviderFailure`
   extracted from the market-data routes so the analysis routes answer a provider outage with the *same*
   503 + `Retry-After` contract instead of a 500. The market-data routes now import it (37 tests still green).
-* **`src/persistence/contract.js`** 32 → 35; **`src/persistence/file-store.js`** gains an `analysisRuns`
-  table plus the three methods; **`src/db/store.js`** requires migrations 001–005.
+* **`src/persistence/contract.js`** 32 → 35 → **36** (the hardening pass added `pruneAnalysisRuns`, plus
+  the shared `assertIsoCutoff` guard both adapters use); **`src/persistence/file-store.js`** gains an
+  `analysisRuns` table plus the four methods; **`src/db/store.js`** requires migrations 001–005.
+* **Hardening pass (§13)** — `tools/prune-analysis-runs.mjs` (198 lines, new), `npm run prune:analysis`,
+  six new env vars in `.env.example`, `config.rateLimit.analysis*` + `config.analysis.retentionDays`,
+  `createAnalysisRunGate` in `analysis/routes.js`, the equity veto in `analysis/risk-engine.js`, and
+  `tools/backup.mjs` deriving its MySQL table counts from the migrations (finding **F-28**).
 * **`src/app.js`** builds **one** `createAnalysisService({store, marketData, log})` on the same
   market-data service the API uses, and shares it with the health routes — the engine reads provider
   provenance to decide how much to trust its own opinion, so it must see the same caches, breakers and
@@ -126,19 +133,32 @@ portfolio gates are vacuous on this platform).
 
 Everything below was executed here; no result is quoted from an earlier phase.
 
-```
-node --test test/*.test.js                     → 235 tests, 235 pass, 0 fail  (~36 s, 15 files)
-node --test test/analysis.test.js              →  71 tests,  71 pass, 0 fail
-node --test test/analysis_http.test.js         →  24 tests,  24 pass, 0 fail
-node --test test/market_data.test.js           →  37 tests,  37 pass, 0 fail  (after the errors.js extraction)
-npm run verify:install                         →  30/30 checks, 53 env vars documented
-node runtime/run-tests.mjs                     →  367 passed, 0 failed in 19.3 s  (legacy PHP/WASM oracle)
-tsc --noEmit -p tsconfig.json                  →  clean
-node --test --import /tmp/egress-shim.mjs …    →  235/235  (no outbound call is possible)
-```
+| Command | As delivered (Phase 5) | After the hardening pass (§13) |
+|---|---|---|
+| `node --test test/*.test.js` | 235 tests, 235 pass, 0 fail (~36 s, 15 files) | **257 tests, 257 pass, 0 fail** (~33 s, 16 files) |
+| `node --test test/analysis.test.js` | 71 / 71 | **75 / 75** |
+| `node --test test/analysis_http.test.js` | 24 / 24 | **26 / 26** |
+| `node --test test/retention.test.js` | — (did not exist) | **14 / 14** |
+| `node --test test/config.test.js` | 6 / 6 | **7 / 7** |
+| `node --test test/backup.test.js` | 4 / 4 | **5 / 5** |
+| `node --test test/platform_findings.test.js` | 32 / 32 | **32 / 32** |
+| `node --test test/market_data.test.js` | 37 / 37 (after the `errors.js` extraction) | **37 / 37** — untouched |
+| `npm run verify:install` | 30/30 checks, 53 env vars | **30/30 checks, 59 env vars** |
+| `npm run verify:install -- --require-bundle` | 30/30 | **30/30** |
+| `node runtime/run-tests.mjs` (legacy oracle) | 367 passed, 0 failed in 19.3 s | **367 passed, 0 failed in 19.2 s** — the legacy PHP is untouched, so this cannot move |
+| `tsc --noEmit -p tsconfig.json` | clean | **clean** |
+| `node --import /tmp/egress-shim.mjs --test test/*.test.js` | 235/235 | **257/257**, shim reporting *"no outbound requests attempted"* for all 16 files |
+| `npm run test:contracts` · football · `check:icons` · client build | 12/12 · 29/29 · 4/4 · exit 0 | **12/12 · 29/29 · 4/4 · exit 0** (`index-DSbqgd7N.js`, see §9.1) |
+| **Workspace total** (`node:test` cases) | 643 passed, 0 failed = 235 app + 367 oracle + 12 contracts + 29 football | **665 passed, 0 failed** = 257 app + 367 oracle + 12 contracts + 29 football |
+
+The totals count `node:test` cases only, so they are additive and checkable. The 4 icon checks
+(`npm run check:icons`) and the client build are assertions, not test cases, and are reported separately
+in both columns — which is why this figure is 665 and not 669.
 
 Five consecutive full-suite runs and two runs under CPU contention (two suites at once on 2 cores)
-passed with zero failures; every run after the regime coverage was added passed 235/235.
+passed with zero failures at 235/235; every run after the hardening pass passed 257/257, including the
+egress-blocked one. The only flake ever observed in this suite was root-caused to a test asserting row
+order by position (defect D-11) and removed, not re-run until green.
 
 ### 4.1 Legacy cases ported 1:1 (36 of 38)
 
@@ -195,17 +215,24 @@ audit trail — the kill-switch veto firing exactly as designed.
 
 ## 5. Deliberate divergences from the legacy behaviour
 
+Divergences are numbered **DV-n** and the defects in §6 are numbered **D-n**. They
+were both `D-n` in the first draft of this document, which made `D-8` mean two
+different things eight lines apart; the prefixes are the fix. (`D-n` is a
+per-document namespace across this ledger — `PHASE4_MARKET_DATA.md` §6 has its own
+unrelated `D-1 … D-6`.)
+
 | # | Legacy | Node | Why |
 |---|---|---|---|
-| D-1 | `AgentDebate::advocateCases()` filters signals on lowercase `'bullish'`/`'bearish'` while `TechnicalAgent` emits `'BUY'`/`'SELL'` | **Ported as-is**, and pinned by a test | Signal-derived claims therefore never appear in a real debate; only vote-derived ones (`|score| ≥ 0.25`, sliced to 6) do. Fixing it would change every verdict, so it is recorded rather than repaired |
-| D-2 | Conflict count derived from a keyed map | Counted as the array length | Same number for the legacy fixtures; the array is what the payload carries |
-| D-3 | `GET /api/agents/consensus` | `POST /api/v1/analysis/consensus` | The legacy answered a GET that wrote one run and one audit row per symbol. A scan of up to 10 symbols is a mutation, so it is a POST with CSRF |
-| D-4 | Unsupported timeframe coerced/ignored | `400` from the contract | Consensus accepts the narrower `15m/1h/4h/1d`; a run accepts the full market-data vocabulary. Coercion would silently analyse the wrong interval |
-| D-5 | `marketClass` inferred on the run route | Required in the body | The class decides whether 7 extra reference legs are fetched; inferring it hides the cost from the caller |
-| D-6 | `/api/agents*` paths | `/api/v1/analysis/*`, no alias | One origin, one vocabulary (master plan §5). The ledger in `ROUTE_MAP.md` §7.3 records the mapping |
-| D-7 | History limit unbounded | Bounded 1–100, `400` outside it | A payload-carrying table must not be listable without a bound |
-| D-8 | Run id from the legacy id generator | `crypto.randomUUID()` (`CHAR(36)`) | The column type matches; ids are opaque to callers |
-| D-9 | MySQL insert-or-update per adapter | One `ON DUPLICATE KEY UPDATE` upsert | Re-running a symbol must not duplicate a row; both adapters now agree (pinned by a test) |
+| DV-1 | `AgentDebate::advocateCases()` filters signals on lowercase `'bullish'`/`'bearish'` while `TechnicalAgent` emits `'BUY'`/`'SELL'` | **Ported as-is**, and pinned by a test | Signal-derived claims therefore never appear in a real debate; only vote-derived ones (`|score| ≥ 0.25`, sliced to 6) do. Fixing it would change every verdict, so it is recorded rather than repaired |
+| DV-2 | Conflict count derived from a keyed map | Counted as the array length | Same number for the legacy fixtures; the array is what the payload carries |
+| DV-3 | `GET /api/agents/consensus` | `POST /api/v1/analysis/consensus` | The legacy answered a GET that wrote one run and one audit row per symbol. A scan of up to 10 symbols is a mutation, so it is a POST with CSRF |
+| DV-4 | Unsupported timeframe coerced/ignored | `400` from the contract | Consensus accepts the narrower `15m/1h/4h/1d`; a run accepts the full market-data vocabulary. Coercion would silently analyse the wrong interval |
+| DV-5 | `marketClass` inferred on the run route | Required in the body | The class decides whether 7 extra reference legs are fetched; inferring it hides the cost from the caller |
+| DV-6 | `/api/agents*` paths | `/api/v1/analysis/*`, no alias | One origin, one vocabulary (master plan §5). The ledger in `ROUTE_MAP.md` §7.3 records the mapping |
+| DV-7 | History limit unbounded | Bounded 1–100, `400` outside it | A payload-carrying table must not be listable without a bound |
+| DV-8 | Run id from the legacy id generator | `crypto.randomUUID()` (`CHAR(36)`) | The column type matches; ids are opaque to callers |
+| DV-9 | MySQL insert-or-update per adapter | One `ON DUPLICATE KEY UPDATE` upsert | Re-running a symbol must not duplicate a row; both adapters now agree (pinned by a test) |
+| DV-10 | **`RiskEngine::evaluate()` returns `approved: true` when equity is `0`, negative or non-finite** (finding F-27) | **Refused.** A veto is pushed before sizing: `Equity 0.00 is not positive — portfolio risk cannot be measured` / `Equity is not a finite number — …` | The only divergence in this port that changes a *decision* rather than a shape, and the only one taken against the legacy engine. Every portfolio gate sits behind `equity > 0`, and sizing derives risk from equity, so at zero equity the legacy engine skipped drawdown, daily/weekly-loss and exposure checks *and* cleared the notional and leverage caps trivially (`0 <= cap`) — then approved a proposal with no capital behind it. Without positive equity there is nothing to size, so an approval measures nothing. Directed explicitly: **fix it in Node, record the divergence, leave the legacy PHP untouched until cutover.** No legacy case is affected — `04-risk-engine` uses equity `100` and `10 000`, so all 8 ported cases still pass, and the 36-of-38 parity in §4.1 is unchanged. The reason string is pinned by test so the veto cannot be dropped silently |
 
 **Not divergences, but recorded here so nobody "fixes" them later:** the legacy kill switch defaults to
 **ACTIVE** at boot (`Aegis_model.php:636`), so the legacy `08-engine-journal` case saw `SYNTHETIC` as
@@ -225,20 +252,41 @@ reasons and the kill switch's precedence, and does not reproduce the released-sw
 | D-11 | A test asserted the newest audit row by position (`analyzed[0]`) while its own harness settled provider calls to zero, so two runs could share a millisecond and the stable sort would return the older row | `test/analysis_http.test.js` | Rows are now located by run id, and history ordering additionally asserts descending `completedAt`. This was a **latent flake in the test**, observed once and then removed rather than re-run until green |
 | D-12 | The market-data 503 contract was duplicated inside its routes, so a second consumer (analysis) would have re-implemented it | `market-data/errors.js` | Extracted to a shared module; both route sets import it (37 market-data tests still green) |
 
-**Inherited, not repaired:** see F-27 in §10 — the legacy risk engine approves a proposal when equity is
-`0`, because every portfolio gate sits behind `equity > 0`.
+**Inherited, then repaired in Node only:** the legacy risk engine approves a proposal when equity is `0`,
+because every portfolio gate sits behind `equity > 0` (finding F-27). The Node engine now refuses — see
+divergence **DV-10** in §5 and the closed finding in §10. The legacy PHP is deliberately untouched until
+cutover, so the two engines disagree here on purpose and the disagreement is recorded rather than hidden.
 
 ---
 
 ## 7. Configuration
 
-**This phase adds no environment variables and no configuration keys.** `npm run verify:install` still
-reports 53 documented variables, and the check that every `env.*` read by `src/config.js` appears in
-`.env.example` still passes.
+**The analysis *engine* adds no environment variables; the hardening pass added six.** The distinction
+matters and is the reason both halves are true.
 
-The analysis module reads its behaviour from code constants, deliberately: agent weights, the vote
-threshold, the candle limit and the risk limits are **safety parameters**, not deployment knobs, and
-turning them into environment variables would let a host silently weaken a veto.
+Agent weights, the vote threshold, the candle limit and the risk limits are read from code constants,
+deliberately: they are **safety parameters**, not deployment knobs, and turning them into environment
+variables would let a host silently weaken a veto. That is unchanged.
+
+What R-26 and R-27 added are **operational** knobs — how much work one client may trigger, and how long
+evidence is kept — which are exactly the things an operator has to be able to tune per host without a
+code change, following the same convention as every other limiter in `config.rateLimit`. All six are
+documented in `.env.example`, and `npm run verify:install` reports **59 documented variables** (53 before
+this phase, +5 for R-26, +1 for R-27) with the "every `env.*` read by `src/config.js` appears in
+`.env.example`" check still passing.
+
+| Variable | Default | Purpose |
+|---|---|---|
+| `RATE_LIMIT_ANALYSIS_RUN_MAX` | 12 | Runs per window per client address (R-26) |
+| `RATE_LIMIT_ANALYSIS_RUN_WINDOW_MS` | 600 000 | That window — 10 minutes |
+| `RATE_LIMIT_ANALYSIS_CONSENSUS_MAX` | 4 | Scans per window; tighter because one scan is up to 10 runs |
+| `RATE_LIMIT_ANALYSIS_CONSENSUS_WINDOW_MS` | 600 000 | Same 10-minute window |
+| `ANALYSIS_MAX_CONCURRENT_RUNS` | 2 | In-flight runs per **session**; `0` disables, matching `MAX_REQUESTS_PER_CLIENT` |
+| `ANALYSIS_RETENTION_DAYS` | 90 | How long runs are kept before `npm run prune:analysis` may remove them; `0` keeps them forever (R-27) |
+
+Out-of-range values are refused at boot rather than clamped, as everywhere else in `config.js`
+(`RATE_LIMIT_ANALYSIS_RUN_MAX=0` throws; `ANALYSIS_MAX_CONCURRENT_RUNS=-1` throws; `0` is legal and means
+"off").
 
 | Constant | Value | Source |
 |---|---|---|
@@ -271,9 +319,15 @@ Market-data configuration is unchanged from Phase 4 (`MARKET_DATA_*`, `BINANCE_A
 * **Authorisation.** No permission is required, matching the legacy controller: analysis was readable by
   every role. The route inventory reports `permission: null` for all five so the ledger states this
   explicitly rather than leaving it implicit.
-* **Rate limiting.** No per-route limit; the global API limiter (`api:<client>`, 120/60 s) applies before
-  routing. This is the platform's most expensive authenticated endpoint — a run is up to 8 provider calls,
-  a consensus scan up to 80 — so the exposure is recorded as **R-26** rather than silently accepted.
+* **Rate limiting.** *(As delivered: no per-route limit — the global API limiter `api:<client>`, 120/60 s,
+  applied before routing, and the exposure was recorded as **R-26** rather than silently accepted. That was
+  the honest position at the time; it is no longer the position.)* **Closed by §13.2.** Both POST routes now
+  carry their own window limits (12 runs / 4 scans per 10 minutes per address, charged before validation)
+  *and* hold a slot in a per-session in-flight cap (default 2, keyed by session so a shared NAT cannot be
+  used to starve a colleague). Worst case per window is ≤ 416 upstream series instead of 120 requests × 80
+  calls. Refusals are `429 RATE_LIMITED` for the window and `429 TOO_MANY_CONCURRENT_ANALYSES` for the cap,
+  distinguished because the client's remedy differs. The three GET routes stay unlimited on purpose: they
+  read the store and cost no upstream calls.
 * **Input handling.** Bodies are schema-validated with `additionalProperties: false`, so an undeclared key
   cannot reach the engine or a repository as an implicit filter. `limit` is bounded twice (contract 1–100
   and the service clamp). `:runId` is constrained to `[A-Za-z0-9_-]{1,64}` — a malformed id is a `400`,
@@ -283,7 +337,10 @@ Market-data configuration is unchanged from Phase 4 (`MARKET_DATA_*`, `BINANCE_A
   provider's own message in `error.details.reason`; no host, port, key or stack is echoed. Audit rows record
   a *hash-free* summary (symbol, timeframe, bias, confidence, legacy action) and never the payload.
 * **Data-at-rest.** `wf_analysis_runs.payload` holds a full run including provenance. It is analysis output,
-  not personal data, but it grows without a retention policy — recorded as **R-27**.
+  not personal data. *(As delivered it grew without a retention policy — recorded as **R-27**.)* **Closed by
+  §13.3:** `ANALYSIS_RETENTION_DAYS` (default 90) plus `npm run prune:analysis`, dry-run by default, with
+  **no HTTP route able to delete a run** — retention is an operator action, not an API verb, and a test
+  asserts the module registers no `DELETE` at all.
 * **Storage safety.** The file adapter still refuses production without
   `ALLOW_FILE_STORE_IN_PRODUCTION=1`; analysis adds no new write path that bypasses that check.
 
@@ -310,32 +367,80 @@ Market-data configuration is unchanged from Phase 4 (`MARKET_DATA_*`, `BINANCE_A
    exercised only by unit tests that supply a context. On the HTTP surface they are vacuous, and
    `riskContext.note` says so in every run.
 6. **No UI.** There is no analysis screen in the client bundle; `ported` here means API + tests, exactly as
-   in Phase 4. The vite build is byte-identical to Phase 3.
+   in Phase 4. No client *source* changed (`git diff HEAD -- apps/workforce-platform/client` is empty), but
+   the rebuilt bundle hash is **not** the one Phases 3–4 recorded — see §9.1, which is evidence for F-12
+   rather than a claim of reproducibility.
 7. **Not run here:** MT5 `pytest` (9 cases, needs its own Python 3.11 venv), browser/Lighthouse checks,
    real SMTP, cPanel/Passenger deployment.
+
+### 9.1 The client bundle hash moved, and that is a finding — not a Phase 5 change
+
+Phases 3 and 4 recorded the built SPA as `index-Ci3bygYZ.js` (265.27 kB). Rebuilding in this sandbox after
+Phase 5 produced **`index-DSbqgd7N.js` (265.20 kB)** with the same CSS (`index-B-xBd6Ec.css`, 18 123 bytes).
+Three facts were checked before drawing any conclusion:
+
+1. **No client source changed.** `git diff HEAD -- apps/workforce-platform/client` is empty for both Phase 5
+   commits, and the working tree is clean for that directory.
+2. **The build is deterministic.** Two consecutive builds against the same `node_modules` produced the same
+   hash and byte size, so this is not a non-reproducible build.
+3. **The dependencies were re-installed without a lockfile** (`npm install --no-package-lock`, the documented
+   workaround for R-04 in this repository). `react`/`react-dom`/`vite` are pinned exactly (19.3.0 / 19.3.0 /
+   8.3.2) and did not move, but their **transitive** dependencies are unpinned, and 78 bytes of output
+   changed as a result.
+
+So the honest claim is: *the client is unaffected by Phase 5, and the bundle is reproducible from a given
+`node_modules` — but it is **not** reproducible from the repository alone.* That is finding **F-12** /
+risk **R-04** observed in the wild rather than argued about, and it is why the CI build step matters more
+than a locally recorded hash. Nothing here should be read as "the Phase 3–4 measurement was wrong": it was
+accurate for the tree that existed then.
 
 ---
 
 ## 10. Findings after this phase
 
-* **F-27 (new, 🟡 medium) — the legacy risk engine approves a proposal when equity is `0`.** Every
-  portfolio gate sits behind `equity > 0`, so with zero equity the notional and leverage checks clear
-  trivially (0 ≤ cap) and `evaluate()` returns `approved: true`. Ported faithfully and pinned by a test
-  rather than repaired, because changing it would diverge from the legacy oracle. It is **unreachable from
-  the analysis path** (the default state carries 10 000 paper equity and the kill switch vetoes first), but
-  it is a live hazard for the broker/execution/paper-trading ports, which must not inherit it silently.
-* **R-26 (new, 🟠 high) — analysis is the most expensive authenticated endpoint.** A run performs up to 8
-  provider calls (1 symbol + 7 reference legs) and a consensus scan up to 80, bounded only by the global
-  120/min limiter. On a host with real providers that is an amplification path: one authenticated request
-  can fan out into ten upstream ones. Recommended before cutover: a per-route limit on
-  `POST /analysis/consensus` and a per-session concurrency cap on runs.
-* **R-27 (new, 🟡 medium) — `wf_analysis_runs.payload` grows without a retention policy.** Each row stores
-  a full run (agents, transcript, scenarios, setup, risk decision, provenance) as `LONGTEXT`. Nothing prunes
-  it. Recommended: a retention window and a `tools/` prune command before this table is written in
-  production.
+The three items this phase opened were closed by the hardening pass that followed it, on explicit
+instruction: fix F-27 in Node and record the divergence, and close R-26 and R-27 before porting another
+module. All three closures are measured below, not asserted.
+
+* **F-27 — CLOSED in Node (🟡 → resolved), divergence DV-10.** The legacy risk engine returns
+  `approved: true` when equity is `0`, because every portfolio gate sits behind `equity > 0` and a zero risk
+  amount clears the notional and leverage caps trivially (0 ≤ cap). The Node engine now vetoes zero,
+  negative and non-finite equity before sizing, naming the reason. **The legacy PHP is untouched**, so the
+  two engines disagree here on purpose until cutover — recorded as divergence **DV-10** in §5. Verified:
+  all 8 ported `04-risk-engine` cases still pass (they use equity 100 and 10 000), the 36-of-38 parity in
+  §4.1 is unchanged, and the veto reason string is pinned by test for zero, negative and non-finite equity
+  alongside a positive-equity control that must *not* trip it. The hazard for the broker/execution/
+  paper-trading ports is now closed on the Node side rather than merely documented.
+* **R-26 — CLOSED (🟠 → resolved).** Both POST routes carry their own window limits (12 runs and 4 scans
+  per 10 minutes per client address, charged *before* validation so a malformed body still costs budget),
+  and both hold a slot in a per-session in-flight cap (default 2, `0` disables). The cap is keyed by
+  session, not address, so a shared office NAT cannot let one colleague's long scan starve another's — the
+  same reasoning that keeps login lockout per account. A refused slot returns `429
+  TOO_MANY_CONCURRENT_ANALYSES`, deliberately distinct from `RATE_LIMITED` because the remedy differs. The
+  release sits in `finally`, so a run that throws gives its slot back instead of locking the session out.
+  Worst case per window is now ≤ 416 upstream series against the previous 120 requests/min × 80 calls.
+  `GET /api/v1/system/routes` reports `rateLimited: true` for both POSTs and `false` for the three GETs.
+* **R-27 — CLOSED (🟡 → resolved).** `ANALYSIS_RETENTION_DAYS` (default 90, `0` keeps forever) plus
+  `tools/prune-analysis-runs.mjs` / `npm run prune:analysis`, backed by `pruneAnalysisRuns` on both
+  adapters — repository contract **35 → 36**. Dry run is the default and reports matching rows, the oldest
+  and newest affected timestamps and the reclaimable payload bytes before anything is deleted. MySQL
+  deletes in clamped, `ORDER BY`-deterministic batches (default 500, ceiling 5 000) so no single statement
+  holds locks on a shared host, and reports `exhausted: false` if the batch ceiling is reached with rows
+  remaining. There is deliberately **no HTTP route** that can delete analysis history.
+* **F-28 (new, 🟠 high) — MySQL backups never worked, and nothing caught it.** `tools/backup.mjs` counted a
+  hardcoded list of tables that had drifted in both directions: it omitted `wf_contact_inquiries` (Phase 3),
+  `wf_data_imports` and `wf_analysis_runs` (Phase 5), and it counted **`wf_user_files`, a table nothing in
+  this repository creates or references** — avatars live in `wf_user_profiles.profile_image`. On MySQL that
+  made `SELECT COUNT(*) FROM wf_user_files` throw `ER_NO_SUCH_TABLE`, so `npm run backup` **failed outright**
+  on the adapter production uses. No test caught it because the backup suite drives the file adapter only
+  and this sandbox has no MySQL. Fixed by deriving the list from `src/db/migrations/*.sql`, which makes the
+  drift impossible by construction, plus a pin test asserting the derived list equals the 12 tables the
+  migrations create and that the phantom stays out. Found while implementing R-27, because a prune that
+  changes row counts is only safe if the operator can prove counts before and after.
 * **F-24, F-25, F-26** unchanged (per-process provider health/breakers/caches; CI never calls a real
   provider; ported numerics not diffed against PHP).
-* Still open from earlier phases: **F-11, F-12, F-15 (narrowed), F-16, F-18**.
+* Still open from earlier phases: **F-11, F-12 (now with observed evidence — §9.1), F-15 (re-widened),
+  F-16, F-18**.
 
 Module ledger after this phase (`GET /api/v1/system/features`, 15 entries): **3 ported** — `identity`,
 `marketData`, `analysis`; **3 partial** — `publicSite`, `audit`, `risk`; **9 not-ported** — `notifications`,
@@ -356,10 +461,28 @@ here, while the portfolio monitor, the limits API and the kill-switch control su
    unchanged from Phase 4 and is not made worse by analysis, but a consensus scan multiplies the number of
    provider calls each worker makes.
 3. **Cost.** On a host with real providers, prefer `POST /analysis/consensus` with an explicit short symbol
-   list over the 7-symbol default watchlist, and expect a forex run to be ~8× a crypto run.
-4. **No new env vars, no new secrets, no new cron.** Nothing to add to `.env` on the host; `verify:install`
-   is unchanged at 30/30 and 53 documented variables.
-5. **Do not release the kill switch from a config file.** There is no ported control surface for it, and
+   list over the 7-symbol default watchlist, and expect a forex run to be ~8× a crypto run. R-26 now bounds
+   this: 12 runs and 4 scans per 10 minutes per address, and 2 runs in flight per session. Tune
+   `RATE_LIMIT_ANALYSIS_*` / `ANALYSIS_MAX_CONCURRENT_RUNS` per host rather than editing code — but note the
+   caps are per **process**, so N Passenger workers each get their own (F-24 applies to limiters too).
+4. **Retention is an operator job, and it is not automatic.** `wf_analysis_runs.payload` is a LONGTEXT copy
+   of every run and nothing else deletes a row. Add a cron entry, and run the dry form once by hand first:
+
+   ```bash
+   node tools/prune-analysis-runs.mjs            # measures: matching rows, oldest/newest, bytes reclaimed
+   node tools/prune-analysis-runs.mjs --apply    # deletes; take a backup first (npm run backup)
+   ```
+
+   The window comes from `ANALYSIS_RETENTION_DAYS` (default 90; `0` keeps everything forever, and the tool
+   then refuses to delete even under `--apply` unless `--days N` is passed explicitly). Exit code is 0 when
+   it pruned or there was nothing to do, 1 when it refused; `--json` prints exactly one document for cron
+   logging. There is deliberately no HTTP endpoint for this.
+5. **Six new env vars, no new secrets.** All are documented in `.env.example` (see §7); `verify:install` is
+   30/30 with **59** documented variables. Nothing needs a new credential on the host.
+6. **Backups now cover the analysis table.** `snapshot.json` row counts are derived from
+   `src/db/migrations/*.sql`, so `wf_analysis_runs` is counted (F-28). Before this fix `npm run backup`
+   failed outright on MySQL; verify it once on the host after deploying.
+7. **Do not release the kill switch from a config file.** There is no ported control surface for it, and
    that is intentional: releasing it is a Phase 6+ decision requiring explicit human approval.
 
 ---
@@ -375,12 +498,153 @@ start when:
    `RiskEngine::evaluate` diffed value-for-value between PHP and Node, with any divergence recorded here
    rather than patched silently. Until then no analysis output should be treated as equivalent to the
    legacy output, only as independently tested.
-3. **F-27 is resolved deliberately** — either the zero-equity approval is fixed in both codebases with the
-   oracle updated, or it is accepted in writing with the reason. A paper-trading port must not inherit it
-   by accident.
-4. **R-26 has an answer**: a per-route limit or concurrency cap on the analysis endpoints, decided and
-   measured, before they are exposed to real users on a host with real providers.
+3. ~~**F-27 is resolved deliberately**~~ — **done.** The Node engine vetoes zero, negative and non-finite
+   equity (divergence **DV-10**); the legacy PHP is intentionally untouched until cutover. What remains for
+   the next phase is the *reconciliation*: when F-26 diffs `RiskEngine::evaluate` value-for-value, this
+   divergence must appear in that diff as an expected difference, not be "fixed" back. A paper-trading port
+   must call the Node engine, never the legacy one, or it will inherit the zero-equity approval.
+4. ~~**R-26 has an answer**~~ — **done and measured**: per-route window limits on both POST routes plus a
+   per-session in-flight cap, with the limits reported by `GET /api/v1/system/routes`. What the next phase
+   must not do is add an expensive endpoint without its own limit; the pattern is now in
+   `analysis/routes.js` (`config.rateLimit` + `createAnalysisRunGate`).
 5. Any consumer of a run carries `provenance.synthetic` forward into its own payload and inherits the veto
    and banner rules (R-25). The engine does; the next module must too.
 6. If the next phase touches portfolio state, it must replace `DEFAULT_TRADING_STATE` with a real,
-   persisted snapshot — and must not weaken the kill switch to do it.
+   persisted snapshot — and must not weaken the kill switch to do it. Note that a real snapshot makes
+   DV-10 reachable in earnest: an uninitialised or zeroed equity from a broker feed would now be refused
+   rather than approved, which is the point, but the caller must handle the veto.
+7. **R-27's cron entry must actually exist on the host.** The tool and the policy are shipped and tested,
+   but retention only works if something schedules it; an operator who never runs it has the pre-R-27
+   behaviour with extra steps.
+
+---
+
+## 13. The hardening pass (0.6.0 → 0.6.1)
+
+Phase 5 shipped with three findings it had opened itself: **F-27** (the risk engine approves at zero
+equity), **R-26** (the most expensive authenticated endpoint had no limit of its own) and **R-27** (the
+payload column grows forever). The instruction was to close all three **before** porting another module,
+and to fix F-27 in Node while leaving the legacy PHP alone until cutover. This section is that work; it
+adds no route, no module and no dependency.
+
+**+1 654 lines across 21 files** (926 insertions / 83 deletions tracked, plus `tools/prune-analysis-runs.mjs`
+at 198 lines and `test/retention.test.js` at 530). App suite **235 → 257**; workspace `node:test` total
+**643 → 665**; legacy oracle **unchanged at 367**, which is the point — nothing here touches PHP.
+
+### 13.1 F-27 → divergence DV-10
+
+`risk-engine.js` gained one veto, placed after the data-quality checks and before sizing so the existing
+reason ordering is untouched for every funded account:
+
+```js
+if (!Number.isFinite(equity) || equity <= 0) {
+  reasons.push(Number.isFinite(equity)
+    ? `Equity ${numberFormat(equity, 2)} is not positive — portfolio risk cannot be measured`
+    : "Equity is not a finite number — portfolio risk cannot be measured");
+}
+```
+
+The test that used to pin the legacy approval was **inverted**, not deleted: it now asserts the veto for
+zero, negative and non-finite equity, that `reasons[0]` carries the exact string (so the veto cannot be
+dropped silently), that the payload shape is unchanged (`sizing.units === 0`, `impliedLeverage === null`,
+no `NaN` anywhere), that the data vetoes still precede it, and — the control that matters — that an
+equity of 100 does **not** trip it.
+
+Why this is safe to diverge on: no legacy case exercises it. `tests/cases/04-risk-engine.php` uses equity
+100 and 10 000, so all 8 ported cases pass unchanged and the §4.1 parity stays at 36 of 38. The oracle
+still reports 367/367 because the PHP was not edited.
+
+### 13.2 R-26 → per-route limits plus a per-session concurrency cap
+
+Two mechanisms, because they answer different questions.
+
+*Window limits* ride the platform's existing per-route limiter (`config.rateLimit` on the route, keyed
+`route:<path>:<client>`, checked after routing and **before** body validation and preHandlers). That
+ordering is a property, not an accident: a malformed body still costs budget, so the contract cannot be
+hammered for free. `POST /analysis/run` gets 12/10 min, `POST /analysis/consensus` gets 4/10 min — tighter
+because one scan is up to ten runs. Both answer `429 RATE_LIMITED` with `Retry-After`.
+
+*Concurrency* is new: `createAnalysisRunGate({tracker, max, keyOf})` in `analysis/routes.js`, exported so
+it is unit-testable without HTTP, reusing the platform's existing `createConcurrencyTracker` (the same
+instance that backs `MAX_REQUESTS_PER_CLIENT`, with namespaced keys so the two never collide). Both POST
+handlers take a slot and release it in `finally` — a run that throws must give the slot back, or one
+provider 503 would lock a session out of the endpoint until the process restarted.
+
+Three design decisions worth recording:
+
+1. **Keyed by session, not address.** A shared office NAT must not let one colleague's long scan starve
+   another's — the same reasoning that keeps login lockout per account. Unauthenticated requests fall back
+   to the address so the key stays total, though both routes authenticate first.
+2. **`429 TOO_MANY_CONCURRENT_ANALYSES`, not `RATE_LIMITED`.** The remedy differs ("wait for the run you
+   already started" vs "slow down"), and a client that cannot tell them apart cannot back off correctly.
+3. **`0` disables, never refuses everything** — matching `MAX_REQUESTS_PER_CLIENT`. A non-finite or
+   negative max also disables, and a gate with no tracker is inert, so forgetting the config yields "off"
+   rather than an outage.
+
+Worst case per window falls from 120 requests/min × up to 80 calls to **≤ 416 upstream series**
+(12 runs × 8 + 4 scans × 10 symbols × 8), pinned by a test so a careless edit to a default is caught.
+`GET /api/v1/system/routes` now reports `rateLimited: true` for both POSTs and `false` for the three GETs.
+
+### 13.3 R-27 → retention policy, prune tool, and one new contract method
+
+* `ANALYSIS_RETENTION_DAYS` (default **90**, `0` = keep forever) in `config.analysis.retentionDays`.
+  Only the *policy* is configurable; batch size is a code constant with a CLI override, because it is about
+  lock duration rather than about what to keep.
+* `pruneAnalysisRuns(beforeIso, {dryRun, batchSize, maxBatches})` on **both** adapters — repository
+  contract **35 → 36**, enforced at boot by `assertRepositoryContract`.
+  * MySQL measures with one aggregate query (`COUNT(*)`, `MIN`/`MAX(completed_at)`,
+    `SUM(LENGTH(payload))`) and then deletes in clamped batches (default 500, ceiling 5 000) with
+    `ORDER BY completed_at ASC` — `DELETE … LIMIT` without an order is non-deterministic, and
+    statement-based replication logs that as unsafe. It reports `exhausted: false` if the batch ceiling is
+    reached with rows still matching, rather than implying the job finished.
+  * The file adapter deletes row-by-row through the log's **existing** `delete` op instead of adding a
+    "prune" op: the write-ahead log is replayed on every boot and rewritten by `compact()`, so a new op
+    would have to be understood by both and would make older logs unreadable. A test reopens the store from
+    disk to prove the deletions replay instead of resurrecting rows.
+  * Both share one cutoff guard, `assertIsoCutoff` in `persistence/contract.js`. `completed_at` is
+    `VARCHAR(32)` compared as **text**, so a `+00:00` offset cutoff would sort differently from the `Z`
+    form of the same instant and silently delete the wrong rows. Anything non-canonical is refused before
+    a query runs — migration 005 already warned about this; now the code enforces it.
+* `tools/prune-analysis-runs.mjs` (198 lines) + `npm run prune:analysis`. **Dry run is the default**,
+  because what it deletes is evidence: it reports the matching count, the oldest and newest affected
+  timestamps and the reclaimable bytes, then tells the operator to take a backup. `--apply` deletes,
+  `--days` overrides the policy, `--batch` tunes lock duration, `--now` fixes the clock for tests, `--json`
+  prints exactly one document (including on failure, so cron logs stay parseable). Exit 1 on refusal, and
+  the usage line goes to **stderr** so stdout never mixes prose into a JSON stream.
+* `ANALYSIS_RETENTION_DAYS=0` with `--apply` still deletes nothing and says why. Reading `0` as
+  `now - 0` would mean "delete every run ever written", which is the one misreading this tool must not
+  permit; an operator who wants a one-off cut passes `--days N` explicitly.
+* **No HTTP route can delete analysis history.** A test registers the module against a recorder and asserts
+  the route list contains no `DELETE` verb at all. A session-scoped API with a delete verb over the audit
+  copy of what a user was shown is not a trade worth making.
+
+### 13.4 F-28, found while implementing R-27
+
+A prune that changes row counts is only safe if an operator can prove counts before and after — which led
+straight into `tools/backup.mjs`. Its MySQL row counts came from a hardcoded table list that had drifted in
+both directions: it omitted `wf_contact_inquiries` (Phase 3), `wf_data_imports` and `wf_analysis_runs`
+(Phase 5), and it counted **`wf_user_files`, which nothing in this repository creates or references**
+(avatars live in `wf_user_profiles.profile_image`). On MySQL, `SELECT COUNT(*) FROM wf_user_files` throws
+`ER_NO_SUCH_TABLE`, so `npm run backup` **failed outright** on the adapter production actually uses.
+
+No test caught it: the backup suite drives the file adapter only, and this sandbox has no MySQL. The dump
+itself is whole-database, so no *data* was ever lost — but `snapshot.json` is what an operator compares
+around a restore, and three tables were silently uncounted while a fourth guaranteed failure.
+
+Fixed by deriving the list from `src/db/migrations/*.sql` (`tablesFromMigrations()`), which makes the drift
+impossible by construction, only accepts names matching `wf_[a-z_]+` before interpolating them into a
+`COUNT`, and reports a missing table as "the migration that creates it has not been applied". A pin test
+asserts the derived list is exactly the 12 tables the migrations create, that every file-store collection
+has a counted counterpart, and that the phantom stays out.
+
+### 13.5 What the hardening pass did **not** do
+
+* **No legacy PHP was modified**, so the oracle is still 367/367 and F-26 (no value-for-value PHP↔Node
+  numeric diff) is still open — DV-10 must appear in that diff as an *expected* difference when it happens.
+* **No MySQL was executed.** The prune statements, their bound values and the batching loop are pinned as
+  text and call sequences against a fake pool. F-15 stays re-widened: migration 005, the upsert, the
+  DECIMAL conversion **and now the batched `DELETE … ORDER BY … LIMIT`** have never run on a real server.
+* **The retention cron does not exist on any host.** The tool and policy are shipped and tested; scheduling
+  them is §12 entry criterion 7.
+* **No load test.** The R-26 limits are proven to fire and to release, not measured against a real provider
+  under real concurrency — this sandbox has no egress, so any such number would be invented.

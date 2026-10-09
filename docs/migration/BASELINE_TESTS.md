@@ -289,7 +289,7 @@ log is in [`PHASE4_MARKET_DATA.md`](PHASE4_MARKET_DATA.md) §4.3.
 | Scout + shared contract tests | `npm run test:contracts` | **12 passed, 0 failed** |
 | Football Predictions | `cd apps/football-predictions && npm test` | **29 passed, 0 failed** |
 | TypeScript typecheck | `npm run typecheck` (`tsc -p tsconfig.json --noEmit`) | **exit 0, no diagnostics** |
-| Client (React/Vite) production build | `npm run build:workforce-client` | **exit 0**, built in 240 ms — **unchanged output, same hashes as Phases 3–4** (`index-Ci3bygYZ.js` 265 278 bytes, `index-B-xBd6Ec.css` 18 123 bytes); no client source changed in this phase, and `public/app/` is gitignored |
+| Client (React/Vite) production build | `npm run build:workforce-client` | **exit 0**, built in ~170 ms — `index-DSbqgd7N.js` 265.20 kB, `index-B-xBd6Ec.css` 18 123 bytes. **No client source changed** (`git diff HEAD -- …/client` is empty for both Phase 5 commits) and the build is **deterministic** (two consecutive builds, identical bytes), but the JS hash is **not** the `index-Ci3bygYZ.js` (265.27 kB) that Phases 3–4 recorded: dependencies were re-installed without a lockfile, so unpinned *transitive* versions drifted by 78 bytes of output. Reproducible from a given `node_modules`, **not** from the repository alone — F-12/R-04 observed in the wild. Detail in `PHASE5_ANALYSIS.md` §9.1 |
 | Hermeticity | `node --test --import /tmp/egress-shim.mjs test/*.test.js` | **235 passed, 0 failed** — identical to the unshimmed run, so no test in the suite makes an outbound call |
 
 **Total executed in this sandbox for this phase: 643 passed, 0 failed** (235 app + 367 oracle + 12
@@ -364,3 +364,83 @@ with `analysis.run.completed`, `analysis.signal.proposed` and `risk.decision.rej
 kill-switch veto firing exactly as designed. Anonymous calls to all five routes answered **401**, and a
 cookie session posting without its CSRF token answered **403 `CSRF_INVALID`**. The full log is in
 [`PHASE5_ANALYSIS.md`](PHASE5_ANALYSIS.md) §4.3.
+
+## Re-measured 2026-10-09 — Phase 5 hardening pass (F-27, R-26, R-27, F-28), branch `arena/774d9e70-ai`, Node v22.22.3
+
+The section above is the record of Phase 5 **as delivered** (0.6.0). This one re-measures the same
+commands after the hardening pass (0.6.1) that closed the three findings that phase opened, plus one it
+exposed. Both records are kept, per the "never silently reconcile" rule: the numbers above were true when
+they were taken.
+
+| Suite | Exact command | Result |
+|---|---|---|
+| Node platform (16 files, incl. the new `test/retention.test.js`) | `cd apps/workforce-platform && npm run verify:install` then `npm test` | **30/30 install checks**; **257 passed, 0 failed** (~33 s) |
+| Analysis pure layer | `node --test test/analysis.test.js` | **75 passed, 0 failed** (was 71) |
+| Analysis HTTP/engine/persistence | `node --test test/analysis_http.test.js` | **26 passed, 0 failed** (was 24) |
+| Retention (R-27, both adapters + CLI) | `node --test test/retention.test.js` | **14 passed, 0 failed** (new file) |
+| Config | `node --test test/config.test.js` | **7 passed, 0 failed** (was 6) |
+| Backup (F-28) | `node --test test/backup.test.js` | **5 passed, 0 failed** (was 4) |
+| Platform findings | `node --test test/platform_findings.test.js` | **32 passed, 0 failed** (unchanged count; three pins moved) |
+| Market data | `node --test test/market_data.test.js` | **37 passed, 0 failed** — untouched by this pass |
+| Icon reproducibility | `npm run check:icons` | **4/4 verified** |
+| AEGIS PHP/WASM (the parity oracle) | `node runtime/run-tests.mjs` | **367 passed, 0 failed**, 19.2 s — **cannot move: no legacy PHP was edited** |
+| Scout + shared contract tests | `npm run test:contracts` | **12 passed, 0 failed** |
+| Football Predictions | `cd apps/football-predictions && npm test` | **29 passed, 0 failed** |
+| TypeScript typecheck | `npm run typecheck` | **exit 0, no diagnostics** |
+| Client (React/Vite) production build | `npm run build:workforce-client` | **exit 0** — `index-DSbqgd7N.js` 265.20 kB, `index-B-xBd6Ec.css` 18 123 bytes; no client source changed |
+| Hermeticity | `node --import /tmp/egress-shim.mjs --test test/*.test.js` | **257 passed, 0 failed**, shim reporting *"no outbound requests attempted"* for all 16 files |
+| Retention CLI, driven as an operator would | `node tools/prune-analysis-runs.mjs [--apply] [--json] [--days N]` against a seeded file store | dry run measured **3 of 5** runs (200/120/91 days old) and deleted **0**; `--apply` deleted **3** in 1 batch; a reopen from disk showed **2** rows, so the write-ahead log replays the deletions; a second run found nothing; `--days 200` matched **0**, proving the comparison is *strictly* older; `ANALYSIS_RETENTION_DAYS=0 --apply` deleted **nothing** and said why; `--nope`, `--days -5`, `--batch 99999`, `--now garbage` each exited **1** with the reason and the usage line on stderr; `--json` printed exactly one document in both the success and failure paths |
+
+**Total executed in this sandbox for the hardening pass: 665 passed, 0 failed** (257 app + 367 oracle + 12
+contracts + 29 football; the 4 icon checks and the client build are assertions, not `node:test` cases, which
+is why this is 665 and not 669).
+
+How the counts moved, and why:
+
+- **235 → 257 app tests** is **+22**: four `createAnalysisRunGate` unit tests (cap, per-session isolation,
+  release on failure, and the disabled cases — `max` of `0`, `-1`, `NaN`, `Infinity`, or no tracker at all),
+  two HTTP limit tests (the run window limit charged *before* validation, and a scan's tighter budget), one
+  config test (the shipped defaults and their relationship, plus out-of-range refusals), one backup pin
+  (F-28), and the 14-test `retention.test.js`.
+- **`test/analysis.test.js` 71 → 75** with one test **inverted, not added**: the case that pinned the legacy
+  zero-equity approval now asserts the veto (DV-10) for zero, negative and non-finite equity, plus a
+  positive-equity control that must *not* trip it.
+- **Installation checks stay 30/30; `.env.example` goes 53 → 59.** The Phase 5 claim "this phase adds no
+  configuration" remains true of the *engine* — agent weights, the vote threshold, the candle limit and the
+  risk limits are still code constants, because they are safety parameters. The six new variables are
+  operational (four R-26 limit knobs, one concurrency cap, one retention window), which is the category an
+  operator has to be able to tune per host without a code change.
+- **Routes stay at 38** and document routes at 22: retention is deliberately CLI-only, and a test asserts
+  the analysis module registers **no `DELETE` verb**. The repository contract grows **35 → 36**
+  (`pruneAnalysisRuns`), which moved three pins — `platform_findings` (method count and its group tally),
+  the inline store in `test/helpers.js` (which documents that it mirrors the durable adapters) and
+  `verify:install`'s documented-variable count.
+- **Module states are unchanged**: 3 ported, 3 partial, 9 not-ported. Hardening adds no surface.
+- **`npm run prune:analysis`** joined the documented operational commands, so the pin in
+  `platform_findings.test.js` now enumerates nine scripts and reports *which* are missing rather than only
+  a count.
+
+Two things this pass corrected in the ledger rather than leaving to be discovered:
+
+1. **The client bundle hash claim.** Phase 5 recorded the SPA as `index-Ci3bygYZ.js` (265.27 kB); rebuilding
+   produced `index-DSbqgd7N.js` (265.20 kB). No client source changed (`git diff HEAD -- …/client` is empty
+   for both Phase 5 commits) and the build is deterministic (two consecutive builds, identical bytes) — the
+   difference is that dependencies were re-installed **without a lockfile**, so unpinned *transitive*
+   versions drifted by 78 bytes of output. Reproducible from a given `node_modules`, **not** from the
+   repository alone: F-12/R-04 observed in the wild. Detail in `PHASE5_ANALYSIS.md` §9.1. The Phase 4 row
+   above it is left exactly as measured, because it was accurate for the tree that existed then.
+2. **F-28 — MySQL backups never worked.** `tools/backup.mjs` counted a hardcoded table list that omitted
+   `wf_contact_inquiries`, `wf_data_imports` and `wf_analysis_runs`, and counted `wf_user_files`, a table
+   nothing in this repository creates. On MySQL, `SELECT COUNT(*) FROM wf_user_files` throws
+   `ER_NO_SUCH_TABLE`, so `npm run backup` failed outright on the adapter production uses. No test caught it
+   because the backup suite drives the file adapter only and this sandbox has no MySQL. The list is now
+   derived from `src/db/migrations/*.sql`. This is still **not** executed against a real server — it is
+   pinned as a derivation plus SQL-text assertions, and F-15 stays open.
+
+Still not executed here, and therefore still not claimed: any live upstream data (no egress), a
+value-for-value PHP↔Node numeric diff (**F-26**; DV-10 must appear in it as an *expected* difference), real
+MySQL — now including the batched `DELETE … ORDER BY … LIMIT`, so **F-15 stays re-widened** — any load test
+of the R-26 limits (they are proven to fire and to release, not measured against a real provider under real
+concurrency; any throughput number here would be invented), a retention cron entry on any host, MT5-bridge
+`pytest` (9, unrelated, last recorded 9 passed), and anything needing a cPanel/Passenger host, a real
+browser, outbound SMTP, provider credentials or a native SDK.

@@ -175,7 +175,9 @@ interface, or any cutover.
 ## Phase 5 — analysis engines, agents, consensus and the risk veto gate (2026-10-09, branch `arena/774d9e70-ai`)
 
 **This section supersedes the route count, the module counts and the analysis/risk status above.** Full
-record: [`PHASE5_ANALYSIS.md`](PHASE5_ANALYSIS.md). App version is now **0.6.0**.
+record: [`PHASE5_ANALYSIS.md`](PHASE5_ANALYSIS.md). App version is now **0.6.1** — `0.6.0` was Phase 5 as
+delivered, and the patch release is the hardening pass below, which added no route, no module and no
+dependency.
 
 - **38 API routes** (the 33 from Phase 4 plus `POST /api/v1/analysis/run`, `GET /api/v1/analysis/history`,
   `GET /api/v1/analysis/agents`, `POST /api/v1/analysis/consensus` and `GET /api/v1/analysis/:runId`); the
@@ -201,34 +203,76 @@ record: [`PHASE5_ANALYSIS.md`](PHASE5_ANALYSIS.md). App version is now **0.6.0**
   validator (`votes: false`, excluded from the panel) and vote when a licensed feed is injected; price is
   never relabelled as sentiment, fundamentals or on-chain data; a wick beyond a swing never confirms a
   break of structure; and the debate can only reduce confidence.
-- **One table, one migration, no configuration.** `wf_analysis_runs` (migration `005`) stores the summary
-  columns, `synthetic`/`source` promoted out of the payload so a query can find every run built on labelled
-  synthetic data, and the full run as the audit copy. The repository contract grows **32 → 35** methods.
-  This phase adds **no environment variable** — `.env.example` stays at 53 — because agent weights,
-  thresholds and risk limits are safety parameters, not deployment knobs.
+- **One table, one migration, and no *engine* configuration.** `wf_analysis_runs` (migration `005`) stores
+  the summary columns, `synthetic`/`source` promoted out of the payload so a query can find every run built
+  on labelled synthetic data, and the full run as the audit copy. The repository contract grows
+  **32 → 35** methods as delivered, then **35 → 36** with the hardening pass (`pruneAnalysisRuns`). The
+  engine adds **no environment variable** — agent weights, thresholds and risk limits stay code constants,
+  because they are safety parameters, not deployment knobs — but the hardening pass added **six operational
+  ones** (R-26 limits, R-27 retention), so `.env.example` goes **53 → 59**. See the hardening subsection
+  below, which supersedes both figures here.
 - **Six defects found and closed while porting** (`PHASE5_ANALYSIS.md` §6), including a JS
   operator-precedence bug in the open-risk reduction, body schemas written in the query dialect (which made
   the run route answer `400` *before* authentication), the engine's injectable clock not reaching the feed
   agents' freshness check, a hard store requirement that broke the documented store-less boot, and a
   position-based audit assertion that was a latent flake in the test itself.
 
-Measured in this sandbox on 2026-10-09: **235** app tests passing (**+95** across
-`test/analysis.test.js` and `test/analysis_http.test.js`, which port **36 of the 38** legacy cases in
-`01-indicators`, `03-agents`, `04-risk-engine`, `34-agent-debate` and `08-engine-journal` — the two it does
-not are the backtester and journal-analytics cases, which belong to unported modules), **30/30** install
-checks, **367** legacy PHP/WASM oracle tests, **12** Scout contract tests, **29** football-prediction tests
-and a clean `npm run typecheck`: **643 passed, 0 failed**. The suite is hermetic — **235/235 with and
-without** a whole-suite egress interceptor — and the client build is byte-identical to Phases 3–4
-(`index-Ci3bygYZ.js`), because this phase has no UI.
+Measured in this sandbox on 2026-10-09: **257** app tests passing (**+117** for Phase 5 and its hardening
+pass, across `test/analysis.test.js`, `test/analysis_http.test.js` and the new `test/retention.test.js`,
+which port **36 of the 38** legacy cases in `01-indicators`, `03-agents`, `04-risk-engine`,
+`34-agent-debate` and `08-engine-journal` — the two it does not are the backtester and journal-analytics
+cases, which belong to unported modules), **30/30** install checks, **367** legacy PHP/WASM oracle tests,
+**12** Scout contract tests, **29** football-prediction tests and a clean `npm run typecheck`:
+**665 passed, 0 failed** (`node:test` cases; 257 + 367 + 12 + 29). The suite is hermetic — **257/257 with
+and without** a whole-suite egress interceptor, which reports *"no outbound requests attempted"* for all 16
+files. As delivered, before the hardening pass in §13 of `PHASE5_ANALYSIS.md`, these figures were 235 app
+tests and 643 total. No client *source* changed, but the rebuilt bundle hash moved
+(`index-Ci3bygYZ.js` → `index-DSbqgd7N.js`, 78 bytes smaller) purely because dependencies were re-installed
+without a lockfile — the build is deterministic for a given `node_modules`, just not reproducible from the
+repository alone. That is **F-12/R-04** observed in the wild, and it is recorded in
+`PHASE5_ANALYSIS.md` §9.1 rather than papered over as "unchanged".
 **Not** exercised: any live upstream data (no egress; every run here is labelled synthetic or comes from an
 injected double), a value-for-value PHP↔Node numeric diff (**F-26**, still a cutover prerequisite), real
 MySQL, the risk engine's approve path over HTTP (unit-tested only, unreachable by design), any portfolio
-state, an analysis user interface, or any cutover. New finding **F-27**: the legacy risk engine approves a
-proposal when equity is `0`, because every portfolio gate sits behind `equity > 0` — ported faithfully and
-pinned by a test, unreachable from the analysis path, and a hazard the broker/execution ports must not
-inherit silently. New risks **R-26** (analysis is the most expensive authenticated endpoint: up to 8
-provider calls per run, 80 per consensus scan, bounded only by the global 120/min limiter) and **R-27**
-(`wf_analysis_runs.payload` grows with no retention policy).
+state, an analysis user interface, or any cutover.
+
+### Phase 5 hardening pass (0.6.0 → 0.6.1) — F-27, R-26 and R-27 closed
+
+Phase 5 opened three findings about itself, and the instruction was to close all three **before** porting
+another module. It added no route, no module and no dependency: **+1 654 lines across 21 files**.
+
+* **F-27 closed in Node, recorded as divergence DV-10.** The legacy risk engine approves a proposal when
+  equity is `0`, because every portfolio gate sits behind `equity > 0` and the notional and leverage checks
+  then clear trivially. The Node engine now vetoes zero, negative and non-finite equity before sizing, and
+  the test that pinned the legacy approval was **inverted** rather than deleted — it now covers all three
+  cases plus a positive-equity control that must not trip the veto. **The legacy PHP is untouched**, so the
+  oracle is still 367/367 and the two engines disagree on purpose until cutover; no legacy case exercises
+  it (`04-risk-engine` uses equity 100 and 10 000), so the 36-of-38 parity is unchanged.
+* **R-26 closed.** Per-route window limits on both POST routes (12 runs / 4 scans per 10 minutes per
+  address, charged *before* validation so a malformed body still costs budget) plus a per-session
+  in-flight cap (`createAnalysisRunGate`, default 2, `0` disables, released in `finally`). Keyed by
+  **session**, not address, so a shared office NAT cannot let one colleague's scan starve another's.
+  `429 TOO_MANY_CONCURRENT_ANALYSES` is deliberately distinct from `RATE_LIMITED`, because the remedy
+  differs. Worst case per window: **≤ 416** upstream series instead of 120 requests/min × 80 calls.
+* **R-27 closed.** `ANALYSIS_RETENTION_DAYS` (default 90, `0` keeps forever) plus
+  `tools/prune-analysis-runs.mjs` / `npm run prune:analysis`, backed by `pruneAnalysisRuns` on both
+  adapters — repository contract **35 → 36**. Dry run is the default and reports the matching count, the
+  oldest and newest affected timestamps and the reclaimable bytes before deleting anything; MySQL deletes
+  in clamped, `ORDER BY`-deterministic batches for a shared host. **No HTTP route can delete analysis
+  history**, pinned by a test.
+* **F-28 found and fixed on the way (🟠).** Implementing retention meant an operator had to be able to
+  prove row counts around a prune, which exposed `tools/backup.mjs`: its MySQL counts came from a
+  hardcoded list that omitted `wf_contact_inquiries`, `wf_data_imports` and `wf_analysis_runs`, and counted
+  **`wf_user_files` — a table nothing in this repository creates** (avatars live in
+  `wf_user_profiles.profile_image`). On MySQL that made `npm run backup` **fail outright** with
+  `ER_NO_SUCH_TABLE`. No test caught it, because the backup suite drives the file adapter only. The list is
+  now derived from `src/db/migrations/*.sql`, so the drift is impossible by construction.
+* Six new env vars (`.env.example` **53 → 59**), all operational; the engine's safety parameters remain
+  code constants. `verify:install` still **30/30**.
+
+Full detail, including what the pass deliberately did **not** do (no PHP diff, no real MySQL, no cron
+entry on any host, no load test — this sandbox has no egress, so any throughput figure would have been
+invented): `PHASE5_ANALYSIS.md` §13.
 
 ## Current implementation slice — foundation only
 

@@ -171,13 +171,47 @@ uses `VARCHAR(32)` and `LONGTEXT` anyway, for two reasons:
 
 `payload` holds the entire run — agents, debate transcript, scenarios, setup, risk decision, provenance and
 validation — as the audit copy of what the caller was shown, so a run can be re-read years later without
-re-deriving it from market data that no longer exists. It is also the reason this table needs a retention
-policy before production write volume (**R-27**): nothing prunes it.
+re-deriving it from market data that no longer exists.
+
+**Retention (R-27, closed by the Phase 5 hardening pass).** That payload is also why this table needed a
+retention policy: it is `LONGTEXT` per row, a consensus scan writes 7–10 rows per call, and nothing else in
+the platform deletes a row. The policy is `ANALYSIS_RETENTION_DAYS` (default **90**; `0` keeps rows forever,
+which is the pre-R-27 behaviour) and the mechanism is `tools/prune-analysis-runs.mjs` /
+`npm run prune:analysis`, backed by `pruneAnalysisRuns(beforeIso, {dryRun, batchSize, maxBatches})` on
+**both** adapters — repository contract **35 → 36**.
+
+The answer to "is a run an audit record or operational data?" is now explicit: **an audit record while it is
+inside the retention window, operational data after it.** Consequently retention is an operator decision
+taken outside a request, and **there is deliberately no HTTP route that can delete analysis history** — a
+test asserts the module registers no `DELETE` verb. A session-scoped API with a delete verb over the audit
+copy of what a user was shown is not a trade worth making.
+
+Two implementation constraints follow from the schema choices above, and both are enforced in code rather
+than left as comments:
+
+1. **`completed_at` is compared as text**, so the cutoff must be the canonical `…Z` form. A `+00:00` offset
+   string sorts *after* the `Z` form of the same instant, which would silently delete the wrong rows rather
+   than fail. Both adapters therefore share one guard, `assertIsoCutoff` in `src/persistence/contract.js`,
+   and refuse anything non-canonical **before** a query runs.
+2. **MySQL deletes in bounded, ordered batches** (default 500 rows per statement, ceiling 5 000) with
+   `ORDER BY completed_at ASC`, because a single `DELETE` matching a year of runs would hold locks and grow
+   the undo log on a shared host, and `DELETE … LIMIT` without an order is non-deterministic — which
+   statement-based replication logs as unsafe. The query uses `ix_wf_analysis_runs_completed`. It reports
+   `exhausted: false` if the batch ceiling is reached with rows still matching, rather than implying the job
+   finished. The file adapter deletes row-by-row through the log's existing `delete` op, so the write-ahead
+   log format, its replay and `compact()` are unchanged.
+
+A dry run is the default and reports the matching count, the oldest and newest affected `completed_at`
+values and the reclaimable payload bytes (`SUM(LENGTH(payload))`) before anything is deleted.
 
 Because `db/pool.js` sets `decimalNumbers: false`, `confidence` comes back from MySQL as a *string*;
 `src/db/analysis-repository.js` converts at the boundary (`Number(row.confidence)`) so both adapters return
 a number. Writes are a single `ON DUPLICATE KEY UPDATE` upsert, and the file adapter mirrors it — pinned by
 a test, because re-running a symbol must update the row rather than duplicate it.
+
+This table accounts for **four** of the contract's 36 methods: `saveAnalysisRun`, `listAnalysisRuns`,
+`findAnalysisRun` and `pruneAnalysisRuns`. Reads are bounded (`limit` 1–100, summaries carry **no**
+payload), so history stays cheap even on a large table; the only way to shrink it is the CLI above.
 
 **Audit rows written by this phase** (existing `wf_audit_events`, no schema change). All six actions use
 `entity_type = 'analysis_run'` and `entity_id = <run id>` — including the risk decision, which is an
