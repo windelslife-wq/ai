@@ -89,6 +89,32 @@ export function createRiskEngine(limits = {}) {
       reasons.push(`Data quality ${numberFormat(dataQuality, 2)} below minimum ${limits.minDataQuality}`);
     }
 
+    /**
+     * Divergence DV-10 — the one place this port deliberately refuses to reproduce
+     * the legacy engine (finding F-27).
+     *
+     * Every portfolio gate below is guarded by `equity > 0`, and sizing derives
+     * risk from equity, so with zero equity the legacy engine skipped the
+     * drawdown, daily/weekly-loss and exposure gates *and* cleared the notional
+     * and leverage caps trivially (0 <= cap) — then returned `approved: true` for
+     * a proposal with no capital behind it. A negative or non-finite equity did
+     * the same.
+     *
+     * Without positive equity there is no basis for sizing, exposure or drawdown,
+     * so the honest answer is a veto that names the reason rather than an
+     * approval that measures nothing. The legacy PHP is left untouched until
+     * cutover; the divergence is recorded in `PHASE5_ANALYSIS.md` §5 as DV-10 and
+     * the reason string is asserted by test so it cannot be dropped silently.
+     *
+     * No legacy case is affected: `tests/cases/04-risk-engine.php` uses equity 100
+     * and 10 000, so all eight ported cases still pass unchanged.
+     */
+    if (!Number.isFinite(equity) || equity <= 0) {
+      reasons.push(Number.isFinite(equity)
+        ? `Equity ${numberFormat(equity, 2)} is not positive — portfolio risk cannot be measured`
+        : "Equity is not a finite number — portfolio risk cannot be measured");
+    }
+
     const stopLoss = finiteNumber(setup.stopLoss);
     if (limits.requireStopLoss && !Number.isFinite(stopLoss)) reasons.push("Stop loss is required");
     if (limits.riskPerTradePct > limits.maxRiskPerTradePct) {

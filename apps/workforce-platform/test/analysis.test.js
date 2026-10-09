@@ -1301,26 +1301,44 @@ test("risk engine: default limits are the legacy table, unchanged", () => {
   assert.equal(engine.getLimits().minRiskReward, 1.5, "getLimits returns a copy, so a caller cannot mutate the engine");
 });
 
-test("risk engine: zero equity produces no NaN — and exposes a legacy gate gap", () => {
+test("risk engine: equity that cannot measure risk is a veto (divergence DV-10, finding F-27)", () => {
   const engine = createRiskEngine();
-  const decision = engine.evaluate(fxSetup(), fxRiskCtx({ equity: 0, peakEquity: 0 }));
-  assert.equal(decision.sizing.impliedLeverage, null, "leverage is undefined without equity");
-  assert.equal(decision.sizing.riskAmount, 0);
-  assert.equal(decision.sizing.units, 0);
-  assert.ok(decision.reasons.every((reason) => !reason.includes("NaN")), `NaN leaked into a reason: ${decision.reasons.join(";")}`);
-  assert.ok(Number.isFinite(decision.sizing.notionalUsd));
 
-  // Recorded, not repaired: with zero equity every portfolio gate is behind an
-  // `equity > 0` guard, and a zero risk amount clears the notional and leverage
-  // caps trivially, so the legacy engine APPROVES. The port reproduces that. It
-  // cannot arise from the analysis path — the engine always supplies the default
-  // 10 000 paper equity and the kill switch is engaged — but the broker/execution
-  // port must never call this with an uninitialised equity, and finding F-27 says
-  // so in the ledger.
-  assert.equal(decision.approved, true, "legacy behaviour: no equity means no portfolio gate can fire");
+  // Zero equity: the legacy engine APPROVED this, because every portfolio gate
+  // sits behind `equity > 0` and a zero risk amount clears the notional and
+  // leverage caps trivially. The Node port refuses instead — there is no capital
+  // to size against, so an approval would measure nothing.
+  const zero = engine.evaluate(fxSetup(), fxRiskCtx({ equity: 0, peakEquity: 0 }));
+  assert.equal(zero.approved, false, "no equity means no measurable risk, not a free approval");
+  assert.match(zero.reasons[0], /^Equity 0\.00 is not positive — portfolio risk cannot be measured$/,
+    "the veto names the reason, and the string is pinned so it cannot be dropped silently");
 
-  // The gates that do not depend on equity still fire at zero equity.
+  // The payload shape is unchanged: sizing is still computed, still finite, and
+  // still says leverage is undefined without equity.
+  assert.equal(zero.sizing.impliedLeverage, null, "leverage is undefined without equity");
+  assert.equal(zero.sizing.riskAmount, 0);
+  assert.equal(zero.sizing.units, 0);
+  assert.ok(Number.isFinite(zero.sizing.notionalUsd));
+  assert.ok(zero.reasons.every((reason) => !reason.includes("NaN")), `NaN leaked into a reason: ${zero.reasons.join(";")}`);
+
+  // Negative and non-finite equity took the same legacy path; both are refused.
+  const negative = engine.evaluate(fxSetup(), fxRiskCtx({ equity: -500, peakEquity: 10_000 }));
+  assert.equal(negative.approved, false);
+  assert.match(negative.reasons[0], /^Equity -500\.00 is not positive/);
+
+  const missing = engine.evaluate(fxSetup(), fxRiskCtx({ equity: Number.NaN, peakEquity: Number.NaN }));
+  assert.equal(missing.approved, false);
+  assert.match(missing.reasons[0], /^Equity is not a finite number — portfolio risk cannot be measured$/);
+  assert.ok(missing.reasons.every((reason) => !reason.includes("NaN")), `NaN leaked into a reason: ${missing.reasons.join(";")}`);
+
+  // The data vetoes still come first, so their ordering is unchanged by DV-10.
   const stillVetoed = engine.evaluate(fxSetup(), fxRiskCtx({ equity: 0, peakEquity: 0, syntheticData: true }));
   assert.equal(stillVetoed.approved, false);
   assert.match(stillVetoed.reasons[0], /SYNTHETIC/);
+  assert.ok(stillVetoed.reasons.some((reason) => /not positive/.test(reason)), "both vetoes are reported");
+
+  // Positive equity is unaffected: the smallest workable account still clears.
+  const funded = engine.evaluate(fxSetup(), fxRiskCtx({ equity: 100, peakEquity: 100 }));
+  assert.ok(!funded.reasons.some((reason) => /not positive|not a finite number/.test(reason)),
+    `a funded account must not hit the equity veto: ${funded.reasons.join(";")}`);
 });
