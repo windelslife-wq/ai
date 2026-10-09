@@ -267,11 +267,13 @@ divergences and the rehearsal log: [`PHASE4_MARKET_DATA.md`](PHASE4_MARKET_DATA.
 | **F-26** (new) | 🟡 | **Open** — *the ported numeric algorithms are not diffed against PHP output.* Both suites are green, but the golden constants in `test/market_data.test.js` (synthetic candles, `hashString`, PRNG and Gaussian sequences) were produced by the Node port; an attempt to extract the same values from WASM PHP timed out in this sandbox. A pure-function comparison — no database, no network — would close it | `PHASE4_MARKET_DATA.md` §9 item 2; cutover prerequisite |
 | **R-24**, **R-25** (new) | 🟠 / 🟡 | **Recorded** in `RISK_REGISTER.md`: external market-data dependency (egress, vendor drift, rate limits, no licensed feed) and the risk that labelled synthetic data is consumed as if it were real by a later module | `RISK_REGISTER.md`, "Additions after Phase 4" |
 
-Measured here: **137** app tests (34 new), **30/30** install checks, **367** legacy PHP/WASM oracle tests
+Measured here: **140** app tests (37 new), **30/30** install checks, **367** legacy PHP/WASM oracle tests
 (all eleven `tests/cases/02-providers.php` cases among them, passing on both sides of the migration),
-**12** Scout contract tests, **29** football-prediction tests and a clean `npm run typecheck` — **545
+**12** Scout contract tests, **29** football-prediction tests and a clean `npm run typecheck` — **548
 passed, 0 failed** — plus a live `curl` rehearsal of all three endpoints, their 401/400 boundaries, the
-provider registry and the audit trail on the file adapter. **Not** measured: a live upstream provider (no
+provider registry and the audit trail on the file adapter. The first CI run of this phase failed on one
+network-dependent test (a sandbox with no egress cannot reproduce a runner with one); it is fixed,
+recorded as **D-6** in `PHASE4_MARKET_DATA.md` §6, and the market-data suite now makes no outbound call. **Not** measured: a live upstream provider (no
 egress — both real providers reported `DOWN` and the chain fell back to labelled synthetic data), a
 licensed feed, a value-for-value diff of PHP versus Node numeric output (F-26), a real MySQL server, any
 market-data UI, or any cutover. `application/` and `system/` are unchanged.

@@ -207,7 +207,7 @@ same listing answered 401 anonymously. The full table is in
 
 | Suite | Exact command | Result |
 |---|---|---|
-| Node platform — market data (providers, normalization, breakers, HTTP client, endpoints), public site, identity, HTTP core, uploads, RBAC, backups | `cd apps/workforce-platform && npm run verify:install` then `npm test` | **30/30 installation checks**, then **137 passed, 0 failed** (13 test files, 26.8 s) |
+| Node platform — market data (providers, normalization, breakers, HTTP client, endpoints), public site, identity, HTTP core, uploads, RBAC, backups | `cd apps/workforce-platform && npm run verify:install` then `npm test` | **30/30 installation checks**, then **140 passed, 0 failed** (13 test files, 28.7 s) |
 | Icon reproducibility | `cd apps/workforce-platform && npm run check:icons` | **4/4 verified** (unchanged this phase) |
 | AEGIS PHP/WASM (the parity oracle) | `node runtime/run-tests.mjs` (repo root) | **367 passed, 0 failed**, 18.6 s — including all eleven `tests/cases/02-providers.php` cases, which the Node suite ports 1:1 |
 | Scout + shared contract tests | `npm run test:contracts` | **12 passed, 0 failed** |
@@ -215,11 +215,23 @@ same listing answered 401 anonymously. The full table is in
 | TypeScript typecheck | `npm run typecheck` (`tsc -p tsconfig.json --noEmit`) | **exit 0, no diagnostics** — `typescript` *is* present in the root tree now, so the Phase 3 note that `tsc` could not run no longer applies |
 | Client (React/Vite) production build | `cd apps/workforce-platform && npm run build:client` | **exit 0** — unchanged output, same hashes as Phase 3 (`index-Ci3bygYZ.js` 265.27 kB / 79.47 kB gzip, `index-B-xBd6Ec.css` 18.12 kB / 4.82 kB gzip); no client source changed in this phase |
 
-**Total executed in this sandbox for this phase: 545 passed, 0 failed.**
+**Total executed in this sandbox for this phase: 548 passed, 0 failed.**
+
+**CI caught what this sandbox could not.** The first push of this phase failed the `javascript` job at
+`npm run check --workspace=@windels/workforce-platform`. Cause: one market-data test asserted that a host
+refusing synthetic data answers `503`, while leaving the real providers enabled. In this sandbox there is
+no egress, so Binance fails and the assertion holds; on a runner **with** egress Binance serves the
+candles and the endpoint correctly answers `200`. The test's outcome depended on the runner's network.
+Reproduced locally by stubbing `globalThis.fetch` for the provider hosts only — a blanket stub hijacks
+`app.inject`, which is itself `fetch` against `127.0.0.1`, and produces six unrelated failures. Fixed by
+making the suite hermetic (refusal case with real providers off; "providers unreachable" and "providers
+reachable" cases at service level with injected transports) and re-verified **37/37 with simulated egress
+and 37/37 without**. Recorded as defect **D-6** in `PHASE4_MARKET_DATA.md` §6. The market-data suite now
+makes no outbound network call, which is also what finding **F-25** asserts.
 
 How the counts moved, and why:
 
-- **103 → 137 app tests** is +34 in `test/market_data.test.js`: the eleven legacy `02-providers` cases
+- **103 → 140 app tests** is +37 in `test/market_data.test.js`: the eleven legacy `02-providers` cases
   (with `fx_candles()` and `FakeProvider` ported as `fxCandles` / `fakeProvider` so the fixtures are the
   same series from the same seeded PRNG), plus normalizer clamping and rejection rules, the timeframe and
   market-class vocabulary, `hashString` / `seededRandom` / `gaussian` determinism, the manager's
@@ -227,7 +239,9 @@ How the counts moved, and why:
   bounded eviction, staleness, the four licensed-adapter states and their payload rejections, Binance's
   allow-list / ragged-row / host-mirror behaviour, the retry-backoff budget, and the HTTP surface
   (401, seven validation refusals, labelled synthetic success, registry + policy, 503 refusal with
-  `Retry-After`, the `PROVIDER_FALLBACK` audit row, status/features/route-inventory).
+  `Retry-After`, the `PROVIDER_FALLBACK` audit row, status/features/route-inventory), the full
+  seven-provider registry order with honest health, and a reachable real provider winning over the
+  synthetic fallback without writing a fallback audit row.
 - **Installation checks stay at 30/30**; `.env.example` coverage grew from **45 → 53** variables
   (`MARKET_DATA_REAL_PROVIDERS`, `_ALLOW_SYNTHETIC`, `_TIMEOUT_MS`, `_RETRIES`, `_DEADLINE_MS`,
   `_HEALTH_TIMEOUT_MS`, `BINANCE_API_BASE`, `FRANKFURTER_API_BASE`). The `AEGIS_*_DATA_*` licensed-feed

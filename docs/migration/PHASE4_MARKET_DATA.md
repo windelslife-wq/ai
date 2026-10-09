@@ -1,9 +1,9 @@
 # Phase 4 — Market data and provider health (2026-10-09)
 
 **Branch:** `arena/774d9e70-ai` · **Sandbox Node:** v22.22.3 · **App version:** `@windels/workforce-platform@0.5.0`
-**Suite:** 137 app tests (34 new), 30/30 install checks, **367/367 legacy PHP/WASM oracle tests**, 12/12 Scout
+**Suite:** 140 app tests (37 new), 30/30 install checks, **367/367 legacy PHP/WASM oracle tests**, 12/12 Scout
 contract tests, 29/29 football-prediction tests, `npm run typecheck` clean — all executed and passing in this
-sandbox (**545 passed, 0 failed**).
+sandbox (**548 passed, 0 failed**), and green in CI after the fix recorded as D-6 below.
 
 This phase ported the third module — **market data**: the provider chain, candle normalization, circuit
 breakers, provenance/staleness reporting, the four licensed-feed adapters and the three legacy
@@ -42,7 +42,7 @@ remains authoritative and remains the rollback target. **No trading capability w
 | `service.js` | `Aegis/Platform.php` L50–84 | configuration-driven registration in legacy order, fallback → audit event, registry/status snapshots |
 | `routes.js` | `application/controllers/Api_marketdata.php` | the three endpoints, session-gated |
 
-12 new source files (1 651 lines) + 1 new test file (924 lines, 34 tests).
+12 new source files (1 651 lines) + 1 new test file (1 015 lines, 37 tests).
 
 ### Supporting changes
 
@@ -111,13 +111,17 @@ Live inventory after this phase: **33 API routes** (`GET /api/v1/system/routes`)
 ## 4. Test evidence (this sandbox, 2026-10-09)
 
 ```
-npm test                        → 137 pass / 0 fail  (13 files; test/market_data.test.js = 34)
+npm test                        → 140 pass / 0 fail  (13 files; test/market_data.test.js = 37)
 npm run verify:install          → 30/30 checks       (53 documented env vars, 4 migrations, 4 icons)
 node runtime/run-tests.mjs      → 367 pass / 0 fail  (the legacy PHP oracle, run in WASM PHP 8.2, 18.6 s)
 npm run test:contracts          → 12 pass / 0 fail   (Scout shared contracts, unchanged)
 football-predictions npm test   → 29 pass / 0 fail   (unchanged)
 npm run typecheck               → clean, exit 0      (tsc -p tsconfig.json --noEmit)
 ```
+
+**The new suite makes no outbound network call.** Every provider behaviour is driven through an injected
+transport, so the expectations are identical on a CI runner with egress and on a host without any. That
+property was not true of the first draft — see defect **D-6**, which CI caught and this sandbox could not.
 
 The oracle run matters more than its total: **all eleven `tests/cases/02-providers.php` cases are in it and
 passed**, listed by name in the runner output (`provider manager falls back and records the chain`,
@@ -153,13 +157,15 @@ The legacy `fx_candles()` and `FakeProvider` helpers are ported into the Node su
 
 Body clamping and issue reporting; rejection of negative prices/volume, non-numeric timestamps, `null`
 and string rows; timeframe/market-class vocabulary; `hashString` bit-31 quirk and unsigned return;
-`seededRandom` seed-0 remap and Box-Muller range; refusal when synthetic is forbidden; timeframe-capable
-ordering over raw priority; `DEGRADED` promotion after a recorded failure; `probe: false` health that
-touches no network; TTL cache reuse plus bounded eviction (520 distinct symbols → ≤ 500 entries); stale
-provenance; the four licensed-adapter states and their payload rejections; Binance symbol allow-list,
-ragged kline rows and host-mirror fallback; retry/backoff budget; the HTTP surface (401, seven validation
-refusals, synthetic-labelled success, registry/policy, 503 refusal, `Retry-After`); the audit event; and
-the public status/features/route-inventory assertions.
+`seededRandom` seed-0 remap and Box-Muller range; refusal when synthetic is forbidden (at manager, service
+and HTTP level); **a reachable real provider winning over the synthetic fallback, and writing no fallback
+audit row**; the full seven-provider registry order with honest `DOWN`/`DISABLED`/`UP` health;
+timeframe-capable ordering over raw priority; `DEGRADED` promotion after a recorded failure; `probe: false`
+health that touches no network; TTL cache reuse plus bounded eviction (520 distinct symbols → ≤ 500
+entries); stale provenance; the four licensed-adapter states and their payload rejections; Binance symbol
+allow-list, ragged kline rows and host-mirror fallback; retry/backoff budget; the HTTP surface (401, seven
+validation refusals, synthetic-labelled success, registry/policy, 503 refusal, `Retry-After`); the audit
+event; and the public status/features/route-inventory assertions.
 
 ### 4.3 Live rehearsal (file adapter, no database, no outbound egress)
 
@@ -223,8 +229,13 @@ carried over verbatim.
 | D-4 | `hashString` returned `hash \| 0`, truncating the FNV offset basis to a negative int32 for the empty string — a divergence from PHP | Returns `hash >>> 0`; pinned by a test |
 | D-5 | `candidatesFor` in the first test draft was exercised with `marketClass: "forex"` against fixtures declaring `["crypto"]`, so it returned an empty candidate list | Test corrected, and the empty-list behaviour is now asserted deliberately as its own case |
 
+| D-6 | **Caught by CI, not by this sandbox:** the refusal test ran with real providers enabled and asserted `503 SYNTHETIC_DATA_DISABLED`. Here, with no egress, Binance fails and the assertion holds. On a CI runner **with** egress Binance *serves*, the endpoint answers `200` with real candles, and the test fails — the suite's outcome depended on the runner's network. The `providers` HTTP test had the same defect in a milder form: its assertions tolerated any provider state, but it made real calls to third-party hosts from CI | Reproduced locally by stubbing `globalThis.fetch` for the provider hosts only (`app.inject` uses `fetch` against 127.0.0.1, so a blanket stub hijacks the harness and produces six bogus failures — worth knowing before trusting such a simulation). Both tests were made hermetic: the refusal case now runs with real providers off, and the "providers registered but unreachable" and "providers reachable" cases moved to service level with injected transports. Verified **37/37 with simulated egress and 37/37 without** |
+
 No legacy PHP file was modified, and no defect above was "fixed" by relaxing a rule: each one was a
-transcription error caught by executing the port.
+transcription error caught by executing the port — except D-6, which was a test-design error caught by
+running the suite somewhere with a network. The lesson recorded for later modules: **a suite that passes
+only where the author ran it is not a suite**, so every external dependency is injected, and the two
+network conditions are both asserted before pushing.
 
 ---
 
@@ -279,8 +290,10 @@ sets correctly during cutover.
 1. **No live upstream call succeeded.** This sandbox has no egress to `api.binance.com`,
    `data-api.binance.vision`, `api1.binance.com` or `api.frankfurter.dev`. Real-provider behaviour is
    therefore verified against injected transports and stub payloads, and the DOWN → fallback → synthetic
-   path is verified live. **A host with egress must re-run the rehearsal before cutover**; that is a
-   Phase 5/6 checklist item, not something this document can claim.
+   path is verified live. The suite is deliberately hermetic (D-6), which means it proves the *logic* under
+   both network conditions and proves nothing about the *vendors*: a stub that returns the shape I expected
+   cannot detect a shape Binance changed last month. **A host with egress must re-run the rehearsal before
+   cutover**; that is a Phase 5/6 checklist item, not something this document can claim.
 2. **The two suites were not compared value-for-value.** The legacy oracle *was* executed here
    (`node runtime/run-tests.mjs` → 367 passed, including all eleven `02-providers` cases), so both sides
    are green. What is missing is a machine diff of the *numbers*: an attempt to boot WASM PHP directly and

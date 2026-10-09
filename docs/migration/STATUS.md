@@ -155,13 +155,17 @@ outbound mail, any provider, any native build, any cutover.
   built-ins; the module persists only the fallback audit event; migrations stay at 001–004.
   Eight new environment variables are documented in `.env.example` (53 total).
 
-Measured in this sandbox on 2026-10-09: **137** app tests passing (34 new in
-`test/market_data.test.js`, which ports the eleven `tests/cases/02-providers.php` cases 1:1),
-**30/30** install checks, **367** legacy PHP/WASM oracle tests — the eleven provider cases
-passing on **both** sides of the migration — **12** Scout contract tests, **29**
-football-prediction tests and a clean `npm run typecheck`: **545 passed, 0 failed**, plus a
-live `curl` rehearsal of all three endpoints, their 401/400 boundaries, the provider-health
-registry and the audit trail on the file adapter.
+Measured in this sandbox on 2026-10-09: **140** app tests passing (37 new in
+`test/market_data.test.js`, which ports the eleven `tests/cases/02-providers.php` cases 1:1
+and makes no outbound network call), **30/30** install checks, **367** legacy PHP/WASM oracle
+tests — the eleven provider cases passing on **both** sides of the migration — **12** Scout
+contract tests, **29** football-prediction tests and a clean `npm run typecheck`: **548
+passed, 0 failed**, plus a live `curl` rehearsal of all three endpoints, their 401/400
+boundaries, the provider-health registry and the audit trail on the file adapter. CI caught
+one network-dependent test that this sandbox could not (no egress): with real providers
+reachable, the synthetic-refusal endpoint answers 200 rather than 503. It is fixed and
+recorded as defect **D-6** in `PHASE4_MARKET_DATA.md` §6, and the suite is now asserted green
+under both network conditions.
 **Not** exercised: a live upstream provider (this sandbox has no egress to Binance or
 Frankfurter — both reported `DOWN` and the chain fell back to labelled synthetic data, which
 is the correct honest behaviour), a licensed feed of any kind, a value-for-value diff of PHP

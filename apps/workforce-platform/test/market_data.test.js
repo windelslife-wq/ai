@@ -775,22 +775,20 @@ test("candles and quote endpoints serve labelled synthetic data offline", async 
   }
 });
 
-test("providers endpoint reports the registry, health and the synthetic policy", async () => {
-  const harness = await createFileStoreApp({
-    configOverrides: {
-      env: {
-        PUBLIC_BASE_URL: "https://site.example.test",
-        MARKET_DATA_TIMEOUT_MS: "600",
-        MARKET_DATA_DEADLINE_MS: "2000",
-        MARKET_DATA_HEALTH_TIMEOUT_MS: "600",
-      },
-    },
-  });
+test("the registry keeps the legacy priority order and health stays honest when providers are unreachable", async () => {
+  // Service level, with an injected transport: this is the full seven-provider
+  // registry, asserted without the suite ever touching the network. A CI host with
+  // egress and a host without one see exactly the same expectations.
+  const harness = await createFileStoreApp({ configOverrides: { env: MARKET_ENV } });
   try {
-    const cookie = await signIn(harness.app);
-    const response = await harness.app.inject({ method: "GET", url: "/api/v1/market-data/providers", headers: { cookie } });
-    assert.equal(response.statusCode, 200, response.body);
-    const body = response.json();
+    const service = createMarketDataService({
+      config: { ...harness.config, marketData: { ...harness.config.marketData, realProviders: true } },
+      store: harness.store,
+      settleMs: 0,
+      http: { getJson: async () => { throw new Error("no egress from this host"); } },
+    });
+
+    const body = await service.providers(true);
 
     // Legacy registration order: Binance 10, Frankfurter 20, licensed 30–33, synthetic 999.
     assert.deepEqual(
@@ -808,32 +806,95 @@ test("providers endpoint reports the registry, health and the synthetic policy",
     assert.equal(body.registry[6].synthetic, true);
     assert.deepEqual(body.registry[0].capabilities.marketClasses, ["crypto"]);
     assert.deepEqual(body.registry[1].capabilities.timeframes, ["1d"]);
+    assert.deepEqual(body.registry[1].capabilities.marketClasses, ["forex"]);
     assert.equal(body.policy.realProviders, true);
     assert.equal(body.policy.syntheticAllowed, true);
+    assert.equal(body.policy.syntheticIsNeverMarketData, true);
 
     const health = Object.fromEntries(body.providers.map((entry) => [entry.name, entry.status]));
-    // No egress in this sandbox: the real providers report DOWN honestly and the
-    // unconfigured licensed adapters report DISABLED. Nothing pretends to be UP.
+    // Unreachable real providers report DOWN with the reason; unconfigured licensed
+    // adapters report DISABLED; only the synthetic generator is UP. Nothing pretends.
+    assert.equal(health.binance, "DOWN");
+    assert.equal(health["frankfurter-ecb"], "DOWN");
     assert.equal(health["licensed-stock"], "DISABLED");
     assert.equal(health["licensed-etf"], "DISABLED");
+    assert.equal(health["licensed-futures"], "DISABLED");
+    assert.equal(health["licensed-options"], "DISABLED");
     assert.equal(health["synthetic-demo"], "UP");
-    assert.ok(["DOWN", "DEGRADED", "UP"].includes(health.binance), `binance: ${health.binance}`);
-    const syntheticHealth = body.providers.find((entry) => entry.name === "synthetic-demo");
-    assert.match(syntheticHealth.detail, /SIMULATION ONLY/);
+    assert.match(body.providers.find((entry) => entry.name === "binance").lastError, /no egress/);
+    assert.match(body.providers.find((entry) => entry.name === "synthetic-demo").detail, /SIMULATION ONLY/);
+  } finally {
+    await harness.cleanup();
+  }
+});
+
+test("a reachable real provider wins over the synthetic fallback", async () => {
+  // The other half of the honesty rule: synthetic is last resort, not default. With
+  // a transport that answers, the real provider serves and the response says so.
+  const harness = await createFileStoreApp({ configOverrides: { env: MARKET_ENV } });
+  try {
+    const now = 1_791_500_000_000;
+    const klines = Array.from({ length: 60 }, (_, index) => [
+      now - (60 - index) * 3_600_000, "64000", "64500", "63500", "64200", "1200",
+    ]);
+    const service = createMarketDataService({
+      config: { ...harness.config, marketData: { ...harness.config.marketData, realProviders: true } },
+      store: harness.store,
+      settleMs: 0,
+      http: { getJson: async () => klines },
+    });
+
+    const series = await service.candles({ symbol: "BTCUSDT", timeframe: "1h", limit: 60 });
+
+    assert.equal(series.provenance.source, "binance");
+    assert.equal(series.provenance.synthetic, false);
+    assert.equal(series.provenance.live, true);
+    assert.deepEqual(series.provenance.fallbackChain, []);
+    assert.equal(series.validation.ok, true);
+    assert.equal(series.candles.length, 60);
+
+    const { events } = await harness.store.listAuditEvents({ action: "marketData.provider.fallback", limit: 10 });
+    assert.equal(events.length, 0, "a provider that served is not a fallback and must not be audited as one");
+  } finally {
+    await harness.cleanup();
+  }
+});
+
+test("providers endpoint reports the registry and the synthetic policy", async () => {
+  const harness = await createFileStoreApp({ configOverrides: { env: MARKET_ENV } });
+  try {
+    const cookie = await signIn(harness.app);
+    const response = await harness.app.inject({ method: "GET", url: "/api/v1/market-data/providers", headers: { cookie } });
+    assert.equal(response.statusCode, 200, response.body);
+    const body = response.json();
+
+    // MARKET_DATA_REAL_PROVIDERS=0: only the synthetic generator is registered.
+    assert.deepEqual(body.registry.map((entry) => [entry.name, entry.priority, entry.synthetic]), [["synthetic-demo", 999, true]]);
+    assert.equal(body.policy.realProviders, false);
+    assert.equal(body.policy.syntheticAllowed, true);
+    assert.equal(body.policy.syntheticIsNeverMarketData, true);
+    assert.deepEqual(body.providers.map((entry) => [entry.name, entry.status]), [["synthetic-demo", "UP"]]);
+    assert.match(body.providers[0].detail, /SIMULATION ONLY — not market data/);
+    assert.equal(body.providers[0].circuitState, "CLOSED");
+
+    const cached = await harness.app.inject({ method: "GET", url: "/api/v1/market-data/providers?refresh=false", headers: { cookie } });
+    assert.equal(cached.statusCode, 200);
+    assert.deepEqual(cached.json().providers.map((entry) => entry.status), ["UP"]);
   } finally {
     await harness.cleanup();
   }
 });
 
 test("a host that refuses synthetic data returns an outage, never invented candles", async () => {
+  // Hermetic on purpose: real providers are off as well, so the answer cannot
+  // depend on whether the CI host happens to reach Binance. The "real providers
+  // reachable but synthetic refused" case is covered at service level below.
   const harness = await createFileStoreApp({
     configOverrides: {
       env: {
         PUBLIC_BASE_URL: "https://site.example.test",
+        MARKET_DATA_REAL_PROVIDERS: "0",
         MARKET_DATA_ALLOW_SYNTHETIC: "0",
-        MARKET_DATA_TIMEOUT_MS: "600",
-        MARKET_DATA_DEADLINE_MS: "2000",
-        MARKET_DATA_HEALTH_TIMEOUT_MS: "600",
       },
     },
   });
@@ -854,7 +915,45 @@ test("a host that refuses synthetic data returns an outage, never invented candl
 
     const providers = await harness.app.inject({ method: "GET", url: "/api/v1/market-data/providers", headers: { cookie } });
     assert.equal(providers.json().policy.syntheticAllowed, false);
-    assert.ok(!providers.json().registry.some((entry) => entry.synthetic), "the synthetic provider is not registered at all");
+    assert.equal(providers.json().policy.realProviders, false);
+    assert.deepEqual(providers.json().registry, [], "no provider is registered, so nothing can be served");
+    assert.deepEqual(providers.json().providers, []);
+  } finally {
+    await harness.cleanup();
+  }
+});
+
+test("real providers that fail on a synthetic-refusing host are still an outage, not a fallback", async () => {
+  // The case a CI host with egress would otherwise decide by luck: real providers
+  // registered, synthetic refused, every upstream call failing. The transport is
+  // injected, so the expectation holds with or without network access.
+  const harness = await createFileStoreApp({ configOverrides: { env: MARKET_ENV } });
+  try {
+    const service = createMarketDataService({
+      config: {
+        ...harness.config,
+        marketData: { ...harness.config.marketData, realProviders: true, allowSynthetic: false },
+      },
+      store: harness.store,
+      settleMs: 0,
+      http: { getJson: async () => { throw new Error("no egress from this host"); } },
+    });
+
+    await assert.rejects(
+      () => service.candles({ symbol: "BTCUSDT", timeframe: "1h", limit: 50 }),
+      (error) => {
+        assert.match(error.message, /synthetic data is refused on this host/);
+        assert.deepEqual(error.failedProviders, ["binance"], "only a crypto-capable provider was a candidate");
+        return true;
+      },
+    );
+    await assert.rejects(
+      () => service.quote({ symbol: "BTCUSDT" }),
+      /synthetic data is refused on this host/,
+    );
+
+    const { events } = await harness.store.listAuditEvents({ action: "marketData.provider.fallback", limit: 10 });
+    assert.equal(events.length, 0, "nothing was served, so no fallback may be recorded");
   } finally {
     await harness.cleanup();
   }
@@ -863,12 +962,6 @@ test("a host that refuses synthetic data returns an outage, never invented candl
 test("fallback is audited with the legacy PROVIDER_FALLBACK wording", async () => {
   const harness = await createFileStoreApp({ configOverrides: { env: MARKET_ENV } });
   try {
-    const service = createMarketDataService({
-      config: harness.config,
-      store: harness.store,
-      settleMs: 0,
-      http: { getJson: async () => { throw new Error("no egress from this host"); } },
-    });
     // Real providers are enabled for this service instance so a fallback can happen.
     const realService = createMarketDataService({
       config: { ...harness.config, marketData: { ...harness.config.marketData, realProviders: true } },
@@ -876,8 +969,6 @@ test("fallback is audited with the legacy PROVIDER_FALLBACK wording", async () =
       settleMs: 0,
       http: { getJson: async () => { throw new Error("no egress from this host"); } },
     });
-    assert.equal(typeof service.candles, "function");
-
     const series = await realService.candles({ symbol: "BTCUSDT", timeframe: "1h", limit: 50 });
     assert.equal(series.provenance.source, "synthetic-demo");
     assert.equal(series.provenance.synthetic, true);
