@@ -219,6 +219,85 @@ function loadSiteConfig(env, { production, publicBaseUrl }) {
   });
 }
 
+/**
+ * Market-data provider configuration (module: marketData).
+ *
+ * Legacy parity: `Aegis\Platform` registers Binance, Frankfurter/ECB, four inert
+ * licensed-asset adapters and — always last — the synthetic demo provider. The
+ * environment names for the licensed adapters keep their legacy `AEGIS_*_DATA_*`
+ * spelling on purpose: a host that already has them set keeps working at cutover.
+ *
+ * Two honesty switches matter more than the rest:
+ *  - `MARKET_DATA_REAL_PROVIDERS=0` registers the synthetic provider alone
+ *    (the legacy `$disableRealProviders` flag used by the dev runtime and tests);
+ *  - `MARKET_DATA_ALLOW_SYNTHETIC=0` refuses to serve simulated data at all, so a
+ *    host that must never show a synthetic candle can say so and get an error
+ *    instead of a fallback.
+ */
+const LICENSED_ASSET_CLASSES = Object.freeze([
+  { assetClass: "stock", envPrefix: "AEGIS_STOCK_DATA", displayName: "Licensed stock data", priority: 30 },
+  { assetClass: "etf", envPrefix: "AEGIS_ETF_DATA", displayName: "Licensed ETF data", priority: 31 },
+  { assetClass: "futures", envPrefix: "AEGIS_FUTURES_DATA", displayName: "Licensed futures data", priority: 32 },
+  { assetClass: "options", envPrefix: "AEGIS_OPTIONS_DATA", displayName: "Licensed options data", priority: 33 },
+]);
+
+function httpsBaseUrl(value, name, { production, optional = true }) {
+  const raw = String(value || "").trim();
+  if (!raw) {
+    if (optional) return null;
+    throw new Error(`${name} is required`);
+  }
+  let parsed;
+  try {
+    parsed = new URL(raw);
+  } catch {
+    throw new Error(`${name} must be an absolute URL`);
+  }
+  if (parsed.protocol !== "https:" && !(parsed.protocol === "http:" && !production)) {
+    throw new Error(`${name} must use https:// in production`);
+  }
+  if (parsed.username || parsed.password) throw new Error(`${name} must not contain credentials`);
+  return parsed.origin;
+}
+
+function symbolList(value) {
+  return Object.freeze(String(value || "")
+    .split(",")
+    .map((entry) => entry.trim().toUpperCase())
+    .filter(Boolean)
+    .slice(0, 500));
+}
+
+function loadMarketDataConfig(env, { production }) {
+  const licensed = LICENSED_ASSET_CLASSES.map((entry) => Object.freeze({
+    ...entry,
+    baseUrl: httpsBaseUrl(env[`${entry.envPrefix}_URL`], `${entry.envPrefix}_URL`, { production }),
+    healthUrl: httpsBaseUrl(env[`${entry.envPrefix}_HEALTH_URL`], `${entry.envPrefix}_HEALTH_URL`, { production }),
+    token: String(env[`${entry.envPrefix}_TOKEN`] || "").trim(),
+    license: String(env[`${entry.envPrefix}_LICENSE`] || "").trim(),
+    enabled: boolean(env[`${entry.envPrefix}_ENABLED`], `${entry.envPrefix}_ENABLED`, false),
+    // Legacy rule: delayed unless the host says `_DELAYED=0` explicitly.
+    delayed: String(env[`${entry.envPrefix}_DELAYED`] || "").trim() !== "0",
+    symbols: symbolList(env[`${entry.envPrefix}_SYMBOLS`]),
+  }));
+
+  return Object.freeze({
+    realProviders: boolean(env.MARKET_DATA_REAL_PROVIDERS, "MARKET_DATA_REAL_PROVIDERS", true),
+    allowSynthetic: boolean(env.MARKET_DATA_ALLOW_SYNTHETIC, "MARKET_DATA_ALLOW_SYNTHETIC", true),
+    timeoutMs: integer(env.MARKET_DATA_TIMEOUT_MS, "MARKET_DATA_TIMEOUT_MS", { fallback: 6_000, min: 500, max: 30_000 }),
+    retries: integer(env.MARKET_DATA_RETRIES, "MARKET_DATA_RETRIES", { fallback: 2, min: 0, max: 5 }),
+    // Hardening added during the port: the legacy manager had no overall budget,
+    // so a host with no outbound access stacked one provider timeout after
+    // another. Every request — including health probes — now dies inside this
+    // window and reports the honest failure instead of hanging.
+    deadlineMs: integer(env.MARKET_DATA_DEADLINE_MS, "MARKET_DATA_DEADLINE_MS", { fallback: 15_000, min: 1_000, max: 120_000 }),
+    healthTimeoutMs: integer(env.MARKET_DATA_HEALTH_TIMEOUT_MS, "MARKET_DATA_HEALTH_TIMEOUT_MS", { fallback: 5_000, min: 500, max: 60_000 }),
+    binanceBaseUrl: httpsBaseUrl(env.BINANCE_API_BASE, "BINANCE_API_BASE", { production }) || "https://api.binance.com",
+    frankfurterBaseUrl: httpsBaseUrl(env.FRANKFURTER_API_BASE, "FRANKFURTER_API_BASE", { production }) || "https://api.frankfurter.dev",
+    licensed: Object.freeze(licensed),
+  });
+}
+
 export function loadConfig(env = process.env) {
   assertSupportedNodeVersion();
   const mode = env.NODE_ENV || "development";
@@ -282,6 +361,7 @@ export function loadConfig(env = process.env) {
     database,
     storage,
     site: loadSiteConfig(env, { production, publicBaseUrl }),
+    marketData: loadMarketDataConfig(env, { production }),
     uploads: loadUploadConfig(env, { production }),
     rateLimit: loadRateLimitConfig(env),
     // Concurrent in-flight requests tracked per client address. A per-window

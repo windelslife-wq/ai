@@ -1000,9 +1000,14 @@ test("F-02 the status surface is honest about unported modules, and F-03 the rou
   assert.equal(body.trading.enabled, false);
   assert.match(body.trading.reason, /not ported/i);
   assert.equal(body.modules.find((module) => module.key === "identity").state, "ported");
-  assert.equal(body.modules.filter((module) => module.state === "ported").length, 1, "only identity may be claimed as ported in Phase 2");
+  assert.equal(body.modules.find((module) => module.key === "marketData").state, "ported", "market data was ported in Phase 4");
+  assert.equal(body.modules.filter((module) => module.state === "ported").length, 2, "only identity and market data may be claimed as ported");
   assert.equal(body.modules.find((module) => module.key === "audit").state, "partial");
-  assert.equal(body.modules.filter((module) => module.state === "not-ported").length, 12);
+  assert.equal(body.modules.filter((module) => module.state === "not-ported").length, 11);
+  // The public status surface carries a market-data snapshot that must not have
+  // probed an external host to produce it.
+  assert.ok(body.marketData && Array.isArray(body.marketData.providers), "status reports the provider registry");
+  assert.ok(body.marketData.providers.every((entry) => entry.status === "UNKNOWN" || typeof entry.status === "string"));
   assert.equal(body.storage.adapter, "file");
   assert.equal(body.readiness.schema, true);
   assert.match(body.version, /@\d+\.\d+\.\d+$/, "the version comes from the package manifest");
@@ -1036,6 +1041,7 @@ test("F-02 the status surface is honest about unported modules, and F-03 the rou
   assert.equal(features.statusCode, 200);
   assert.equal(features.json().features.paperTrading, "not-ported");
   assert.equal(features.json().features.identity, "ported");
+  assert.equal(features.json().features.marketData, "ported");
   assert.match(features.json().honesty, /No module is reported as ready/i);
 });
 

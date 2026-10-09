@@ -29,6 +29,8 @@ import { healthRoutes } from "./modules/platform/health.js";
 import { identityRoutes } from "./modules/identity/routes.js";
 import { siteRoutes } from "./modules/site/routes.js";
 import { createSiteDocuments } from "./modules/site/documents.js";
+import { marketDataRoutes } from "./modules/market-data/routes.js";
+import { createMarketDataService } from "./modules/market-data/service.js";
 
 const JSON_TYPE = "application/json; charset=utf-8";
 
@@ -120,13 +122,19 @@ export async function buildApp({ config, store, logger = true, publicDir = path.
 
   const concurrency = createConcurrencyTracker({ maxEntries: config.rateLimit?.maxEntries ?? 20_000 });
 
-  await app.register(healthRoutes, { prefix: "/api/v1", store, config, adapter, router });
+  // One market-data service per app: the provider chain owns in-process caches and
+  // circuit breakers, so both the API routes and the public status snapshot must
+  // read the same instance rather than each building their own view of the world.
+  const marketData = createMarketDataService({ config, store, log: app.log });
+
+  await app.register(healthRoutes, { prefix: "/api/v1", store, config, adapter, router, marketData });
   if (config.auth !== false) {
     await app.register(identityRoutes, { prefix: "/api/v1", store, config, loginGuard });
   }
   // The public site: contact intake over JSON, plus the rendered documents the
   // transport consults before it falls back to static files.
   await app.register(siteRoutes, { prefix: "/api/v1", store, config });
+  await app.register(marketDataRoutes, { prefix: "/api/v1", store, config, service: marketData });
   const siteDocuments = createSiteDocuments({ config, store, log: app.log, rateLimiter, publicDir });
   for (const extra of config.modules || []) await app.register(extra, { prefix: "/api/v1", store, config, loginGuard });
 
