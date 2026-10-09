@@ -23,6 +23,8 @@ Source of truth: `application/config/routes.php` (285 explicit rules) + CodeIgni
 
 ## 2. Legacy PHP routes — public site & SEO (controller `Site`, `Seo`)
 
+> Ported: see §15 for the Node document ledger and §14.5 for the contact API.
+
 | Route | Target | Method |
 |---|---|---|
 | `/` (default_controller) | site/index | GET |
@@ -175,17 +177,95 @@ Statics: `index.html`, `login.html`, `admin.html`, `history.html`, `ticket.html`
 6. Convention-routed CLI surface (`tools/*`) must NOT remain HTTP-reachable in Node — re-home as cron-invoked scripts only.
 7. Response semantics (JSON envelope, error codes 400/401/403/404, `provenance` fields) are pinned by the 367-test suite; use it as the parity oracle.
 
-## 14. Node foundation routes (candidate only; not yet legacy-compatible)
+## 14. Node platform API ledger (Phases 2–3, measured 2026-10-09)
 
-These routes are implemented in `apps/workforce-platform` as a deployment/auth foundation. They are **not accepted replacements** for the legacy routes until payload, cookie, identity-import, RBAC, and parity behavior are reconciled.
+Authoritative source: **the running server**, not this table. `GET /api/v1/system/routes`
+returns the 30 routes below; `app.documents()` returns the 22 document routes in §15.
+`test/site.test.js` asserts the two ledgers are disjoint and that every legacy site route in
+`application/config/routes.php` is answered by the Node transport.
 
-| Node method/path | Intended legacy relationship | Current status |
+> **Status vocabulary.** "Ported" here means implemented in Node with a named test against the
+> legacy source. It does **not** mean accepted as the production replacement: PHP stays
+> authoritative and deployable until an explicit cutover approval (master plan §11, Phase 6).
+
+### 14.1 Health and platform status (5)
+
+| Method/path | Auth | Legacy relationship |
 |---|---|---|
-| `GET /api/v1/health/live` | New operational liveness endpoint | Implemented; does not imply dependencies are ready. |
-| `GET /api/v1/health/ready` | New deployment-readiness endpoint | Implemented; checks MySQL connectivity and the foundation migration ledger. |
-| `POST /api/v1/auth/login` | Candidate for `POST /api/auth/login` | Implemented using `{identifier,password}` and PHP bcrypt verification; no legacy accounts imported and not wire-compatible by acceptance yet. |
-| `GET /api/v1/auth/me` | Candidate for `GET /api/auth/me` | Implemented with a new opaque `wf_session` cookie and permission list; no legacy session sharing. |
-| `GET /api/v1/auth/csrf` | New CSRF token refresh for same-origin Node UI | Implemented for authenticated sessions. |
-| `POST /api/v1/auth/logout` | Candidate for `POST /api/auth/logout` | Implemented with session-bound CSRF and server-side revocation. |
-| `GET /api/v1/admin/identity/users` | Candidate for a permission-gated admin identity endpoint | Implemented behind `identity.users.view`; no account/tenant migration. |
-| `GET /` | Node staging/status response | Explicitly reports `migrationStatus: in_progress` and `productionReplacement: false`. |
+| `GET /api/v1/health/live` | public | new operational liveness probe; no legacy equivalent |
+| `GET /api/v1/health/ready` | public | new; 503 + `Retry-After` until the adapter answers and all 4 migrations are applied |
+| `GET /api/v1/system/status` | public | `Api_system::status` (one of the 4 public legacy API actions); reports per-module `ported` / `partial` / `not-ported` and `trading.enabled:false` |
+| `GET /api/v1/system/routes` | public | new — this ledger, machine-readable, so a route cannot be dropped quietly |
+| `GET /api/v1/system/features` | public | `Api_system::features` honesty matrix |
+
+### 14.2 Authentication (7)
+
+| Method/path | Auth | Legacy relationship |
+|---|---|---|
+| `POST /api/v1/auth/login` | public, rate-limited, per-account lockout | `POST /login/submit` (`Auth::login`) and `api_auth/login`; accepts username, email **or** 6-digit UID; verifies PHP `$2y$` bcrypt |
+| `POST /api/v1/auth/register` | public, 5/10 min | `POST /register/submit` (`Auth::register_submit`); signs the new account straight in |
+| `POST /api/v1/auth/password-reset-request` | public, 5/10 min | `POST /forgot-password/submit` — **behaviour divergence:** no mail transport and no token store exist, so it answers `delivered:false` with an explicit "resets are issued by an administrator" notice and audits the attempt with a *hash* of the identifier. The legacy mailed a reset link |
+| `GET /api/v1/auth/csrf` | session | new; the legacy derived its token from the CI3 session |
+| `GET /api/v1/auth/me` | session or bearer | `api_auth/me`-equivalent session probe; returns user, permissions, `via`, and the CSRF token for cookie sessions |
+| `POST /api/v1/auth/logout` | session + CSRF | `POST /logout` (`Auth::logout`); server-side revocation + expired cookie |
+| `POST /api/v1/auth/device-session` | session | new — one-time bearer handshake for the native shell; states that `localStorage`/`sessionStorage`/`window.name` are never used |
+
+### 14.3 Account self-service (11)
+
+| Method/path | Auth | Legacy relationship |
+|---|---|---|
+| `GET /api/v1/account` | session | `GET /account` page data (`Auth::account`) |
+| `PATCH /api/v1/account/username` | session + CSRF | `POST /account/username` |
+| `PATCH /api/v1/account/email` | session + CSRF | `POST /account/email` |
+| `PUT /api/v1/account/profile` | session + CSRF | display name from the legacy account page |
+| `PUT /api/v1/account/password` | session + CSRF, 5/5 min | `POST /account/password`; rotates the session in the same response |
+| `GET /api/v1/account/sessions` | session | new — the legacy had no session list; `current` marks the caller's token |
+| `DELETE /api/v1/account/sessions` | session + CSRF | new — revoke every other session |
+| `GET /api/v1/account/activity` | session | own audit trail (legacy audit views were admin-only), paginated |
+| `POST /api/v1/account/avatar` | session + CSRF + multipart | `POST /account/avatar`; signature-sniffed, size/type-bounded |
+| `DELETE /api/v1/account/avatar` | session + CSRF | `POST /account/avatar/remove` |
+| `GET /api/v1/files/avatars/:fileId` | public bytes, owner-or-admin policy | legacy served uploads straight from `/assets/uploads/` (§12); Node keeps them outside the static root |
+
+### 14.4 Administration (6)
+
+| Method/path | Permission | Legacy relationship |
+|---|---|---|
+| `GET /api/v1/admin/users` | `identity.users.view` | `GET /admin` / `Admin::index` listing; paginated, `search`, `status`, `sort`, `direction` |
+| `POST /api/v1/admin/users` | `identity.users.manage` | `POST /admin/users/create` |
+| `PATCH /api/v1/admin/users/:userId/status` | `identity.users.manage` | `POST /admin/users/:id/toggle`; refuses to suspend the caller |
+| `GET /api/v1/admin/roles` | `identity.users.view` | the `tools/rbac.php` seeded matrix, read-only |
+| `GET /api/v1/admin/identity/users` | `identity.users.view` | alias retained from the Phase 1 foundation slice |
+| `GET /api/v1/admin/inquiries` | `system.super_admin` | new working copy of the legacy `CONTACT_INQUIRY` audit entries; super-admin only because a row holds a visitor's name and email |
+
+### 14.5 Public site (1)
+
+| Method/path | Auth | Legacy relationship |
+|---|---|---|
+| `POST /api/v1/site/contact` | public, 3/hour per client address | `POST /contact/submit` (`Site::contact_submit`), JSON variant; returns a ULID receipt `reference` and `mail.sent:false`. Its read side is `GET /api/v1/admin/inquiries` in §14.4 |
+
+5 + 7 + 11 + 6 + 1 = **30** routes, matching the `count` the live inventory reports.
+
+## 15. Node rendered document routes (22)
+
+Documents are rendered per request by `src/modules/site/`; **no static copy of any of them is
+committed** (`verify:install` fails the build if `public/index.html`, `robots.txt`,
+`sitemap.xml`, `manifest.webmanifest` or `service-worker.js` reappear).
+
+| Kind | Paths | Legacy relationship |
+|---|---|---|
+| Pages (8) | `/` · `/about` · `/services` · `/how-it-works` · `/locations` · `/safety` · `/faq` · `/contact` | `Site::index/about/services/how_it_works/locations/safety/faq/contact`; copy ported heading-for-heading from `views/site/*.php` |
+| Permanent aliases (3) | `/coverage` → `/locations` · `/help` → `/faq` · `/how` → `/how-it-works` (301) | legacy aliases in `config/routes.php` |
+| Auth/workspace redirects (6) | `/login` → `/app/login` · `/admin/login` → `/app/login` · `/register` → `/app/register` (302) · `/forgot-password` → `/app/login` · `/access-denied` → `/app/` · `/dashboard` → `/app/` | legacy `Auth`/`Workspace` pages, now served by the SPA. `/forgot-password` is a **divergence**: reset delivery is not ported |
+| Generated documents (4) | `/robots.txt` · `/sitemap.xml` · `/manifest.webmanifest` · `/service-worker.js` | `Seo::robots` (all six legacy disallow rules kept, three Node-only private prefixes added) and `Seo::sitemap` (8 paths — `/login` and `/register` are omitted because they redirect into the disallowed `/app/`). Manifest and worker are new |
+| Form target (1) | `POST /contact/submit` → 303 `/contact` with a signed one-shot `wf_flash` | `Site::contact_submit` incl. its flashdata flow; `GET /contact/submit` answers 405 `Allow: POST`, as the legacy route was POST-only |
+
+Verb and fallback rules pinned by tests: documents answer `GET`/`HEAD`; a declared POST
+document route answers its own verb; an **unknown** path with a non-GET method answers **404**;
+a real static file with a non-GET method answers **405** + `Allow: GET, HEAD`. Any `/app/*` GET
+carrying `Accept: text/html` receives the built SPA shell (200); without that header it stays
+**404**, so a missing asset is never masked by HTML.
+
+Workspace SPA surfaces declared by the client router: `/app/`, `/app/login`, `/app/register`,
+`/app/account`, `/app/status`, `/app/admin/users` (`identity.users.view`),
+`/app/admin/inquiries` (`system.super_admin`). Undeclared `/app/*` paths render an explicit
+"nothing is served here" view rather than a blank screen.

@@ -223,3 +223,29 @@ Measured here: **85** app tests (`apps/workforce-platform`), **367** legacy runt
 tests, **21/21** install checks, `verify:data` clean on a seeded store and failing (exit 1)
 on an unseeded one. No production host, real database, provider or signed native build
 was touched.
+
+## 11. Closure status after Phase 3 (2026-10-09, branch `arena/774d9e70-ai`)
+
+Public site, SEO documents, PWA shell and contact intake. Full record with the parity tables,
+the divergences and the rehearsal log: [`PHASE3_PUBLIC_SITE.md`](PHASE3_PUBLIC_SITE.md).
+
+| ID | Severity | Status | Evidence |
+|---|---|---|---|
+| **F-09** | 🟠 | **Closed** — generated PNG icon set (192/512/maskable-512/apple-touch-180) reproducible from `tools/generate-icons.mjs`; service worker generated per request with a content-hash cache name (`windels-shell-<sha256[:16]>`), hashed build assets cache-first, unhashed shell no longer cache-first, `/api/`, `/uploads/`, `/private/`, `/data/`, the worker itself and `/contact/submit` never cached; update prompt (Reload / Not now → `SKIP_WAITING`, reload on `controllerchange`) in both `public/site.js` and the SPA; offline banner; worker served `no-cache` | `test/site.test.js`: `F-09 the icon set is real PNGs at the sizes install prompts require, reproducible from the generator`, `F-09 the service worker is generated, versioned by shell content, and its policy is data` (the generated source is **compiled** in the test); `test/http.test.js` worker assertions; `verify:install` checks 22–25 (icons present) and 28 (icons byte-identical to the generator) |
+| **F-10** | 🟠 | **Closed** — all 8 legacy public pages + 3 aliases + 6 auth/workspace redirects rendered, `robots.txt` (6 legacy disallow rules + 3 Node-only prefixes, conditional `Sitemap:`), `sitemap.xml` (8 paths, refuses relative `<loc>`), `manifest.webmanifest`, canonical/Open Graph/twitter/theme metadata from one validated `SITE_*` surface, contact intake stored + audited + throttled with a signed one-shot flash. `publicSite` still reports **`partial`**: the legacy chat widget is deliberately not ported | `test/site.test.js`: 6 `F-10` tests, the first of which parses `application/config/routes.php` and asserts every legacy site rule is answered; heading parity is compared against `application/views/site/*.php` with entities decoded |
+| **F-13** | 🟡 | **Further closed** — `MAX_REQUESTS_PER_CLIENT` concurrency ceiling (429 `TOO_MANY_CONCURRENT_REQUESTS` + `Retry-After: 1`) landed, the last item from this finding that was implementable without a database. Pool-saturation metrics still open | `test/site.test.js`: `F-13 the concurrency ceiling refuses parallel slow requests from one address` |
+| **F-14** | 🟡 | **Still closed, re-verified** — `.env.example` documents **45** variables including the new `SITE_*`, `THEME_COLOR`, `ROBOTS`, `CONTACT_*` and `MAX_REQUESTS_PER_CLIENT` | `verify:install` check 25 |
+| **F-11** | 🟠 | Open — unchanged | needs an approval-gated upgrade pass |
+| **F-12** | 🟡 | Open — decision, not code. **The gate was not triggered:** Phase 3 added no package to any manifest (server dependencies remain exactly `bcryptjs` + `mysql2`; client `devDependencies` unchanged). Recommendation recorded for approval: per-package lockfiles, starting with `npm install --package-lock-only` inside `apps/workforce-platform/`, because a cPanel install runs per application directory and root hoisting is unavailable there | `PHASE3_PUBLIC_SITE.md` §10 |
+| **F-15** | 🔴 | **Open, cannot close here** — migration `004_public_site.sql` and `src/db/site-repository.js` are unit-covered against a fake pool only; no MySQL server exists in this sandbox, so `wf_contact_inquiries` has never been created by one | blocking on a staging host |
+| **F-16** | 🔴 | Open — unchanged | production action, needs approval |
+| **F-17** | 🟠 | **Closed** — `BASELINE_TESTS.md` re-counted for Phase 3 (this was the remaining item) | `BASELINE_TESTS.md`, Phase 3 section |
+| **F-18** | 🟠 | Open by decision — unchanged | `RISK_REGISTER.md` R-02 |
+
+Measured here: **103** app tests (18 new), **30/30** install checks, **4/4** icon checks,
+**367** legacy runtime tests, **12** Scout contract tests, **29** football-prediction tests —
+**511** passed, 0 failed — plus a green client build (20 modules, 265.27 kB JS / 79.47 kB gzip)
+and a live `curl` rehearsal of every document route on the file adapter. `application/` and
+`system/` are unchanged; no production host, real database, provider, browser or signed native
+build was touched.
+

@@ -16,8 +16,14 @@ production replacement and no traffic has been cut over.
 - **Identity and account management are ported**: registration, login, logout,
   session rotation, session-bound CSRF, password change, avatar upload/serving/
   removal, audit listing, and the admin user list/detail/create/status/role surface
-  with pagination, filtering, sorting and search. The 12 other product domains
-  remain unported and `/api/v1/system/status` says so per module.
+  with pagination, filtering, sorting and search.
+- **The public site, its SEO documents and the PWA shell are ported**: 8 marketing
+  pages, 9 legacy aliases/redirects, `robots.txt`, `sitemap.xml`,
+  `manifest.webmanifest`, `service-worker.js` (all generated per request), the
+  deterministic PNG icon set, and public contact intake with a signed one-shot
+  flash for the no-script form path. The legacy public chat widget is **not**
+  ported, so `publicSite` reports `partial`. The 12 other product domains remain
+  unported and `/api/v1/system/status` says so per module.
 - Two storage adapters implement one repository contract:
   - `STORAGE_ADAPTER=mysql` (production target) — the MySQL/MariaDB tables created by
     `src/db/migrations/*.sql`.
@@ -26,8 +32,11 @@ production replacement and no traffic has been cut over.
     production unless `ALLOW_FILE_STORE_IN_PRODUCTION=1` is set deliberately.
   `STORAGE_ADAPTER=auto` (the default) picks `mysql` when `DB_HOST`/`DB_NAME`/`DB_USER`
   are present and `file` otherwise, so the server boots on a host with no database.
-- `public/` is the Vanilla JS public site, PWA manifest and static-only service
-  worker. `client/` is the React/Vite SPA shell built into `public/app/`. `native/`
+- `public/` holds only real static files: `styles.css`, `site.js` and `icons/`.
+  `index.html`, `robots.txt`, `sitemap.xml`, `manifest.webmanifest` and
+  `service-worker.js` are **rendered per request** and must never be committed as
+  static copies — `verify:install` fails if they reappear. `client/` is the
+  React/Vite SPA built into `public/app/` (generated, git-ignored). `native/`
   is the Capacitor wrapper; native sign-in stays disabled until a reviewed
   token/refresh/revocation contract and secure storage implementation exist.
 
@@ -57,7 +66,10 @@ login-attempt hash, not only the session cookie. `DB_*` are required only by the
 
 `npm run check` is the release gate: it verifies the installation (engines range,
 dependency set, required files, migrations, `.env.example` coverage, production
-config rules, built client bundle) and then runs the suite — currently **84 tests**.
+config rules, reproducible icons, absence of static generated documents, built
+client bundle — **30 checks**) and then runs the suite — currently **103 tests**.
+`npm run build:icons` regenerates the PNG icon set; `npm run check:icons` proves
+the committed PNGs are byte-identical to what the generator produces.
 
 ## Operations
 

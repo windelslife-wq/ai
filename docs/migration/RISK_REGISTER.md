@@ -45,4 +45,15 @@ Per master plan §11 Phase 0: "Record known failures and contradictions. Never s
 7. Concurrent PHP + Node apps on one account during coexistence; document-root layout for `public/` + API proxy.
 8. Upload/storage paths writable by the Passenger user (avatars, exports).
 
+## Additions after Phase 3 (2026-10-09, branch `arena/774d9e70-ai`)
+
+Risks created or first observed by the public-site/PWA/contact-intake work. The Phase 0 table
+above is unchanged; these are additive, per the "never silently reconcile" rule.
+
+| ID | Sev | Area | Risk / contradiction (evidence) | Mitigation / owner phase |
+|---|---|---|---|---|
+| **R-21** | 🟠 | Deployment / caching | **Generated documents can be shadowed on a real host.** `public/index.html`, `robots.txt`, `sitemap.xml`, `manifest.webmanifest` and `service-worker.js` were deleted from the tree and are rendered per request. An Apache `DirectoryIndex`, a leftover file from an earlier deploy, an archive extracted over `public/`, or a rewrite that serves files before Passenger would publish a stale document instead — and a stale `service-worker.js` pins every returning visitor to an obsolete shell. `verify:install` (check 29) guards the *repository* only; it cannot see the host's document root. | Phase 5 (cPanel hardening): after upload, request all five paths on the host and diff them against locally generated output; add it to the pre-cutover checklist; never extract a deployment archive over an existing `public/` without deleting those five names first. |
+| **R-22** | 🟡 | Privacy / data | **Public contact intake stores personal data with no retention story.** `wf_contact_inquiries` (migration 004) holds a visitor's name, email and message, and the same three fields are duplicated in the `CONTACT_INQUIRY` audit details so an operator can answer from the trail alone. There is no retention window, no purge job and no data-subject deletion path. The client address is stored only as an HMAC-SHA256 fingerprint (deliberate), but a deletion request would have to reach two places. | Decide retention + purge with the notifications/audit module port: a cron-invoked CLI job with DB-backed locking (plan §8), plus an approved answer for audit-trail immutability vs. erasure requests. Until then the inbox is read-only and the docs state plainly that personal data is stored. |
+| **R-23** | 🟡 | Frontend / security | **Client-side gates could be mistaken for access control.** The SPA renders permission-gated navigation and refuses to mount a view whose permission is missing. That is presentation: the API re-checks the same permission and answers 403 regardless, and the denial view says so and names the permission. The risk is a future contributor treating the client guard as the control. | Keep the invariant explicit: no client-only gate is ever the control. Every new SPA view gets a matching 401/403 server test (Phase 3 precedent: `the administrator inquiry listing is super-admin only and paginated`). |
+
 — End of Phase 0 risk register.

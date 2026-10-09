@@ -111,4 +111,37 @@ Style contrast vs. legacy AEGIS schema: football uses **real `DATETIME(3)`, nati
 9. **collations:** everything is `utf8mb4`; watch `VARCHAR(190)/(191)` UNIQUE index length limits on older MySQL (already respected).
 10. **Backups:** `database/production.sql` is both schema and seed snapshot (2026-08-24 era for the zip copy; the repo copy is current) — treat as **reference seed**, not as a production-data backup; production data lives only on the cPanel host.
 
+## 6. Node platform schema — `wf_*` (added by Phases 1–3; canonical: `apps/workforce-platform/src/db/migrations/`)
+
+Recorded here because it is now part of the repository's data surface. It is **isolated**: every
+table is `wf_`-prefixed, additive, and no migration touches a legacy table, so PHP keeps reading
+and writing the 79-table schema unchanged during coexistence (R-18).
+
+Conventions, deliberately different from §2.0: native `DATETIME(3)` UTC instead of
+`VARCHAR(32)` ISO strings; native `JSON` (`detail_json`) instead of `LONGTEXT`; real foreign
+keys with `ON DELETE SET NULL` for actors; `BIGINT UNSIGNED AUTO_INCREMENT` identifiers;
+`utf8mb4` / `utf8mb4_unicode_ci`; `VARCHAR(190)` for indexed emails. Versioned, checksummed,
+ordered migrations applied by `npm run migrate` and tracked in `wf_schema_migrations`;
+`readiness()` reports `schema:false` until all four are present, so `/api/v1/health/ready`
+stays 503 on a partial schema.
+
+| Table | Migration | Purpose / notes |
+|---|---|---|
+| `wf_schema_migrations` | 001 | Applied-migration ledger with checksums; the migrator refuses a changed checksum |
+| `wf_users` | 001 (+003 index) | Accounts. `password_hash` holds imported PHP `$2y$` digests verbatim (`bcryptjs` verifies them); `legacy_uid` carries the 6-digit UID for login parity; status toggling, never deletion |
+| `wf_roles`, `wf_permissions`, `wf_user_roles`, `wf_role_permissions` | 001, seeded by 003 | The legacy RBAC vocabulary: 8 roles / 14 permissions including `system.super_admin`. `src/db/platform-baseline.js` seeds the same matrix for adapters without migrations (the file store), and a test asserts the SQL and the code agree key for key |
+| `wf_sessions` | 001 (+003 `device_label`, index) | Opaque **hashed** server-side sessions (no JWT), expiry, revocation, rotation; `device_label` supports the session list |
+| `wf_audit_events` | 001 (+003 index) | Audit trail: `actor_user_id` nullable (public contact intake audits with `NULL`), `action_key`, `entity_type`/`entity_id` as `VARCHAR`, `detail_json JSON` |
+| `wf_user_profiles` | 002 | Display name, profile image path, last-login — separated from `wf_users` so identity import stays one-shot and reversible |
+| `wf_data_imports` | 002 | Single-use import ledger for the legacy identity importer (dry-run first; never executed against production data) |
+| `wf_contact_inquiries` | **004 (Phase 3)** | Public contact intake: unique 26-char ULID `reference`, `name`/`email`/`message` (10–2 000 chars, refused rather than truncated), `client_fingerprint CHAR(64)` = HMAC-SHA256 of the client address keyed with `SESSION_SECRET` (**no raw IP is stored**), `user_agent`, `request_id`, `status` (`new`) with `handled_by`/`handled_at` for a future queue, indexes on `created_at` and `(status, created_at)`. The legacy platform stored a contact submission **only** as an audit entry; this is the working copy, written *alongside* the `CONTACT_INQUIRY` audit event. Retention/purge is undecided — see R-22 |
+
+The file adapter (`STORAGE_ADAPTER=file`) implements the same 32-method repository contract over
+an append-only JSONL log, so every table above has a non-MySQL shape used by tests and local
+rehearsal; it is refused in production unless `ALLOW_FILE_STORE_IN_PRODUCTION=1`.
+
+**Not verified against a real server:** no migration in this set — including 004 — has ever been
+applied by a MySQL/MariaDB instance in this sandbox (F-15). The DDL is unit-checked and
+checksum-verified by the migrator against a fake pool only.
+
 — End of Phase 0 data dictionary.

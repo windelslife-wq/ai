@@ -143,3 +143,63 @@ Operational evidence produced alongside the tests (file adapter, temp roots):
 `tools/seed-platform.mjs` seeds 9 roles / 14 permissions / 29 grants, `verify-data`
 then exits 0, `tools/backup.mjs create|verify|restore` round-trips and refuses both a
 tampered manifest and a non-empty target without `--force`.
+
+## Re-measured 2026-10-09 — Phase 3 (public site, SEO/PWA shell, contact intake), branch `arena/774d9e70-ai`, Node v22.22.3
+
+| Suite | Exact command | Result |
+|---|---|---|
+| Node platform — public site, generated SEO documents, PWA shell, contact intake, identity, HTTP core, uploads, RBAC, backups | `cd apps/workforce-platform && npm run verify:install` then `npm test` | **30/30 installation checks**, then **103 passed, 0 failed** (12 test files, 22.6 s) |
+| Icon reproducibility | `cd apps/workforce-platform && npm run check:icons` | **4/4 verified** (`icon-192`, `icon-512`, `maskable-512`, `apple-touch-icon`) |
+| Client (React/Vite) production build | `cd apps/workforce-platform/client && npm ci && npm run build` | **exit 0** — 20 modules transformed; `index-*.js` 265.27 kB (79.47 kB gzip), `index-*.css` 18.12 kB (4.82 kB gzip) |
+| AEGIS PHP/WASM (the parity oracle) | `node runtime/run-tests.mjs` (repo root, after `npm ci` in `runtime/`) | **367 passed, 0 failed**, 19.3 s |
+| Scout + shared contract tests | `npm run test:contracts` | **12 passed, 0 failed** |
+| Football Predictions | `cd apps/football-predictions && npm ci && npm test` | **29 passed, 0 failed** |
+
+**Total executed in this sandbox for this phase: 511 passed, 0 failed.**
+
+Reproduction warning, learned by hitting it: running `npm ci` **inside** `client/`, `runtime/` or
+`apps/football-predictions/` prunes packages hoisted into the repository root `node_modules`
+(this phase it removed `bcryptjs`, and the app suite then failed with
+`ERR_MODULE_NOT_FOUND: Cannot find package 'bcryptjs'` — 24 passed, 9 failed). Restore the root
+tree with `npm install --no-package-lock` (the R-04 workaround; it leaves `package-lock.json`
+untouched) and re-run `npm run check` before trusting any count. Measured after restoring:
+**30/30 install checks and 103/103 tests again**.
+
+Not executed here, and therefore not claimed:
+
+- **MT5-bridge `pytest` (9 tests)** — needs its own Python 3.11 virtual environment; nothing it
+  covers changed in this phase. Last recorded result: 9 passed.
+- **`npm run typecheck`** — `typescript` is not installed in this sandbox's root tree, so `tsc`
+  cannot run (`sh: 1: tsc: not found`). No TypeScript changed in this phase; the last recorded
+  result was clean.
+- **Anything needing a real MySQL/MariaDB server, a cPanel/Passenger host, a real browser
+  (Lighthouse, install prompt, service-worker update observation), outbound SMTP, provider
+  credentials or a native SDK.** Migration `004_public_site.sql` has never been applied by a
+  real server; the generated service worker's *source* is compiled inside a test, but its
+  runtime behaviour in a browser is not measured.
+
+How the counts moved, and why:
+
+- **85 → 103 app tests** is +18 in `test/site.test.js`. That suite reads the legacy PHP as its
+  oracle — it parses the site block of `application/config/routes.php`, compares rendered
+  headings against `application/views/site/*.php` (entities decoded), and re-derives the service
+  worker's never-cache literals from the same data the generator uses — so the expectations are
+  not a restatement of the implementation.
+- **21 → 30 installation checks**: the required-file list now covers the site module
+  (`pages.js`, `render.js`, `documents.js`), `public/styles.css`, `public/site.js` and the four
+  icon PNGs instead of the deleted static `index.html`/`manifest.webmanifest`; plus two new
+  gates — the committed icons must be byte-identical to `tools/generate-icons.mjs` output, and
+  no static copy of a generated document (`robots.txt`, `sitemap.xml`, `manifest.webmanifest`,
+  `service-worker.js`, `index.html`) may exist. `.env.example` coverage is now 45 variables.
+- **28 → 30 API routes** (`POST /api/v1/site/contact`, `GET /api/v1/admin/inquiries`) and
+  **0 → 22 rendered document routes**; the repository contract grew from 30 to 32 methods.
+
+Operational rehearsal alongside the tests (file adapter, `STORAGE_DIR` outside the repository,
+`seed:platform --admin-username demo`): every document route answered as specified (8 pages 200,
+3 aliases 301, 6 redirects 302, 4 generated documents 200), `POST /api/v1/site/contact` stored
+an inquiry and returned a ULID reference with `mail.sent:false`, `POST /contact/submit` answered
+303 with a signed `wf_flash` cookie while the same request carrying an undeclared field answered
+400, the super-admin listing returned the stored row with its 64-hex client fingerprint, and the
+same listing answered 401 anonymously. The full table is in
+[`PHASE3_PUBLIC_SITE.md`](PHASE3_PUBLIC_SITE.md) §9.
+

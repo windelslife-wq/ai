@@ -1,6 +1,6 @@
 # JavaScript / Node.js / cPanel migration status
 
-**Updated:** 2026-10-06 · **Branch:** `arena/9643b72f-ai`
+**Updated:** 2026-10-09 · **Branch:** `arena/774d9e70-ai`
 
 ## Decision and safety boundary
 
@@ -71,8 +71,55 @@ provider, any native build, any cutover.
 
 Unchanged and still true: the PHP application is the source of truth and the rollback
 target; `application-deployment.zip` remains stale and the deployment docs now say so;
-F-09/F-10 (PWA/SEO) belong to Phase 3; F-11/F-12 await approval-gated decisions; F-15
-cannot be closed without a staging database.
+F-11/F-12 await approval-gated decisions; F-15 cannot be closed without a staging
+database. F-09/F-10 (PWA/SEO) were deferred to Phase 3 and are closed there — see the
+next section.
+
+---
+
+## Phase 3 — public site, SEO/PWA shell and contact intake (2026-10-09, branch `arena/774d9e70-ai`)
+
+**This section supersedes the route counts, the public-site description and the PWA
+description above.** Full record: [`PHASE3_PUBLIC_SITE.md`](PHASE3_PUBLIC_SITE.md).
+
+- **30 API routes** (28 from Phase 2 plus `POST /api/v1/site/contact` and
+  `GET /api/v1/admin/inquiries`) and **22 rendered document routes** — 8 marketing pages,
+  9 legacy aliases/redirects, `robots.txt`, `sitemap.xml`, `manifest.webmanifest`,
+  `service-worker.js`, and `POST /contact/submit`. The two ledgers are asserted disjoint.
+- **F-10 closed**: every legacy `Site`/`Seo` route is answered, page copy is compared
+  heading-for-heading against `application/views/site/*.php`, metadata comes from one
+  validated `SITE_*` surface, robots keeps all six legacy disallow rules (plus three
+  Node-only private prefixes), and the sitemap refuses to publish relative URLs.
+- **F-09 closed**: a real PNG icon set (192, 512, maskable-512, apple-touch-180) rendered
+  by `tools/generate-icons.mjs` and proven byte-reproducible; a service worker whose cache
+  name is derived from the shell's content hash; hashed build assets cache-first, unhashed
+  shell never cache-first; `/api/`, uploads, private and data paths never cached; and a
+  waiting-worker **Reload / Not now** prompt in both the vanilla site and the SPA.
+- **Generated documents replaced static files**: `public/index.html`, `public/robots.txt`,
+  `public/sitemap.xml`, `public/manifest.webmanifest` and `public/service-worker.js` are
+  deleted from the tree and rendered per request; `verify:install` fails if any returns.
+- **Contact intake**: `wf_contact_inquiries` (migration `004_public_site.sql`, additive),
+  a 26-character ULID receipt reference, an HMAC-SHA256 client fingerprint instead of a raw
+  IP, the `CONTACT_INQUIRY` audit entry, a per-address throttle (3/hour default), a signed
+  one-shot `wf_flash` cookie for the no-script path, and `mail.sent:false` in every response
+  because no outbound transport exists. Repository contract: **32** methods.
+- **SPA slice**: typed `ApiError` client, an exact-path history router, permission-gated
+  navigation, loading/empty/error/offline states, and register / account / admin-users /
+  contact-inbox / platform-status views — so the `/login` and `/register` redirects land on
+  real surfaces. Client build green: 20 modules, 265.27 kB JS (79.47 kB gzip).
+- **Deliberate divergences** are recorded in `PHASE3_PUBLIC_SITE.md` §5, including the two
+  that keep `publicSite` at `partial`: the legacy public chat widget is not ported, and the
+  legacy announcement-bar default copy (which advertises the unported AI Language Teacher)
+  is not reproduced.
+
+Measured in this sandbox on 2026-10-09: **103** app tests passing (18 new in
+`test/site.test.js`, which reads the legacy PHP as its oracle), **30/30** install checks,
+**4/4** icon checks, **367** legacy runtime tests, **12** Scout contract tests, **29**
+football-prediction tests — **511** passed, 0 failed — plus a live `curl` rehearsal of every
+document route, both contact paths, the admin listing and its 401/403 boundaries on the file
+adapter. **Not** exercised: a real MySQL server (migration 004 has never been applied by one),
+a cPanel/Passenger host, a real browser (no Lighthouse or install-prompt observation),
+outbound mail, any provider, any native build, any cutover.
 
 
 ## Current implementation slice — foundation only
@@ -82,13 +129,13 @@ cannot be closed without a staging database.
 - **Node.js `>=22.20.0 <25`** and a top-level `server.js` using Node's `http` module. The internal router, bounded JSON parser, static allow-list, security headers, request IDs, request timeouts, generic errors, rate limits and graceful shutdown are implemented with core modules and local project code. Fastify, Express and Fastify plugins are not runtime dependencies of this server.
 - **MySQL identity foundation:** the existing bounded `mysql2` pool, checksum-versioned migrations, isolated `wf_*` identity/session/RBAC/audit tables, and dry-run-first one-time identity importer are retained. The importer has **not** been run against production or source user data.
 - **Authentication/security slice:** username/email/6-digit-UID login compatible with PHP bcrypt hashes, opaque hashed server-side sessions, host-only `HttpOnly`/`Secure` production cookies, session rotation, session-bound CSRF, audit events and deny-by-default permission checks.
-- **Vanilla public site:** semantic HTML/CSS/JavaScript at `/`, with no React hydration or third-party runtime asset calls.
-- **React/Vite SPA:** source in `client/`, built and served under `/app/`. It has the initial sign-in/readiness shell; non-authenticated product domains are plainly marked as not yet migrated.
-- **PWA shell:** manifest and service worker. Only the public shell and compiled static assets are eligible for caching; `/api/`, uploads and private paths bypass the worker. Offline writes and sensitive-operation queuing are not implemented.
+- **Vanilla public site:** 8 semantic server-rendered pages plus `robots.txt`, `sitemap.xml`, `manifest.webmanifest` and `service-worker.js`, all generated per request from validated `SITE_*` config — no React hydration, no third-party runtime asset calls, no inline script or style, and no committed static copy of any generated document.
+- **React/Vite SPA:** source in `client/`, built and served under `/app/`. Sign-in, registration, workspace overview, account management, admin user directory, the contact inbox and the platform-status view, behind an exact-path router with permission-gated navigation and loading/empty/error/offline states; non-ported product domains are plainly marked as not yet migrated.
+- **PWA shell:** generated manifest with a real PNG icon set (including a maskable 512) and a generated service worker whose cache name is derived from the shell's content hash. Hashed build assets are cache-first, the unhashed shell is not, and `/api/`, `/uploads/`, `/private/`, `/data/`, the worker itself and the contact form bypass caching entirely. Update flow offers Reload / Not now instead of swapping silently. Offline writes and sensitive-operation queuing are not implemented; no real browser has been used to observe an install prompt.
 - **Capacitor wrapper:** Android/iOS project configuration and HTTPS API-origin validation. Native sign-in is intentionally disabled: a native token/refresh/revocation contract, API-origin policy and audited Keychain/Android Keystore storage plugin still need design and tests. Native SDK builds, signing and store releases have not been verified.
 - **Separate dependency boundary:** the server package has `mysql2` and `bcryptjs` as its production dependencies. React/Vite and Capacitor dependencies live in their own client/native packages and are build-time/native dependencies; they are not loaded by the HTTP server.
 
-This is **not** a production replacement. The Node API currently covers health/readiness and the initial identity/session slice; no business module has been ported and accepted. No production database integration test, real import rehearsal, cPanel/Passenger host test, provider/broker validation or traffic cutover has been performed. The PHP application remains intact as the source of truth and rollback target.
+This is **not** a production replacement. The Node API covers health/readiness, identity/accounts/administration and the public site with contact intake; no business (product) module has been ported and accepted. No production database integration test, real import rehearsal, cPanel/Passenger host test, provider/broker validation or traffic cutover has been performed. The PHP application remains intact as the source of truth and rollback target.
 
 ## Migration inputs still to consolidate
 
@@ -102,7 +149,7 @@ This is **not** a production replacement. The Node API currently covers health/r
 
 1. Add real MySQL/MariaDB integration coverage for Node migrations, sessions, the single-use identity-import ledger, uniqueness conflicts, transaction behavior and restore.
 2. Finish native authentication architecture (exact allowed API origin, token lifecycle/revocation, secure-storage plugin, CORS/origin/CSRF tests) before enabling native sign-in or signing an app.
-3. Port identity/account management, public/SEO flows, audit/notifications and the shared workspace with route and permission parity.
+3. Port the remaining shared platform — notifications, the audit browser, settings and the domain dashboards — with route and permission parity. Identity/account management (Phase 2) and the public site, SEO/PWA shell and contact intake (Phase 3) are done; the public chat widget, password-reset delivery and outbound mail are not.
 4. Migrate domain modules one at a time using [`UNFINISHED_MODULES.md`](UNFINISHED_MODULES.md), preserving the trading Risk Engine, ordered 15-step Execution Supervisor, kill switch, lottery honesty rules, provider provenance and tenant/user isolation.
 5. Consolidate Scout, Football Predictions and the MT5 bridge only after their separate storage/runtime assumptions are mapped and tested.
 6. Rehearse the full data import, backup/restore, cPanel limits, deployment package and rollback; obtain explicit approval before any production cutover.

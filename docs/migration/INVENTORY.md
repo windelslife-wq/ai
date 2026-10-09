@@ -279,4 +279,31 @@ No application calls another application's database. The two lead-discovery impl
 6. **The MT5 bridge stays Python** unless/until a Node bridge is contract-tested against a real demo terminal (master plan §3 agrees; treat as documented migration exception).
 7. **Three auth stacks** (CI3 sessions; Scout JWT; football sessions) must be unified or deliberately kept separate in the target design.
 
+## 8. Node port status against this inventory (updated 2026-10-09, Phase 3)
+
+The audit above describes the **PHP** platform and is unchanged. This section maps it to the
+Node target so a reader does not have to infer port status from prose elsewhere. Evidence:
+[`PHASE2_IDENTITY.md`](PHASE2_IDENTITY.md), [`PHASE3_PUBLIC_SITE.md`](PHASE3_PUBLIC_SITE.md),
+[`ROUTE_MAP.md`](ROUTE_MAP.md) §14–15.
+
+| Inventory row (§3.1 and neighbours) | Node status | Note |
+|---|---|---|
+| Auth: login (username/email/6-digit UID), register, logout, account self-service | **Ported** (Phase 2) | Parity-tested; PHP bcrypt `$2y$` verified via `bcryptjs` |
+| Auth: forgot-password (mailer) | **Not ported — honest refusal** | `POST /api/v1/auth/password-reset-request` answers `delivered:false`; `/forgot-password` redirects to `/app/login`. Needs a mail transport and a single-use token store |
+| Auth: avatar upload/serve/remove | **Ported** (Phase 2) | Signature-sniffed, stored outside the static root, owner-or-admin download |
+| RBAC: roles/permissions/user_roles, seeded matrix | **Ported** (Phase 2) | Legacy 8 roles / 14 permissions incl. `system.super_admin`; SQL and code asserted against each other |
+| Admin console: user create/toggle | **Ported** (Phase 2) | `identity.users.manage`; test-email action **not** ported (no mail) |
+| Workspace dashboard / app shell | **Partially ported** (Phase 3) | SPA shell with router, permission-gated nav, account/admin/status views; **no domain dashboards** |
+| Notifications | **Not ported** | reported `not-ported` by `/api/v1/system/status` |
+| Audit log | **Partially ported** | Ported actions write audit events (`identity.*`, `CONTACT_INQUIRY`); no audit browser UI beyond the account activity list |
+| Public site & SEO (`Site.php`, `Seo.php`, `views/site/*`, `config/seo.php`) | **Ported** (Phase 3) | 8 pages, 3 aliases, robots/sitemap/manifest/worker generated per request, contact intake stored + audited + throttled |
+| Chat assistant (`Api_chat.php`, `Aegis/ChatAssistant.php`, `aegis-chat.js`, `chat_widget.php`) | **Not ported** | The public widget is deliberately absent, which is why `publicSite` reports `partial` rather than `ported` |
+| Mailer (SMTP) | **Not ported** | Every response that could imply delivery says it did not happen |
+| Feature/status honesty matrix (`GET /api/system/features`) | **Ported** | `GET /api/v1/system/features` + `/system/status`, per-module `ported`/`partial`/`not-ported` |
+| Announcement bar (`views/partials/announcement_bar.php`) | **Partially ported** | Renders from `SITE_ANNOUNCEMENT`, **empty by default**: the legacy default copy advertises the unported AI Language Teacher |
+| Market data, analysis/agents, strategies, paper trading, risk, execution, brokers, sports, lottery, language learning, lead discovery (§3.2–§3.9) | **Not ported** | Reported `not-ported` by the status surface; trading stays disabled |
+| Football predictions (§3.12) | Unchanged, isolated | 29 tests re-run green this phase |
+| Scout (`apps/api`, `apps/web`) | Unchanged | Consolidation gated on F-18/R-02; 12 contract tests re-run green this phase |
+| MT5 bridge (Python) | Unchanged | Documented migration exception; its pytest suite was not re-run this phase |
+
 — End of Phase 0 inventory.
