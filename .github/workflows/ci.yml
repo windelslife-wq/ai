@@ -23,6 +23,9 @@ jobs:
       - run: npm run check:config --prefix apps/workforce-platform/native
       - run: VITE_API_BASE_URL=https://api.example.invalid npm run build:native --prefix apps/workforce-platform/client
       - run: npm run build --prefix apps/workforce-platform/client
+      # The general install gate skips an absent bundle (correct for a fresh clone);
+      # a release artefact must have one, so re-run the gate with the requirement on.
+      - run: node apps/workforce-platform/tools/verify-install.mjs --require-bundle
       - run: npm test --workspace=windels-football-predictions
       - run: npm ci --prefix runtime
       - run: npm --prefix runtime test

@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 /**
- * Backup and restore for the workforce platform (audit finding F-02: a deployment
- * had no documented way to take its data with it).
+ * Backup and restore for the workforce platform (audit finding F-13: a deployment had
+ * no documented way to take its data with it, and no way to prove a backup was usable).
  *
  * Two adapters, one on-disk layout, so an operator reasons about one thing:
  *
@@ -251,24 +251,33 @@ if (process.argv[1] && path.resolve(process.argv[1]) === path.resolve(fileURLToP
   try {
     const config = loadConfig();
     const destination = path.resolve(String(flags.get("destination") || path.join(path.dirname(config.storage.fileDir), "backups")));
+    const asJson = flags.get("json") === true;
     if (command === "create") {
       const result = await createBackup({ config, destination });
-      console.log(`Backup written to ${result.backupDir} — ${result.files} file(s), ${result.adapter} adapter.`);
-      console.log(`Re-check it any time: node tools/backup.mjs verify --backup ${result.backupDir}`);
+      if (asJson) console.log(JSON.stringify({ ok: true, command, ...result }, null, 2));
+      else {
+        console.log(`Backup written to ${result.backupDir} — ${result.files} file(s), ${result.adapter} adapter.`);
+        console.log(`Re-check it any time: node tools/backup.mjs verify --backup ${result.backupDir}`);
+      }
     } else if (command === "verify") {
       const backupDir = String(flags.get("backup") || "");
       if (!backupDir) throw new Error("--backup DIR is required");
       const result = await verifyBackup({ backupDir });
-      console.log(result.ok ? `Backup verifies: ${result.manifest.files.length} file(s), taken ${result.manifest.createdAt}.` : `Backup is damaged:\n  ${result.problems.join("\n  ")}`);
+      if (asJson) console.log(JSON.stringify({ command, backupDir, ...result }, null, 2));
+      else console.log(result.ok ? `Backup verifies: ${result.manifest.files.length} file(s), taken ${result.manifest.createdAt}.` : `Backup is damaged:\n  ${result.problems.join("\n  ")}`);
       process.exitCode = result.ok ? 0 : 1;
     } else if (command === "restore") {
       const backupDir = String(flags.get("backup") || "");
       if (!backupDir) throw new Error("--backup DIR is required");
       const result = await restoreBackup({ config, backupDir, force: Boolean(flags.get("force")) });
-      console.log(`Restored ${result.restored} file(s) (${result.uploadsRestored} upload(s)); checksum ${String(result.checksum).slice(0, 16)}… matches the manifest.`);
-      console.log("Restart the application before serving traffic.");
+      if (asJson) console.log(JSON.stringify({ ok: true, command, backupDir, ...result }, null, 2));
+      else {
+        console.log(`Restored ${result.restored} file(s) (${result.uploadsRestored} upload(s)); checksum ${String(result.checksum).slice(0, 16)}… matches the manifest.`);
+        console.log("Restart the application before serving traffic.");
+      }
     } else {
-      console.log("Usage: node tools/backup.mjs create|verify|restore [--destination DIR] [--backup DIR] [--force]");
+      console.log("Usage: node tools/backup.mjs create|verify|restore [--destination DIR] [--backup DIR] [--force] [--json]");
+      console.log("With --json, stdout is exactly one JSON document, for cron and release pipelines.");
       process.exitCode = command ? 1 : 0;
     }
   } catch (error) {

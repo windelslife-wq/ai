@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 /**
- * Data-integrity verification (audit finding F-02 companion: "the migrated data has
- * no acceptance gate").
+ * Data-integrity verification (audit finding F-13: the Node side had no data-integrity
+ * tooling, so a migrated host could serve traffic with a broken dataset indefinitely).
  *
  * Checks the invariants the schema cannot express on a shared cPanel host — the
  * legacy tables have no unique indexes on the normalized handles and no foreign keys —
@@ -10,6 +10,8 @@
  *
  * Usage:
  *   node tools/verify-data.mjs [--json] [--strict]
+ *
+ * With --json, stdout is exactly one JSON document (no progress lines).
  *
  * Exit: 0 no hard failure, 1 a hard failure (or any warning with --strict).
  * Warnings never fail a normal run: a stale session is not corruption.
@@ -146,9 +148,22 @@ try {
   await pool?.end?.();
 }
 
+const ok = failures.length === 0 && (!strict || warnings.length === 0);
+// `--json` means stdout is a single machine-readable document: the human summary is
+// suppressed rather than appended, so `verify-data --json | jq` and a cron job reading
+// the exit code both work off the same run.
 if (asJson) {
-  console.log(JSON.stringify({ ok: failures.length === 0 && (!strict || warnings.length === 0), adapter, failures, warnings, notes }, null, 2));
+  console.log(JSON.stringify({
+    ok,
+    adapter,
+    passed: notes.length,
+    counts: { passed: notes.length, warnings: warnings.length, failures: failures.length },
+    failures,
+    warnings,
+    notes,
+  }, null, 2));
+} else {
+  console.log(`\n${notes.length} checks passed, ${warnings.length} warning(s), ${failures.length} failure(s) on the ${adapter} adapter`);
 }
-console.log(`\n${notes.length} checks passed, ${warnings.length} warning(s), ${failures.length} failure(s) on the ${adapter} adapter`);
 process.exitCode = failures.length || (strict && warnings.length) ? 1 : 0;
 void ROOT;

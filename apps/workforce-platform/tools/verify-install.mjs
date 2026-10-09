@@ -1,6 +1,7 @@
 #!/usr/bin/env node
 /**
- * Installation verification for a deployment (audit finding F-19).
+ * Installation verification for a deployment (audit finding F-13: the Node side had
+ * no pre-release gate, so "it runs on my machine" was the only evidence).
  *
  * Answers one question before a release is handed to a host: is this tree actually
  * runnable and complete? It checks syntax, the declared runtime, the dependency
@@ -8,8 +9,13 @@
  * variables, and finally that a production configuration loads — without touching
  * a database or a network.
  *
- * Usage:  node tools/verify-install.mjs [--json]
+ * Usage:  node tools/verify-install.mjs [--json] [--require-bundle]
  * Exit:   0 all checks passed, 1 at least one failure.
+ *
+ * `--require-bundle` turns the client-bundle check from a skip into a failure. Run it
+ * in a release pipeline *after* `npm run build:client`; without it a fresh clone passes
+ * this gate because there is no bundle to talk about, which is correct for development
+ * and not correct for an artefact.
  */
 
 import { readdir, readFile, stat } from "node:fs/promises";
@@ -18,12 +24,20 @@ import { fileURLToPath } from "node:url";
 import { spawnSync } from "node:child_process";
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
+const requireBundle = process.argv.includes("--require-bundle");
+const jsonMode = process.argv.includes("--json");
+
+// In --json mode stdout carries exactly one document: no progress lines, no summary.
+// Anything worth reading by a human goes to stderr, so `verify-install --json | jq`
+// never chokes on a "[PASS]" prefix.
+function note(message) {
+  if (!jsonMode) console.log(message);
+}
 const checks = [];
 
 function record(name, ok, detail = "") {
   checks.push({ name, ok, detail });
-  const mark = ok ? "PASS" : "FAIL";
-  console.log(`[${mark}] ${name}${detail ? ` — ${detail}` : ""}`);
+  note(`[${ok ? "PASS" : "FAIL"}] ${name}${detail ? ` — ${detail}` : ""}`);
   return ok;
 }
 
@@ -159,13 +173,18 @@ if (clientIndex) {
     if (!details?.isFile()) missingAssets.push(asset);
   }
   record("built client bundle references only files that exist", missingAssets.length === 0, `${assets.length} referenced${missingAssets.length ? `; missing ${missingAssets.join(", ")}` : ""}`);
+} else if (requireBundle) {
+  record("built client bundle is present", false, "public/app/index.html is absent; run `npm run build:client` (this run used --require-bundle)");
 } else {
-  console.log("[SKIP] built client bundle — public/app/index.html is absent; run `npm run build:client` before release");
+  note("[SKIP] built client bundle — public/app/index.html is absent; run `npm run build:client` before release");
 }
 
 const failures = checks.filter((entry) => !entry.ok);
-if (process.argv.includes("--json")) console.log(JSON.stringify({ ok: failures.length === 0, checks }, null, 2));
-console.log(`\n${checks.length - failures.length}/${checks.length} installation checks passed`);
+if (jsonMode) {
+  console.log(JSON.stringify({ ok: failures.length === 0, passed: checks.length - failures.length, total: checks.length, failures, checks }, null, 2));
+} else {
+  console.log(`\n${checks.length - failures.length}/${checks.length} installation checks passed`);
+}
 if (failures.length) {
   console.error("Verification failed:");
   for (const failure of failures) console.error(`  - ${failure.name}: ${failure.detail}`);
