@@ -122,6 +122,52 @@ a cPanel/Passenger host, a real browser (no Lighthouse or install-prompt observa
 outbound mail, any provider, any native build, any cutover.
 
 
+## Phase 4 — market data and provider health (2026-10-09, branch `arena/774d9e70-ai`)
+
+**This section supersedes the route count and the market-data status above.** Full record:
+[`PHASE4_MARKET_DATA.md`](PHASE4_MARKET_DATA.md). App version is now **0.5.0**.
+
+- **33 API routes** (the 30 from Phase 3 plus `GET /api/v1/market-data/candles`,
+  `/quote` and `/providers`); the 22 rendered document routes are unchanged. All three new
+  routes require a session and no permission, matching `Api_marketdata` — none of them is in
+  the legacy `Api_controller::PUBLIC_ACTIONS` list.
+- **The provider chain is ported**: priority ordering (Binance 10 → Frankfurter/ECB 20 →
+  licensed stock/ETF/futures/options 30–33 → synthetic 999), capability and market-class
+  filtering, timeframe-capable-first ordering, circuit breakers (5 failures / 60 s window /
+  30 s cooldown, a failed probe re-opens), bounded TTL caches, retries with
+  `min(1000, 300×2^attempt)` ms backoff, `DEGRADED` health promotion, provenance
+  (`source`, `synthetic`, `live`, `delayed`, `dataAgeMs`, `stale`, `fallbackChain`) and
+  candle validation (`ok`, `droppedCount`, `gapCount`, issues).
+- **Honesty rules are enforced, not documented**: synthetic output is always labelled and
+  registered last; `MARKET_DATA_ALLOW_SYNTHETIC=0` refuses it outright with
+  `503 SYNTHETIC_DATA_DISABLED` and no candle array; a provider returning an error envelope,
+  a zero/inverted bid-ask, fewer than 30 valid candles or invalid OHLCV **fails** instead of
+  being repaired into a chart; ECB reference rates serve `1d` only with a real `volume: 0.0`;
+  every fallback writes the audited `PROVIDER_FALLBACK` event; the four licensed adapters stay
+  `DISABLED`/`NOT_CONFIGURED` and cannot be selected while inert.
+- **Two hardenings over the legacy manager**, both recorded as divergences: a per-request
+  deadline (`MARKET_DATA_DEADLINE_MS`, 15 s default; health probes 5 s) and bounded in-process
+  caches (500 entries) — the legacy version had neither, and a Node process is long-lived.
+- **Public status surface stays cheap**: `/api/v1/system/status` reports the registry, the
+  synthetic policy and cached provider health, but **never probes** an external host, so an
+  unauthenticated caller cannot make the server fan out to third parties.
+- **No new dependency, no new table, no migration.** `fetch`/`AbortSignal` are platform
+  built-ins; the module persists only the fallback audit event; migrations stay at 001–004.
+  Eight new environment variables are documented in `.env.example` (53 total).
+
+Measured in this sandbox on 2026-10-09: **137** app tests passing (34 new in
+`test/market_data.test.js`, which ports the eleven `tests/cases/02-providers.php` cases 1:1),
+**30/30** install checks, **367** legacy PHP/WASM oracle tests — the eleven provider cases
+passing on **both** sides of the migration — **12** Scout contract tests, **29**
+football-prediction tests and a clean `npm run typecheck`: **545 passed, 0 failed**, plus a
+live `curl` rehearsal of all three endpoints, their 401/400 boundaries, the provider-health
+registry and the audit trail on the file adapter.
+**Not** exercised: a live upstream provider (this sandbox has no egress to Binance or
+Frankfurter — both reported `DOWN` and the chain fell back to labelled synthetic data, which
+is the correct honest behaviour), a licensed feed of any kind, a value-for-value diff of PHP
+versus Node numeric output (new finding **F-26**), a real MySQL server, a market-data user
+interface, or any cutover.
+
 ## Current implementation slice — foundation only
 
 `apps/workforce-platform/` now contains:
@@ -149,8 +195,8 @@ This is **not** a production replacement. The Node API covers health/readiness, 
 
 1. Add real MySQL/MariaDB integration coverage for Node migrations, sessions, the single-use identity-import ledger, uniqueness conflicts, transaction behavior and restore.
 2. Finish native authentication architecture (exact allowed API origin, token lifecycle/revocation, secure-storage plugin, CORS/origin/CSRF tests) before enabling native sign-in or signing an app.
-3. Port the remaining shared platform — notifications, the audit browser, settings and the domain dashboards — with route and permission parity. Identity/account management (Phase 2) and the public site, SEO/PWA shell and contact intake (Phase 3) are done; the public chat widget, password-reset delivery and outbound mail are not.
-4. Migrate domain modules one at a time using [`UNFINISHED_MODULES.md`](UNFINISHED_MODULES.md), preserving the trading Risk Engine, ordered 15-step Execution Supervisor, kill switch, lottery honesty rules, provider provenance and tenant/user isolation.
+3. Port the remaining shared platform — notifications, the audit browser, settings and the domain dashboards — with route and permission parity. Identity/account management (Phase 2), the public site, SEO/PWA shell and contact intake (Phase 3) and market data (Phase 4) are done; the public chat widget, password-reset delivery, outbound mail and every market-data UI surface are not.
+4. Migrate domain modules one at a time using [`UNFINISHED_MODULES.md`](UNFINISHED_MODULES.md), preserving the trading Risk Engine, ordered 15-step Execution Supervisor, kill switch, lottery honesty rules, provider provenance and tenant/user isolation. **Next in dependency order: analysis** (`Indicators.php`, the agent set, consensus and the fundamentals/sentiment abstention contracts), which must import the Phase 4 normalizer rather than reimplement it and must carry `provenance.synthetic` forward into its own payloads.
 5. Consolidate Scout, Football Predictions and the MT5 bridge only after their separate storage/runtime assumptions are mapped and tested.
 6. Rehearse the full data import, backup/restore, cPanel limits, deployment package and rollback; obtain explicit approval before any production cutover.
 

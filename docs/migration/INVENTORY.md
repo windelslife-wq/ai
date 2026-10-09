@@ -279,12 +279,12 @@ No application calls another application's database. The two lead-discovery impl
 6. **The MT5 bridge stays Python** unless/until a Node bridge is contract-tested against a real demo terminal (master plan §3 agrees; treat as documented migration exception).
 7. **Three auth stacks** (CI3 sessions; Scout JWT; football sessions) must be unified or deliberately kept separate in the target design.
 
-## 8. Node port status against this inventory (updated 2026-10-09, Phase 3)
+## 8. Node port status against this inventory (updated 2026-10-09, Phase 4)
 
 The audit above describes the **PHP** platform and is unchanged. This section maps it to the
 Node target so a reader does not have to infer port status from prose elsewhere. Evidence:
 [`PHASE2_IDENTITY.md`](PHASE2_IDENTITY.md), [`PHASE3_PUBLIC_SITE.md`](PHASE3_PUBLIC_SITE.md),
-[`ROUTE_MAP.md`](ROUTE_MAP.md) §14–15.
+[`PHASE4_MARKET_DATA.md`](PHASE4_MARKET_DATA.md), [`ROUTE_MAP.md`](ROUTE_MAP.md) §14–15.
 
 | Inventory row (§3.1 and neighbours) | Node status | Note |
 |---|---|---|
@@ -301,7 +301,10 @@ Node target so a reader does not have to infer port status from prose elsewhere.
 | Mailer (SMTP) | **Not ported** | Every response that could imply delivery says it did not happen |
 | Feature/status honesty matrix (`GET /api/system/features`) | **Ported** | `GET /api/v1/system/features` + `/system/status`, per-module `ported`/`partial`/`not-ported` |
 | Announcement bar (`views/partials/announcement_bar.php`) | **Partially ported** | Renders from `SITE_ANNOUNCEMENT`, **empty by default**: the legacy default copy advertises the unported AI Language Teacher |
-| Market data, analysis/agents, strategies, paper trading, risk, execution, brokers, sports, lottery, language learning, lead discovery (§3.2–§3.9) | **Not ported** | Reported `not-ported` by the status surface; trading stays disabled |
+| Market data: provider manager, breaker, HTTP, normalization, Binance, Frankfurter/ECB, labelled synthetic (§3.2) | **Ported** (Phase 4) | 3 endpoints + provider health; provenance labels synthetic output; licensed adapters still inert. No live upstream call was possible in the sandbox |
+| Licensed asset market data (stock/ETF/futures/options) (§3.2, **SCAFFOLD**) | **Ported as a scaffold** (Phase 4) | Same inert contract: `DISABLED` → `NOT_CONFIGURED` → `UP`; no vendor, schema or license verified |
+| Fundamentals / sentiment feed boundaries, indicator set (§3.2–§3.3) | **Not ported** | They belong to the analysis module (next in dependency order); only the three `MathUtils` functions the synthetic generator needs were carried across |
+| Analysis/agents, strategies, paper trading, risk, execution, brokers, sports, lottery, language learning, lead discovery (§3.3–§3.9) | **Not ported** | Reported `not-ported` by the status surface; trading stays disabled |
 | Football predictions (§3.12) | Unchanged, isolated | 29 tests re-run green this phase |
 | Scout (`apps/api`, `apps/web`) | Unchanged | Consolidation gated on F-18/R-02; 12 contract tests re-run green this phase |
 | MT5 bridge (Python) | Unchanged | Documented migration exception; its pytest suite was not re-run this phase |

@@ -249,3 +249,29 @@ and a live `curl` rehearsal of every document route on the file adapter. `applic
 `system/` are unchanged; no production host, real database, provider, browser or signed native
 build was touched.
 
+## 12. Closure status after Phase 4 (2026-10-09, branch `arena/774d9e70-ai`)
+
+Market data and provider health — the first module in the master plan's dependency order, because
+analysis, strategies and paper trading all consume it. Full record with the parity tables, the
+divergences and the rehearsal log: [`PHASE4_MARKET_DATA.md`](PHASE4_MARKET_DATA.md).
+
+| ID | Severity | Status | Evidence |
+|---|---|---|---|
+| **F-02** | 🟠 | **Extended to a real external dependency** — market data is the first module that calls a third party, and a provider failure answers `503` + `Retry-After` with `MARKET_DATA_UNAVAILABLE` / `SYNTHETIC_DATA_DISABLED` instead of the legacy `502` + bare `{error}`. The provider's own message is preserved in `error.details.reason` | `test/market_data.test.js`: `a host that refuses synthetic data returns an outage, never invented candles` (asserts the status, the code, `details.syntheticAllowed:false`, a positive `Retry-After` and the absence of a candle array) |
+| **F-14** | 🟡 | **Still closed, re-verified** — `.env.example` documents **53** variables including the 8 new `MARKET_DATA_*` / `BINANCE_API_BASE` / `FRANKFURTER_API_BASE` and the `AEGIS_*_DATA_*` licensed-feed family (read through a computed key, so documented by hand) | `verify:install` check 25 |
+| **F-12** | 🟡 | Open — decision, not code. **The gate was not triggered again:** Phase 4 added no package to any manifest; `fetch`, `AbortSignal` and `URLSearchParams` are platform built-ins, so server dependencies remain exactly `bcryptjs` + `mysql2` | `PHASE4_MARKET_DATA.md` §1 |
+| **F-15** | 🔴 | **Open, unchanged but narrowed** — this phase added no schema and no migration (market data persists only an audit row through the existing repository contract), so there is nothing new for a real MySQL server to prove. The four existing migrations remain unexercised against one | `PHASE4_MARKET_DATA.md` §9 |
+| **F-11**, **F-16**, **F-17**, **F-18** | — | Open — unchanged; none was touched by this phase | `PHASE4_MARKET_DATA.md` §10 |
+| **F-24** (new) | 🟡 | **Open** — *provider health is per-process.* Circuit breakers, the failure log and the TTL caches live inside one Node process, so under Passenger's multi-process model each worker keeps its own view and `/api/v1/market-data/providers` can answer `UP` from one worker and `DOWN` from another. Acceptable while PHP is authoritative | `PHASE4_MARKET_DATA.md` §10; needs a shared health store or a single prober before market data is trusted operationally |
+| **F-25** (new) | 🟡 | **Open** — *nothing in CI ever calls a real provider.* Every provider test injects a transport, and this sandbox has no egress, so a silent upstream API change (a renamed field, a new error envelope) would be caught by a user rather than by a build | `PHASE4_MARKET_DATA.md` §9–§10; wants a scheduled probe on a host with outbound HTTPS |
+| **F-26** (new) | 🟡 | **Open** — *the ported numeric algorithms are not diffed against PHP output.* Both suites are green, but the golden constants in `test/market_data.test.js` (synthetic candles, `hashString`, PRNG and Gaussian sequences) were produced by the Node port; an attempt to extract the same values from WASM PHP timed out in this sandbox. A pure-function comparison — no database, no network — would close it | `PHASE4_MARKET_DATA.md` §9 item 2; cutover prerequisite |
+| **R-24**, **R-25** (new) | 🟠 / 🟡 | **Recorded** in `RISK_REGISTER.md`: external market-data dependency (egress, vendor drift, rate limits, no licensed feed) and the risk that labelled synthetic data is consumed as if it were real by a later module | `RISK_REGISTER.md`, "Additions after Phase 4" |
+
+Measured here: **137** app tests (34 new), **30/30** install checks, **367** legacy PHP/WASM oracle tests
+(all eleven `tests/cases/02-providers.php` cases among them, passing on both sides of the migration),
+**12** Scout contract tests, **29** football-prediction tests and a clean `npm run typecheck` — **545
+passed, 0 failed** — plus a live `curl` rehearsal of all three endpoints, their 401/400 boundaries, the
+provider registry and the audit trail on the file adapter. **Not** measured: a live upstream provider (no
+egress — both real providers reported `DOWN` and the chain fell back to labelled synthetic data), a
+licensed feed, a value-for-value diff of PHP versus Node numeric output (F-26), a real MySQL server, any
+market-data UI, or any cutover. `application/` and `system/` are unchanged.

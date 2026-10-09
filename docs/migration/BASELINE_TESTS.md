@@ -203,3 +203,64 @@ an inquiry and returned a ULID reference with `mail.sent:false`, `POST /contact/
 same listing answered 401 anonymously. The full table is in
 [`PHASE3_PUBLIC_SITE.md`](PHASE3_PUBLIC_SITE.md) §9.
 
+## Re-measured 2026-10-09 — Phase 4 (market data and provider health), branch `arena/774d9e70-ai`, Node v22.22.3
+
+| Suite | Exact command | Result |
+|---|---|---|
+| Node platform — market data (providers, normalization, breakers, HTTP client, endpoints), public site, identity, HTTP core, uploads, RBAC, backups | `cd apps/workforce-platform && npm run verify:install` then `npm test` | **30/30 installation checks**, then **137 passed, 0 failed** (13 test files, 26.8 s) |
+| Icon reproducibility | `cd apps/workforce-platform && npm run check:icons` | **4/4 verified** (unchanged this phase) |
+| AEGIS PHP/WASM (the parity oracle) | `node runtime/run-tests.mjs` (repo root) | **367 passed, 0 failed**, 18.6 s — including all eleven `tests/cases/02-providers.php` cases, which the Node suite ports 1:1 |
+| Scout + shared contract tests | `npm run test:contracts` | **12 passed, 0 failed** |
+| Football Predictions | `cd apps/football-predictions && npm test` | **29 passed, 0 failed** |
+| TypeScript typecheck | `npm run typecheck` (`tsc -p tsconfig.json --noEmit`) | **exit 0, no diagnostics** — `typescript` *is* present in the root tree now, so the Phase 3 note that `tsc` could not run no longer applies |
+| Client (React/Vite) production build | `cd apps/workforce-platform && npm run build:client` | **exit 0** — unchanged output, same hashes as Phase 3 (`index-Ci3bygYZ.js` 265.27 kB / 79.47 kB gzip, `index-B-xBd6Ec.css` 18.12 kB / 4.82 kB gzip); no client source changed in this phase |
+
+**Total executed in this sandbox for this phase: 545 passed, 0 failed.**
+
+How the counts moved, and why:
+
+- **103 → 137 app tests** is +34 in `test/market_data.test.js`: the eleven legacy `02-providers` cases
+  (with `fx_candles()` and `FakeProvider` ported as `fxCandles` / `fakeProvider` so the fixtures are the
+  same series from the same seeded PRNG), plus normalizer clamping and rejection rules, the timeframe and
+  market-class vocabulary, `hashString` / `seededRandom` / `gaussian` determinism, the manager's
+  synthetic-refusal, timeframe-capable ordering, `DEGRADED` promotion, no-probe health, TTL reuse and
+  bounded eviction, staleness, the four licensed-adapter states and their payload rejections, Binance's
+  allow-list / ragged-row / host-mirror behaviour, the retry-backoff budget, and the HTTP surface
+  (401, seven validation refusals, labelled synthetic success, registry + policy, 503 refusal with
+  `Retry-After`, the `PROVIDER_FALLBACK` audit row, status/features/route-inventory).
+- **Installation checks stay at 30/30**; `.env.example` coverage grew from **45 → 53** variables
+  (`MARKET_DATA_REAL_PROVIDERS`, `_ALLOW_SYNTHETIC`, `_TIMEOUT_MS`, `_RETRIES`, `_DEADLINE_MS`,
+  `_HEALTH_TIMEOUT_MS`, `BINANCE_API_BASE`, `FRANKFURTER_API_BASE`). The `AEGIS_*_DATA_*` licensed-feed
+  family is read through a computed key, so the static scanner cannot see it; those seven names are
+  documented by hand anyway.
+- **30 → 33 API routes** (`GET /api/v1/market-data/{candles,quote,providers}`); document routes stay at
+  22; the repository contract stays at **32 methods** and the migration set at **001–004** — market data
+  persists only an audit row.
+- **Modules reported `ported` by `/api/v1/system/features`: 1 → 2** (`identity`, `marketData`);
+  `not-ported` 12 → 11.
+
+Not executed here, and therefore not claimed:
+
+- **Any live upstream provider call.** This sandbox has no egress to `api.binance.com`,
+  `data-api.binance.vision`, `api1.binance.com` or `api.frankfurter.dev`. In the live rehearsal both real
+  providers reported `DOWN` with the real reason and the chain fell back to the labelled synthetic
+  provider — correct behaviour, but it is **not** evidence that the real providers work.
+- **A value-for-value diff of PHP versus Node numeric output (new finding F-26).** Both suites are green,
+  but the golden constants in the Node suite came from the Node port; an attempt to boot WASM PHP directly
+  and dump `MathUtils` / `SyntheticProvider` / `CandleNormalizer` output as JSON timed out here.
+- **MT5-bridge `pytest` (9 tests)** — unchanged, unrelated to market data; last recorded result 9 passed.
+- **Anything needing a real MySQL/MariaDB server, a cPanel/Passenger host, a real browser, outbound SMTP,
+  provider credentials, a licensed market-data vendor or a native SDK.**
+
+Operational rehearsal alongside the tests (file adapter, `STORAGE_DIR=/tmp/wf-store`, server on
+`0.0.0.0:3000`, account created through `POST /api/v1/auth/register`): anonymous
+`GET /api/v1/market-data/candles` answered **401**; `timeframe=2h` answered **400** naming the allowed
+set; `symbol=BTCUSDT&timeframe=1h&limit=40` answered **200** with 40 candles, `validation.ok:true`,
+`provenance.source:"synthetic-demo"`, `synthetic:true`, `live:false` and `fallbackChain:["binance"]`;
+`quote?symbol=eurusd` answered **200** with `ask > bid` and `fallbackChain:["frankfurter-ecb"]`;
+`providers` answered **200** with `binance DOWN`, `frankfurter-ecb DOWN`, the four licensed adapters
+`DISABLED`, `synthetic-demo UP` and the registry in legacy priority order 10/20/30/31/32/33/999;
+`/api/v1/system/status` reported version `0.5.0`, `modules[marketData].state:"ported"` and a market-data
+snapshot whose providers were all `UNKNOWN` because the public route never probes; and two
+`marketData.provider.fallback` audit rows were written with `legacyAction:"PROVIDER_FALLBACK"`. The full
+log is in [`PHASE4_MARKET_DATA.md`](PHASE4_MARKET_DATA.md) §4.3.

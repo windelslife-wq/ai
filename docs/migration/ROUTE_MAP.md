@@ -177,10 +177,10 @@ Statics: `index.html`, `login.html`, `admin.html`, `history.html`, `ticket.html`
 6. Convention-routed CLI surface (`tools/*`) must NOT remain HTTP-reachable in Node — re-home as cron-invoked scripts only.
 7. Response semantics (JSON envelope, error codes 400/401/403/404, `provenance` fields) are pinned by the 367-test suite; use it as the parity oracle.
 
-## 14. Node platform API ledger (Phases 2–3, measured 2026-10-09)
+## 14. Node platform API ledger (Phases 2–4, measured 2026-10-09)
 
 Authoritative source: **the running server**, not this table. `GET /api/v1/system/routes`
-returns the 30 routes below; `app.documents()` returns the 22 document routes in §15.
+returns the 33 routes below; `app.documents()` returns the 22 document routes in §15.
 `test/site.test.js` asserts the two ledgers are disjoint and that every legacy site route in
 `application/config/routes.php` is answered by the Node transport.
 
@@ -243,7 +243,23 @@ returns the 30 routes below; `app.documents()` returns the 22 document routes in
 |---|---|---|
 | `POST /api/v1/site/contact` | public, 3/hour per client address | `POST /contact/submit` (`Site::contact_submit`), JSON variant; returns a ULID receipt `reference` and `mail.sent:false`. Its read side is `GET /api/v1/admin/inquiries` in §14.4 |
 
-5 + 7 + 11 + 6 + 1 = **30** routes, matching the `count` the live inventory reports.
+### 14.6 Market data (3) — Phase 4
+
+| Method/path | Auth | Legacy relationship |
+|---|---|---|
+| `GET /api/v1/market-data/candles` | session, no permission | `api/market-data/candles` (`Api_marketdata::candles`); `symbol`, `timeframe`, optional `marketClass` (inferred: `…USDT` → crypto, else forex), `limit` 30–5000 (default 200). Returns the legacy payload shape plus `provenance` (`source`, `synthetic`, `live`, `delayed`, `dataAgeMs`, `stale`, `fallbackChain`) and `validation` |
+| `GET /api/v1/market-data/quote` | session, no permission | `api/market-data/quote` (`Api_marketdata::quote`) |
+| `GET /api/v1/market-data/providers` | session, no permission | `api/market-data/providers` (`Api_marketdata::providers`): live provider health plus the registry (`name`, `synthetic`, `priority`, `capabilities`) and the host's synthetic policy |
+
+None of the three is in the legacy `Api_controller::PUBLIC_ACTIONS` list, so all three require a
+signed-in session; none needs a permission, because market data was readable by every legacy role.
+**Divergence:** a provider failure answers `503` + `Retry-After` with error code
+`MARKET_DATA_UNAVAILABLE` (or `SYNTHETIC_DATA_DISABLED` when the host refuses synthetic data) —
+the platform-wide dependency-outage contract — where the legacy controller answered `502` with a
+bare `{error: "<provider message>"}`. The provider's own message is preserved in
+`error.details.reason`.
+
+5 + 7 + 11 + 6 + 1 + 3 = **33** routes, matching the `count` the live inventory reports.
 
 ## 15. Node rendered document routes (22)
 

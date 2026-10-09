@@ -136,6 +136,18 @@ stays 503 on a partial schema.
 | `wf_data_imports` | 002 | Single-use import ledger for the legacy identity importer (dry-run first; never executed against production data) |
 | `wf_contact_inquiries` | **004 (Phase 3)** | Public contact intake: unique 26-char ULID `reference`, `name`/`email`/`message` (10–2 000 chars, refused rather than truncated), `client_fingerprint CHAR(64)` = HMAC-SHA256 of the client address keyed with `SESSION_SECRET` (**no raw IP is stored**), `user_agent`, `request_id`, `status` (`new`) with `handled_by`/`handled_at` for a future queue, indexes on `created_at` and `(status, created_at)`. The legacy platform stored a contact submission **only** as an audit entry; this is the working copy, written *alongside* the `CONTACT_INQUIRY` audit event. Retention/purge is undecided — see R-22 |
 
+**Phase 4 (market data) added no table and no migration.** The module persists exactly one kind of
+record, through the existing repository contract: a `wf_audit_events` row with
+`action_key = 'marketData.provider.fallback'`, `actor_user_id = NULL` (the platform, not a user, is the
+actor), `entity_type = 'market_data'`, `entity_id = <SYMBOL>` and `detail_json`
+`{legacyAction: "PROVIDER_FALLBACK", message, symbol, marketClass, timeframe, failed[], used, synthetic}`.
+`message` reproduces the legacy wording verbatim
+(`` `BTCUSDT`: providers [binance] failed — falling back to synthetic-demo ``) and `legacyAction` keeps the
+legacy action name addressable, so an audit query written against the PHP platform still finds these rows
+after cutover. Candles, quotes, provider health, circuit-breaker state and the TTL caches are **in-process
+only** — nothing market-data-shaped is written to disk, and no cache survives a restart (finding F-24: that
+also means each Passenger worker keeps its own view of provider health).
+
 The file adapter (`STORAGE_ADAPTER=file`) implements the same 32-method repository contract over
 an append-only JSONL log, so every table above has a non-MySQL shape used by tests and local
 rehearsal; it is refused in production unless `ALLOW_FILE_STORE_IN_PRODUCTION=1`.
