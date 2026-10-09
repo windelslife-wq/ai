@@ -1,18 +1,77 @@
-# WINDELS AI WORKFORCE — Node.js platform foundation
+# WINDELS AI WORKFORCE — Node.js platform
 
-This is the side-by-side Node.js migration target. The existing PHP/CodeIgniter application remains authoritative and deployable; this foundation is **not** a production replacement.
+This is the side-by-side Node.js migration target. The existing PHP/CodeIgniter
+application remains authoritative and deployable; this platform is **not** a
+production replacement and no traffic has been cut over.
 
 ## Current slice
 
-- Node.js `>=22.20.0 <25`.
-- `server.js` starts a core `node:http` server. Routing, bounded JSON parsing, static allow-listing, security headers, request IDs, in-memory rate limits and graceful shutdown use Node core modules and internal files—no Express, Fastify or server middleware framework.
-- MySQL/MariaDB remains the selected cPanel database, so `mysql2` is required. `bcryptjs` remains necessary to verify imported PHP bcrypt hashes. `pg` is not included: it cannot connect to MySQL.
-- The API currently includes health/readiness, login/session/CSRF/logout and the first deny-by-default identity-permission check. The Node product modules are not yet ported.
-- `public/` contains a Vanilla JS public landing site, a PWA manifest and a static-only service worker. The worker does not cache `/api/`, authenticated responses or private data.
-- `client/` is the React/Vite SPA shell. It includes the initial account sign-in and status surface; domain modules are visibly marked as not yet migrated. `npm run build:client` writes generated files to `public/app/`.
-- `native/` contains the Capacitor Android/iOS wrapper configuration. Native sign-in is intentionally disabled until a reviewed native token/refresh/revocation contract and secure Keychain/Android Keystore storage implementation exist.
+- Node.js `>=22.20.0 <25`. `server.js` starts a core `node:http` server. Routing,
+  bounded body parsing, multipart, static serving, security headers, CORS, request
+  IDs, rate limits, login lockout, upload policy and graceful shutdown use Node core
+  modules and files in this package — no Express, Fastify or middleware framework.
+- Runtime dependencies are exactly `mysql2` (the selected cPanel database is
+  MySQL/MariaDB; `pg` cannot talk to it) and `bcryptjs` (to verify imported PHP
+  `$2y$` hashes). There are no `devDependencies`: the test suite is `node:test`.
+- **Identity and account management are ported**: registration, login, logout,
+  session rotation, session-bound CSRF, password change, avatar upload/serving/
+  removal, audit listing, and the admin user list/detail/create/status/role surface
+  with pagination, filtering, sorting and search. The 12 other product domains
+  remain unported and `/api/v1/system/status` says so per module.
+- Two storage adapters implement one repository contract:
+  - `STORAGE_ADAPTER=mysql` (production target) — the MySQL/MariaDB tables created by
+    `src/db/migrations/*.sql`.
+  - `STORAGE_ADAPTER=file` (development, tests, rehearsal) — an append-only JSONL log
+    under `STORAGE_DIR` with compaction, checksums, backup/restore. It is refused in
+    production unless `ALLOW_FILE_STORE_IN_PRODUCTION=1` is set deliberately.
+  `STORAGE_ADAPTER=auto` (the default) picks `mysql` when `DB_HOST`/`DB_NAME`/`DB_USER`
+  are present and `file` otherwise, so the server boots on a host with no database.
+- `public/` is the Vanilla JS public site, PWA manifest and static-only service
+  worker. `client/` is the React/Vite SPA shell built into `public/app/`. `native/`
+  is the Capacitor wrapper; native sign-in stays disabled until a reviewed
+  token/refresh/revocation contract and secure storage implementation exist.
 
-The client and native build dependencies are isolated from the Node HTTP server package. A complete product migration still requires route, schema, data and UI parity for the backlogged modules.
+## Running it
+
+Export the values in your shell, source a private file (`set -a; . ./.env; set +a`),
+or use cPanel's environment UI — the server never auto-loads `.env` by design.
+`.env.example` documents every variable the config reads.
+
+```bash
+# Local, no database: file adapter, seeded baseline, ready to sign in.
+export NODE_ENV=development
+export STORAGE_ADAPTER=file
+export SESSION_SECRET="$(node -e 'console.log(require("node:crypto").randomBytes(32).toString("hex"))')"
+npm run seed:platform -- --admin-username root --admin-email root@example.test --admin-password 'change me, 14+ chars'
+npm run verify:data
+npm run start:workforce-platform
+
+# Against the real schema
+export STORAGE_ADAPTER=mysql DB_HOST=… DB_NAME=… DB_USER=… DB_PASSWORD=…
+npm run migrate && npm run migrate:status
+```
+
+`SESSION_SECRET` is always required: it keys the CSRF derivation and the
+login-attempt hash, not only the session cookie. `DB_*` are required only by the
+`mysql` adapter; the importer additionally reads `LEGACY_DB_*`.
+
+`npm run check` is the release gate: it verifies the installation (engines range,
+dependency set, required files, migrations, `.env.example` coverage, production
+config rules, built client bundle) and then runs the suite — currently **84 tests**.
+
+## Operations
+
+| Command | What it does |
+|---|---|
+| `npm run verify:install` | Static release gate on the tree; no data access. Exits non-zero on any failure. |
+| `npm run verify:data` | Reads the configured store: readiness, RBAC baseline, duplicate/collision keys, dangling role and permission rows, expired-but-unrevoked sessions, non-bcrypt digests. `--strict` turns warnings into failures. |
+| `npm run seed:platform` | Idempotent role/permission baseline for adapters without migrations (the file store), with `--admin-username`/`--admin-password` to bootstrap the first administrator. Refuses to create a second one. |
+| `npm run backup` | `file`: copies the store log and uploads into a sha256-manifested directory. `mysql`: runs `mysqldump --single-transaction` with the password in a `0600` defaults file, never in argv. |
+| `npm run restore` | Verifies every manifest hash first, then restores. Refuses a non-empty file store without `--force`. |
+| `npm run import:identity` | One-time legacy identity import, dry-run first (see `docs/migration/IDENTITY_IMPORT.md`). |
+
+Backup, restore and the importers are CLI-only; the web process never reads
+`LEGACY_DB_*`.
 
 ## Development
 
@@ -25,22 +84,14 @@ npm run check:workforce
 npm run build:workforce-client
 ```
 
-Start the server from the workspace so the static root resolves to `public/`:
-
-```bash
-npm run start:workforce-platform
-```
-
-The server requires `DB_HOST`, `DB_NAME`, `DB_USER`, `DB_PASSWORD` and a 32-byte-or-longer `SESSION_SECRET`. It can start without immediately connecting to MySQL; readiness reports unavailable until the database and migrations are reachable. The core server does not auto-load `.env`: export the values in your shell, source a private shell-compatible file (`set -a; . ./.env; set +a`), or use cPanel's environment UI. Never commit real secrets.
-
-The Vite development server binds to `0.0.0.0:5173`, uses relative `/api/v1` URLs, and proxies API calls server-side to `http://127.0.0.1:3000` by default. Set `API_PROXY_TARGET` if the API server uses another local port. Browser code never calls localhost.
+The Vite development server binds to `0.0.0.0:5173`, uses relative `/api/v1` URLs and
+proxies API calls server-side to `http://127.0.0.1:3000` (override with
+`API_PROXY_TARGET`). Browser code never calls localhost.
 
 ## Capacitor build boundary
 
-From `native/`, install its dependencies, set `VITE_API_BASE_URL` to the deployed **HTTPS origin**, then run:
-
-```bash
-npm run sync
-```
-
-`npm run build:web` rejects missing/non-HTTPS/local API origins. The current build remains a shell; sign-in stays disabled. Android/iOS SDK setup, platform project generation, signing, secure credential storage, real native API-origin tests and store release remain future acceptance gates.
+From `native/`, install its dependencies, set `VITE_API_BASE_URL` to the deployed
+**HTTPS origin**, then `npm run sync`. `npm run build:web` rejects missing, non-HTTPS
+or local API origins. Android/iOS SDK setup, platform generation, signing, secure
+credential storage, real native API-origin tests and store release remain future
+acceptance gates.

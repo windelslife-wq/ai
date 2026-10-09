@@ -67,31 +67,10 @@ sandbox — see below), plus 9 contract tests for the Python bridge
 (`python-services/mt5-bridge/.venv/bin/python -m pytest test_bridge.py`).
 
 ---
----|---|
-| CodeIgniter 3.1.13 MVC (controllers / models / views / libraries) | **TESTED** |
-| **MySQL / MariaDB** persistence — canonical schema + mysqli config (`application/database/schema.mysql.sql`) | **IMPLEMENTED** |
-| Market-data abstraction (health checks, retry, timeout, circuit breaker, cache, fallback, provenance) | **TESTED** |
-| Binance + Frankfurter/ECB real providers; labeled synthetic demo provider | **TESTED** |
-| Multi-agent analysis (technical, market-structure, forex, crypto, sentiment, consensus) | **TESTED** |
-| Regime detection + trade setup generator + Risk Engine (independent veto) | **TESTED** |
-| Strategy framework: 4 built-ins, evidence-gated lifecycle through PAPER_TRADING | **TESTED** |
-| Backtester: next-bar fills, cost model, pessimistic stop rule, look-ahead guard | **TESTED** |
-| **Paper Trading Engine (Phase 3): accounts, orders, fills, positions, ticks, strategy deployments** | **TESTED** |
-| Trade journal + analytics + confidence calibration | **TESTED** |
-| ANALYSIS_ONLY + PAPER_TRADING modes, kill switch, audit trail | **TESTED** |
-| MT5 bridge health + read-only account/quote contracts | **IMPLEMENTED** (Phase 4 foundation) |
-| Execution supervisor preflight + persistent HUMAN_APPROVAL review workflow | **IMPLEMENTED** (Phase 5 foundation; never routes orders) |
-| Broker order routing and live trading | **PLANNED** (Phase 5) |
-
-**57 automated tests** run through the real CodeIgniter stack
-(`php index.php tools tests` on any host; `node run-tests.mjs` in the offline
-sandbox — see below).
-
----
 
 ## Node.js migration foundation (in progress)
 
-The PHP/CodeIgniter application remains the production source of truth and rollback target. The parallel `apps/workforce-platform/` foundation now uses Node.js `>=22.20.0 <25`, Node's core `http` server, a Vanilla JS public site, a React/Vite SPA, a PWA shell, and a Capacitor wrapper. Its current API is limited to health/readiness and the initial identity/session foundation; the business modules have not yet been ported or accepted.
+The PHP/CodeIgniter application remains the production source of truth and rollback target. The parallel `apps/workforce-platform/` platform uses Node.js `>=22.20.0 <25` and Node's core `http` server, a Vanilla JS public site, a React/Vite SPA, a PWA shell, and a Capacitor wrapper. **Identity and account management are ported and tested** — 28 API routes covering registration, login, sessions, CSRF, password change, avatars, audit and admin user management — behind a storage-adapter boundary that lets the server run where no database is reachable. The other 12 product domains are unported, and the API states that itself at `GET /api/v1/system/status`. See [`docs/migration/PHASE2_IDENTITY.md`](docs/migration/PHASE2_IDENTITY.md) for the parity ledger and the findings it closed, and the platform [`README`](apps/workforce-platform/README.md) for the operational commands (`verify:install`, `verify:data`, `seed:platform`, `backup`/`restore`).
 
 Because the selected cPanel database is MySQL/MariaDB, the Node server retains `mysql2`; `pg` cannot connect to MySQL. `bcryptjs` remains to verify legacy PHP bcrypt hashes. Client and Capacitor build dependencies are isolated from the HTTP server package. Native sign-in is disabled until the secure token and device-storage flow is implemented. See [`apps/workforce-platform/README.md`](apps/workforce-platform/README.md) and the migration [`STATUS.md`](docs/migration/STATUS.md) for current scope and test evidence. No production import, deployment or cutover is authorized by this foundation.
 
@@ -104,7 +83,12 @@ Apache with `mod_rewrite` and permission for the bundled `.htaccess` rules.
 
 The supported production flow is entirely browser-based:
 
-1. Upload and extract `application-deployment.zip` with **cPanel File Manager**.
+1. Upload the PHP tree (`application/`, `public/`, `database/`, `assets/`, `.htaccess`)
+   with **cPanel File Manager**. Do **not** deploy the bundled `application-deployment.zip`:
+   it was packaged 2026-08-24 and has drifted from the tree — re-verified 2026-10-09,
+   `application/config/routes.php` differs and `application/controllers/Api_portfolio.php`
+   is missing from the archive. Rebuilding that artefact is a release action; until it is
+   done, deploy from the repository.
 2. Create a database/user and grant **ALL PRIVILEGES** in **cPanel → MySQL Databases**.
 3. Import `database/production.sql` in **cPanel → phpMyAdmin**.
 4. Copy `.env.example` to `.env` and edit `CI_ENV`, `VP_BASE_URL`, the `VP_DB_*`

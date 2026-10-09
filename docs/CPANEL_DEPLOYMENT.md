@@ -11,7 +11,10 @@ It does **not** require SSH, Terminal, Composer, Node.js, npm, Docker, a migrati
 ## 1. Upload
 
 1. In **cPanel → File Manager**, open the domain document root (usually `public_html`).
-2. Upload `application-deployment.zip`.
+2. Upload the PHP tree (`application/`, `public/`, `database/`, `assets/`, `.htaccess`).
+   The packaged `application-deployment.zip` is **not** safe to deploy as-is: it was built
+   2026-08-24 and has drifted from the tree (verified 2026-10-09 — `routes.php` differs,
+   `Api_portfolio.php` is absent). See `docs/migration/RISK_REGISTER.md` R-03.
 3. Select the ZIP and choose **Extract**.
 4. If your host extracts into an extra directory, move the extracted contents into the domain document root using File Manager.
 

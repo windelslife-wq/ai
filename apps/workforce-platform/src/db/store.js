@@ -1,24 +1,57 @@
 import { createHash } from "node:crypto";
+import { createAccountRepository } from "./account-repository.js";
 
-const REQUIRED_MIGRATIONS = ["001_platform_foundation", "002_identity_import_fields"];
+export const REQUIRED_MIGRATIONS = Object.freeze([
+  "001_platform_foundation",
+  "002_identity_import_fields",
+  "003_account_management",
+]);
 
-export function createStore(pool) {
+/** Only driver codes are ever reported; never an SQL statement or credential. */
+function safeDriverDetail(error) {
+  const code = typeof error?.code === "string" ? error.code : null;
+  if (!code) return "unreachable";
+  if (code === "ER_ACCESS_DENIED_ERROR") return "access-denied";
+  if (code === "ER_BAD_DB_ERROR") return "unknown-database";
+  if (["ECONNREFUSED", "ENOTFOUND", "EHOSTUNREACH", "ETIMEDOUT"].includes(code)) return "unreachable";
+  if (["PROTOCOL_CONNECTION_LOST", "ER_SERVER_SHUTDOWN"].includes(code)) return "disconnected";
+  return "error";
+}
+
+export function createStore(pool, { requiredMigrations = REQUIRED_MIGRATIONS } = {}) {
+  const repository = createAccountRepository(pool);
   return {
+    ...repository,
+    adapter: "mysql",
+    capabilities: Object.freeze({
+      adapter: "mysql",
+      sql: true,
+      durable: true,
+      transactions: true,
+      crossProcessSafety: true,
+      recommendedForProduction: true,
+    }),
+
     async readiness() {
       try {
         await pool.execute("SELECT 1 AS healthy");
-      } catch {
-        return { database: false, schema: false };
+      } catch (error) {
+        return { database: false, schema: false, adapter: "mysql", detail: safeDriverDetail(error) };
       }
       try {
+        const placeholders = requiredMigrations.map(() => "?").join(", ");
         const [rows] = await pool.execute(
-          "SELECT migration_name FROM wf_schema_migrations WHERE migration_name IN (?, ?)",
-          REQUIRED_MIGRATIONS,
+          `SELECT migration_name FROM wf_schema_migrations WHERE migration_name IN (${placeholders})`,
+          requiredMigrations,
         );
-        return { database: true, schema: rows.length === REQUIRED_MIGRATIONS.length };
+        return { database: true, schema: rows.length === requiredMigrations.length, adapter: "mysql", detail: null };
       } catch {
-        return { database: true, schema: false };
+        return { database: true, schema: false, adapter: "mysql", detail: "missing-schema" };
       }
+    },
+
+    async health() {
+      return { adapter: "mysql", pool: { connectionLimit: pool.pool?.config?.connectionLimit ?? null, all: pool.pool?._all?.length ?? null } };
     },
 
     async findUserByIdentifier(identifier) {
@@ -33,11 +66,11 @@ export function createStore(pool) {
       return rows[0] || null;
     },
 
-    async createSession({ tokenHash, userId, expiresAt }) {
+    async createSession({ tokenHash, userId, expiresAt, deviceLabel = null, createdAt = null }) {
       await pool.execute(
-        `INSERT INTO wf_sessions (token_hash, user_id, expires_at, created_at)
-         VALUES (?, ?, ?, UTC_TIMESTAMP(3))`,
-        [tokenHash, userId, expiresAt],
+        `INSERT INTO wf_sessions (token_hash, user_id, expires_at, device_label, created_at)
+         VALUES (?, ?, ?, ?, COALESCE(?, UTC_TIMESTAMP(3)))`,
+        [tokenHash, userId, expiresAt, deviceLabel || null, createdAt ? new Date(createdAt) : null],
       );
     },
 

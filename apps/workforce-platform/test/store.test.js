@@ -2,7 +2,7 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import { createStore } from "../src/db/store.js";
 
-test("database readiness requires both ordered Node identity migrations", async () => {
+test("database readiness requires every ordered Node identity migration and reports the adapter", async () => {
   const calls = [];
   const pool = {
     async execute(sql, values = []) {
@@ -12,9 +12,18 @@ test("database readiness requires both ordered Node identity migrations", async 
     },
   };
   const readiness = await createStore(pool).readiness();
-  assert.deepEqual(readiness, { database: true, schema: false });
-  assert.match(calls[1].sql, /IN \(\?, \?\)/);
-  assert.deepEqual(calls[1].values, ["001_platform_foundation", "002_identity_import_fields"]);
+  assert.deepEqual(readiness, { database: true, schema: false, adapter: "mysql", detail: null });
+  assert.match(calls[1].sql, /IN \(\?, \?, \?\)/);
+  assert.deepEqual(calls[1].values, ["001_platform_foundation", "002_identity_import_fields", "003_account_management"]);
+});
+
+test("database outage is reported as an unreachable adapter, never as a healthy database", async () => {
+  const refused = new Error("connect ECONNREFUSED 127.0.0.1:3306");
+  refused.code = "ECONNREFUSED";
+  const pool = { async execute() { throw refused; } };
+  const readiness = await createStore(pool).readiness();
+  assert.deepEqual(readiness, { database: false, schema: false, adapter: "mysql", detail: "unreachable" });
+  assert.equal(JSON.stringify(readiness).includes("3306"), false);
 });
 
 test("user lookup normalizes identifiers and uses bound parameters", async () => {

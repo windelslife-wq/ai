@@ -112,3 +112,34 @@ The original audit above records commit `675a05c` and remains historical evidenc
 **Total current automated tests: 452 passed, 0 failed.** Root `npm ci --no-audit --no-fund` completed after refreshing `package-lock.json`; `npm ci --workspace=@windels/workforce-platform --include-workspace-root=false --omit=dev --no-audit --no-fund` also completed, followed by a clean full-workspace reinstall. GitHub Actions run `37250571268` for commit `8608333` completed both jobs (`javascript` and `mt5-bridge-contract`) successfully. No real MySQL/MariaDB, live provider, real MetaTrader terminal, production data, or cPanel/Passenger host was available for these tests. The Node migration foundation tests use Fastify injection and fake stores; they are not MySQL integration or deployment evidence.
 
 — End of Phase 0 test baseline.
+
+## Re-measured 2026-10-09 — Phase 2 (identity, accounts, platform core), branch `arena/c204b9d0-ai`, Node v22.22.3
+
+| Suite | Exact command | Result |
+|---|---|---|
+| Node platform — identity, accounts, HTTP core, uploads, RBAC, backups | `npm run check --workspace=@windels/workforce-platform` | **21/21 install checks**, then **85 passed, 0 failed** |
+| AEGIS PHP/WASM | `node runtime/run-tests.mjs` (repo root) | **367 passed, 0 failed** |
+| Scout + shared contract tests | `npm run test:contracts` | **12 passed, 0 failed** |
+| Football Predictions | `npm test --workspace=windels-football-predictions` | **29 passed, 0 failed** |
+
+**Total in this sandbox: 493 passed, 0 failed.** Not re-run here: the MT5-bridge pytest
+suite (it needs its own Python 3.11 virtual environment; unchanged at 9 passed from the
+previous measurement).
+
+Two corrections to how the previous section describes this suite:
+
+- It is no longer "Node migration foundation tests … use Fastify injection and fake
+  stores". Fastify is not a dependency of this package at all; `test/helpers.js` builds
+  the real `node:http` application and drives it through the project's own `inject()`
+  transport, and the tests that assert persistence behaviour run against the actual
+  append-only file store (temp directories), not an in-memory stub.
+- Fake pools are still used for the **MySQL** paths (`src/db/store.js`, migrator,
+  importer). That is precisely why F-15 — real MySQL/MariaDB verification — remains
+  open: nothing in this suite proves MySQL behaviour, and no MySQL server exists in
+  this sandbox.
+
+Operational evidence produced alongside the tests (file adapter, temp roots):
+`tools/verify-data.mjs` exits 1 with "the store holds no roles" on an unseeded store,
+`tools/seed-platform.mjs` seeds 9 roles / 14 permissions / 29 grants, `verify-data`
+then exits 0, `tools/backup.mjs create|verify|restore` round-trips and refuses both a
+tampered manifest and a non-empty target without `--force`.
