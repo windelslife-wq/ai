@@ -26,6 +26,8 @@ import {
 import { clamp, mean, numberFormat, roundTo, signedFormat, stdev } from "../src/modules/analysis/math.js";
 import { buildScenarios, detectRegime, generateSetup, regimeDirectionality } from "../src/modules/analysis/regime.js";
 import { createRiskEngine, DEFAULT_RISK_LIMITS } from "../src/modules/analysis/risk-engine.js";
+import { createAnalysisRunGate } from "../src/modules/analysis/routes.js";
+import { createConcurrencyTracker } from "../src/security/ratelimit.js";
 import { createSentimentSnapshotValidator, unavailableFundamentalsFeed, unavailableSentimentFeed } from "../src/modules/analysis/feeds.js";
 import { createTechnicalAgent } from "../src/modules/analysis/agents/technical.js";
 import { createMarketStructureAgent } from "../src/modules/analysis/agents/market-structure.js";
@@ -1341,4 +1343,110 @@ test("risk engine: equity that cannot measure risk is a veto (divergence DV-10, 
   const funded = engine.evaluate(fxSetup(), fxRiskCtx({ equity: 100, peakEquity: 100 }));
   assert.ok(!funded.reasons.some((reason) => /not positive|not a finite number/.test(reason)),
     `a funded account must not hit the equity veto: ${funded.reasons.join(";")}`);
+});
+
+test("R-26 run gate: caps in-flight analyses per session and refuses the next one", () => {
+  const tracker = createConcurrencyTracker();
+  const gate = createAnalysisRunGate({ tracker, max: 2 });
+  const request = { auth: { user: { id: 7 } }, clientAddress: "203.0.113.9" };
+
+  assert.equal(gate.disabled, false);
+  const first = gate.acquire(request);
+  const second = gate.acquire(request);
+  assert.equal(first, "analysis:session:7", "slots are keyed by session, not by address");
+  assert.equal(second, first);
+  assert.equal(gate.inFlight(request), 2);
+
+  // `assert.throws` returns undefined, so the error is caught to inspect its shape.
+  let refused = null;
+  try {
+    gate.acquire(request);
+  } catch (error) {
+    refused = error;
+  }
+  assert.ok(refused, "the third in-flight run must be refused");
+  assert.equal(refused.statusCode, 429);
+  // A distinct code from RATE_LIMITED on purpose: the remedy is "wait for the run
+  // you already started", not "slow down your request rate".
+  assert.equal(refused.code, "TOO_MANY_CONCURRENT_ANALYSES");
+  assert.equal(refused.retryAfter, 1, "the client is told to come straight back");
+  assert.match(refused.message, /At most 2 analysis runs may be in flight per session/);
+
+  // Releasing one slot admits exactly one more request.
+  gate.release(first);
+  assert.equal(gate.inFlight(request), 1);
+  const third = gate.acquire(request);
+  assert.equal(third, first);
+  assert.throws(() => gate.acquire(request), /in flight per session/);
+  gate.release(second);
+  gate.release(third);
+  assert.equal(gate.inFlight(request), 0);
+});
+
+test("R-26 run gate: one session cannot starve another (the reason it is not keyed per address)", () => {
+  const tracker = createConcurrencyTracker();
+  const gate = createAnalysisRunGate({ tracker, max: 1 });
+  const colleague = { auth: { user: { id: 11 } }, clientAddress: "203.0.113.9" };
+  const shared = { auth: { user: { id: 12 } }, clientAddress: "203.0.113.9" };
+
+  // Same NAT address, different sessions: the second is admitted. A per-address cap
+  // here would let one colleague's long scan deny service to another, which is the
+  // same reasoning that keeps login lockout keyed per account.
+  gate.acquire(colleague);
+  assert.doesNotThrow(() => gate.acquire(shared));
+  assert.equal(tracker.count("analysis:session:11"), 1);
+  assert.equal(tracker.count("analysis:session:12"), 1);
+
+  // Unauthenticated requests fall back to the address so the key stays total.
+  const anonymous = { clientAddress: "198.51.100.4" };
+  assert.equal(gate.keyOf(anonymous), "analysis:client:198.51.100.4");
+  assert.equal(gate.keyOf({}), "analysis:client:unknown");
+});
+
+test("R-26 run gate: a failed run gives its slot back", () => {
+  const tracker = createConcurrencyTracker();
+  const gate = createAnalysisRunGate({ tracker, max: 1 });
+  const request = { auth: { user: { id: 3 } } };
+
+  // This mirrors the routes' try/finally exactly: the release must happen on the
+  // error path too, or one provider 503 would lock the session out of the endpoint
+  // until the process restarted.
+  const attempt = () => {
+    const slot = gate.acquire(request);
+    try {
+      throw new Error("MARKET_DATA_UNAVAILABLE");
+    } finally {
+      gate.release(slot);
+    }
+  };
+  assert.throws(attempt, /MARKET_DATA_UNAVAILABLE/);
+  assert.throws(attempt, /MARKET_DATA_UNAVAILABLE/);
+  assert.equal(gate.inFlight(request), 0, "no slot leaked across two failures");
+  assert.doesNotThrow(() => gate.release(gate.acquire(request)));
+});
+
+test("R-26 run gate: max 0, no tracker and non-finite maxima all disable the cap", () => {
+  const request = { auth: { user: { id: 5 } }, clientAddress: "203.0.113.9" };
+  const tracker = createConcurrencyTracker();
+
+  // 0 means "off", never "refuse everything" — the MAX_REQUESTS_PER_CLIENT convention.
+  for (const max of [0, -1, Number.NaN, Number.POSITIVE_INFINITY]) {
+    const gate = createAnalysisRunGate({ tracker, max });
+    assert.equal(gate.disabled, true, `max ${max} must disable the cap`);
+    assert.equal(gate.acquire(request), null, "a disabled gate hands back no slot");
+    assert.doesNotThrow(() => gate.release(null), "release(null) is a no-op callers can put in finally");
+    assert.equal(gate.inFlight(request), 0);
+    for (let i = 0; i < 50; i += 1) assert.doesNotThrow(() => gate.acquire(request));
+  }
+  assert.equal(tracker.size, 0, "a disabled gate never touches the tracker");
+
+  // No tracker at all (a route registered without one) must not throw at request time.
+  const gateless = createAnalysisRunGate({ max: 2 });
+  assert.equal(gateless.disabled, true);
+  assert.equal(gateless.acquire(request), null);
+  assert.doesNotThrow(() => gateless.release(null));
+
+  // The default max is 0, so a caller that forgets the config gets "off", not a
+  // surprise outage.
+  assert.equal(createAnalysisRunGate({ tracker }).disabled, true);
 });

@@ -142,7 +142,9 @@ export async function buildApp({ config, store, logger = true, publicDir = path.
   // transport consults before it falls back to static files.
   await app.register(siteRoutes, { prefix: "/api/v1", store, config });
   await app.register(marketDataRoutes, { prefix: "/api/v1", store, config, service: marketData });
-  await app.register(analysisRoutes, { prefix: "/api/v1", store, config, service: analysis });
+  // The same tracker backs the platform-wide per-address ceiling; the analysis
+  // module keys its slots `analysis:session:<id>` so the two never collide (R-26).
+  await app.register(analysisRoutes, { prefix: "/api/v1", store, config, service: analysis, concurrency });
   const siteDocuments = createSiteDocuments({ config, store, log: app.log, rateLimiter, publicDir });
   for (const extra of config.modules || []) await app.register(extra, { prefix: "/api/v1", store, config, loginGuard });
 

@@ -79,3 +79,44 @@ test("legacy database credentials are a separate, prefixed CLI-only configuratio
   });
   assert.throws(() => loadLegacyDatabaseConfig({}), /LEGACY_DB_HOST, LEGACY_DB_NAME, LEGACY_DB_USER, LEGACY_DB_PASSWORD/);
 });
+
+test("R-26: analysis carries its own work limits, tighter for a scan than for a run", () => {
+  const config = loadConfig(validEnv());
+  const { rateLimit } = config;
+
+  // The shipped defaults are the real production ceiling, so they are pinned here
+  // rather than left to whatever a test harness happens to override.
+  assert.deepEqual(rateLimit.analysisRun, { max: 12, windowMs: 600_000 });
+  assert.deepEqual(rateLimit.analysisConsensus, { max: 4, windowMs: 600_000 });
+  assert.equal(rateLimit.analysisMaxConcurrentRuns, 2);
+
+  // A scan is up to ten runs, so it must be the tighter of the two budgets.
+  assert.ok(rateLimit.analysisConsensus.max < rateLimit.analysisRun.max);
+  assert.equal(rateLimit.analysisRun.windowMs, rateLimit.analysisConsensus.windowMs);
+
+  // Worst case per window: 12 runs at up to 8 upstream series each, plus 4 scans of
+  // up to 10 symbols. Before R-26 the only bound was 120 requests/minute against
+  // the global API limiter, which counts requests and not the work each triggers.
+  const worstCaseSeries = rateLimit.analysisRun.max * 8 + rateLimit.analysisConsensus.max * 10 * 8;
+  assert.equal(worstCaseSeries, 416);
+  assert.ok(worstCaseSeries < 120 * 8, "far below what the global limiter alone allowed");
+
+  // Every knob is operator-tunable, and 0 disables the concurrency cap exactly as
+  // MAX_REQUESTS_PER_CLIENT does — "off", never "refuse everything".
+  const tuned = loadConfig(validEnv({
+    RATE_LIMIT_ANALYSIS_RUN_MAX: "30",
+    RATE_LIMIT_ANALYSIS_RUN_WINDOW_MS: "60000",
+    RATE_LIMIT_ANALYSIS_CONSENSUS_MAX: "10",
+    RATE_LIMIT_ANALYSIS_CONSENSUS_WINDOW_MS: "120000",
+    ANALYSIS_MAX_CONCURRENT_RUNS: "0",
+  }));
+  assert.deepEqual(tuned.rateLimit.analysisRun, { max: 30, windowMs: 60_000 });
+  assert.deepEqual(tuned.rateLimit.analysisConsensus, { max: 10, windowMs: 120_000 });
+  assert.equal(tuned.rateLimit.analysisMaxConcurrentRuns, 0);
+
+  // Out-of-range values are refused rather than silently clamped, matching every
+  // other limit in this file.
+  assert.throws(() => loadConfig(validEnv({ RATE_LIMIT_ANALYSIS_RUN_MAX: "0" })), /RATE_LIMIT_ANALYSIS_RUN_MAX/);
+  assert.throws(() => loadConfig(validEnv({ ANALYSIS_MAX_CONCURRENT_RUNS: "-1" })), /ANALYSIS_MAX_CONCURRENT_RUNS/);
+  assert.throws(() => loadConfig(validEnv({ RATE_LIMIT_ANALYSIS_CONSENSUS_WINDOW_MS: "10" })), /RATE_LIMIT_ANALYSIS_CONSENSUS_WINDOW_MS/);
+});

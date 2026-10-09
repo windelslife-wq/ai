@@ -138,6 +138,28 @@ function loadRateLimitConfig(env) {
       lockMs: integer(env.LOGIN_LOCKOUT_MS, "LOGIN_LOCKOUT_MS", { fallback: 15 * 60_000, min: 1_000, max: 24 * 3_600_000 }),
     },
     maxEntries: integer(env.RATE_LIMIT_MAX_ENTRIES, "RATE_LIMIT_MAX_ENTRIES", { fallback: 20_000, min: 100, max: 1_000_000 }),
+    /**
+     * Analysis is the most expensive authenticated surface on the platform (R-26):
+     * one run fetches up to 8 upstream series — a forex or commodity run also
+     * fetches seven reference legs — and one consensus scan is up to 10 runs, so a
+     * 10-symbol scan can fan out into ~80 provider calls. The global `api` limiter
+     * bounds *requests*; these bound *work*.
+     *
+     * The window limits ride the existing per-route mechanism (keyed by client
+     * address, checked before validation, so a refused request still counts and
+     * cannot be used to hammer the contract for free). The concurrency cap is
+     * per-session and lives in the analysis routes; `0` disables it, matching the
+     * `MAX_REQUESTS_PER_CLIENT` convention.
+     */
+    analysisRun: {
+      max: integer(env.RATE_LIMIT_ANALYSIS_RUN_MAX, "RATE_LIMIT_ANALYSIS_RUN_MAX", { fallback: 12, min: 1, max: 10_000 }),
+      windowMs: integer(env.RATE_LIMIT_ANALYSIS_RUN_WINDOW_MS, "RATE_LIMIT_ANALYSIS_RUN_WINDOW_MS", { fallback: 600_000, min: 1_000, max: 24 * 3_600_000 }),
+    },
+    analysisConsensus: {
+      max: integer(env.RATE_LIMIT_ANALYSIS_CONSENSUS_MAX, "RATE_LIMIT_ANALYSIS_CONSENSUS_MAX", { fallback: 4, min: 1, max: 10_000 }),
+      windowMs: integer(env.RATE_LIMIT_ANALYSIS_CONSENSUS_WINDOW_MS, "RATE_LIMIT_ANALYSIS_CONSENSUS_WINDOW_MS", { fallback: 600_000, min: 1_000, max: 24 * 3_600_000 }),
+    },
+    analysisMaxConcurrentRuns: integer(env.ANALYSIS_MAX_CONCURRENT_RUNS, "ANALYSIS_MAX_CONCURRENT_RUNS", { fallback: 2, min: 0, max: 100 }),
   });
 }
 

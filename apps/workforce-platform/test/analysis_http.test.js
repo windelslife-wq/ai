@@ -23,7 +23,25 @@ import { createAnalysisEngine, CANDLE_LIMIT, DEFAULT_TRADING_STATE, REFERENCE_SY
 import { AGENT_CATALOGUE, DEFAULT_WATCHLIST, inferMarketClass } from "../src/modules/analysis/contracts.js";
 import { generateSyntheticCandles } from "../src/modules/market-data/providers/synthetic.js";
 
-const ANALYSIS_ENV = { PUBLIC_BASE_URL: "https://site.example.test", MARKET_DATA_REAL_PROVIDERS: "0" };
+/**
+ * R-26 puts real window limits and a per-session concurrency cap on the two POST
+ * routes. These harnesses exercise contracts and behaviour, not throttling, so the
+ * limits are lifted here — following the `GENEROUS_LIMITS` convention used by the
+ * platform and site suites — and proved separately by the three tests at the end of
+ * this file. Lifting them by default is deliberate: a limit that silently throttles
+ * an unrelated test would look like a contract failure.
+ */
+const GENEROUS_ANALYSIS_LIMITS = {
+  RATE_LIMIT_ANALYSIS_RUN_MAX: "10000",
+  RATE_LIMIT_ANALYSIS_CONSENSUS_MAX: "10000",
+  ANALYSIS_MAX_CONCURRENT_RUNS: "0",
+};
+
+const ANALYSIS_ENV = {
+  PUBLIC_BASE_URL: "https://site.example.test",
+  MARKET_DATA_REAL_PROVIDERS: "0",
+  ...GENEROUS_ANALYSIS_LIMITS,
+};
 const FIXTURE_NOW = 1_755_000_000_000;
 const HOUR = 3_600_000;
 const BIASES = ["BULLISH", "BEARISH", "NEUTRAL", "NO_TRADE"];
@@ -846,6 +864,84 @@ test("route inventory: all five analysis routes are listed with what they enforc
     assert.equal(run.validated, true, "the mutating route declares a body schema");
     const agents = routes.find((route) => route.path.endsWith("/analysis/agents"));
     assert.equal(agents.validated, false);
+
+    // R-26: the two expensive POST routes carry their own window limits, and the
+    // inventory says so — before this phase both reported `rateLimited: false`
+    // while relying on the global 120/min API limiter, which bounds requests but
+    // not the ~8 provider calls each one triggers.
+    const consensus = routes.find((route) => route.path.endsWith("/analysis/consensus"));
+    for (const expensive of [run, consensus]) {
+      assert.equal(expensive.rateLimited, true, `${expensive.method} ${expensive.path} must declare its own rate limit`);
+    }
+    for (const cheap of routes.filter((route) => route.method === "GET")) {
+      assert.equal(cheap.rateLimited, false, `${cheap.path} is served from the store and needs no extra limit`);
+    }
+  } finally {
+    await instance.cleanup();
+  }
+});
+
+test("R-26: POST /analysis/run enforces its own window limit, charged before validation", async () => {
+  const instance = await harness({ env: { RATE_LIMIT_ANALYSIS_RUN_MAX: "2", RATE_LIMIT_ANALYSIS_RUN_WINDOW_MS: "600000" } });
+  try {
+    const session = await signIn(instance.app);
+
+    // Two bodies that never reach the engine. They still cost budget: the limit is
+    // checked before validation, so an attacker cannot hammer the contract for free
+    // by sending malformed payloads.
+    for (let attempt = 0; attempt < 2; attempt += 1) {
+      const refused = await instance.app.inject({
+        method: "POST", url: "/api/v1/analysis/run", headers: session.headers,
+        payload: { symbol: "", timeframe: "not-a-timeframe" },
+      });
+      assert.equal(refused.statusCode, 400, "each malformed body is rejected on its own merits first");
+    }
+
+    const limited = await instance.app.inject({
+      method: "POST", url: "/api/v1/analysis/run", headers: session.headers,
+      payload: { symbol: "BTCUSDT", marketClass: "crypto" },
+    });
+    assert.equal(limited.statusCode, 429, "the third request in the window is refused");
+    assert.equal(limited.json().error.code, "RATE_LIMITED");
+    assert.ok(Number(limited.headers["retry-after"]) > 0, "the client is told how long to wait");
+
+    // The limit is per route, not per client: the cheap GET routes still answer.
+    const agents = await instance.app.inject({ method: "GET", url: "/api/v1/analysis/agents", headers: session.headers });
+    assert.equal(agents.statusCode, 200);
+    const history = await instance.app.inject({ method: "GET", url: "/api/v1/analysis/history", headers: session.headers });
+    assert.equal(history.statusCode, 200);
+  } finally {
+    await instance.cleanup();
+  }
+});
+
+test("R-26: a consensus scan gets a tighter budget than a single run", async () => {
+  const instance = await harness({ env: { RATE_LIMIT_ANALYSIS_CONSENSUS_MAX: "1" } });
+  try {
+    const session = await signIn(instance.app);
+    const first = await instance.app.inject({
+      method: "POST", url: "/api/v1/analysis/consensus", headers: session.headers,
+      payload: { timeframe: "not-a-timeframe" },
+    });
+    assert.equal(first.statusCode, 400, "the budget is spent on validation failures too");
+
+    const second = await instance.app.inject({
+      method: "POST", url: "/api/v1/analysis/consensus", headers: session.headers,
+      payload: { symbols: ["BTCUSDT"] },
+    });
+    assert.equal(second.statusCode, 429);
+    assert.equal(second.json().error.code, "RATE_LIMITED");
+
+    // The shipped defaults — and the relationship between them — are asserted in
+    // `test/config.test.js`, where config is loaded without this file's generous
+    // overrides. Asserting them here would compare 1 against 10000 and prove nothing.
+
+    // The run route keeps its own separate budget and is unaffected by the scan's.
+    const run = await instance.app.inject({
+      method: "POST", url: "/api/v1/analysis/run", headers: session.headers,
+      payload: { symbol: "BTCUSDT", marketClass: "crypto" },
+    });
+    assert.equal(run.statusCode, 200, run.body);
   } finally {
     await instance.cleanup();
   }
