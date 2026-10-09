@@ -16,6 +16,7 @@
     "import:identity": "node src/db/import-legacy-identity.js",
     "backup": "node tools/backup.mjs create",
     "restore": "node tools/backup.mjs restore",
+    "prune:analysis": "node tools/prune-analysis-runs.mjs",
     "verify:install": "node tools/verify-install.mjs",
     "verify:data": "node tools/verify-data.mjs",
     "test": "node --test test/*.test.js",

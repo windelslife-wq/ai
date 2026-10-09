@@ -660,7 +660,7 @@ test("F-01 the file store and the SQL store implement one repository contract, s
     () => assertRepositoryContract({ adapter: "stub", capabilities: {}, readiness: async () => ({}) }, { adapter: "stub" }),
     /does not implement the repository contract.*findUserByIdentifier/s,
   );
-  assert.equal(REPOSITORY_METHODS.length, 35, "8 identity + 6 session + 9 RBAC + 2 admin + 4 audit/profile + 2 contact intake + 3 analysis runs + 1 readiness");
+  assert.equal(REPOSITORY_METHODS.length, 36, "8 identity + 6 session + 9 RBAC + 2 admin + 4 audit/profile + 2 contact intake + 4 analysis runs + 1 readiness");
   assert.equal(file.adapter, "file");
   assert.equal(file.capabilities.durable, true);
   assert.equal(file.capabilities.transactions, false);
@@ -1019,7 +1019,14 @@ test("F-02 the status surface is honest about unported modules, and F-03 the rou
   assert.match(body.version, /@\d+\.\d+\.\d+$/, "the version comes from the package manifest");
   const manifest = JSON.parse(await readFile(path.join(import.meta.dirname, "..", "package.json"), "utf8"));
   assert.equal(body.version, `${manifest.name}@${manifest.version}`);
-  assert.equal(Object.keys(manifest.scripts).filter((name) => ["backup", "restore", "verify:install", "verify:data", "seed:platform", "migrate", "import:identity", "start"].includes(name)).length, 8, "the documented operational commands must exist as scripts");
+  // `prune:analysis` joined the list with R-27: retention is documented as an
+  // operator command in the cPanel instructions, so the script has to exist. The
+  // tool's syntax is already covered by `verify:install` check 1, which walks
+  // `src/` and `tools/`.
+  const operational = ["backup", "restore", "prune:analysis", "verify:install", "verify:data", "seed:platform", "migrate", "import:identity", "start"];
+  const missing = operational.filter((name) => !(name in manifest.scripts));
+  assert.deepEqual(missing, [], "the documented operational commands must exist as scripts");
+  assert.equal(Object.keys(manifest.scripts).filter((name) => operational.includes(name)).length, operational.length);
 
   const routes = await app.app.inject({ method: "GET", url: "/api/v1/system/routes" });
   const inventory = routes.json().routes;

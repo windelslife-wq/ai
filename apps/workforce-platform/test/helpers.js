@@ -3,6 +3,7 @@ import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { loadConfig } from "../src/config.js";
+import { assertIsoCutoff } from "../src/persistence/contract.js";
 import { buildApp } from "../src/app.js";
 import { createFileStore } from "../src/persistence/file-store.js";
 
@@ -133,8 +134,10 @@ export async function createTestApp({ permissions = ["identity.users.view"], rea
     },
     /**
      * Mirrors the durable adapters: `saveAnalysisRun` upserts by id, the listing
-     * returns summaries newest first with no payload, and `findAnalysisRun`
-     * returns the stored payload (or null), which is what the route serves.
+     * returns summaries newest first with no payload, `findAnalysisRun` returns the
+     * stored payload (or null), which is what the route serves, and
+     * `pruneAnalysisRuns` deletes rows strictly older than a validated ISO-8601 UTC
+     * cutoff and reports the same shape both adapters report (risk R-27).
      */
     async saveAnalysisRun({ id, symbol, timeframe, bias, confidence, regime, recommendation, synthetic, source, completedAt, payload }) {
       analysisRuns.set(String(id), {
@@ -142,6 +145,28 @@ export async function createTestApp({ permissions = ["identity.users.view"], rea
         synthetic: Boolean(synthetic), source, completedAt, payload: payload ?? null,
       });
       return { id: String(id), completedAt };
+    },
+    async pruneAnalysisRuns(beforeIso, { dryRun = false } = {}) {
+      const cutoff = assertIsoCutoff(beforeIso);
+      const doomed = [...analysisRuns.values()]
+        .filter((row) => String(row.completedAt) < cutoff)
+        .sort((a, b) => (String(a.completedAt).localeCompare(String(b.completedAt)) || String(a.id).localeCompare(String(b.id))));
+      const report = {
+        matching: doomed.length,
+        deleted: 0,
+        payloadBytes: doomed.reduce((sum, row) => sum + Buffer.byteLength(JSON.stringify(row.payload ?? null), "utf8"), 0),
+        oldest: doomed.length ? String(doomed[0].completedAt) : null,
+        newest: doomed.length ? String(doomed[doomed.length - 1].completedAt) : null,
+        cutoff,
+        batches: 0,
+        exhausted: true,
+        dryRun: Boolean(dryRun),
+      };
+      if (dryRun || doomed.length === 0) return report;
+      for (const row of doomed) analysisRuns.delete(String(row.id));
+      report.deleted = doomed.length;
+      report.batches = 1;
+      return report;
     },
     async listAnalysisRuns({ limit = 20 } = {}) {
       const bounded = Math.min(Math.max(Number.parseInt(limit, 10) || 20, 1), 100);

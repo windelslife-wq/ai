@@ -320,6 +320,32 @@ function loadMarketDataConfig(env, { production }) {
   });
 }
 
+/**
+ * Analysis retention policy (risk R-27).
+ *
+ * `wf_analysis_runs.payload` is a LONGTEXT copy of an entire run — every agent
+ * verdict, the debate transcript, scenarios, the setup, the risk decision and the
+ * data provenance — kept so a decision can be re-read later without re-deriving it
+ * from market data that no longer exists. Nothing else in the platform ever deletes
+ * a row, so without retention the table grows for the life of the deployment on
+ * shared hosting where disk is not elastic.
+ *
+ * Only the *policy* is configurable. Retention is applied by an operator running
+ * `npm run prune:analysis`, never by a request: there is deliberately no HTTP route
+ * that can delete analysis history, because a session-scoped API with a delete verb
+ * on the audit copy of what a user was shown is not a trade worth making. Batch size
+ * stays a code constant with a CLI override, since it is an implementation detail
+ * about lock duration rather than a decision about what to keep.
+ *
+ * `0` keeps rows forever — the pre-R-27 behaviour, still available to a deployment
+ * that would rather grow than lose history.
+ */
+function loadAnalysisConfig(env) {
+  return Object.freeze({
+    retentionDays: integer(env.ANALYSIS_RETENTION_DAYS, "ANALYSIS_RETENTION_DAYS", { fallback: 90, min: 0, max: 3_650 }),
+  });
+}
+
 export function loadConfig(env = process.env) {
   assertSupportedNodeVersion();
   const mode = env.NODE_ENV || "development";
@@ -384,6 +410,7 @@ export function loadConfig(env = process.env) {
     storage,
     site: loadSiteConfig(env, { production, publicBaseUrl }),
     marketData: loadMarketDataConfig(env, { production }),
+    analysis: loadAnalysisConfig(env),
     uploads: loadUploadConfig(env, { production }),
     rateLimit: loadRateLimitConfig(env),
     // Concurrent in-flight requests tracked per client address. A per-window

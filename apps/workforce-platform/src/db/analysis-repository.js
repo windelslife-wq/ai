@@ -17,6 +17,23 @@
  * `0.72` is a payload change no caller asked for.
  */
 
+import { assertIsoCutoff } from "../persistence/contract.js";
+
+/**
+ * Retention deletes run in batches rather than as one statement (risk R-27).
+ *
+ * This is shared hosting: a single `DELETE` that matches a year of runs would hold
+ * locks and grow the undo log for as long as it took, on a server other tenants
+ * are using. Bounding each statement keeps every delete short, and the loop stops
+ * as soon as a batch comes back partly empty, which is the signal that nothing
+ * matching is left.
+ */
+function boundedBatch(value, fallback = 500) {
+  const parsed = Number.parseInt(value, 10);
+  if (!Number.isSafeInteger(parsed)) return fallback;
+  return Math.min(Math.max(parsed, 1), 5_000);
+}
+
 function boundedLimit(value, fallback = 20) {
   const parsed = Number.parseInt(value, 10);
   if (!Number.isSafeInteger(parsed)) return fallback;
@@ -82,6 +99,76 @@ export function createAnalysisRepository(pool) {
           LIMIT ${bounded}`,
       );
       return rows.map(summaryRow);
+    },
+
+    /**
+     * Report on — and optionally delete — every run completed before `beforeIso`
+     * (risk R-27).
+     *
+     * `payload` is a LONGTEXT copy of the whole run (agents, debate transcript,
+     * scenarios, setup, risk decision, provenance), so the table grows without bound
+     * and nothing else in the platform ever removes a row. Retention is an operator
+     * decision taken outside a request, which is why this is a repository method
+     * driven by `tools/prune-analysis-runs.mjs` and not a route: there is no HTTP
+     * surface that can delete analysis history.
+     *
+     * The measurement query always runs, in both modes, so a dry run reports exactly
+     * what an apply would remove — including how much disk comes back, which is the
+     * whole point of the exercise.
+     *
+     * The comparison is textual, so the cutoff is validated by `assertIsoCutoff`
+     * before it reaches a query. `ORDER BY` is included in the delete because
+     * `DELETE … LIMIT` without it is non-deterministic, and statement-based
+     * replication logs a non-deterministic delete as unsafe.
+     *
+     * @param {string} beforeIso ISO-8601 UTC instant; rows strictly older are removed.
+     * @param {{dryRun?: boolean, batchSize?: number, maxBatches?: number}} [options]
+     * @returns {Promise<{matching: number, deleted: number, payloadBytes: number,
+     *   oldest: string|null, newest: string|null, cutoff: string, batches: number,
+     *   exhausted: boolean, dryRun: boolean}>} `exhausted: false` means `maxBatches`
+     *   was reached and matching rows remain.
+     */
+    async pruneAnalysisRuns(beforeIso, { dryRun = false, batchSize = 500, maxBatches = 1_000 } = {}) {
+      const cutoff = assertIsoCutoff(beforeIso);
+      const [[measured]] = await pool.execute(
+        `SELECT COUNT(*) AS total,
+                MIN(completed_at) AS oldest,
+                MAX(completed_at) AS newest,
+                COALESCE(SUM(LENGTH(payload)), 0) AS payload_bytes
+           FROM wf_analysis_runs
+          WHERE completed_at < ?`,
+        [cutoff],
+      );
+      const report = {
+        matching: Number(measured?.total ?? 0),
+        deleted: 0,
+        payloadBytes: Number(measured?.payload_bytes ?? 0),
+        oldest: measured?.oldest ?? null,
+        newest: measured?.newest ?? null,
+        cutoff,
+        batches: 0,
+        exhausted: true,
+        dryRun: Boolean(dryRun),
+      };
+      if (dryRun || report.matching === 0) return report;
+
+      const batch = boundedBatch(batchSize);
+      const ceiling = Number.isSafeInteger(Number(maxBatches)) ? Math.max(1, Number(maxBatches)) : 1_000;
+      while (report.batches < ceiling) {
+        const [result] = await pool.query(
+          `DELETE FROM wf_analysis_runs
+            WHERE completed_at < ?
+            ORDER BY completed_at ASC
+            LIMIT ${batch}`,
+          [cutoff],
+        );
+        const affected = Number(result?.affectedRows ?? 0);
+        report.deleted += affected;
+        report.batches += 1;
+        if (affected < batch) break;
+        if (report.batches === ceiling) report.exhausted = false;
+      }
+      return report;
     },
 
     async findAnalysisRun(id) {

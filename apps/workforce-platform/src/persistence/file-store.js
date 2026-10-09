@@ -17,6 +17,7 @@
  */
 
 import { open, mkdir, readFile, rename, stat, writeFile } from "node:fs/promises";
+import { assertIsoCutoff } from "./contract.js";
 import { createHash } from "node:crypto";
 import path from "node:path";
 
@@ -640,6 +641,43 @@ export async function createFileStore({ dir, logger = console, idFactory = () =>
 
     async findAnalysisRun(id) {
       return tables.get("analysisRuns").get(String(id))?.payload ?? null;
+    },
+
+    /**
+     * Retention (risk R-27), mirroring the MySQL adapter's contract and report shape.
+     *
+     * Each row is removed with the log's existing `delete` op rather than a new
+     * "prune" op: the write-ahead log is replayed on every boot and rewritten by
+     * `compact()`, so a new op would have to be understood by both, and an older log
+     * would become unreadable. Row-by-row deletes need no format change and replay
+     * exactly. The cost is one log entry per row, which is acceptable on the adapter
+     * that exists for development and preview — production runs MySQL, where the same
+     * call is a bounded batch delete.
+     *
+     * Rows are visited oldest-first with the same tie-break `listAnalysisRuns` uses,
+     * so the deletion order never depends on map iteration.
+     */
+    async pruneAnalysisRuns(beforeIso, { dryRun = false } = {}) {
+      const cutoff = assertIsoCutoff(beforeIso);
+      const doomed = [...tables.get("analysisRuns").values()]
+        .filter((row) => String(row.completed_at) < cutoff)
+        .sort((a, b) => (String(a.completed_at).localeCompare(String(b.completed_at)) || String(a.id).localeCompare(String(b.id))));
+      const report = {
+        matching: doomed.length,
+        deleted: 0,
+        payloadBytes: doomed.reduce((sum, row) => sum + Buffer.byteLength(JSON.stringify(row.payload ?? null), "utf8"), 0),
+        oldest: doomed.length ? String(doomed[0].completed_at) : null,
+        newest: doomed.length ? String(doomed[doomed.length - 1].completed_at) : null,
+        cutoff,
+        batches: 0,
+        exhausted: true,
+        dryRun: Boolean(dryRun),
+      };
+      if (dryRun || doomed.length === 0) return report;
+      for (const row of doomed) await mutate("analysisRuns", "delete", { id: row.id });
+      report.deleted = doomed.length;
+      report.batches = 1;
+      return report;
     },
 
     // ---- profile files --------------------------------------------------

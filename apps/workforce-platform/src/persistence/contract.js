@@ -53,11 +53,40 @@ export const REPOSITORY_METHODS = Object.freeze([
   "saveAnalysisRun",
   "listAnalysisRuns",
   "findAnalysisRun",
+  "pruneAnalysisRuns",
   // operational
   "readiness",
 ]);
 
 export const REPOSITORY_FIELDS = Object.freeze(["adapter", "capabilities"]);
+
+/**
+ * Validate a retention cutoff (risk R-27).
+ *
+ * `wf_analysis_runs.completed_at` is VARCHAR(32) holding an ISO-8601 UTC string,
+ * and retention compares it as *text* — which is only chronological while every
+ * writer uses one format. A `+00:00` offset string sorts after the `Z` form of the
+ * same instant, so a mixed-format cutoff would silently delete the wrong rows;
+ * migration `005_analysis_runs.sql` warns about exactly this. Both adapters refuse
+ * anything that is not the canonical `…Z` form rather than guess, and both are
+ * handed their cutoff through this one function so they cannot disagree about it.
+ *
+ * Lives here rather than in a module because it is a storage-layer invariant about
+ * how a stored column may be compared, and `src/db/` must not import from
+ * `src/modules/`.
+ *
+ * @param {string} value
+ * @returns {string} the trimmed cutoff, safe to compare against `completed_at`.
+ * @throws {TypeError} when the value is not an ISO-8601 UTC instant.
+ */
+export function assertIsoCutoff(value) {
+  const cutoff = typeof value === "string" ? value.trim() : "";
+  const canonical = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d{1,3})?Z$/;
+  if (!canonical.test(cutoff) || Number.isNaN(Date.parse(cutoff))) {
+    throw new TypeError(`retention cutoff must be an ISO-8601 UTC string ending in "Z" (e.g. 2026-07-11T00:00:00.000Z), received ${JSON.stringify(value)}`);
+  }
+  return cutoff;
+}
 
 /**
  * @throws {Error} naming the adapter and every missing member.
