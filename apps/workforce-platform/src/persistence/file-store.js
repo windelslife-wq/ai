@@ -20,7 +20,7 @@ import { open, mkdir, readFile, rename, stat, writeFile } from "node:fs/promises
 import { createHash } from "node:crypto";
 import path from "node:path";
 
-const ENTITIES = ["users", "profiles", "sessions", "roles", "permissions", "userRoles", "rolePermissions", "audit"];
+const ENTITIES = ["users", "profiles", "sessions", "roles", "permissions", "userRoles", "rolePermissions", "audit", "inquiries"];
 const COMPACTION_ENTRIES = 2_000;
 const USERNAME_PATTERN = /^[a-z][a-z0-9_]{2,19}$/;
 
@@ -531,6 +531,68 @@ export async function createFileStore({ dir, logger = console, idFactory = () =>
           entityType: row.entity_type,
           entityId: row.entity_id,
           details: row.detail_json,
+          createdAt: row.created_at,
+        })),
+      };
+    },
+
+    // ---- public site: contact intake ------------------------------------
+    /**
+     * Appends one inquiry. The reference is supplied by the caller (the site
+     * service mints it) so both adapters store the same identifier shape, and a
+     * duplicate reference is refused rather than overwriting a visitor's message.
+     */
+    async recordContactInquiry({ reference, name, email, message, clientFingerprint, userAgent = null, requestId = null, createdAt = null }) {
+      if ([...tables.get("inquiries").values()].some((row) => row.reference === reference)) {
+        // References are random 26-character ULIDs, so this is a clock/entropy
+        // fault rather than a user error; refuse the write instead of overwriting
+        // a message that is already on the audit trail.
+        throw new Error(`Duplicate inquiry reference: ${reference}`);
+      }
+      const id = nextId("inquiries");
+      const at = createdAt ? new Date(createdAt).toISOString() : nowIso();
+      await mutate("inquiries", "upsert", {
+        id,
+        reference,
+        name,
+        email,
+        message,
+        client_fingerprint: clientFingerprint,
+        user_agent: userAgent,
+        request_id: requestId,
+        status: "new",
+        handled_by: null,
+        handled_at: null,
+        created_at: at,
+      });
+      return { id, reference, createdAt: at };
+    },
+    async pageContactInquiries({ limit = 25, offset = 0, search = null, status = null, sort = "createdAt", direction = "desc" } = {}) {
+      const boundedLimit = Math.min(Math.max(Number.parseInt(limit, 10) || 25, 1), 200);
+      const boundedOffset = Math.min(Math.max(Number.parseInt(offset, 10) || 0, 0), 1_000_000);
+      let rows = [...tables.get("inquiries").values()];
+      if (search) {
+        const term = String(search).toLowerCase();
+        rows = rows.filter((row) => row.name.toLowerCase().includes(term) || row.email.toLowerCase().includes(term) || row.reference.toLowerCase().includes(term));
+      }
+      if (status) rows = rows.filter((row) => row.status === status);
+      const column = { id: "id", createdAt: "created_at", name: "name", email: "email", status: "status" }[sort] || "created_at";
+      const factor = String(direction).toLowerCase() === "asc" ? 1 : -1;
+      rows.sort((a, b) => (String(a[column]).localeCompare(String(b[column])) || a.id - b.id) * factor);
+      return {
+        total: rows.length,
+        inquiries: rows.slice(boundedOffset, boundedOffset + boundedLimit).map((row) => ({
+          id: row.id,
+          reference: row.reference,
+          name: row.name,
+          email: row.email,
+          message: row.message,
+          status: row.status,
+          clientFingerprint: row.client_fingerprint,
+          userAgent: row.user_agent ?? null,
+          requestId: row.request_id ?? null,
+          handledBy: row.handled_by ?? null,
+          handledAt: row.handled_at ?? null,
           createdAt: row.created_at,
         })),
       };

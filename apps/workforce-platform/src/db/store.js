@@ -1,10 +1,12 @@
 import { createHash } from "node:crypto";
 import { createAccountRepository } from "./account-repository.js";
+import { createSiteRepository } from "./site-repository.js";
 
 export const REQUIRED_MIGRATIONS = Object.freeze([
   "001_platform_foundation",
   "002_identity_import_fields",
   "003_account_management",
+  "004_public_site",
 ]);
 
 /** Only driver codes are ever reported; never an SQL statement or credential. */
@@ -20,8 +22,10 @@ function safeDriverDetail(error) {
 
 export function createStore(pool, { requiredMigrations = REQUIRED_MIGRATIONS } = {}) {
   const repository = createAccountRepository(pool);
+  const site = createSiteRepository(pool);
   return {
     ...repository,
+    ...site,
     adapter: "mysql",
     capabilities: Object.freeze({
       adapter: "mysql",

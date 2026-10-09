@@ -193,9 +193,12 @@ test("F-03 every verb is declared explicitly: unknown methods get 405 with Allow
   assert.equal(wrongVerb.headers.allow, "POST", "HEAD is only implied where GET exists");
   assert.equal(wrongVerb.json().error.code, "METHOD_NOT_ALLOWED");
 
-  const postToStatic = await app.app.inject({ method: "POST", url: "/index.html" });
-  assert.equal(postToStatic.statusCode, 405);
+  const postToStatic = await app.app.inject({ method: "POST", url: "/styles.css" });
+  assert.equal(postToStatic.statusCode, 405, "a real static resource answers 405 with its verbs");
   assert.equal(postToStatic.headers.allow, "GET, HEAD");
+
+  const postToMissing = await app.app.inject({ method: "POST", url: "/not-a-page" });
+  assert.equal(postToMissing.statusCode, 404, "an unknown path must not reveal itself through 405");
 
   const unknownPath = await app.app.inject({ method: "GET", url: "/api/v1/does-not-exist" });
   assert.equal(unknownPath.statusCode, 404);
@@ -624,7 +627,7 @@ test("F-01 the durable file adapter replays its log, survives a torn write, and 
   const { total, events } = await reopened.listAuditEvents({ userId: user.id });
   assert.equal(total, 1);
   assert.equal(events[0].action, "identity.test");
-  assert.deepEqual(await reopened.stats(), { users: 1, profiles: 1, sessions: 1, roles: 0, permissions: 0, userRoles: 0, rolePermissions: 0, audit: 1 });
+  assert.deepEqual(await reopened.stats(), { users: 1, profiles: 1, sessions: 1, roles: 0, permissions: 0, userRoles: 0, rolePermissions: 0, audit: 1, inquiries: 0 });
 
   await reopened.compact();
   const compacted = (await readFile(fileStorePaths(dir).log, "utf8")).trim();
@@ -657,7 +660,7 @@ test("F-01 the file store and the SQL store implement one repository contract, s
     () => assertRepositoryContract({ adapter: "stub", capabilities: {}, readiness: async () => ({}) }, { adapter: "stub" }),
     /does not implement the repository contract.*findUserByIdentifier/s,
   );
-  assert.equal(REPOSITORY_METHODS.length, 30);
+  assert.equal(REPOSITORY_METHODS.length, 32, "8 identity + 6 session + 9 RBAC + 2 admin + 4 audit/profile + 2 contact intake + 1 readiness");
   assert.equal(file.adapter, "file");
   assert.equal(file.capabilities.durable, true);
   assert.equal(file.capabilities.transactions, false);
@@ -1010,9 +1013,9 @@ test("F-02 the status surface is honest about unported modules, and F-03 the rou
   const routes = await app.app.inject({ method: "GET", url: "/api/v1/system/routes" });
   const inventory = routes.json().routes;
   const adminRoutes = inventory.filter((entry) => entry.path.startsWith("/api/v1/admin/"));
-  assert.equal(adminRoutes.length, 5, "four account-admin routes plus the deprecated identity listing, and no admin route is unguarded");
+  assert.equal(adminRoutes.length, 6, "account-admin routes, the inquiry listing, the deprecated identity listing — and no admin route is unguarded");
   for (const route of adminRoutes) {
-    assert.ok(["identity.users.view", "identity.users.manage"].includes(route.permission), `${route.method} ${route.path} must report its permission in the ledger, got ${route.permission}`);
+    assert.ok(["identity.users.view", "identity.users.manage", "system.super_admin"].includes(route.permission), `${route.method} ${route.path} must report its permission in the ledger, got ${route.permission}`);
   }
   assert.deepEqual(adminRoutes.filter((route) => route.permission === "identity.users.manage").map((route) => route.method).sort(), ["PATCH", "POST"], "writes are the only routes needing manage");
   assert.equal(routes.statusCode, 200);
@@ -1059,7 +1062,9 @@ test("static serving: a document, an asset and an SPA route are distinguished, a
   assert.equal(document.statusCode, 200);
   assert.match(document.headers["content-type"], /^text\/html/);
   assert.equal(document.headers["cache-control"], "no-cache", "a document must be revalidated so a deploy is visible");
-  assert.match(document.headers.etag, /^W\/"[0-9a-f]+-[0-9a-f]+"$/);
+  // Static files keep the size/mtime weak ETag; generated documents carry a
+  // content hash in the same weak form.
+  assert.match(document.headers.etag, /^W\/"[0-9a-f]+(-[0-9a-f]+)?"$/);
   assert.equal(document.headers["x-content-type-options"], "nosniff");
 
   const asset = await app.inject({ method: "GET", url: "/styles.css" });

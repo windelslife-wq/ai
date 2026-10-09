@@ -50,6 +50,7 @@ export async function createTestApp({ permissions = ["identity.users.view"], rea
   };
   const sessions = new Map();
   const audits = [];
+  const inquiries = [];
   const passwordUpdates = [];
   const store = {
     adapter: "test",
@@ -112,6 +113,23 @@ export async function createTestApp({ permissions = ["identity.users.view"], rea
     },
     async recordAudit(event) { audits.push(event); },
     async listAuditEvents() { return { total: audits.length, events: audits.map((event, index) => ({ id: index + 1, action: event.action, createdAt: new Date().toISOString(), ...event })) }; },
+    async recordContactInquiry(inquiry) {
+      const id = inquiries.length + 1;
+      const record = { id, status: "new", createdAt: new Date().toISOString(), ...inquiry };
+      inquiries.push(record);
+      return { id, reference: record.reference, createdAt: record.createdAt };
+    },
+    async pageContactInquiries({ limit = 25, offset = 0, search = null, sort = "createdAt", direction = "desc" } = {}) {
+      let rows = [...inquiries];
+      if (search) {
+        const term = String(search).toLowerCase();
+        rows = rows.filter((row) => row.name.toLowerCase().includes(term) || row.email.toLowerCase().includes(term));
+      }
+      const column = { id: "id", createdAt: "createdAt", name: "name", email: "email" }[sort] || "createdAt";
+      const factor = direction === "asc" ? 1 : -1;
+      rows.sort((a, b) => (String(a[column]).localeCompare(String(b[column])) || a.id - b.id) * factor);
+      return { total: rows.length, inquiries: rows.slice(offset, offset + limit) };
+    },
     async listUsers() { return [{ id: 7, username: user.username, email: user.email, status: user.status }]; },
     async pageUsers() { return { total: 1, users: [{ id: 7, username: user.username, email: user.email, status: user.status }] }; },
     async listRoles() { return [{ id: 1, role_key: "platform_member", display_name: "Platform member" }]; },
@@ -119,7 +137,7 @@ export async function createTestApp({ permissions = ["identity.users.view"], rea
   };
   const config = testConfig();
   const app = await buildApp({ config, store, logger: false, publicDir });
-  return { app, store, sessions, audits, user, passwordUpdates };
+  return { app, store, sessions, audits, inquiries, user, passwordUpdates };
 }
 
 /**

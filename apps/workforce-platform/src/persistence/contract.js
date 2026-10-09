@@ -46,6 +46,9 @@ export const REPOSITORY_METHODS = Object.freeze([
   "listAuditEvents",
   "setAvatarPath",
   "findAvatarPath",
+  // public site (Phase 3): visitor contact intake
+  "recordContactInquiry",
+  "pageContactInquiries",
   // operational
   "readiness",
 ]);

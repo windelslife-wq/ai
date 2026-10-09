@@ -141,15 +141,81 @@ function loadRateLimitConfig(env) {
   });
 }
 
-function loadSiteConfig(env) {
-  const raw = env.SITE_NAME || "WINDELS AI WORKFORCE";
+/**
+ * Public-site identity and SEO settings (finding F-10).
+ *
+ * These drive the rendered public pages, `/robots.txt`, `/sitemap.xml` and
+ * `/manifest.webmanifest`, so every value is validated here rather than in a
+ * template: a metadata field that accepted any string would be an injection
+ * point into every page head.
+ *
+ * Legacy parity: the PHP application reads the same settings from
+ * `application/config/seo.php` (`VP_SITE_NAME`, `VP_SITE_DESCRIPTION`,
+ * `VP_SITE_KEYWORDS`, `VP_ROBOTS`, `VP_BASE_URL`, `VP_OG_IMAGE`,
+ * `VP_THEME_COLOR`). The Node names drop the `VP_` prefix but keep the
+ * semantics, including the default title suffix and the robots vocabulary.
+ */
+const ROBOTS_VALUES = Object.freeze(["index, follow", "noindex, follow", "index, nofollow", "noindex, nofollow"]);
+
+function loadSiteConfig(env, { production, publicBaseUrl }) {
+  const name = (env.SITE_NAME || "WINDELS AI WORKFORCE").slice(0, 120);
+  const description = (env.SITE_DESCRIPTION
+    || "WINDELS AI WORKFORCE — research, learning and operational tools in one governed workspace. Evidence-first, audited and fail-closed.").slice(0, 300);
+  const canonicalBase = publicBaseUrl || null;
+
+  // The Open Graph image must be an absolute URL to be usable by a crawler. When
+  // no canonical origin is configured (development) it stays null and the page
+  // head omits the tag instead of publishing a relative or invented URL.
+  let ogImage = null;
+  if (env.SITE_OG_IMAGE) {
+    let parsed = null;
+    try {
+      parsed = new URL(env.SITE_OG_IMAGE);
+    } catch {
+      throw new Error("SITE_OG_IMAGE must be an absolute https:// URL to the shared image");
+    }
+    if (parsed.protocol !== "https:" && !(parsed.protocol === "http:" && !production)) {
+      throw new Error("SITE_OG_IMAGE must use https:// in production");
+    }
+    ogImage = parsed.href;
+  } else if (canonicalBase) {
+    ogImage = `${canonicalBase}/icons/icon-512.png`;
+  }
+
+  const announcement = String(env.SITE_ANNOUNCEMENT || "")
+    .split("|")
+    .map((entry) => entry.trim().slice(0, 160))
+    .filter(Boolean)
+    .slice(0, 3);
+
   return Object.freeze({
-    name: raw.slice(0, 120),
-    description: (env.SITE_DESCRIPTION || "Research, learning and operational tools with clear guardrails.").slice(0, 300),
-    titleSuffix: (env.SITE_TITLE_SUFFIX || "").slice(0, 60),
-    themeColor: /^#[0-9a-fA-F]{6}$/.test(env.THEME_COLOR || "") ? env.THEME_COLOR : "#071511",
-    robots: ["index, follow", "noindex, follow", "index, nofollow", "noindex, nofollow"].includes(env.ROBOTS) ? env.ROBOTS : "index, follow",
-    keywords: (env.SITE_KEYWORDS || "").slice(0, 500),
+    name,
+    description,
+    titleSuffix: (env.SITE_TITLE_SUFFIX === undefined ? ` · ${name}` : env.SITE_TITLE_SUFFIX).slice(0, 60),
+    themeColor: /^#[0-9a-fA-F]{6}$/.test(env.THEME_COLOR || "") ? env.THEME_COLOR.toLowerCase() : "#071511",
+    backgroundColor: /^#[0-9a-fA-F]{6}$/.test(env.SITE_BACKGROUND_COLOR || "") ? env.SITE_BACKGROUND_COLOR.toLowerCase() : "#071511",
+    robots: ROBOTS_VALUES.includes(env.ROBOTS) ? env.ROBOTS : "index, follow",
+    keywords: (env.SITE_KEYWORDS || "WINDELS AI Workforce, AI workforce, language learning, market intelligence, sports research, lottery analysis, lead discovery").slice(0, 500),
+    canonicalBase,
+    ogImage,
+    announcement: Object.freeze(announcement),
+    /**
+     * The legacy public pages quote the size of the authored language-teacher
+     * registry (`count($this->platform->langlearn->languages())` → 20). Language
+     * learning is not ported to this platform, so there is no registry to count:
+     * the number is a stated configuration value describing the product, and the
+     * parity ledger records exactly that. Set it to 0 to drop the claim.
+     */
+    languageCount: integer(env.SITE_LANGUAGE_COUNT, "SITE_LANGUAGE_COUNT", { fallback: 20, min: 0, max: 500 }),
+    contact: Object.freeze({
+      // A public, unauthenticated write endpoint: the limit is per client address
+      // and deliberately tight, and the accepted message length matches the legacy
+      // form (10..2000 characters).
+      maxPerWindow: integer(env.CONTACT_MAX_PER_HOUR, "CONTACT_MAX_PER_HOUR", { fallback: 3, min: 1, max: 1_000 }),
+      windowMs: integer(env.CONTACT_WINDOW_MS, "CONTACT_WINDOW_MS", { fallback: 3_600_000, min: 60_000, max: 86_400_000 }),
+      messageMinLength: 10,
+      messageMaxLength: 2_000,
+    }),
   });
 }
 
@@ -215,9 +281,14 @@ export function loadConfig(env = process.env) {
     logLevel,
     database,
     storage,
-    site: loadSiteConfig(env),
+    site: loadSiteConfig(env, { production, publicBaseUrl }),
     uploads: loadUploadConfig(env, { production }),
     rateLimit: loadRateLimitConfig(env),
+    // Concurrent in-flight requests tracked per client address. A per-window
+    // counter cannot stop a client that opens hundreds of parallel slow
+    // connections; this ceiling can. 0 disables it (the default) so a shared
+    // office address is never throttled by accident — set it deliberately.
+    maxRequestsPerClient: integer(env.MAX_REQUESTS_PER_CLIENT, "MAX_REQUESTS_PER_CLIENT", { fallback: 0, min: 0, max: 10_000 }),
     sessionSecret: env.SESSION_SECRET,
     sessionTtlSeconds: integer(env.SESSION_TTL_SECONDS, "SESSION_TTL_SECONDS", {
       fallback: 8 * 60 * 60,

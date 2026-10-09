@@ -13,8 +13,8 @@ test("database readiness requires every ordered Node identity migration and repo
   };
   const readiness = await createStore(pool).readiness();
   assert.deepEqual(readiness, { database: true, schema: false, adapter: "mysql", detail: null });
-  assert.match(calls[1].sql, /IN \(\?, \?, \?\)/);
-  assert.deepEqual(calls[1].values, ["001_platform_foundation", "002_identity_import_fields", "003_account_management"]);
+  assert.match(calls[1].sql, /IN \(\?, \?, \?, \?\)/);
+  assert.deepEqual(calls[1].values, ["001_platform_foundation", "002_identity_import_fields", "003_account_management", "004_public_site"]);
 });
 
 test("database outage is reported as an unreachable adapter, never as a healthy database", async () => {

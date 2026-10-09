@@ -19,6 +19,10 @@ let cachedVersion = null;
 /** Ported product modules and their acceptance state. Never invented. */
 export const MODULE_STATUS = Object.freeze([
   { key: "identity", label: "Identity, sessions, RBAC, account management", state: "ported", tests: "unit + http + parity" },
+  // Pages, robots/sitemap/manifest, the PWA shell and contact intake are ported
+  // and parity-tested; the legacy public chat assistant is not, so the module is
+  // reported partial rather than ported.
+  { key: "publicSite", label: "Public site, SEO + PWA shell, contact intake (chat assistant not ported)", state: "partial", tests: "unit + http + parity" },
   { key: "audit", label: "Security audit trail for ported actions", state: "partial", tests: "unit" },
   { key: "notifications", label: "Operator notifications", state: "not-ported", tests: null },
   { key: "marketData", label: "Market data providers and health", state: "not-ported", tests: null },
