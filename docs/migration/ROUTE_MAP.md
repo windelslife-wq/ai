@@ -104,6 +104,9 @@ Login accepts **username, email, or 6-digit User ID**.
 ### 7.3 Market data, analysis, agents
 `GET /api/market-data/candles` · `/quote` · `/providers` → api_marketdata/* · `POST /api/analysis/run` · `GET /api/analysis/history` · `GET /api/analysis/:id` · `GET /api/agents` · `GET /api/agents/consensus` → api_analysis/*.
 
+> Ported in Phase 5: see §14.7. The legacy `/api/agents*` paths are served as `/api/v1/analysis/agents`
+> and `/api/v1/analysis/consensus` (the latter as a `POST`), with no alias retained.
+
 ### 7.4 Strategies & backtesting
 `GET /api/strategies` · `GET /api/strategies/:id` · `GET/POST /api/strategies/:id/status` · `POST /api/strategies/:id/optimize` · `POST /api/backtesting/run` · `GET /api/backtesting/results` · `GET /api/backtesting/results/:id` → api_strategies/*.
 
@@ -177,10 +180,10 @@ Statics: `index.html`, `login.html`, `admin.html`, `history.html`, `ticket.html`
 6. Convention-routed CLI surface (`tools/*`) must NOT remain HTTP-reachable in Node — re-home as cron-invoked scripts only.
 7. Response semantics (JSON envelope, error codes 400/401/403/404, `provenance` fields) are pinned by the 367-test suite; use it as the parity oracle.
 
-## 14. Node platform API ledger (Phases 2–4, measured 2026-10-09)
+## 14. Node platform API ledger (Phases 2–5, measured 2026-10-09)
 
 Authoritative source: **the running server**, not this table. `GET /api/v1/system/routes`
-returns the 33 routes below; `app.documents()` returns the 22 document routes in §15.
+returns the 38 routes below; `app.documents()` returns the 22 document routes in §15.
 `test/site.test.js` asserts the two ledgers are disjoint and that every legacy site route in
 `application/config/routes.php` is answered by the Node transport.
 
@@ -193,7 +196,7 @@ returns the 33 routes below; `app.documents()` returns the 22 document routes in
 | Method/path | Auth | Legacy relationship |
 |---|---|---|
 | `GET /api/v1/health/live` | public | new operational liveness probe; no legacy equivalent |
-| `GET /api/v1/health/ready` | public | new; 503 + `Retry-After` until the adapter answers and all 4 migrations are applied |
+| `GET /api/v1/health/ready` | public | new; 503 + `Retry-After` until the adapter answers and all 5 migrations are applied |
 | `GET /api/v1/system/status` | public | `Api_system::status` (one of the 4 public legacy API actions); reports per-module `ported` / `partial` / `not-ported` and `trading.enabled:false` |
 | `GET /api/v1/system/routes` | public | new — this ledger, machine-readable, so a route cannot be dropped quietly |
 | `GET /api/v1/system/features` | public | `Api_system::features` honesty matrix |
@@ -259,7 +262,26 @@ the platform-wide dependency-outage contract — where the legacy controller ans
 bare `{error: "<provider message>"}`. The provider's own message is preserved in
 `error.details.reason`.
 
-5 + 7 + 11 + 6 + 1 + 3 = **33** routes, matching the `count` the live inventory reports.
+### 14.7 Analysis (5) — Phase 5
+
+| Method/path | Auth | Legacy relationship |
+|---|---|---|
+| `POST /api/v1/analysis/run` | session + CSRF, no permission | `POST /api/analysis/run` (`api_analysis/run`): one symbol, one timeframe, one full panel run. Body `{symbol, marketClass, timeframe}`; `marketClass` is required here (the legacy inferred it) because a run's cost depends on it — forex and commodity runs also fetch 7 reference legs. Returns the legacy run payload (`bias`, `confidence`, `recommendation`, `marketRegime`, `agents[]`, `signals[]`, `scenarios`, `debate`, `tradeSetup`, `riskDecision`) plus the additive `marketClass`, `gates`, `riskContext` and the market-data `provenance`/`validation` carried forward verbatim |
+| `GET /api/v1/analysis/history` | session, no permission | `GET /api/analysis/history`: summary rows newest first (`id`, `symbol`, `timeframe`, `bias`, `confidence`, `regime`, `recommendation`, `synthetic`, `source`, `completedAt`) — no payload, so the list stays cheap. `limit` 1–100, default 20 |
+| `GET /api/v1/analysis/agents` | session, no permission | `GET /api/agents`: the static panel catalogue. Each entry states what it can and cannot do (`macro unavailable (no provider)`, `honestly unavailable`, `Abstains until a licensed … feed`) |
+| `POST /api/v1/analysis/consensus` | session + CSRF, no permission | `GET /api/agents/consensus` — **method divergence:** the legacy answered a `GET` that nevertheless wrote one run per symbol and one audit row per run. Node makes it a `POST`, because a scan of up to 10 symbols is a mutation, not a read. Body `{timeframe?, symbols?}`; with no `symbols` the legacy 7-symbol watchlist is scanned and each class is inferred (`XAUUSD` → commodity) |
+| `GET /api/v1/analysis/:runId` | session, no permission | `GET /api/analysis/:id`: the full persisted payload; `404 ANALYSIS_RUN_NOT_FOUND` when the id is well formed but unknown, `400` when it is not |
+
+None of the five appears in the legacy `Api_controller::PUBLIC_ACTIONS` list, so all five require a
+signed-in session, and none needs a permission — analysis was readable by every legacy role. The two
+mutations additionally require the session CSRF token, which the legacy CI3 session did for free.
+**Divergences:** an unsupported timeframe answers `400` from the contract rather than being coerced
+(consensus accepts the narrower `15m/1h/4h/1d`); the legacy `/api/agents*` paths are **not** aliased —
+every route lives under `/api/v1/analysis/*`; and no run can ever carry an approval, because the risk
+engine is ported as a veto gate with the kill switch engaged at boot (§14.7 of
+`PHASE5_ANALYSIS.md`).
+
+5 + 7 + 11 + 6 + 1 + 3 + 5 = **38** routes, matching the `count` the live inventory reports.
 
 ## 15. Node rendered document routes (22)
 

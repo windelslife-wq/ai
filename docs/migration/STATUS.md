@@ -172,6 +172,64 @@ is the correct honest behaviour), a licensed feed of any kind, a value-for-value
 versus Node numeric output (new finding **F-26**), a real MySQL server, a market-data user
 interface, or any cutover.
 
+## Phase 5 — analysis engines, agents, consensus and the risk veto gate (2026-10-09, branch `arena/774d9e70-ai`)
+
+**This section supersedes the route count, the module counts and the analysis/risk status above.** Full
+record: [`PHASE5_ANALYSIS.md`](PHASE5_ANALYSIS.md). App version is now **0.6.0**.
+
+- **38 API routes** (the 33 from Phase 4 plus `POST /api/v1/analysis/run`, `GET /api/v1/analysis/history`,
+  `GET /api/v1/analysis/agents`, `POST /api/v1/analysis/consensus` and `GET /api/v1/analysis/:runId`); the
+  22 rendered document routes are unchanged. All five require a session and **no permission**, matching
+  `Api_analysis` — none is in the legacy `Api_controller::PUBLIC_ACTIONS` list. The two mutations also
+  require the session CSRF token; this is the first ported module with an authenticated unsafe method.
+- **The analysis pipeline is ported**: 300 candles per symbol, `detectRegime` with all seven legacy labels,
+  a seven-agent panel (technical, market structure, forex, crypto, sentiment, fundamentals, trading
+  intelligence) with the legacy weights (1.0 / 0.9 / 0.9 / 0.9 / 0.5) and the ±0.15 vote threshold,
+  weighted consensus with agreement, conflicts, confluence and the two hard gates, a four-round
+  adversarial debate whose transcript is persisted, setup generation with 1.5/2.5/3.5 R targets, three
+  scenarios per run, and `RiskEngine::evaluate` as the veto gate. Forex and commodity runs also fetch the
+  seven legacy reference legs (60 candles each) for currency strength.
+- **Nothing can be approved on this platform.** `DEFAULT_TRADING_STATE` is frozen with the kill switch
+  **engaged** and `tradingMode: ANALYSIS_ONLY`, and no ported code path releases it — the kill-switch
+  control surface, the portfolio monitor and the limits API are still legacy-only, which is why
+  `/api/v1/system/features` reports `risk` as **`partial`**, not `ported`. Every run carries
+  `riskContext.note` stating that the portfolio gates are evaluated against an empty portfolio.
+- **Honesty rules are enforced, not documented**: the synthetic label is carried from market data into the
+  run payload, the persisted row (as a column), the audit details and the risk veto; freshness is graded
+  (live 1.0 / synthetic 0.5 / stale 0.2) and stale data is sustained as a **critical** objection that
+  forces `NO_TRADE` and drops the proposal; sentiment and fundamentals abstain through a *computed*
+  validator (`votes: false`, excluded from the panel) and vote when a licensed feed is injected; price is
+  never relabelled as sentiment, fundamentals or on-chain data; a wick beyond a swing never confirms a
+  break of structure; and the debate can only reduce confidence.
+- **One table, one migration, no configuration.** `wf_analysis_runs` (migration `005`) stores the summary
+  columns, `synthetic`/`source` promoted out of the payload so a query can find every run built on labelled
+  synthetic data, and the full run as the audit copy. The repository contract grows **32 → 35** methods.
+  This phase adds **no environment variable** — `.env.example` stays at 53 — because agent weights,
+  thresholds and risk limits are safety parameters, not deployment knobs.
+- **Six defects found and closed while porting** (`PHASE5_ANALYSIS.md` §6), including a JS
+  operator-precedence bug in the open-risk reduction, body schemas written in the query dialect (which made
+  the run route answer `400` *before* authentication), the engine's injectable clock not reaching the feed
+  agents' freshness check, a hard store requirement that broke the documented store-less boot, and a
+  position-based audit assertion that was a latent flake in the test itself.
+
+Measured in this sandbox on 2026-10-09: **235** app tests passing (**+95** across
+`test/analysis.test.js` and `test/analysis_http.test.js`, which port **36 of the 38** legacy cases in
+`01-indicators`, `03-agents`, `04-risk-engine`, `34-agent-debate` and `08-engine-journal` — the two it does
+not are the backtester and journal-analytics cases, which belong to unported modules), **30/30** install
+checks, **367** legacy PHP/WASM oracle tests, **12** Scout contract tests, **29** football-prediction tests
+and a clean `npm run typecheck`: **643 passed, 0 failed**. The suite is hermetic — **235/235 with and
+without** a whole-suite egress interceptor — and the client build is byte-identical to Phases 3–4
+(`index-Ci3bygYZ.js`), because this phase has no UI.
+**Not** exercised: any live upstream data (no egress; every run here is labelled synthetic or comes from an
+injected double), a value-for-value PHP↔Node numeric diff (**F-26**, still a cutover prerequisite), real
+MySQL, the risk engine's approve path over HTTP (unit-tested only, unreachable by design), any portfolio
+state, an analysis user interface, or any cutover. New finding **F-27**: the legacy risk engine approves a
+proposal when equity is `0`, because every portfolio gate sits behind `equity > 0` — ported faithfully and
+pinned by a test, unreachable from the analysis path, and a hazard the broker/execution ports must not
+inherit silently. New risks **R-26** (analysis is the most expensive authenticated endpoint: up to 8
+provider calls per run, 80 per consensus scan, bounded only by the global 120/min limiter) and **R-27**
+(`wf_analysis_runs.payload` grows with no retention policy).
+
 ## Current implementation slice — foundation only
 
 `apps/workforce-platform/` now contains:
@@ -199,8 +257,8 @@ This is **not** a production replacement. The Node API covers health/readiness, 
 
 1. Add real MySQL/MariaDB integration coverage for Node migrations, sessions, the single-use identity-import ledger, uniqueness conflicts, transaction behavior and restore.
 2. Finish native authentication architecture (exact allowed API origin, token lifecycle/revocation, secure-storage plugin, CORS/origin/CSRF tests) before enabling native sign-in or signing an app.
-3. Port the remaining shared platform — notifications, the audit browser, settings and the domain dashboards — with route and permission parity. Identity/account management (Phase 2), the public site, SEO/PWA shell and contact intake (Phase 3) and market data (Phase 4) are done; the public chat widget, password-reset delivery, outbound mail and every market-data UI surface are not.
-4. Migrate domain modules one at a time using [`UNFINISHED_MODULES.md`](UNFINISHED_MODULES.md), preserving the trading Risk Engine, ordered 15-step Execution Supervisor, kill switch, lottery honesty rules, provider provenance and tenant/user isolation. **Next in dependency order: analysis** (`Indicators.php`, the agent set, consensus and the fundamentals/sentiment abstention contracts), which must import the Phase 4 normalizer rather than reimplement it and must carry `provenance.synthetic` forward into its own payloads.
+3. Port the remaining shared platform — notifications, the audit browser, settings and the domain dashboards — with route and permission parity. Identity/account management (Phase 2), the public site, SEO/PWA shell and contact intake (Phase 3), market data (Phase 4) and the analysis engines (Phase 5) are done; the public chat widget, password-reset delivery, outbound mail and every market-data and analysis UI surface are not.
+4. Migrate domain modules one at a time using [`UNFINISHED_MODULES.md`](UNFINISHED_MODULES.md), preserving the trading Risk Engine, ordered 15-step Execution Supervisor, kill switch, lottery honesty rules, provider provenance and tenant/user isolation. Analysis (`Indicators.php`, the agent set, consensus, the debate and the fundamentals/sentiment abstention contracts) is **done** as of Phase 5, importing the Phase 4 normalizer and carrying `provenance.synthetic` forward into its own payloads. **Next in dependency order: the portfolio state that would make the risk gates non-vacuous** (paper trading and the portfolio monitor), which must resolve finding **F-27** deliberately rather than inherit the legacy zero-equity approval, and must not weaken the kill switch to do it.
 5. Consolidate Scout, Football Predictions and the MT5 bridge only after their separate storage/runtime assumptions are mapped and tested.
 6. Rehearse the full data import, backup/restore, cPanel limits, deployment package and rollback; obtain explicit approval before any production cutover.
 

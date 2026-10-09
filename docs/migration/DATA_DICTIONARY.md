@@ -122,7 +122,7 @@ Conventions, deliberately different from §2.0: native `DATETIME(3)` UTC instead
 keys with `ON DELETE SET NULL` for actors; `BIGINT UNSIGNED AUTO_INCREMENT` identifiers;
 `utf8mb4` / `utf8mb4_unicode_ci`; `VARCHAR(190)` for indexed emails. Versioned, checksummed,
 ordered migrations applied by `npm run migrate` and tracked in `wf_schema_migrations`;
-`readiness()` reports `schema:false` until all four are present, so `/api/v1/health/ready`
+`readiness()` reports `schema:false` until all five are present, so `/api/v1/health/ready`
 stays 503 on a partial schema.
 
 | Table | Migration | Purpose / notes |
@@ -148,7 +148,58 @@ after cutover. Candles, quotes, provider health, circuit-breaker state and the T
 only** — nothing market-data-shaped is written to disk, and no cache survives a restart (finding F-24: that
 also means each Passenger worker keeps its own view of provider health).
 
-The file adapter (`STORAGE_ADAPTER=file`) implements the same 32-method repository contract over
+## 7. Node platform schema — analysis runs (Phase 5; `005_analysis_runs.sql`)
+
+One table, additive, no legacy table touched.
+
+| Table | Migration | Purpose / notes |
+|---|---|---|
+| `wf_analysis_runs` | **005 (Phase 5)** | One row per completed analysis run. `id CHAR(36)` (a `crypto.randomUUID()`, so re-running a symbol never collides with a legacy numeric id); summary columns `symbol VARCHAR(24)`, `timeframe VARCHAR(5)`, `bias VARCHAR(10)`, `confidence DECIMAL(5,4)`, `regime VARCHAR(20)`, `recommendation VARCHAR(10)`; provenance promoted to columns `synthetic TINYINT(1)` and `source VARCHAR(40)`; `completed_at VARCHAR(32)`; `payload LONGTEXT`; indexes `ix_wf_analysis_runs_completed (completed_at)` and `ix_wf_analysis_runs_symbol (symbol, completed_at)` |
+
+**Why this table breaks the §6 conventions, deliberately.** §6 records that the Node schema uses native
+`DATETIME(3)` instead of `VARCHAR(32)` ISO strings and native `JSON` instead of `LONGTEXT`. Migration 005
+uses `VARCHAR(32)` and `LONGTEXT` anyway, for two reasons:
+
+1. The summary columns **are an API payload** — `GET /api/v1/analysis/history` returns them field for
+   field — and the legacy `analysis_runs` table typed them this way. Retyping `completed_at` as
+   `DATETIME(3)` would change the string a caller receives (no `Z`, no milliseconds in some drivers) and
+   break the parity claim for a cosmetic gain.
+2. History is ordered by `completed_at`. ISO-8601 **UTC** strings sort chronologically as plain text, which
+   is what both adapters rely on. That holds only while every writer uses one format, so this column must
+   never be fed a legacy `+00:00` offset string and a Node `Z` string in the same table; the Node platform
+   writes only its own.
+
+`payload` holds the entire run — agents, debate transcript, scenarios, setup, risk decision, provenance and
+validation — as the audit copy of what the caller was shown, so a run can be re-read years later without
+re-deriving it from market data that no longer exists. It is also the reason this table needs a retention
+policy before production write volume (**R-27**): nothing prunes it.
+
+Because `db/pool.js` sets `decimalNumbers: false`, `confidence` comes back from MySQL as a *string*;
+`src/db/analysis-repository.js` converts at the boundary (`Number(row.confidence)`) so both adapters return
+a number. Writes are a single `ON DUPLICATE KEY UPDATE` upsert, and the file adapter mirrors it — pinned by
+a test, because re-running a symbol must update the row rather than duplicate it.
+
+**Audit rows written by this phase** (existing `wf_audit_events`, no schema change). All six actions use
+`entity_type = 'analysis_run'` and `entity_id = <run id>` — including the risk decision, which is an
+attribute of a run rather than its own entity — and all six carry `actor_user_id` = the signed-in account,
+because analysis is a user action (unlike `marketData.provider.fallback`, where the platform is the actor
+and the column is `NULL`).
+
+| `action_key` | `legacyAction` in `detail_json` | Written when |
+|---|---|---|
+| `analysis.run.completed` | `TRADE_ANALYZED` | every run; also carries `symbol`, `timeframe`, `marketClass`, `regime`, `bias`, `confidence`, `recommendation`, `source`, `synthetic`, `stale` |
+| `analysis.signal.proposed` | `SIGNAL_GENERATED` | a trade setup survived the debate; carries `action`, `entry`, `stopLoss`, `takeProfit`, `riskReward` |
+| `analysis.signal.none` | `NO_SIGNAL` | no setup — mutually exclusive with the row above |
+| `risk.decision.rejected` | `RISK_REJECTED` | a proposal was vetoed; carries `approved:false`, `reasons[]`, `warnings[]` |
+| `risk.decision.approved` | `RISK_APPROVED` | a proposal cleared every gate — **unreachable from an HTTP route on this platform**, because the kill switch is engaged at boot and no ported code path releases it (`PHASE5_ANALYSIS.md` §3.1). It is covered by unit tests that pass `killSwitchActive:false` |
+| `analysis.agent.failed` | `TRADE_REJECTED` | an agent threw; carries `agent` and `error`. The run continues without that agent |
+
+Keeping `legacyAction` in `detail_json` means an audit query written against the PHP platform still finds
+these rows after cutover. The `message` strings reproduce the legacy wording
+(`BTCUSDT 1h: NEUTRAL @ 0.27 confidence`, `ETHUSDT BUY setup proposed (R:R 2.5)`,
+`EURUSD setup rejected by Risk Engine`, `EURUSD 1h: no tradeable setup`).
+
+The file adapter (`STORAGE_ADAPTER=file`) implements the same 35-method repository contract over
 an append-only JSONL log, so every table above has a non-MySQL shape used by tests and local
 rehearsal; it is refused in production unless `ALLOW_FILE_STORE_IN_PRODUCTION=1`.
 

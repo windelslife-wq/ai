@@ -279,12 +279,13 @@ No application calls another application's database. The two lead-discovery impl
 6. **The MT5 bridge stays Python** unless/until a Node bridge is contract-tested against a real demo terminal (master plan §3 agrees; treat as documented migration exception).
 7. **Three auth stacks** (CI3 sessions; Scout JWT; football sessions) must be unified or deliberately kept separate in the target design.
 
-## 8. Node port status against this inventory (updated 2026-10-09, Phase 4)
+## 8. Node port status against this inventory (updated 2026-10-09, Phase 5)
 
 The audit above describes the **PHP** platform and is unchanged. This section maps it to the
 Node target so a reader does not have to infer port status from prose elsewhere. Evidence:
 [`PHASE2_IDENTITY.md`](PHASE2_IDENTITY.md), [`PHASE3_PUBLIC_SITE.md`](PHASE3_PUBLIC_SITE.md),
-[`PHASE4_MARKET_DATA.md`](PHASE4_MARKET_DATA.md), [`ROUTE_MAP.md`](ROUTE_MAP.md) §14–15.
+[`PHASE4_MARKET_DATA.md`](PHASE4_MARKET_DATA.md), [`PHASE5_ANALYSIS.md`](PHASE5_ANALYSIS.md),
+[`ROUTE_MAP.md`](ROUTE_MAP.md) §14–15.
 
 | Inventory row (§3.1 and neighbours) | Node status | Note |
 |---|---|---|
@@ -303,10 +304,14 @@ Node target so a reader does not have to infer port status from prose elsewhere.
 | Announcement bar (`views/partials/announcement_bar.php`) | **Partially ported** | Renders from `SITE_ANNOUNCEMENT`, **empty by default**: the legacy default copy advertises the unported AI Language Teacher |
 | Market data: provider manager, breaker, HTTP, normalization, Binance, Frankfurter/ECB, labelled synthetic (§3.2) | **Ported** (Phase 4) | 3 endpoints + provider health; provenance labels synthetic output; licensed adapters still inert. No live upstream call was possible in the sandbox |
 | Licensed asset market data (stock/ETF/futures/options) (§3.2, **SCAFFOLD**) | **Ported as a scaffold** (Phase 4) | Same inert contract: `DISABLED` → `NOT_CONFIGURED` → `UP`; no vendor, schema or license verified |
-| Fundamentals / sentiment feed boundaries, indicator set (§3.2–§3.3) | **Not ported** | They belong to the analysis module (next in dependency order); only the three `MathUtils` functions the synthetic generator needs were carried across |
-| Analysis/agents, strategies, paper trading, risk, execution, brokers, sports, lottery, language learning, lead discovery (§3.3–§3.9) | **Not ported** | Reported `not-ported` by the status surface; trading stays disabled |
-| Football predictions (§3.12) | Unchanged, isolated | 29 tests re-run green this phase |
-| Scout (`apps/api`, `apps/web`) | Unchanged | Consolidation gated on F-18/R-02; 12 contract tests re-run green this phase |
-| MT5 bridge (Python) | Unchanged | Documented migration exception; its pytest suite was not re-run this phase |
+| Indicator set, `MathUtils`, regime/setup/scenario generation (§3.2–§3.3) | **Ported** (Phase 5) | `indicators.js` (~20 indicators), `math.js` (PHP half-away-from-zero rounding and both `number_format` behaviours), `regime.js` (all seven labels, setups with 1.5/2.5/3.5 R targets, three scenarios). Golden values re-derived by hand; **not** diffed against PHP output (F-26) |
+| Sentiment / fundamentals feed boundaries and their abstention contracts (§3.2–§3.3) | **Ported as abstention** (Phase 5) | `feeds.js` + the two agents: abstention is computed by a validator (licensed, attributable, fresh, ≥ 2 observations), so both report `available:false` and `votes:false` and are excluded from the panel. They vote when a licensed feed is injected — proven by test. **No real feed exists** |
+| Analysis engines, specialized agents, consensus and debate (§3.3) | **Ported** (Phase 5) | Seven-agent panel with the legacy weights and the ±0.15 vote threshold, weighted consensus with two hard gates, a four-round adversarial debate whose transcript is persisted, five endpoints under `/api/v1/analysis/*`, `wf_analysis_runs` (migration `005`). 95 tests, 36 of the 38 legacy cases. **No UI, no live data, no portfolio state** |
+| Risk Engine veto rules and sizing (§3.4) | **Partially ported** (Phase 5) | `RiskEngine.php` ported in full **as the veto gate inside analysis**: frozen limits, exact sizing, min R:R, required stop, kill switch, synthetic/stale/quality vetoes, notional and leverage caps, portfolio gates, audited decisions. `risk` reports **`partial`** |
+| Portfolio monitor, limits API, kill-switch control surface (§3.4) | **Not ported** | The kill switch is engaged at boot and **no ported code path releases it**, equity/open-risk are defaults, so no proposal can be approved from an HTTP route and the portfolio gates are vacuous there (every run says so in `riskContext.note`). See F-27 before porting |
+| Strategies, backtesting, journal, paper trading, execution, brokers, sports, lottery, language learning, lead discovery (§3.4–§3.9) | **Not ported** | Reported `not-ported` by the status surface; trading stays disabled. The two legacy `08-engine-journal` cases not ported in Phase 5 belong here (backtester, journal analytics) |
+| Football predictions (§3.12) | Unchanged, isolated | 29 tests re-run green in Phase 5 |
+| Scout (`apps/api`, `apps/web`) | Unchanged | Consolidation gated on F-18/R-02; 12 contract tests re-run green in Phase 5 |
+| MT5 bridge (Python) | Unchanged | Documented migration exception; its pytest suite was not re-run in Phase 4 or 5 |
 
 — End of Phase 0 inventory.

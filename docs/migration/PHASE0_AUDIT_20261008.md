@@ -277,3 +277,47 @@ recorded as **D-6** in `PHASE4_MARKET_DATA.md` §6, and the market-data suite no
 egress — both real providers reported `DOWN` and the chain fell back to labelled synthetic data), a
 licensed feed, a value-for-value diff of PHP versus Node numeric output (F-26), a real MySQL server, any
 market-data UI, or any cutover. `application/` and `system/` are unchanged.
+
+## 13. Closure status after Phase 5 (2026-10-09, branch `arena/774d9e70-ai`)
+
+Analysis engines, specialized agents, consensus/debate and the risk veto gate — the second module in the
+master plan's dependency order, and the first consumer of Phase 4's market data (which is what made R-25
+testable rather than theoretical). Full record with the parity tables, the divergences and the rehearsal
+log: [`PHASE5_ANALYSIS.md`](PHASE5_ANALYSIS.md).
+
+| ID | Severity | Status | Evidence |
+|---|---|---|---|
+| **F-02** | 🟠 | **Still closed, extended** — a provider outage on the analysis routes answers the same platform-wide `503` + `Retry-After` contract as market data, not a `500`: `market-data/errors.js` was extracted from the market-data routes so both modules share it, and a consensus scan reports a failed symbol as an `error:` row instead of failing the batch | `test/analysis_http.test.js`: `a provider outage on the run route is a 503 with a retry, never a 500` (asserts status, `SYNTHETIC_DATA_DISABLED`, `details.syntheticAllowed:false`, a positive `Retry-After`, and that no `bias` is present) and `engine: a market-data outage surfaces as the provider's own refusal` |
+| **F-14** | 🟡 | **Still closed, re-verified** — this phase adds **no** environment variable; `.env.example` stays at **53** documented variables. Agent weights, thresholds and risk limits are deliberately code constants, because they are safety parameters and an env var would let a host silently weaken a veto | `verify:install` check 25, **30/30** |
+| **F-12** | 🟡 | Open — decision, not code. **The gate was not triggered again:** no package was added to any manifest; server dependencies remain exactly `bcryptjs` + `mysql2` | `PHASE5_ANALYSIS.md` header table |
+| **F-15** | 🔴 | **Open, and re-widened** — unlike Phase 4, this phase **did** add schema: migration `005_analysis_runs.sql` and `src/db/analysis-repository.js`, including an `ON DUPLICATE KEY UPDATE` upsert and a `DECIMAL(5,4)` → `Number()` conversion forced by `decimalNumbers: false`. Both are verified by the readiness probe, the contract check, SQL-text assertions and the file adapter, but **never executed against a real MySQL server** — exactly the MySQL-only behaviour class R-14 warns about | `PHASE5_ANALYSIS.md` §9 item 2; `test/store.test.js` (5-migration readiness), `test/analysis_http.test.js` (`persistence: a run id is upserted, not duplicated`) |
+| **F-11**, **F-16**, **F-17**, **F-18** | — | Open — unchanged; none was touched by this phase | `PHASE5_ANALYSIS.md` §10 |
+| **F-24**, **F-25** | 🟡 | Open — unchanged. Analysis multiplies F-24's blast radius rather than adding to it: one consensus scan performs up to 80 provider calls through per-process caches and breakers, so two Passenger workers can disagree about the same symbol's health while serving the same scan | `RISK_REGISTER.md` R-26 |
+| **F-26** | 🟡 | **Open, and now load-bearing for a much larger surface.** The 36 ported legacy cases were re-derived by hand and pinned as goldens, but `Indicators.php` (~20 indicators), `MathUtils.php` (PHP half-away-from-zero rounding, two distinct `number_format` behaviours), `Analysis.php` (seven regime labels, setup and scenario generation), the seven agents and `RiskEngine::evaluate` sizing have **not** been diffed value-for-value against PHP output. Both suites are green independently; that is not the same claim | `PHASE5_ANALYSIS.md` §9 item 3 and §12 entry criterion 2; cutover prerequisite |
+| **F-27** (new) | 🟡 | **Open — a legacy defect, ported faithfully rather than repaired.** `RiskEngine::evaluate` **approves** a proposal when equity is `0`: every portfolio gate (daily/weekly loss, drawdown, symbol and portfolio exposure, correlated positions) sits behind `equity > 0`, and the notional and leverage checks then clear trivially because `0 ≤ cap`. Sizing divides by the stop distance, not by equity, so it produces no `NaN`. **Unreachable from the analysis path** — the default trading state carries 10 000 paper equity and the kill switch vetoes first — but it is a live hazard for the paper-trading, execution and broker ports, which must not inherit it silently. Recorded instead of fixed because changing it would diverge from the parity oracle | `test/analysis.test.js`: `risk engine: zero equity produces no NaN — and exposes a legacy gate gap`; `PHASE5_ANALYSIS.md` §10 and §12 entry criterion 3 |
+| **R-25** | 🟠 | **Obligation discharged for this module; the risk stays open.** Analysis carries `provenance.synthetic`/`.live`/`.stale` forward into the run payload, promotes `synthetic`/`source` to **columns** on `wf_analysis_runs`, writes them into the audit details, grades them into the consensus freshness factor (live 1.0 / synthetic 0.5 / stale 0.2) and enforces them through `blockSyntheticData`/`blockStaleData` in the veto. Strategies, backtesting, paper trading and the portfolio monitor inherit the same obligation next | `test/analysis_http.test.js`: `engine: live data clears the data vetoes, and the kill switch is still the binding one` and `engine: a stale series is a critical objection…`; `RISK_REGISTER.md` "Additions after Phase 5" |
+| **R-26**, **R-27** (new) | 🟠 / 🟡 | **Recorded** in `RISK_REGISTER.md`: analysis as the most expensive authenticated endpoint (up to 8 provider calls per run, 80 per scan, bounded only by the global 120/min limiter), and unbounded growth of `wf_analysis_runs.payload` with no retention policy | `RISK_REGISTER.md`, "Additions after Phase 5" |
+
+**Trading safety (R-10) — the invariant that mattered most this phase, stated plainly:** the risk engine is
+ported as a **veto gate only**. `DEFAULT_TRADING_STATE` is frozen with the kill switch engaged and
+`tradingMode: ANALYSIS_ONLY`, no ported code path releases it, and `/api/v1/system/features` reports `risk`
+as **`partial`** rather than `ported` for exactly that reason. `risk.decision.approved` is unreachable from
+any HTTP route on this platform; it is covered only by unit tests that pass `killSwitchActive: false`, which
+pin exact sizing (100 / 0.003 / 33 333 units). No agent can route an order, because no order path exists.
+
+Measured here: **235** app tests (**+95** new, porting **36 of the 38** legacy cases across
+`01-indicators`, `03-agents`, `04-risk-engine`, `34-agent-debate` and `08-engine-journal` — the two not
+ported are the backtester and journal-analytics cases, which belong to unported modules), **30/30** install
+checks, **367** legacy PHP/WASM oracle tests, **12** Scout contract tests, **29** football-prediction tests
+and a clean `npm run typecheck` — **643 passed, 0 failed** — plus a live rehearsal of all five endpoints on
+the file adapter, their 401/400/403 boundaries, the consensus scan, history ordering, run retrieval by id
+and the audit trail. The suite is hermetic: **235/235 with and without** a whole-suite egress interceptor,
+so no test can reach the network (the CI trap that produced Phase 4's D-6 was designed out from the start).
+Six defects were found and closed while porting, including a JS operator-precedence bug in the open-risk
+reduction, body schemas written in the query dialect (which made the run route answer `400` *before*
+authentication), the engine's injectable clock not reaching the feed agents' freshness check, a hard store
+requirement that broke the documented store-less boot, and a position-based audit assertion that was a
+latent flake in the test itself — all recorded as **D-7 … D-12** in `PHASE5_ANALYSIS.md` §6. **Not**
+measured: live upstream data (no egress), a licensed sentiment or fundamentals feed, a value-for-value
+PHP↔Node numeric diff (F-26), a real MySQL server (F-15, re-widened), the approve path over HTTP, any
+portfolio state, any analysis UI, MT5 `pytest`, or any cutover. `application/` and `system/` are unchanged.

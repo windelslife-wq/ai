@@ -278,3 +278,89 @@ set; `symbol=BTCUSDT&timeframe=1h&limit=40` answered **200** with 40 candles, `v
 snapshot whose providers were all `UNKNOWN` because the public route never probes; and two
 `marketData.provider.fallback` audit rows were written with `legacyAction:"PROVIDER_FALLBACK"`. The full
 log is in [`PHASE4_MARKET_DATA.md`](PHASE4_MARKET_DATA.md) §4.3.
+
+## Re-measured 2026-10-09 — Phase 5 (analysis engines, agents, consensus, risk veto gate), branch `arena/774d9e70-ai`, Node v22.22.3
+
+| Suite | Exact command | Result |
+|---|---|---|
+| Node platform — analysis (indicators, regimes, seven agents, debate, consensus, risk veto, engine, endpoints, persistence), market data, public site, identity, HTTP core, uploads, RBAC, backups | `cd apps/workforce-platform && npm run verify:install` then `npm test` | **30/30 installation checks**, then **235 passed, 0 failed** (15 test files, ~36 s) |
+| Icon reproducibility | `cd apps/workforce-platform && npm run check:icons` | **4/4 verified** (unchanged this phase) |
+| AEGIS PHP/WASM (the parity oracle) | `node runtime/run-tests.mjs` (repo root) | **367 passed, 0 failed**, 19.3 s — including the 38 cases in `01-indicators`, `03-agents`, `04-risk-engine`, `08-engine-journal` and `34-agent-debate`, of which the Node suite ports **36** (the two it does not are the backtester and journal-analytics cases, which belong to unported modules) |
+| Scout + shared contract tests | `npm run test:contracts` | **12 passed, 0 failed** |
+| Football Predictions | `cd apps/football-predictions && npm test` | **29 passed, 0 failed** |
+| TypeScript typecheck | `npm run typecheck` (`tsc -p tsconfig.json --noEmit`) | **exit 0, no diagnostics** |
+| Client (React/Vite) production build | `npm run build:workforce-client` | **exit 0**, built in 240 ms — **unchanged output, same hashes as Phases 3–4** (`index-Ci3bygYZ.js` 265 278 bytes, `index-B-xBd6Ec.css` 18 123 bytes); no client source changed in this phase, and `public/app/` is gitignored |
+| Hermeticity | `node --test --import /tmp/egress-shim.mjs test/*.test.js` | **235 passed, 0 failed** — identical to the unshimmed run, so no test in the suite makes an outbound call |
+
+**Total executed in this sandbox for this phase: 643 passed, 0 failed** (235 app + 367 oracle + 12
+contracts + 29 football).
+
+How the counts moved, and why:
+
+- **140 → 235 app tests** is **+95** across two new files:
+  - `test/analysis.test.js` (**71**) — the pure layer: the eleven legacy `01-indicators` cases, the eight
+    legacy `03-agents` cases, the seven legacy `34-agent-debate` cases, the eight legacy `04-risk-engine`
+    cases (the legacy fixtures transferred unchanged because the Node candle key is `timestamp`, the same
+    key `fx_candles()` produced), plus indicator warm-up/Wilder/true-range/stochastic-masking edges,
+    PHP-compatible rounding and both number formats, agent applicability by market class, the
+    `dataQuality` ladder, the ±0.15 vote threshold, a **licensed sentiment feed voting** and every
+    validator rejection, fundamentals abstention, abstainer exclusion, quality weighting, **all seven
+    regime labels from deterministic single-branch fixtures**, setup nulls and complete self-consistent
+    proposals, scenarios, debate monotonicity and the minor-objection cap, and the frozen risk-limit table.
+  - `test/analysis_http.test.js` (**24**) — the two legacy `08-engine-journal` engine cases against the
+    durable file adapter, plus stale-data downgrade, the live-data path where the kill switch is the only
+    remaining veto, an agent that throws, an injected sentiment feed, a provider outage, which reference
+    legs are fetched per market class, persistence and audit attribution, the CSRF and 401 surfaces, the
+    validation matrix, history ordering and bounds, 404 vs 400, static-route precedence, consensus bounds,
+    the 503 + `Retry-After` contract, upsert-not-duplicate, the status surface and the route inventory.
+- **Installation checks stay at 30/30 and `.env.example` stays at 53 variables** — this phase adds **no
+  configuration**. Agent weights, the vote threshold, the candle limit and the risk limits are code
+  constants on purpose: they are safety parameters, and making them environment variables would let a host
+  silently weaken a veto.
+- **33 → 38 API routes** (`POST /api/v1/analysis/run`, `GET /api/v1/analysis/history`,
+  `GET /api/v1/analysis/agents`, `POST /api/v1/analysis/consensus`, `GET /api/v1/analysis/:runId`);
+  document routes stay at 22; the repository contract grows **32 → 35** methods and the migration set
+  **001–004 → 001–005** (`wf_analysis_runs`).
+- **Modules reported `ported` by `/api/v1/system/features`: 2 → 3** (`identity`, `marketData`,
+  `analysis`); `partial` 2 → 3 (`publicSite`, `audit`, **`risk`** — only the veto gate is ported);
+  `not-ported` 11 → 9.
+
+One flake found and removed rather than re-run until green: an engine-level test asserted the newest audit
+row **by position** while its own harness settled provider calls to zero, so two runs could share a
+millisecond and the store's stable sort would return the older row. Rows are now located by run id, and the
+history test additionally asserts descending `completedAt`. Recorded as defect **D-11** in
+[`PHASE5_ANALYSIS.md`](PHASE5_ANALYSIS.md) §6. Five consecutive full-suite runs and two runs under CPU
+contention (two suites at once on 2 cores) passed with zero failures.
+
+Not executed here, and therefore not claimed:
+
+- **Any live upstream data.** No egress, so every analysis in this phase ran on the synthetic provider or
+  on an injected test double, and says so in `provenance`. The engine's live path (`synthetic:false`,
+  `stale:false`) is covered only by a double that relabels deterministic candles: the arithmetic is proven,
+  the vendor payload shapes are not (F-25 unchanged).
+- **A value-for-value PHP↔Node numeric diff (F-26, unchanged and still a cutover prerequisite).** The 36
+  ported legacy cases were re-derived by hand and pinned as goldens, but `Indicators.php`, `MathUtils.php`,
+  `Analysis.php` and the agent set have not been diffed against PHP output.
+- **Real MySQL.** Migration `005` and `analysis-repository.js` are verified by the readiness probe, the
+  contract check and SQL-text assertions, not by executing against a server (F-15, narrowed).
+- **The risk engine's approve path over HTTP.** It is unit-tested by passing `killSwitchActive:false`, and
+  those tests pin exact sizing — but it is unreachable from any route on this platform, because the kill
+  switch is engaged at boot and no ported code path releases it. No test claims otherwise.
+- **Any portfolio state.** Equity, peak equity, open positions and open risk are platform defaults, so the
+  drawdown, daily/weekly-loss, exposure and correlation gates are exercised only by unit tests that supply
+  a context; on the HTTP surface they are vacuous and `riskContext.note` says so in every run.
+- **MT5-bridge `pytest` (9 tests)** — unchanged, unrelated to analysis; last recorded result 9 passed.
+- **Anything needing a cPanel/Passenger host, a real browser, outbound SMTP, provider credentials, a
+  licensed sentiment/fundamentals vendor or a native SDK.**
+
+Operational rehearsal alongside the tests (file adapter, `MARKET_DATA_REAL_PROVIDERS=0`, server on
+`0.0.0.0:3000`): `POST /api/v1/analysis/run` for BTCUSDT 1h answered **200** with `NEUTRAL` at 0.27 →
+`HOLD`, regime `UNKNOWN`, 5 agents, 9 signals, 3 scenarios, a 4-round debate with no sustained objections,
+`provenance.synthetic:true`; EURUSD 1h answered **200** with 6 agents (forex applies to a major pair),
+`macro.available:false`, synthetic currency strength carrying its own warning, session `Asia`, and a
+`BOS SELL` **confirmed by a close** where the crypto run's wick break was not; a 7-symbol
+`POST /api/v1/analysis/consensus` scan completed and every run was readable back by id (27 payload keys),
+with `analysis.run.completed`, `analysis.signal.proposed` and `risk.decision.rejected` audit rows — the
+kill-switch veto firing exactly as designed. Anonymous calls to all five routes answered **401**, and a
+cookie session posting without its CSRF token answered **403 `CSRF_INVALID`**. The full log is in
+[`PHASE5_ANALYSIS.md`](PHASE5_ANALYSIS.md) §4.3.
