@@ -8,7 +8,7 @@ data, enables live trading or deletes legacy code (master plan §11, §13).
 |---|---|
 | App version | `@windels/workforce-platform` **0.5.0 → 0.6.0 → 0.6.1** (the patch release is the hardening pass, §13) |
 | New source | **3 369 lines** — `src/modules/analysis/**` (1 854) + `src/modules/analysis/agents/**` (1 331) + `src/db/analysis-repository.js`, `src/db/migrations/005_analysis_runs.sql`, `src/modules/market-data/errors.js` (184) |
-| Hardening pass | **+1 654 lines across 21 files** — 926 insertions / 83 deletions in tracked files, plus two new ones: `tools/prune-analysis-runs.mjs` (198) and `test/retention.test.js` (530) |
+| Hardening pass | **+2 056 / −139 across 27 files** (git-measured `355a495..c5d252f`) — code 18 files +1 502 / −37, docs 9 files +554 / −102; two of them new: `tools/prune-analysis-runs.mjs` (198) and `test/retention.test.js` (530) |
 | New tests | **2 930 lines, 115 tests** — `test/analysis.test.js` (75, pure layer) + `test/analysis_http.test.js` (26, engine/HTTP/persistence/status) + `test/retention.test.js` (14, R-27 on both adapters and the CLI); 95 tests / 2 178 lines before the hardening pass, which added 20 more plus 1 in `config.test.js` and 1 in `backup.test.js` |
 | App suite | **257 tests / 16 files, 257 passed, 0 failed** (~33 s); 235/15 before hardening |
 | Installation checks | `npm run verify:install` **30/30** — **59 documented env vars** (53 + 5 for R-26 + 1 for R-27) |
@@ -527,9 +527,22 @@ payload column grows forever). The instruction was to close all three **before**
 and to fix F-27 in Node while leaving the legacy PHP alone until cutover. This section is that work; it
 adds no route, no module and no dependency.
 
-**+1 654 lines across 21 files** (926 insertions / 83 deletions tracked, plus `tools/prune-analysis-runs.mjs`
-at 198 lines and `test/retention.test.js` at 530). App suite **235 → 257**; workspace `node:test` total
-**643 → 665**; legacy oracle **unchanged at 367**, which is the point — nothing here touches PHP.
+**+2 056 lines across 27 files** (git-measured `355a495..c5d252f`: 2 056 insertions, 139 deletions —
+**code** 18 files +1 502 / −37, **docs** 9 files +554 / −102; the two new files are
+`tools/prune-analysis-runs.mjs` at 198 lines and `test/retention.test.js` at 530). App suite **235 → 257**;
+workspace `node:test` total **643 → 665**; legacy oracle **unchanged at 367**, which is the point — nothing
+here touches PHP.
+
+Every commit was verified green **on its own tree state**, in a separate `git worktree` with the full
+suite, not only the final one — so the branch stays bisectable:
+
+| Commit | Scope | Suite at that commit |
+|---|---|---|
+| `54a33df` | F-27 — the equity veto, and the pinning test inverted | **235/235** |
+| `805ae1a` | R-26 — route limits, the run gate, 5 config vars | **242/242** |
+| `7fd8ee5` | R-27 — retention, both adapters, the CLI, 14 tests | **256/256** |
+| `2602e57` | F-28 — backup counts derived from the migrations | **257/257** |
+| `c5d252f` | Docs across eight ledgers, release 0.6.1 | **257/257** |
 
 ### 13.1 F-27 → divergence DV-10
 

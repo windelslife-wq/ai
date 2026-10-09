@@ -239,7 +239,9 @@ state, an analysis user interface, or any cutover.
 ### Phase 5 hardening pass (0.6.0 → 0.6.1) — F-27, R-26 and R-27 closed
 
 Phase 5 opened three findings about itself, and the instruction was to close all three **before** porting
-another module. It added no route, no module and no dependency: **+1 654 lines across 21 files**.
+another module. It added no route, no module and no dependency: **+2 056 / −139 lines across 27 files**
+(git-measured; code 18 files, docs 9). Every one of its five commits was verified green on its own tree
+state in a separate worktree — **235 → 242 → 256 → 257 → 257** — so the branch stays bisectable.
 
 * **F-27 closed in Node, recorded as divergence DV-10.** The legacy risk engine approves a proposal when
   equity is `0`, because every portfolio gate sits behind `equity > 0` and the notional and leverage checks
