@@ -33,6 +33,8 @@ import { marketDataRoutes } from "./modules/market-data/routes.js";
 import { createMarketDataService } from "./modules/market-data/service.js";
 import { analysisRoutes } from "./modules/analysis/routes.js";
 import { createAnalysisService } from "./modules/analysis/service.js";
+import { strategyRoutes } from "./modules/strategies/routes.js";
+import { createStrategiesService } from "./modules/strategies/service.js";
 
 const JSON_TYPE = "application/json; charset=utf-8";
 
@@ -145,6 +147,22 @@ export async function buildApp({ config, store, logger = true, publicDir = path.
   // The same tracker backs the platform-wide per-address ceiling; the analysis
   // module keys its slots `analysis:session:<id>` so the two never collide (R-26).
   await app.register(analysisRoutes, { prefix: "/api/v1", store, config, service: analysis, concurrency });
+  // One Strategy Lab service per app, on that same market-data service: a backtest
+  // reads provider provenance to label its own evidence synthetic-or-not, so it
+  // must see the same caches, breakers and provenance stamps the API sees.
+  const strategies = createStrategiesService({ store, marketData, log: app.log });
+  // Seeding the four builtins is idempotent and runs on every boot, as the legacy
+  // Platform did. A failure is logged rather than fatal: the platform must still
+  // serve documents and every other API on a host whose migration 006 has not been
+  // applied yet, and refusing to boot would turn a missing table into an outage.
+  try {
+    await strategies.seed();
+  } catch (error) {
+    app.log?.warn?.({ err: error }, "strategy builtin seeding failed");
+  }
+  // The same tracker backs the platform-wide ceiling; this module keys its slots
+  // `strategies:session:<id>` so they never collide with `analysis:` ones (R-26).
+  await app.register(strategyRoutes, { prefix: "/api/v1", store, config, service: strategies, marketData, concurrency });
   const siteDocuments = createSiteDocuments({ config, store, log: app.log, rateLimiter, publicDir });
   for (const extra of config.modules || []) await app.register(extra, { prefix: "/api/v1", store, config, loginGuard });
 

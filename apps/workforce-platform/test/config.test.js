@@ -120,3 +120,42 @@ test("R-26: analysis carries its own work limits, tighter for a scan than for a 
   assert.throws(() => loadConfig(validEnv({ ANALYSIS_MAX_CONCURRENT_RUNS: "-1" })), /ANALYSIS_MAX_CONCURRENT_RUNS/);
   assert.throws(() => loadConfig(validEnv({ RATE_LIMIT_ANALYSIS_CONSENSUS_WINDOW_MS: "10" })), /RATE_LIMIT_ANALYSIS_CONSENSUS_WINDOW_MS/);
 });
+
+test("R-26: the Strategy Lab carries its own work limits, tightest for an optimization", () => {
+  const config = loadConfig(validEnv());
+  const { rateLimit } = config;
+
+  // Pinned here rather than in the HTTP suite, which lifts these limits so they
+  // cannot throttle an unrelated test.
+  assert.deepEqual(rateLimit.strategyBacktest, { max: 12, windowMs: 600_000 });
+  assert.deepEqual(rateLimit.strategyOptimize, { max: 2, windowMs: 600_000 });
+  assert.equal(rateLimit.strategyMaxConcurrentRuns, 1);
+
+  // An optimization re-runs the backtester once per grid combination and once per
+  // walk-forward segment — 24 x 2 plus the baseline for trend-following, so ~50
+  // simulations against one backtest's one. It must therefore be the tighter
+  // window, and the in-flight cap lower than the analysis module's.
+  assert.ok(rateLimit.strategyOptimize.max < rateLimit.strategyBacktest.max);
+  assert.equal(rateLimit.strategyBacktest.windowMs, rateLimit.strategyOptimize.windowMs);
+  assert.ok(rateLimit.strategyMaxConcurrentRuns <= rateLimit.analysisMaxConcurrentRuns);
+
+  const worstCaseSimulations = rateLimit.strategyBacktest.max * 1 + rateLimit.strategyOptimize.max * 50;
+  assert.equal(worstCaseSimulations, 112);
+
+  // Operator-tunable, and 0 disables the cap exactly as MAX_REQUESTS_PER_CLIENT
+  // does — "off", never "refuse everything".
+  const tuned = loadConfig(validEnv({
+    RATE_LIMIT_STRATEGY_BACKTEST_MAX: "30",
+    RATE_LIMIT_STRATEGY_BACKTEST_WINDOW_MS: "60000",
+    RATE_LIMIT_STRATEGY_OPTIMIZE_MAX: "6",
+    RATE_LIMIT_STRATEGY_OPTIMIZE_WINDOW_MS: "120000",
+    STRATEGY_MAX_CONCURRENT_RUNS: "0",
+  }));
+  assert.deepEqual(tuned.rateLimit.strategyBacktest, { max: 30, windowMs: 60_000 });
+  assert.deepEqual(tuned.rateLimit.strategyOptimize, { max: 6, windowMs: 120_000 });
+  assert.equal(tuned.rateLimit.strategyMaxConcurrentRuns, 0);
+
+  assert.throws(() => loadConfig(validEnv({ RATE_LIMIT_STRATEGY_BACKTEST_MAX: "0" })), /RATE_LIMIT_STRATEGY_BACKTEST_MAX/);
+  assert.throws(() => loadConfig(validEnv({ STRATEGY_MAX_CONCURRENT_RUNS: "-1" })), /STRATEGY_MAX_CONCURRENT_RUNS/);
+  assert.throws(() => loadConfig(validEnv({ RATE_LIMIT_STRATEGY_OPTIMIZE_WINDOW_MS: "10" })), /RATE_LIMIT_STRATEGY_OPTIMIZE_WINDOW_MS/);
+});

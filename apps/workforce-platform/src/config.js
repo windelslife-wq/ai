@@ -160,6 +160,30 @@ function loadRateLimitConfig(env) {
       windowMs: integer(env.RATE_LIMIT_ANALYSIS_CONSENSUS_WINDOW_MS, "RATE_LIMIT_ANALYSIS_CONSENSUS_WINDOW_MS", { fallback: 600_000, min: 1_000, max: 24 * 3_600_000 }),
     },
     analysisMaxConcurrentRuns: integer(env.ANALYSIS_MAX_CONCURRENT_RUNS, "ANALYSIS_MAX_CONCURRENT_RUNS", { fallback: 2, min: 0, max: 100 }),
+    /**
+     * Strategy Lab cost control (risk R-26, applied to this module at birth).
+     *
+     * A backtest fetches up to 5 000 candles and simulates every bar. An
+     * optimization is roughly fifty times heavier: the optimizer re-runs the
+     * backtester once per grid combination and once per walk-forward segment, so a
+     * trend-following search is 24 combinations x 2 segments plus the baseline.
+     * That is why the optimize window is much tighter than the backtest window.
+     *
+     * The in-flight cap defaults to 1 where the analysis module's is 2, and the
+     * difference is deliberate: one analyze slot can hold ~50 simulations, so two
+     * concurrent slots would put ~100 on a host that may have two cores. One heavy
+     * job per signed-in session at a time is the honest bound, and it is
+     * configurable for a host that has more to give.
+     */
+    strategyBacktest: {
+      max: integer(env.RATE_LIMIT_STRATEGY_BACKTEST_MAX, "RATE_LIMIT_STRATEGY_BACKTEST_MAX", { fallback: 12, min: 1, max: 10_000 }),
+      windowMs: integer(env.RATE_LIMIT_STRATEGY_BACKTEST_WINDOW_MS, "RATE_LIMIT_STRATEGY_BACKTEST_WINDOW_MS", { fallback: 600_000, min: 1_000, max: 24 * 3_600_000 }),
+    },
+    strategyOptimize: {
+      max: integer(env.RATE_LIMIT_STRATEGY_OPTIMIZE_MAX, "RATE_LIMIT_STRATEGY_OPTIMIZE_MAX", { fallback: 2, min: 1, max: 10_000 }),
+      windowMs: integer(env.RATE_LIMIT_STRATEGY_OPTIMIZE_WINDOW_MS, "RATE_LIMIT_STRATEGY_OPTIMIZE_WINDOW_MS", { fallback: 600_000, min: 1_000, max: 24 * 3_600_000 }),
+    },
+    strategyMaxConcurrentRuns: integer(env.STRATEGY_MAX_CONCURRENT_RUNS, "STRATEGY_MAX_CONCURRENT_RUNS", { fallback: 1, min: 0, max: 100 }),
   });
 }
 
