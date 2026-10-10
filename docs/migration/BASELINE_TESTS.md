@@ -461,10 +461,11 @@ below was executed; nothing is inherited from an earlier row.
 | Client production build | `npm run build:workforce-client` | 20 modules; `index-BEWWTqRR.js` **265.73 kB** (gzip 79.66), `index-CuzqXBFB.css` 18.15 kB |
 | AEGIS PHP/WASM (the parity oracle) | `cd runtime && node run-tests.mjs` | **367 passed, 0 failed**, 18.2 s — unchanged, and `application/`, `system/` and `tests/` are verifiably untouched (`git diff --name-only b3c5d35..HEAD` returns no path under them) |
 | Football predictions | `cd apps/football-predictions && node --test tests/*.test.js` | **29 passed, 0 failed** |
+| Contracts (`packages/shared` + `@lead-discovery/api`) | `npm run test:contracts` | **12 passed, 0 failed** — 3 from `packages/shared/test/*.test.ts` and 9 from `apps/api/test/*.test.ts`, measured separately as well as together |
 
-**Total executed in this sandbox for this phase: 824 passed, 0 failed** (428 app + 367 oracle
-+ 29 football). Composition stated because the three are different runners and a bare total
-invites double-counting.
+**Total executed in this sandbox for this phase: 836 passed, 0 failed** (428 app + 367 oracle
++ 29 football + 12 contracts). Composition stated because these are four different runners and
+a bare total invites double-counting.
 
 New and changed files in the platform suite:
 
@@ -480,11 +481,24 @@ New and changed files in the platform suite:
 | `test/store.test.js` | 5 | Readiness now requires six ordered migrations |
 | `test/retention.test.js` | 14 | The shared contract pin moved 36 → 46 |
 
-**Not re-run here, and therefore not claimed:** `@lead-discovery/api`
-(`node --import tsx --test test/*.test.ts`) — Phase 6 touches no file it imports, but it was
-not executed and is not counted above. There is no `@windels/contracts` workspace in this
-repository; an earlier row's reference to a "contracts 12" suite does not correspond to
-anything runnable and is not repeated here.
+**A correction to this section as first committed in `c5b7a2b`.** It stated that
+`@lead-discovery/api` was "not re-run" and that an earlier row's "contracts 12" suite "does not
+correspond to anything runnable". Both claims were false, and the second one "corrected" a true
+statement into a false one — the worse direction to be wrong in.
+
+There is no *workspace* named `@windels/contracts`, which is what I checked, but the root script
+**`npm run test:contracts`** is very real and runnable: it is
+`node --import tsx --test packages/shared/test/*.test.ts apps/api/test/*.test.ts`, it is step 6
+of the CI `javascript` job, and it reports exactly the 12 cases the earlier row recorded.
+`@lead-discovery/api` is `apps/api`, so its 9 tests run as part of that script and were executed
+here. A narrow true observation (no workspace by that name) was written up as a broad false one
+(nothing runnable by that name), and the total was understated by 12 as a result. Both are
+corrected above and the total is now 836.
+
+Not re-run here, and therefore still not claimed: the MT5-bridge `pytest` suite (9 cases,
+unrelated to this phase, last recorded 9 passed — and green in CI on every run of this branch,
+including the failed one, which is worth noting because it means the CI failure below was not
+it).
 
 Still not executed here, and therefore still not claimed: **real MySQL** — now including
 migration `006`, all ten methods of `strategy-repository.js`, the two new integrity checks in
