@@ -151,23 +151,45 @@ export function WorkspaceNav({ permissions, current }) {
   );
 }
 
+/**
+ * Port status per module, stated precisely enough to act on.
+ *
+ * Three states, because two are not enough and the difference matters:
+ *
+ *  - `live`  — has a workspace screen you can use here.
+ *  - `api`   — the module's endpoints exist, are tested and are served, but there
+ *              is no console for them yet. Usable with an API client; not clickable
+ *              in this UI.
+ *  - `planned` — not ported at all.
+ *
+ * This used to be a two-state list that labelled market intelligence "Not yet
+ * ported to Node". That stopped being true when Phase 5 ported the analysis
+ * engine, and it stayed on screen through Phase 6 — an understatement that would
+ * have someone re-port a finished module. The opposite error is just as bad:
+ * calling an API-only module "ported" implies an operator can use it here, and
+ * they cannot. No module console exists yet for ANY ported module, which is
+ * recorded as finding F-29 in docs/migration/PHASE6_STRATEGIES.md rather than
+ * papered over by a vaguer label.
+ */
 export function ModuleCards() {
   const moduleCards = [
-    { number: "01", title: "Market intelligence", text: "Analysis and risk-aware research workflows.", status: "Not yet ported to Node" },
-    { number: "02", title: "Sports research", text: "Evidence, data quality and publication review.", status: "Not yet ported to Node" },
-    { number: "03", title: "Lottery tools", text: "Historical statistics and ticket utilities.", status: "Not yet ported to Node" },
-    { number: "04", title: "Language learning", text: "Lessons, practice and learner progress.", status: "Not yet ported to Node" },
-    { number: "05", title: "Lead discovery", text: "Organization-aware discovery and pipeline tools.", status: "Not yet ported to Node" },
-    { number: "06", title: "Account & access", text: "Identity, permissions and audited activity.", status: "Foundation slice" },
+    { number: "01", title: "Market intelligence", text: "Multi-agent analysis, consensus, regime detection and a risk-reviewed proposal.", status: "API ported · no console", tone: "api", foot: "PHASE 5 · /api/v1/analysis" },
+    { number: "02", title: "Strategy Lab", text: "Backtesting, walk-forward optimization, evidence-gated lifecycle and confidence calibration.", status: "API ported · no console", tone: "api", foot: "PHASE 6 · /api/v1/strategies" },
+    { number: "03", title: "Sports research", text: "Evidence, data quality and publication review.", status: "Not yet ported to Node", tone: "planned", foot: "MIGRATION BACKLOG" },
+    { number: "04", title: "Lottery tools", text: "Historical statistics and ticket utilities.", status: "Not yet ported to Node", tone: "planned", foot: "MIGRATION BACKLOG" },
+    { number: "05", title: "Language learning", text: "Lessons, practice and learner progress.", status: "Not yet ported to Node", tone: "planned", foot: "MIGRATION BACKLOG" },
+    { number: "06", title: "Lead discovery", text: "Organization-aware discovery and pipeline tools.", status: "Not yet ported to Node", tone: "planned", foot: "MIGRATION BACKLOG" },
+    { number: "07", title: "Account & access", text: "Identity, permissions and audited activity.", status: "Foundation slice", tone: "live", foot: "ACTIVE FOUNDATION" },
   ];
+  const labelClass = { live: "live-label", api: "api-label", planned: "planned-label" };
   return (
     <div className="workspace-grid">
       {moduleCards.map((module) => (
         <article className="workspace-card" key={module.number}>
-          <div className="workspace-card-top"><span>{module.number}</span><span className={module.status === "Foundation slice" ? "live-label" : "planned-label"}>{module.status}</span></div>
+          <div className="workspace-card-top"><span>{module.number}</span><span className={labelClass[module.tone]}>{module.status}</span></div>
           <h3>{module.title}</h3>
           <p>{module.text}</p>
-          <div className="workspace-card-bottom"><span>{module.status === "Foundation slice" ? "ACTIVE FOUNDATION" : "MIGRATION BACKLOG"}</span><span aria-hidden="true">↗</span></div>
+          <div className="workspace-card-bottom"><span>{module.foot}</span><span aria-hidden="true">↗</span></div>
         </article>
       ))}
     </div>

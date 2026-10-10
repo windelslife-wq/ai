@@ -92,8 +92,12 @@ button:focus-visible, input:focus-visible, a:focus-visible { outline: 2px solid 
 .workspace-card { display: flex; min-height: 190px; flex-direction: column; padding: 1rem 1.1rem .9rem; border-right: 1px solid var(--line); border-bottom: 1px solid var(--line); background: rgba(13, 29, 21, .56); }
 .workspace-card-top, .workspace-card-bottom { display: flex; align-items: center; justify-content: space-between; }
 .workspace-card-top { color: #66776b; font-size: .58rem; letter-spacing: .11em; }
-.live-label, .planned-label { font-size: .52rem; letter-spacing: .04em; }
+.live-label, .planned-label, .api-label { font-size: .52rem; letter-spacing: .04em; }
 .live-label { color: #a9d48e; }
+/* Served and tested, but no console yet. Deliberately not the green used for
+   `live`: a module you can only reach with an API client must not read as one you
+   can use on this screen. */
+.api-label { color: #8fb8d4; }
 .planned-label { color: #b0a17a; }
 .workspace-card h3 { margin: 1.2rem 0 .4rem; color: #e1e9df; font-size: .92rem; font-weight: 600; }
 .workspace-card p { margin: 0 0 1rem; color: #839489; font-size: .68rem; line-height: 1.6; }
