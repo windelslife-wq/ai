@@ -51,13 +51,20 @@ import {
 import { builtinStrategyFactory, createVersionedStrategy } from "./builtin.js";
 import {
   DEFAULT_OPTIMIZE_SYMBOL,
+  JOURNAL_LIMIT_DEFAULT,
+  JOURNAL_LIMIT_MAX,
   OPTIMIZE_CANDLE_DEFAULT,
   OPTIMIZE_CANDLE_MAX,
   OPTIMIZE_CANDLE_MIN,
   messages,
 } from "./contracts.js";
+import { roundTo } from "../analysis/math.js";
+import { analyze, calibration } from "./journal-analytics.js";
 import { optimize } from "./optimizer.js";
 import { createStrategyRegistry, newStrategyRecord, nextStage } from "./registry.js";
+
+/** Legacy `Api_journal::summary` analysed a fixed 500 rows. */
+const JOURNAL_SUMMARY_LIMIT = 500;
 
 export function createStrategiesService({
   store = null,
@@ -342,6 +349,142 @@ export function createStrategiesService({
     return stored;
   }
 
+  // ---- journal and model/decision analytics --------------------------------
+
+  /**
+   * Journal rows, newest execution first.
+   *
+   * The symbol filter is upper-cased here rather than in the schema because
+   * `src/http/validate.js` supports `lowercase` and has no `uppercase` keyword;
+   * symbols are stored upper-cased, so a lower-case filter would silently match
+   * nothing. Legacy did the same `strtoupper` in `Api_journal::index`.
+   */
+  async function journal({ source = "", strategy = "", symbol = "", limit = JOURNAL_LIMIT_DEFAULT } = {}) {
+    requireStore();
+    const bounded = Math.min(Math.max(Number.parseInt(limit, 10) || JOURNAL_LIMIT_DEFAULT, 1), JOURNAL_LIMIT_MAX);
+    const entries = await store.listJournalEntries({
+      source: source || null,
+      strategy: strategy || null,
+      symbol: symbol ? String(symbol).trim().toUpperCase() : null,
+      limit: bounded,
+    });
+    return { entries };
+  }
+
+  /**
+   * Record a trade by hand.
+   *
+   * A manual entry is the only journal row a human writes, so it is the one place
+   * where the platform stores an opinion it did not compute. Everything derived is
+   * derived here rather than trusted from the caller: `pnl` from direction, prices
+   * and size; `pnl_pct` over notional; `r_multiple` only when a stop makes it
+   * meaningful (a zero or absent stop distance has no R to divide by, so the field
+   * stays null rather than becoming Infinity or a fabricated 0).
+   *
+   * `entry_time` is normalised to canonical ISO-8601 UTC. Legacy stored the raw
+   * submitted string, which is the root of divergence DV-5: `analyze` orders by
+   * `execution_time` as text, so a stored `+01:00` offset sorts after every `Z`
+   * string for the same instant and changes the reported drawdown. Normalising on
+   * write means every row THIS platform creates sorts chronologically; rows
+   * imported from legacy may still not, which is why DV-5 stays open.
+   */
+  async function recordManualEntry(body, { actorId = null } = {}) {
+    requireStore();
+
+    const entryMs = Date.parse(body.entryTime);
+    if (!Number.isFinite(entryMs)) throw AppError.badRequest(messages.INVALID_ENTRY_TIME, { code: "INVALID_ENTRY_TIME" });
+    let exitMs = null;
+    if (body.exitTime !== null && body.exitTime !== undefined && body.exitTime !== "") {
+      exitMs = Date.parse(body.exitTime);
+      if (!Number.isFinite(exitMs)) throw AppError.badRequest("invalid exitTime (ISO 8601 expected)", { code: "INVALID_EXIT_TIME" });
+      if (exitMs < entryMs) throw AppError.badRequest(messages.EXIT_BEFORE_ENTRY, { code: "EXIT_BEFORE_ENTRY" });
+    }
+
+    const entryPrice = Number(body.entryPrice);
+    const size = Number(body.positionSize);
+    if (!Number.isFinite(entryPrice) || entryPrice <= 0 || !Number.isFinite(size) || size <= 0) {
+      throw AppError.badRequest(messages.NON_POSITIVE_PRICE_OR_SIZE, { code: "INVALID_PRICE_OR_SIZE" });
+    }
+    const exitPrice = body.exitPrice === null || body.exitPrice === undefined ? null : Number(body.exitPrice);
+    const fees = Number(body.fees ?? 0);
+    const stopLoss = body.stopLoss === null || body.stopLoss === undefined ? null : Number(body.stopLoss);
+    const direction = body.direction;
+
+    const pnl = exitPrice === null
+      ? null
+      : (direction === "LONG" ? exitPrice - entryPrice : entryPrice - exitPrice) * size - fees;
+    const stopDistance = stopLoss === null ? 0 : Math.abs(entryPrice - stopLoss);
+    const rMultiple = pnl !== null && stopLoss !== null && stopDistance > 0 ? pnl / (stopDistance * size) : null;
+
+    const confidence = body.aiConfidence === null || body.aiConfidence === undefined ? null : Number(body.aiConfidence);
+    const entryTime = new Date(entryMs).toISOString();
+    const entry = {
+      id: randomUUID(),
+      source: "manual",
+      symbol: String(body.symbol).trim().toUpperCase(),
+      market: body.market ?? "forex",
+      strategy: body.strategy ?? null,
+      strategy_version: body.strategyVersion ?? null,
+      direction,
+      entry_time: entryTime,
+      entry_price: entryPrice,
+      exit_time: exitMs === null ? null : new Date(exitMs).toISOString(),
+      exit_price: exitPrice,
+      position_size: size,
+      stop_loss: stopLoss,
+      take_profit: body.takeProfit === null || body.takeProfit === undefined ? null : Number(body.takeProfit),
+      fees,
+      slippage: Number(body.slippage ?? 0),
+      pnl: pnl === null ? null : roundTo(pnl, 6),
+      pnl_pct: pnl === null ? null : roundTo((pnl / (size * entryPrice)) * 100, 6),
+      r_multiple: rMultiple === null ? null : roundTo(rMultiple, 4),
+      reason: String(body.reasonForTrade),
+      ai_confidence: confidence,
+      // Legacy only records a source when a confidence was supplied: an untagged
+      // trade must not claim a provenance it does not have.
+      confidence_source: confidence === null ? null : (body.confidenceSource ?? "manual"),
+      agent_consensus: body.agentConsensus ?? null,
+      risk_score: body.riskScore === null || body.riskScore === undefined ? null : Number(body.riskScore),
+      execution_time: entryTime,
+      backtest_id: null,
+      paper_position_id: null,
+    };
+
+    await store.saveJournalEntry(entry);
+    await audit({
+      action: "journal.entry-recorded",
+      entityType: "journal",
+      entityId: entry.id,
+      details: { symbol: entry.symbol, direction, pnl: entry.pnl, hasExit: exitPrice !== null },
+    }, actorId);
+    return entry;
+  }
+
+  /**
+   * Grouped journal analytics.
+   *
+   * Reads a fixed 500 rows, as the legacy `Api_journal::summary` did. That bound is
+   * a real limitation and is documented as one: with more than 500 journal entries
+   * the grouping describes the most recent 500, not the whole book.
+   */
+  async function summary({ groupBy = "strategy" } = {}) {
+    requireStore();
+    const entries = await store.listJournalEntries({ limit: JOURNAL_SUMMARY_LIMIT });
+    return analyze(entries, groupBy);
+  }
+
+  /**
+   * Confidence calibration over up to 2000 rows (the legacy bound).
+   *
+   * This is the endpoint that answers whether the platform's confidence means
+   * anything, so it gets the widest sample of the three read paths.
+   */
+  async function confidenceCalibration() {
+    requireStore();
+    const entries = await store.listJournalEntries({ limit: JOURNAL_LIMIT_MAX });
+    return calibration(entries);
+  }
+
   // ---- optimization --------------------------------------------------------
 
   /**
@@ -527,6 +670,10 @@ export function createStrategiesService({
     runBacktest,
     optimizeStrategy,
     nextVariantVersion,
+    journal,
+    recordManualEntry,
+    summary,
+    confidenceCalibration,
     toHttpError,
     registry: strategies(),
   };

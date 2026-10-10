@@ -23,6 +23,12 @@
  *    $strategyId`), which let two callers disagree about which strategy was
  *    optimized. One source of truth is the path.
  *
+ * The journal and its analytics are served from here too, because they are one
+ * bounded context: backtests WRITE journal rows and the analytics READ them. That
+ * is the "model/decision analytics and calibration" half of row 8 in
+ * `docs/migration/UNFINISHED_MODULES.md`, ported from
+ * `application/libraries/Aegis/Journal/Analytics.php` and `Api_journal.php`.
+ *
  * Static paths are registered before parameterised ones — the router matches in
  * registration order, so `/backtesting/results` must win over
  * `/backtesting/results/:backtestId`.
@@ -41,11 +47,14 @@ import { createAuthenticator, requireCsrf } from "../platform/guards.js";
 import {
   BACKTEST_BODY,
   BACKTEST_PARAMS,
+  JOURNAL_QUERY,
+  MANUAL_JOURNAL_BODY,
   OPTIMIZE_BODY,
   RESULTS_QUERY,
   SHOW_QUERY,
   STATUS_BODY,
   STRATEGY_PARAMS,
+  SUMMARY_QUERY,
   messages,
 } from "./contracts.js";
 import { createStrategiesService } from "./service.js";
@@ -240,4 +249,47 @@ export function strategyRoutes(app, { store, config, service = null, marketData 
     if (!record) throw AppError.notFound(messages.BACKTEST_NOT_FOUND, { code: "BACKTEST_NOT_FOUND" });
     return record;
   });
+
+  // ---- journal and model/decision analytics -------------------------------
+  //
+  // Legacy served these at `api/journal`, `api/journal/manual`,
+  // `api/analytics/summary` and `api/analytics/confidence-calibration`. The two
+  // analytics paths are grouped under `/journal/` here, for two reasons. The
+  // practical one: `api/v1/analytics/*` would sit two letters away from Phase 5's
+  // `api/v1/analysis/*`, and an operator reaching for the wrong one is a real
+  // hazard rather than a theoretical one. The structural one: these endpoints read
+  // the journal, which is this module's table, so the module lives behind one
+  // prefix — the same call the analysis module made when it moved `api/agents`
+  // under `/analysis/`. No alias is added, because nothing consumes these paths
+  // yet and an alias would imply a compatibility promise nobody asked for.
+  // Recorded as a divergence in docs/migration/PHASE6_STRATEGIES.md.
+  //
+  // None of these carries its own window limit: they are a bounded read plus an
+  // O(n) in-memory grouping over at most 2 000 rows, which is nothing beside one
+  // backtest, so the global API limiter is the right bound and a second one would
+  // only be noise.
+
+  app.get("/journal", {
+    preHandler: [authenticate],
+    querySchema: JOURNAL_QUERY,
+  }, async (request) => strategies.journal(request.query));
+
+  /**
+   * Record a trade by hand. 201, as the legacy handler answered, because it
+   * creates a row and returns it.
+   */
+  app.post("/journal/manual", {
+    preHandler: [authenticate, csrf],
+    bodySchema: MANUAL_JOURNAL_BODY,
+  }, async (request, reply) =>
+    reply.code(201).send(await strategies.recordManualEntry(request.body, { actorId: actorOf(request) })));
+
+  app.get("/journal/analytics/summary", {
+    preHandler: [authenticate],
+    querySchema: SUMMARY_QUERY,
+  }, async (request) => strategies.summary(request.query));
+
+  app.get("/journal/analytics/calibration", {
+    preHandler: [authenticate],
+  }, async () => strategies.confidenceCalibration());
 }

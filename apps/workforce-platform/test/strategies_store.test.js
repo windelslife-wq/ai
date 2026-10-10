@@ -619,7 +619,9 @@ test("mysql binds filter values rather than interpolating them", async () => {
   assert.equal(/OR '1'='1/.test(pool.calls[2].sql), false, "the literal must not appear in the statement");
 
   await repo.listJournalEntries({ limit: 100000 });
-  assert.match(pool.calls[3].sql, /LIMIT 1000$/, "journal listings cap higher than backtest listings");
+  // 2000, not 1000: the legacy calibration query reads list([], 2000), and a lower
+  // ceiling would truncate the sample a calibration verdict is computed from.
+  assert.match(pool.calls[3].sql, /LIMIT 2000$/, "journal listings cap higher than backtest listings");
 });
 
 test("mysql returns counts as numbers and the latest backtest decoded", async () => {

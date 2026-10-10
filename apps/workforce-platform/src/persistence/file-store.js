@@ -829,7 +829,9 @@ export async function createFileStore({ dir, logger = console, idFactory = () =>
     },
 
     async listJournalEntries({ source = null, strategy = null, symbol = null, limit = 200 } = {}) {
-      const bounded = Math.min(Math.max(Number.parseInt(limit, 10) || 200, 1), 1_000);
+      // 2000 matches the MySQL adapter and the legacy calibration query; see the
+      // note in `strategy-repository.js`.
+      const bounded = Math.min(Math.max(Number.parseInt(limit, 10) || 200, 1), 2_000);
       return [...tables.get("journalEntries").values()]
         .filter((row) => {
           if (source && row.source !== String(source)) return false;

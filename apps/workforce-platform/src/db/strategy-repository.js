@@ -385,7 +385,11 @@ export function createStrategyRepository(pool) {
      * query.
      */
     async listJournalEntries({ source = null, strategy = null, symbol = null, limit = 200 } = {}) {
-      const bounded = boundedLimit(limit, 200, 1_000);
+      // The ceiling is 2000 because that is what the legacy calibration query asks
+      // for (`Api_journal::calibration` reads `list([], 2000)`). A lower ceiling
+      // would silently truncate the sample and could flip a calibration verdict,
+      // which needs 30+ confidence-tagged closed trades to say anything at all.
+      const bounded = boundedLimit(limit, 200, 2_000);
       const clauses = [];
       const params = [];
       if (source) {

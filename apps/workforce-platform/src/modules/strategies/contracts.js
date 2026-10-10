@@ -41,6 +41,7 @@ import {
   BACKTEST_LIMIT_MIN,
 } from "./backtester.js";
 import { LIFECYCLE_STAGES } from "./registry.js";
+import { GROUP_KEYS } from "./journal-analytics.js";
 
 /** The four timeframes a strategy backtest may use (legacy `run_backtest`). */
 export const STRATEGY_TIMEFRAMES = Object.freeze(["15m", "1h", "4h", "1d"]);
@@ -179,6 +180,77 @@ export const RESULTS_QUERY = Object.freeze({
   limit: { type: "integer", min: 1, max: 100, default: 30 },
 });
 
+// ---- journal and model/decision analytics ---------------------------------
+//
+// Legacy `Api_journal`: `api/journal`, `api/journal/manual`,
+// `api/analytics/summary`, `api/analytics/confidence-calibration`. The journal is
+// part of this module rather than a separate one because it is one bounded
+// context: backtests WRITE journal rows and analytics READ them, and both already
+// live in this module's repository.
+
+/** Ceiling for a journal listing, matching the legacy calibration query. */
+export const JOURNAL_LIMIT_MAX = 2_000;
+
+/** Legacy `Api_journal::index` read a fixed 200 rows. */
+export const JOURNAL_LIMIT_DEFAULT = 200;
+
+/**
+ * A manually recorded trade.
+ *
+ * Three deliberate divergences from the legacy handler, each recorded in
+ * `docs/migration/PHASE6_STRATEGIES.md`:
+ *
+ *  - `reasonForTrade` over 500 characters is REJECTED rather than silently
+ *    truncated. Legacy applied `mb_substr(..., 0, 500)`, which loses the end of
+ *    someone's rationale without telling them — and the rationale is the field a
+ *    reviewer reads to judge whether the trade had a thesis.
+ *  - `aiConfidence` is bounded to 0..1. Legacy accepted any number, but the
+ *    calibration buckets span [0, 1.0001), so a confidence of 5 would be written
+ *    and then silently excluded from every bucket — the calibration report would
+ *    quietly omit trades it was supposed to measure.
+ *  - `entryTime` and `exitTime` are validated as parseable instants, and
+ *    `exitTime` may not precede `entryTime`. Legacy checked both too, but after
+ *    the `empty()` scan, so the order of the two 400s could differ; here the shape
+ *    checks come first, consistently.
+ */
+export const MANUAL_JOURNAL_BODY = Object.freeze({
+  type: "object",
+  additionalProperties: false,
+  required: ["symbol", "direction", "entryTime", "entryPrice", "positionSize", "reasonForTrade"],
+  properties: Object.freeze({
+    symbol: Object.freeze({ type: "string", minLength: 2, maxLength: 24 }),
+    direction: Object.freeze({ type: "string", values: ["LONG", "SHORT"] }),
+    market: Object.freeze({ type: "string", nullable: true, maxLength: 12 }),
+    strategy: Object.freeze({ type: "string", nullable: true, maxLength: 60, pattern: OPTIONAL_STRATEGY_ID }),
+    strategyVersion: Object.freeze({ type: "string", nullable: true, maxLength: 20, pattern: VERSION }),
+    entryTime: Object.freeze({ type: "string", minLength: 1, maxLength: 40 }),
+    exitTime: Object.freeze({ type: "string", nullable: true, maxLength: 40 }),
+    entryPrice: Object.freeze({ type: "number" }),
+    exitPrice: Object.freeze({ type: "number", nullable: true }),
+    positionSize: Object.freeze({ type: "number" }),
+    stopLoss: Object.freeze({ type: "number", nullable: true }),
+    takeProfit: Object.freeze({ type: "number", nullable: true }),
+    fees: Object.freeze({ type: "number", nullable: true }),
+    slippage: Object.freeze({ type: "number", nullable: true }),
+    reasonForTrade: Object.freeze({ type: "string", minLength: 1, maxLength: 500 }),
+    aiConfidence: Object.freeze({ type: "number", nullable: true, min: 0, max: 1 }),
+    confidenceSource: Object.freeze({ type: "string", nullable: true, maxLength: 16 }),
+    agentConsensus: Object.freeze({ type: "string", nullable: true, maxLength: 120 }),
+    riskScore: Object.freeze({ type: "number", nullable: true }),
+  }),
+});
+
+export const JOURNAL_QUERY = Object.freeze({
+  source: { type: "string", maxLength: 10, pattern: /^$|^(backtest|manual|paper|live)$/ },
+  strategy: { type: "string", maxLength: 60, pattern: OPTIONAL_STRATEGY_ID },
+  symbol: { type: "string", maxLength: 24 },
+  limit: { type: "integer", min: 1, max: JOURNAL_LIMIT_MAX, default: JOURNAL_LIMIT_DEFAULT },
+});
+
+export const SUMMARY_QUERY = Object.freeze({
+  groupBy: { type: "string", values: [...GROUP_KEYS], default: "strategy" },
+});
+
 export const messages = Object.freeze({
   STRATEGY_NOT_FOUND: (id) => `Strategy ${id} was not found on this platform.`,
   BACKTEST_NOT_FOUND: "That backtest result does not exist on this platform.",
@@ -189,6 +261,9 @@ export const messages = Object.freeze({
     "The Strategy Lab requires a persistence adapter, and none is configured on this host",
   MARKET_DATA_UNAVAILABLE:
     "Backtesting requires the market-data service, and it is not configured on this host",
+  INVALID_ENTRY_TIME: "invalid entryTime (ISO 8601 expected)",
+  EXIT_BEFORE_ENTRY: "exitTime cannot precede entryTime",
+  NON_POSITIVE_PRICE_OR_SIZE: "prices and size must be positive",
 });
 
-export { BACKTEST_LIMIT_MIN, BACKTEST_LIMIT_MAX, LIFECYCLE_STAGES };
+export { BACKTEST_LIMIT_MIN, BACKTEST_LIMIT_MAX, LIFECYCLE_STAGES, GROUP_KEYS };
