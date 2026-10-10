@@ -444,3 +444,60 @@ of the R-26 limits (they are proven to fire and to release, not measured against
 concurrency; any throughput number here would be invented), a retention cron entry on any host, MT5-bridge
 `pytest` (9, unrelated, last recorded 9 passed), and anything needing a cPanel/Passenger host, a real
 browser, outbound SMTP, provider credentials or a native SDK.
+
+---
+
+## Re-measured 2026-10-10 — Phase 6 (Strategy Lab, backtesting, lifecycle gates, calibration), branch `arena/774d9e70-ai`, Node v22.22.3
+
+Same machine, same sandbox limits as the Phase 5 rows above: no MySQL/MariaDB server, no
+outbound egress, no cPanel/Passenger host, no real browser, no SMTP, two CPUs. Everything
+below was executed; nothing is inherited from an earlier row.
+
+| Suite | Exact command | Result |
+|---|---|---|
+| Node platform (**20** files, was 16) | `cd apps/workforce-platform && npm test` | **428 passed, 0 failed** (~45 s) — was 257, **+171** |
+| Install verification | `npm run verify:install -- --require-bundle` | **30/30 checks**, **64** documented env vars (was 59, +5) |
+| TypeScript | `node_modules/.bin/tsc --noEmit -p tsconfig.json` | clean, exit 0 |
+| Client production build | `npm run build:workforce-client` | 20 modules; `index-BEWWTqRR.js` **265.73 kB** (gzip 79.66), `index-CuzqXBFB.css` 18.15 kB |
+| AEGIS PHP/WASM (the parity oracle) | `cd runtime && node run-tests.mjs` | **367 passed, 0 failed**, 18.2 s — unchanged, and `application/`, `system/` and `tests/` are verifiably untouched (`git diff --name-only b3c5d35..HEAD` returns no path under them) |
+| Football predictions | `cd apps/football-predictions && node --test tests/*.test.js` | **29 passed, 0 failed** |
+
+**Total executed in this sandbox for this phase: 824 passed, 0 failed** (428 app + 367 oracle
++ 29 football). Composition stated because the three are different runners and a bare total
+invites double-counting.
+
+New and changed files in the platform suite:
+
+| File | Cases | Note |
+|---|---|---|
+| `test/strategies.test.js` | **86** (new) | 61 prefixed `legacy:`, ported 1:1 from `05-strategies.php`, `06-backtester.php` and `33-optimizer.php` on the same `fx_candles`/`fx_noise_range`/`opt_series`/`flat`/`bt_req` fixtures, so both editions assert the same numbers against the same inputs |
+| `test/strategies_store.test.js` | **27** (new) | Both adapters against one contract; the file side executed for real including WAL replay of the composite strategy key, the MySQL side pinned on SQL text and bound values |
+| `test/strategies_http.test.js` | **27** (new) | Route surface, session and CSRF gating, vocabulary rejections, both rate-limit windows independently, the concurrency gate, and the evidence chain that unlocks `BACKTESTED` |
+| `test/journal_analytics.test.js` | **30** (new) | Includes `08-engine-journal.php` ported 1:1 on the same forty-entry fixture |
+| `test/config.test.js` | **8** (was 7) | The shipped Strategy Lab limits and the relationship between them |
+| `test/backup.test.js` | 5 | Table list **12 → 15**; `tablesFromMigrations()` picked 006 up automatically, which is the point of the F-28 fix |
+| `test/platform_findings.test.js` | 32 | Contract **36 → 46** methods; file-store `stats()` keys **10 → 13** |
+| `test/store.test.js` | 5 | Readiness now requires six ordered migrations |
+| `test/retention.test.js` | 14 | The shared contract pin moved 36 → 46 |
+
+**Not re-run here, and therefore not claimed:** `@lead-discovery/api`
+(`node --import tsx --test test/*.test.ts`) — Phase 6 touches no file it imports, but it was
+not executed and is not counted above. There is no `@windels/contracts` workspace in this
+repository; an earlier row's reference to a "contracts 12" suite does not correspond to
+anything runnable and is not repeated here.
+
+Still not executed here, and therefore still not claimed: **real MySQL** — now including
+migration `006`, all ten methods of `strategy-repository.js`, the two new integrity checks in
+the MySQL branch of `verify-data.mjs`, and backup's three new table counts, all pinned on SQL
+text and bound values through a recording fake pool (**F-15 stays open and is wider than it
+was**); any live upstream data, so every backtest in every test ran on synthetic candles and
+asserts that it did; a value-for-value PHP↔Node numeric diff (**F-26**); any load test of the
+new Strategy Lab rate limits or the per-session concurrency cap — they are proven to fire, to
+return `retry-after`, and to release in `finally`, not measured against a real provider under
+real concurrency, so any throughput number here would be invented; the `APPROVED` lifecycle
+stage end-to-end, which needs `source: "paper"` journal rows that only row 10 (paper trading)
+can produce; a retention cron entry on any host (**R-28** is recorded, not implemented);
+MT5-bridge `pytest` (9, unrelated, last recorded 9 passed); and anything needing a
+cPanel/Passenger host, a real browser — so the F-29 client change is verified by a successful
+production build and by `verify-install`'s bundle-reference check, **not** by rendering —
+outbound SMTP, provider credentials or a native SDK.

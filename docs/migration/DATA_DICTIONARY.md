@@ -242,3 +242,32 @@ applied by a MySQL/MariaDB instance in this sandbox (F-15). The DDL is unit-chec
 checksum-verified by the migrator against a fake pool only.
 
 — End of Phase 0 data dictionary.
+
+## 8. Node platform schema — Strategy Lab (Phase 6; `006_strategies.sql`)
+
+Three tables, mirroring the legacy `strategies`, `backtests` and `journal_entries`
+column for column, because those rows are what a lifecycle gate reads and what an
+API payload returns. Platform table count **12 → 15**, all three picked up
+automatically by `tablesFromMigrations()`.
+
+| Table | Key | Notes |
+|---|---|---|
+| `wf_strategies` | **composite** `(strategy_id, version)` | The version is part of the key, not a column on a surrogate row, so a backtest cites the exact code it ran. `market_classes`/`timeframes`/`params`/`lifecycle_history` are JSON in `LONGTEXT` (not MySQL `JSON`) so they survive a `mysqldump` round trip on shared hosting. `source ∈ builtin\|manual\|ai`; `lifecycle ∈ DRAFT\|BACKTESTED\|VALIDATED\|RISK_REVIEWED\|PAPER_TRADING\|APPROVED\|RETIRED` |
+| `wf_backtests` | `id CHAR(36)` | `strategy_id`/`strategy_version`/`symbol`/`timeframe`/`synthetic` **plus** `candles`/`metrics`/`warnings` are denormalised out of `payload` so a listing and the two gate queries never open a `LONGTEXT` blob (DV-11). `trades` and `equityCurve` stay inside it, read only by the detail route |
+| `wf_journal_entries` | `id CHAR(36)` | `source ∈ backtest\|manual\|paper\|live`. Twelve `DECIMAL` money/ratio columns — the pool runs `decimalNumbers: false`, so **both adapters convert them to numbers at their boundary**; the approval gate sums `pnl` and divides gross win by gross loss, and `"-3.00" > 0` is a lexicographic comparison that gives the right answer for the wrong reason |
+
+Timestamps are `VARCHAR(32)` holding canonical ISO-8601 UTC (`…Z`), as
+`wf_analysis_runs` already does: legacy rows are VARCHAR ISO strings so an import
+needs no conversion, and `latestStrategyBacktest` plus the journal listing order by
+them, which is only chronological while every writer uses one format (**DV-2**).
+
+`wf_journal_entries.backtest_id` is deliberately **not** a foreign key — a legacy
+import writes journal and backtest rows in separate passes, and an FK would make
+import order load-bearing. `tools/verify-data.mjs` enforces it instead, on both
+adapters, and can report an orphan rather than refuse the row. `paper_position_id`
+is reserved for row 10 (paper trading); nothing in this migration writes it, but
+legacy rows carry values and dropping the column would lose them on import.
+
+Retention for `wf_backtests` is **not implemented** — recorded as **R-28**, because
+unlike analysis runs these rows are load-bearing evidence for promotions already
+granted.

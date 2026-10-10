@@ -299,11 +299,64 @@ This is **not** a production replacement. The Node API covers health/readiness, 
 - `python-services/mt5-bridge/`: Python/FastAPI and Windows-only MetaTrader dependency; remains an explicit adapter/migration decision until safely replaced and tested.
 - `runtime/`: PHP-WASM developer/test runtime; not part of the production Node target.
 
+## Phase 6 — Strategy Lab, backtesting, lifecycle gates and confidence calibration (2026-10-10, branch `arena/774d9e70-ai`)
+
+Row 8 of [`UNFINISHED_MODULES.md`](UNFINISHED_MODULES.md) and item 3 in the master plan's
+module order. Six code commits plus this record, `b3c5d35..HEAD`, 30 files, **+10 124 −16**.
+Full record: [`PHASE6_STRATEGIES.md`](PHASE6_STRATEGIES.md). App version is now **0.7.0**.
+
+Ported: `SeriesView.php`, `BuiltinStrategies.php`, `Metrics.php`, `Backtester.php`,
+`StrategyOptimizer.php`, `StrategyRegistry.php`, `Journal/Analytics.php` and the
+`Api_strategies`/`Api_journal` controllers. **Eleven** endpoints under `/api/v1/strategies`,
+`/api/v1/backtesting` and `/api/v1/journal` (platform route count 38 → 49), persisted in
+three new tables from migration `006` (platform tables 12 → 15, repository contract
+36 → 46 methods, file-store entities 10 → 13).
+
+It imports the Phase 4/5 primitives rather than reimplementing them — indicators, `roundTo`,
+`timeframeMs`, `seededRandom`, the provider-failure mapping, and deliberately the
+`inferMarketClass` that knows `XAUUSD` is a commodity, because the market-data one would
+fetch the wrong series for gold.
+
+The mechanics that make a backtest evidence rather than fiction are all carried over: signals
+fill at the **next** bar's open, half-spread plus slippage move every fill, fees are charged
+both ways, a bar touching both stop and target resolves to the stop, an entry bar can stop out
+immediately, and reading a future bar throws `LookAheadError` which **escapes** the run rather
+than being recorded as a warning. Cost control is applied at birth rather than discovered
+later as R-26 was: an optimization re-runs the backtester ~50 times, so it gets a 2/10-minute
+window and a per-session in-flight cap of **1** — lower than the analysis module's 2, because
+one strategy slot holds about fifty times the work.
+
+**Eleven divergences** (DV-1…DV-11) are recorded in §5 of the phase record. The two that
+matter most: legacy `iso()` emits `2025-08-12T12:00:00Z.123Z`, which is an **Invalid Date** in
+JavaScript and is rejected by this repo's own `assertIsoCutoff`, so Node emits well-formed
+ISO-8601 (DV-1); and legacy `transition()` returns a hardcoded empty `warnings` array on
+success, discarding the advisories its own gates compute at exactly the moment a strategy is
+promoted (DV-3).
+
+**Two findings recorded and deliberately not fixed.** No route in either edition can record a
+human sign-off or change a strategy's `source`, so an optimizer variant adopted with
+`register: true` stops permanently at `VALIDATED` — the "manual human risk sign-off" the
+refusal messages promise has no mechanism. Oracle `33-optimizer.php` confirms the path is
+unreachable through the API by writing `lifecycle = 'RISK_REVIEWED'` straight to the database.
+Adding a sign-off route would widen the surface and weaken a control, so it is left for the
+Risk Center row. And **F-29**: no ported module has a workspace console, so the four legacy
+document routes and `views/strategy/index.php` remain unported. **R-28** records that
+`wf_backtests` grows without bound and that R-27's remedy was *not* copied, because these rows
+are evidence for promotions already granted rather than advisory outputs.
+
+Measured in this sandbox on 2026-10-10: app suite **428/428** (**+171**), `tsc --noEmit`
+clean, `verify-install --require-bundle` **30/30** with **64** documented environment
+variables, and the legacy PHP oracle still **367/367** with `application/`, `system/` and
+`tests/` verifiably untouched. No MySQL server exists here, so migration 006, every statement
+in `strategy-repository.js` and the MySQL branch of `verify-data.mjs` are pinned on SQL text
+and bound values through a recording fake pool and were **never executed** (F-15, unchanged).
+Every backtest in every test ran on synthetic candles and asserts that it did.
+
 ## Next phases
 
 1. Add real MySQL/MariaDB integration coverage for Node migrations, sessions, the single-use identity-import ledger, uniqueness conflicts, transaction behavior and restore.
 2. Finish native authentication architecture (exact allowed API origin, token lifecycle/revocation, secure-storage plugin, CORS/origin/CSRF tests) before enabling native sign-in or signing an app.
-3. Port the remaining shared platform — notifications, the audit browser, settings and the domain dashboards — with route and permission parity. Identity/account management (Phase 2), the public site, SEO/PWA shell and contact intake (Phase 3), market data (Phase 4) and the analysis engines (Phase 5) are done; the public chat widget, password-reset delivery, outbound mail and every market-data and analysis UI surface are not.
+3. Port the remaining shared platform — notifications, the audit browser, settings and the domain dashboards — with route and permission parity. Identity/account management (Phase 2), the public site, SEO/PWA shell and contact intake (Phase 3), market data (Phase 4), the analysis engines (Phase 5) and the Strategy Lab with backtesting, lifecycle gates and confidence calibration (Phase 6) are done; the public chat widget, password-reset delivery, outbound mail and **every** module UI surface are not (**F-29** — three ported modules now have APIs and no console).
 4. Migrate domain modules one at a time using [`UNFINISHED_MODULES.md`](UNFINISHED_MODULES.md), preserving the trading Risk Engine, ordered 15-step Execution Supervisor, kill switch, lottery honesty rules, provider provenance and tenant/user isolation. Analysis (`Indicators.php`, the agent set, consensus, the debate and the fundamentals/sentiment abstention contracts) is **done** as of Phase 5, importing the Phase 4 normalizer and carrying `provenance.synthetic` forward into its own payloads. **Next in dependency order: the portfolio state that would make the risk gates non-vacuous** (paper trading and the portfolio monitor), which must resolve finding **F-27** deliberately rather than inherit the legacy zero-equity approval, and must not weaken the kill switch to do it.
 5. Consolidate Scout, Football Predictions and the MT5 bridge only after their separate storage/runtime assumptions are mapped and tested.
 6. Rehearse the full data import, backup/restore, cPanel limits, deployment package and rollback; obtain explicit approval before any production cutover.

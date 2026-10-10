@@ -88,4 +88,59 @@ synthetic run says so, that a stale run is forced to `NO_TRADE` with its proposa
 run leaves the kill switch as the only remaining veto. **R-25 stays open**: strategies, backtesting, paper
 trading and the portfolio monitor are the next consumers and inherit the same obligation.
 
+**R-25 discharged for the Strategy Lab (Phase 6), still open for paper trading and the
+portfolio monitor.** The module carries provenance forward exactly as R-25 requires:
+`provenance.synthetic` is copied into the backtest record, promoted to a **column** on
+`wf_backtests` so "every run built on synthetic data" is answerable in SQL without opening
+a `LONGTEXT` payload, written into the `strategies.backtest.completed` audit details, and
+appended to the run's own `warnings` so a human reading the result sees it too. The
+optimization report carries `dataProvenance` verbatim. Tests assert a synthetic run says so
+in both places and that a live run does not inherit the warning.
+
+---
+
+## Additions after Phase 6 (2026-10-10)
+
+### R-28 — `wf_backtests` grows without bound and nothing prunes it (open)
+
+Each row stores a full `LONGTEXT` payload: the request, the metrics, **every trade** and
+**every equity-curve point**. A 720-bar run produces ~720 curve points and one object per
+trade; the optimizer does not persist its segments, but a busy operator running backtests
+will grow this table steadily, and no code path deletes a row.
+
+This is the same shape as R-27 was for `wf_analysis_runs`, and R-27 was closed with a
+retention setting, a bounded batch delete and an operator CLI. **That remedy was deliberately
+not copied here**, because the two tables are not the same kind of thing. Analysis runs are
+advisory outputs: pruning old ones loses history. Backtests are **load-bearing evidence** —
+the `BACKTESTED` and `VALIDATED` gates count and rank them, so deleting the run that
+justified a promotion destroys the audit basis for a decision already granted. The gates do
+not re-run after `VALIDATED`, so nothing would break loudly; the evidence would simply be
+gone.
+
+That trade-off deserves its own decision rather than an inherited one. Options include
+pruning only runs whose strategy is `RETIRED`, archiving payloads to object storage while
+keeping the summary columns, or keeping evidence for any strategy past `BACKTESTED` forever
+and pruning only abandoned drafts. Recorded so the table does not grow silently while the
+question is unanswered.
+
+### F-29 — no ported module has a workspace console (open)
+
+The SPA ships identity, account, admin and status views and **nothing else**. Market data
+(Phase 4, 3 routes), analysis (Phase 5, 5 routes) and now the Strategy Lab (Phase 6, 11
+routes) are all reachable only with an API client. The legacy served each as a rendered page;
+`views/strategy/index.php` alone is 8 466 bytes of operator UI with forms for backtest,
+optimize and advance, and its four document routes remain unported.
+
+Compounding it, `ModuleCards` labelled market intelligence *"Not yet ported to Node"* — false
+since Phase 5, and still on screen through Phase 6. Corrected in `a2bef0f` with a three-state
+vocabulary (`live` / `api` / `planned`), because two states could not describe reality:
+"not ported" understates a tested, served API, and "ported" implies an operator can click it
+here, which they cannot. The middle state is styled blue rather than the green used for
+`live`, since the colour is part of the claim.
+
+The label fix makes the gap visible instead of hiding it behind a claim that happens to be
+false in the other direction. Building the consoles is a separate, larger piece of work; if a
+future phase adds one it should establish the pattern for all three modules rather than for
+itself alone.
+
 — End of Phase 0 risk register.

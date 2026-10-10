@@ -110,6 +110,12 @@ Login accepts **username, email, or 6-digit User ID**.
 ### 7.4 Strategies & backtesting
 `GET /api/strategies` · `GET /api/strategies/:id` · `GET/POST /api/strategies/:id/status` · `POST /api/strategies/:id/optimize` · `POST /api/backtesting/run` · `GET /api/backtesting/results` · `GET /api/backtesting/results/:id` → api_strategies/*.
 
+> **Ported (Phase 6)** — see §14.8 for the Node surface. Two notes on this legacy row:
+> `GET/POST …/status` is method-agnostic only because CodeIgniter routes are; the
+> handler reads a JSON body, so a `GET` always answered 400 and Node registers
+> `POST` alone. The journal routes at §7.6 (`api/journal`, `api/analytics/*`) are
+> ported with it, grouped under `/api/v1/journal/`.
+
 ### 7.5 Paper trading
 `GET /api/accounts` · `POST /api/accounts/create` · `GET /api/accounts/:id` · `GET /api/accounts/:id/orders` · `POST /api/accounts/:id/order` · `GET /api/accounts/:id/positions` · `POST /api/accounts/:id/positions/:pid/close` · `POST /api/accounts/:id/tick` · `GET /api/accounts/:id/deployments` · `POST /api/accounts/:id/deploy` · `POST /api/accounts/:id/deployments/:did/toggle` → api_paper/*.
 
@@ -322,6 +328,31 @@ document route answers its own verb; an **unknown** path with a non-GET method a
 a real static file with a non-GET method answers **405** + `Allow: GET, HEAD`. Any `/app/*` GET
 carrying `Accept: text/html` receives the built SPA shell (200); without that header it stays
 **404**, so a missing asset is never masked by HTML.
+
+### 14.8 Strategies, backtesting and the journal (11) — Phase 6
+
+All session-only with **no permission gate**, matching the legacy `Api_controller`
+surface; the four mutating routes are CSRF-gated and bearer callers are exempt.
+Route count for the platform: **38 → 49**.
+
+| Method/path | Auth | Legacy relationship |
+|---|---|---|
+| `GET /api/v1/strategies` | session | `GET /api/strategies`: grouped by id, `latest` plus every `versions[]` entry with `lifecycle`/`updatedAt`. `supportsShorts` comes from the executable implementation, not the record |
+| `GET /api/v1/strategies/:strategyId` | session | `GET /api/strategies/(:any)`: the record plus `supportsShorts` and `nextStage`. `?version=` selects one exactly; an **empty** `?version=` means latest, as legacy did |
+| `POST /api/v1/strategies/:strategyId/status` | session + CSRF | `api/strategies/(:any)/status` — **DV-4:** `POST` only, since a legacy `GET` could only ever 400 on an empty body. A refusal is **409** with `reasons` and `warnings`, and warnings now survive a *successful* transition too (**DV-3**) |
+| `POST /api/v1/strategies/:strategyId/optimize` | session + CSRF, own window limit (2/10 min) + concurrency slot | `api/strategies/(:any)/optimize` — **DV-6:** id from the path only. Returns the walk-forward report; `register: true` adopts a winner as a new `source: "ai"` version at `DRAFT` |
+| `POST /api/v1/backtesting/run` | session + CSRF, own window limit (12/10 min) + concurrency slot | `POST /api/backtesting/run`. Resolves the record (404) before the implementation (400), so an omitted version means latest |
+| `GET /api/v1/backtesting/results` | session | `GET /api/backtesting/results` — **DV-11:** summaries carrying promoted `metrics`/`warnings`/`candles` columns rather than decoded payloads. Same response shape |
+| `GET /api/v1/backtesting/results/:backtestId` | session | `GET /api/backtesting/results/(:any)`: the only route that reads a `payload` |
+| `GET /api/v1/journal` | session | `GET /api/journal`, filters `source`/`strategy`/`symbol` (upper-cased server-side) |
+| `POST /api/v1/journal/manual` | session + CSRF | `POST /api/journal/manual`, **201**. Derives `pnl`/`pnl_pct`/`r_multiple` rather than trusting them; **DV-9/DV-10** reject an overlong rationale and an out-of-range confidence |
+| `GET /api/v1/journal/analytics/summary` | session | `GET /api/analytics/summary` — **DV-8:** regrouped under `/journal/` so it does not sit two letters from `/api/v1/analysis/*` |
+| `GET /api/v1/journal/analytics/calibration` | session | `GET /api/analytics/confidence-calibration` — **DV-8.** Reads 2 000 rows, the legacy bound |
+
+**Not ported:** the four legacy document routes `/strategy`, `/strategy/backtest`,
+`/strategy/optimize`, `/strategy/advance` and `views/strategy/index.php`. Recorded
+as **F-29** — no ported module (market data, analysis or strategies) has a
+workspace console.
 
 Workspace SPA surfaces declared by the client router: `/app/`, `/app/login`, `/app/register`,
 `/app/account`, `/app/status`, `/app/admin/users` (`identity.users.view`),
