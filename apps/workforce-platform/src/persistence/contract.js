@@ -54,6 +54,17 @@ export const REPOSITORY_METHODS = Object.freeze([
   "listAnalysisRuns",
   "findAnalysisRun",
   "pruneAnalysisRuns",
+  // strategy lab (Phase 6): lifecycle records, backtest evidence, trade journal
+  "saveStrategy",
+  "findStrategy",
+  "listStrategies",
+  "saveBacktest",
+  "findBacktest",
+  "listBacktests",
+  "countStrategyBacktests",
+  "latestStrategyBacktest",
+  "saveJournalEntry",
+  "listJournalEntries",
   // operational
   "readiness",
 ]);

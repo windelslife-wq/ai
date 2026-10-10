@@ -21,14 +21,40 @@ import { assertIsoCutoff } from "./contract.js";
 import { createHash } from "node:crypto";
 import path from "node:path";
 
-const ENTITIES = ["users", "profiles", "sessions", "roles", "permissions", "userRoles", "rolePermissions", "audit", "inquiries", "analysisRuns"];
+const ENTITIES = ["users", "profiles", "sessions", "roles", "permissions", "userRoles", "rolePermissions", "audit", "inquiries", "analysisRuns", "strategies", "backtests", "journalEntries"];
 const COMPACTION_ENTRIES = 2_000;
+/**
+ * `wf_journal_entries` columns that are DECIMAL in MySQL.
+ *
+ * Kept in step with `JOURNAL_NUMERIC_COLUMNS` in `strategy-repository.js`. Both
+ * adapters must hand callers the same JavaScript types, because the approval gate
+ * sums `pnl` and compares `profitFactor` — a string from one adapter and a number
+ * from the other would make the same evidence produce different verdicts.
+ */
+const JOURNAL_NUMERIC_COLUMNS = Object.freeze([
+  "entry_price",
+  "exit_price",
+  "position_size",
+  "stop_loss",
+  "take_profit",
+  "fees",
+  "slippage",
+  "pnl",
+  "pnl_pct",
+  "r_multiple",
+  "ai_confidence",
+  "risk_score",
+]);
 const USERNAME_PATTERN = /^[a-z][a-z0-9_]{2,19}$/;
 
 function keyOf(entity, record) {
   if (entity === "sessions") return record.tokenHash;
   if (entity === "userRoles") return `${record.userId}:${record.roleId}`;
   if (entity === "rolePermissions") return `${record.roleId}:${record.permissionId}`;
+  // A strategy is identified by (id, version), not by id alone: the lifecycle gates
+  // compare evidence against an exact version, so two versions of one strategy are
+  // two rows, exactly as the MySQL primary key makes them.
+  if (entity === "strategies") return `${record.strategy_id}:${record.version}`;
   return String(record.id);
 }
 
@@ -678,6 +704,133 @@ export async function createFileStore({ dir, logger = console, idFactory = () =>
       report.deleted = doomed.length;
       report.batches = 1;
       return report;
+    },
+
+    // ---- strategy lab (Phase 6) -----------------------------------------
+    // Strategies are keyed by (strategy_id, version); backtests and journal
+    // entries by their own id, which the engine mints. The shapes below match
+    // `strategy-repository.js` field for field, including which columns are
+    // denormalised, so the two adapters answer the same query the same way.
+    async saveStrategy(record) {
+      const strategyId = String(record.strategy_id);
+      const version = String(record.version);
+      const existing = tables.get("strategies").get(`${strategyId}:${version}`);
+      await mutate("strategies", "upsert", {
+        ...record,
+        strategy_id: strategyId,
+        version,
+        // `created_at` records when this version first existed. The MySQL adapter
+        // preserves it by omitting the column from its UPDATE list; here the whole
+        // row is replaced, so it has to be carried over explicitly or a strategy
+        // would look newly registered after every stage change.
+        created_at: String(existing?.created_at ?? record.created_at),
+        updated_at: String(record.updated_at),
+      });
+      return { strategy_id: strategyId, version };
+    },
+
+    async findStrategy(strategyId, version) {
+      const row = tables.get("strategies").get(`${String(strategyId)}:${String(version)}`);
+      return row ? structuredClone(row) : null;
+    },
+
+    /**
+     * Ordered `strategy_id ASC, updated_at ASC`, the legacy `all()` ordering.
+     *
+     * It is load-bearing rather than cosmetic: the strategy index groups rows by
+     * id and expects them contiguous, and "latest version" takes the last row of
+     * a group, so within one strategy the most recently updated version must come
+     * last. ISO-8601 UTC strings sort chronologically as text, which is why
+     * migration 006 pins one timestamp format.
+     */
+    async listStrategies() {
+      return [...tables.get("strategies").values()]
+        .sort((a, b) => (
+          String(a.strategy_id).localeCompare(String(b.strategy_id))
+          || String(a.updated_at).localeCompare(String(b.updated_at))
+        ))
+        .map((row) => structuredClone(row));
+    },
+
+    async saveBacktest(record) {
+      const id = String(record.id);
+      await mutate("backtests", "upsert", {
+        id,
+        created_at: String(record.created_at),
+        // Denormalised out of the payload so a listing and the two gate queries can
+        // be answered without opening every stored run.
+        strategy_id: String(record.request?.strategyId ?? ""),
+        strategy_version: String(record.request?.strategyVersion ?? ""),
+        symbol: String(record.request?.symbol ?? ""),
+        timeframe: String(record.request?.timeframe ?? ""),
+        synthetic: Boolean(record.dataProvenance?.synthetic),
+        payload: record,
+      });
+      return { id, created_at: String(record.created_at) };
+    },
+
+    async findBacktest(id) {
+      // A stored run that cannot be read back is a corrupt row, not a missing one;
+      // the payload is whatever `saveBacktest` was handed, so there is nothing to
+      // parse and nothing that can fail here.
+      return structuredClone(tables.get("backtests").get(String(id))?.payload ?? null);
+    },
+
+    async listBacktests({ strategyId = null, limit = 20 } = {}) {
+      const bounded = Math.min(Math.max(Number.parseInt(limit, 10) || 20, 1), 100);
+      const wanted = strategyId === null || strategyId === undefined ? "" : String(strategyId);
+      return [...tables.get("backtests").values()]
+        .filter((row) => !wanted || row.strategy_id === wanted)
+        // Newest first, id as the tie-break so two runs saved in the same
+        // millisecond keep a stable order across calls.
+        .sort((a, b) => (String(b.created_at).localeCompare(String(a.created_at)) || String(a.id).localeCompare(String(b.id))))
+        .slice(0, bounded)
+        .map(({ payload, ...summary }) => summary);
+    },
+
+    async countStrategyBacktests(strategyId, version) {
+      const id = String(strategyId);
+      const ver = String(version);
+      return [...tables.get("backtests").values()]
+        .filter((row) => row.strategy_id === id && row.strategy_version === ver)
+        .length;
+    },
+
+    async latestStrategyBacktest(strategyId, version) {
+      const id = String(strategyId);
+      const ver = String(version);
+      const rows = [...tables.get("backtests").values()]
+        .filter((row) => row.strategy_id === id && row.strategy_version === ver)
+        .sort((a, b) => (String(b.created_at).localeCompare(String(a.created_at)) || String(a.id).localeCompare(String(b.id))));
+      return rows.length ? structuredClone(rows[0].payload) : null;
+    },
+
+    async saveJournalEntry(entry) {
+      const id = String(entry.id);
+      const row = { ...entry, id };
+      // The money and ratio columns are numbers on the way in and numbers on the
+      // way out. MySQL returns them as strings (decimalNumbers: false) and
+      // `strategy-repository.js` converts them at its boundary; this adapter has no
+      // such boundary, so it coerces on write to keep the two indistinguishable.
+      for (const column of JOURNAL_NUMERIC_COLUMNS) {
+        row[column] = entry[column] === null || entry[column] === undefined ? null : Number(entry[column]);
+      }
+      await mutate("journalEntries", "upsert", row);
+      return { id };
+    },
+
+    async listJournalEntries({ source = null, strategy = null, symbol = null, limit = 200 } = {}) {
+      const bounded = Math.min(Math.max(Number.parseInt(limit, 10) || 200, 1), 1_000);
+      return [...tables.get("journalEntries").values()]
+        .filter((row) => {
+          if (source && row.source !== String(source)) return false;
+          if (strategy && row.strategy !== String(strategy)) return false;
+          if (symbol && row.symbol !== String(symbol)) return false;
+          return true;
+        })
+        .sort((a, b) => (String(b.execution_time).localeCompare(String(a.execution_time)) || String(a.id).localeCompare(String(b.id))))
+        .slice(0, bounded)
+        .map((row) => structuredClone(row));
     },
 
     // ---- profile files --------------------------------------------------

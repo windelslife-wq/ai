@@ -113,7 +113,7 @@ test("R-27 the retention cutoff must be a canonical ISO-8601 UTC instant", () =>
 
   // Both adapters share this one guard, so they cannot disagree about a cutoff.
   assert.ok(REPOSITORY_METHODS.includes("pruneAnalysisRuns"), "retention is part of the contract, not an adapter extra");
-  assert.equal(REPOSITORY_METHODS.length, 36);
+  assert.equal(REPOSITORY_METHODS.length, 46);
 });
 
 test("R-27 the cutoff arithmetic keeps everything when retention is off, and 0 never means 'delete all'", () => {
