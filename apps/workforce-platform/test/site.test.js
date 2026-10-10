@@ -461,7 +461,10 @@ test("the administrator inquiry listing is super-admin only and paginated", asyn
   assert.equal(body.total, 3);
   assert.equal(body.inquiries.length, 2);
   assert.equal(body.mail.transport, "none", "the listing repeats the honest mail situation");
-  const searched = await app.app.inject({ method: "GET", url: "/api/v1/admin/inquiries?search=v2", headers: { cookie: admin.cookie } });
+  // The search also matches the inquiry reference, which is a random Crockford
+  // base32 ID that can contain "v2" by chance. A term containing "@" cannot occur
+  // in a reference, so this matches the one email and nothing else, every run.
+  const searched = await app.app.inject({ method: "GET", url: `/api/v1/admin/inquiries?search=${encodeURIComponent("v2@example.test")}`, headers: { cookie: admin.cookie } });
   assert.equal(searched.json().total, 1);
 });
 
