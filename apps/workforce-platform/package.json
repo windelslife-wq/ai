@@ -1,6 +1,6 @@
 {
   "name": "@windels/workforce-platform",
-  "version": "0.3.0",
+  "version": "0.7.0",
   "private": true,
   "type": "module",
   "engines": {
@@ -16,12 +16,15 @@
     "import:identity": "node src/db/import-legacy-identity.js",
     "backup": "node tools/backup.mjs create",
     "restore": "node tools/backup.mjs restore",
+    "prune:analysis": "node tools/prune-analysis-runs.mjs",
     "verify:install": "node tools/verify-install.mjs",
     "verify:data": "node tools/verify-data.mjs",
     "test": "node --test test/*.test.js",
     "check": "npm run verify:install && npm test",
     "migrate:status": "node src/db/migrate.js --status",
-    "migrate:dry-run": "node src/db/migrate.js --dry-run"
+    "migrate:dry-run": "node src/db/migrate.js --dry-run",
+    "build:icons": "node tools/generate-icons.mjs",
+    "check:icons": "node tools/generate-icons.mjs --check"
   },
   "dependencies": {
     "bcryptjs": "^3.0.2",

@@ -45,4 +45,102 @@ Per master plan §11 Phase 0: "Record known failures and contradictions. Never s
 7. Concurrent PHP + Node apps on one account during coexistence; document-root layout for `public/` + API proxy.
 8. Upload/storage paths writable by the Passenger user (avatars, exports).
 
+## Additions after Phase 3 (2026-10-09, branch `arena/774d9e70-ai`)
+
+Risks created or first observed by the public-site/PWA/contact-intake work. The Phase 0 table
+above is unchanged; these are additive, per the "never silently reconcile" rule.
+
+| ID | Sev | Area | Risk / contradiction (evidence) | Mitigation / owner phase |
+|---|---|---|---|---|
+| **R-21** | 🟠 | Deployment / caching | **Generated documents can be shadowed on a real host.** `public/index.html`, `robots.txt`, `sitemap.xml`, `manifest.webmanifest` and `service-worker.js` were deleted from the tree and are rendered per request. An Apache `DirectoryIndex`, a leftover file from an earlier deploy, an archive extracted over `public/`, or a rewrite that serves files before Passenger would publish a stale document instead — and a stale `service-worker.js` pins every returning visitor to an obsolete shell. `verify:install` (check 29) guards the *repository* only; it cannot see the host's document root. | Phase 5 (cPanel hardening): after upload, request all five paths on the host and diff them against locally generated output; add it to the pre-cutover checklist; never extract a deployment archive over an existing `public/` without deleting those five names first. |
+| **R-22** | 🟡 | Privacy / data | **Public contact intake stores personal data with no retention story.** `wf_contact_inquiries` (migration 004) holds a visitor's name, email and message, and the same three fields are duplicated in the `CONTACT_INQUIRY` audit details so an operator can answer from the trail alone. There is no retention window, no purge job and no data-subject deletion path. The client address is stored only as an HMAC-SHA256 fingerprint (deliberate), but a deletion request would have to reach two places. | Decide retention + purge with the notifications/audit module port: a cron-invoked CLI job with DB-backed locking (plan §8), plus an approved answer for audit-trail immutability vs. erasure requests. Until then the inbox is read-only and the docs state plainly that personal data is stored. |
+| **R-23** | 🟡 | Frontend / security | **Client-side gates could be mistaken for access control.** The SPA renders permission-gated navigation and refuses to mount a view whose permission is missing. That is presentation: the API re-checks the same permission and answers 403 regardless, and the denial view says so and names the permission. The risk is a future contributor treating the client guard as the control. | Keep the invariant explicit: no client-only gate is ever the control. Every new SPA view gets a matching 401/403 server test (Phase 3 precedent: `the administrator inquiry listing is super-admin only and paginated`). |
+
+## Additions after Phase 4 (2026-10-09, branch `arena/774d9e70-ai`)
+
+Risks created or first observed by the market-data port. The Phase 0 table and the Phase 3 additions
+above are unchanged; these are additive, per the "never silently reconcile" rule.
+
+| ID | Sev | Area | Risk / contradiction (evidence) | Mitigation / owner phase |
+|---|---|---|---|---|
+| **R-24** | 🟠 | External dependency / data integrity | **The platform now depends on third-party hosts it does not control, and on a licensed feed that does not exist.** `GET /api/v1/market-data/*` calls `api.binance.com` (plus the mirrors `data-api.binance.vision`, `api1.binance.com`) and `api.frankfurter.dev`. Both are unauthenticated public endpoints with their own rate limits and their own release schedule: a renamed field, a new error envelope or a tightened limit changes behaviour without any change here, and nothing in CI would notice (finding **F-25** — every provider test injects a transport; this sandbox has no egress at all, so both reported `DOWN` live). Stocks, ETFs, futures and options have **no** source: all four licensed adapters are inert scaffolds reporting `DISABLED`, so those four market classes are unserved on any host until a vendor is contracted. Related: R-20 (the legacy escape hatches stay off) and R-11 item 6 (outbound destinations must be allowed on the cPanel host). | Phase 5/6: confirm outbound HTTPS to all four hostnames on the target host, re-run the live rehearsal there, and record the result in `PHASE4_MARKET_DATA.md` §9. Add a scheduled probe that calls both real providers and records health + payload shape, so vendor drift is caught by a job rather than by a user (F-25). Do not claim stock/ETF/futures/options coverage anywhere until a licensed feed passes its own contract tests. |
+| **R-25** | 🟠 | Honesty / downstream consumers | **Labelled synthetic data can be consumed as if it were real one layer up.** The synthetic provider is registered last, every candle carries `provenance.synthetic: true`, and a host can refuse it outright (`MARKET_DATA_ALLOW_SYNTHETIC=0` → `503 SYNTHETIC_DATA_DISABLED`). But the label only protects anyone who reads it: analysis, strategies, paper trading and risk all consume this module next, and the legacy platform's own rules (Rule 2 vetoes on synthetic + stale data, the mandatory "SIMULATION / SYNTHETIC DATA" banner) live in *those* modules, not here. A ported analysis engine that drops `provenance` from its own payload would silently launder simulated candles into a real-looking signal — and `AEGIS_ALLOW_SYNTHETIC_PAPER` (R-20) shows the legacy platform already had to fence this off once. | Every consuming module must carry `provenance.synthetic`, `.live`, `.stale` and `.fallbackChain` forward into its own responses, and must inherit the veto/banner rules rather than reimplement them; each gets a negative test asserting that a synthetic-fed analysis says so. Written into `PHASE4_MARKET_DATA.md` §12 as an entry criterion for the analysis phase. |
+
+## Additions after Phase 5 (2026-10-09, branch `arena/774d9e70-ai`)
+
+Risks created or first observed by the analysis/agent/consensus port. The Phase 0 table and the Phase 3
+and Phase 4 additions above are unchanged; these are additive, per the "never silently reconcile" rule.
+
+| ID | Sev | Area | Risk / contradiction (evidence) | Mitigation / owner phase |
+|---|---|---|---|---|
+| **R-26** | ✅ **Closed** (was 🟠) | Cost / abuse amplification | **Analysis is the most expensive authenticated endpoint on the platform, and it is bounded only by the global limiter.** One `POST /api/v1/analysis/run` fetches up to **8** provider series (the symbol plus, for forex and commodities, the seven reference legs at 60 candles each); one `POST /api/v1/analysis/consensus` with no `symbols` scans the 7-symbol default watchlist, and with 10 symbols it can trigger **up to 80** upstream calls — four of those symbols being forex/commodity. The only bound is the process-wide `api:<client>` limiter at **120 requests / 60 s** (`src/app.js`), which the route inventory reports as `rateLimited: false` because it is not a per-route limit. On a host with real providers (R-24) a single authenticated account can therefore fan out into ten upstream requests per call, and shared-hosting CPU/second quotas (R-11) make the same call expensive locally: each run computes ~20 indicators over 300 candles, a seven-agent panel and a four-round debate. | **Closed in the Phase 5 hardening pass (`PHASE5_ANALYSIS.md` §13.2), on instruction to close it before porting another module.** Both POST routes carry their own window limits via the platform's per-route mechanism — `RATE_LIMIT_ANALYSIS_RUN_MAX` **12** and `RATE_LIMIT_ANALYSIS_CONSENSUS_MAX` **4** per `…_WINDOW_MS` **600 000** (10 min), per client address, charged *before* body validation so a malformed request still costs budget — and both hold a slot in a new per-session in-flight cap (`ANALYSIS_MAX_CONCURRENT_RUNS`, default **2**, `0` disables) implemented by `createAnalysisRunGate` over the existing `createConcurrencyTracker`. The cap is keyed **by session, not address**, so a shared office NAT cannot be used to starve a colleague (the reasoning that keeps login lockout per account); the release is in `finally`, so a run that throws cannot lock a session out. Window refusals are `429 RATE_LIMITED`, cap refusals `429 TOO_MANY_CONCURRENT_ANALYSES` — distinct because the client's remedy differs. Worst case per window is now **≤ 416 upstream series** (12 × 8 + 4 × 10 × 8) against 120 requests/min × 80 calls, pinned by a test; `GET /api/v1/system/routes` reports `rateLimited: true` for both POSTs. The market-data TTL cache (candles `max(15 s, 25 % interval)` = 15 min at `1h`) already meant repeat identical runs did not re-hit providers. **Still true and unchanged:** these limits are per *process*, so N Passenger workers each get their own (F-24). No load test was possible — this sandbox has no egress, so any throughput figure would have been invented. |
+| **R-27** | ✅ **Closed** (was 🟡) | Data growth / retention | **`wf_analysis_runs.payload` grows without bound and holds a full run per row.** Each row stores every agent report, the debate transcript, three scenarios, the setup, the risk decision, provenance and validation as `LONGTEXT` — deliberately, so a run can be re-read years later without re-deriving it from market data that no longer exists. Nothing prunes it: no retention window, no archive job, no CLI command. A consensus scan writes 7–10 such rows per call, so the same amplification as R-26 applies to storage. The legacy table has the same shape (`analysis_runs`), so this is inherited growth, not new — but the Node platform is the one that will run on a shared host with a database size quota (R-11 item 5, R-16). | **Closed in the Phase 5 hardening pass (`PHASE5_ANALYSIS.md` §13.3).** The audit-vs-operational question is answered explicitly: the run is an **audit record while it is inside the retention window and operational data after it**, so retention is an operator decision taken outside a request — `ANALYSIS_RETENTION_DAYS` (default **90**, `0` = keep forever, the pre-R-27 behaviour) plus `tools/prune-analysis-runs.mjs` / `npm run prune:analysis`, backed by a new `pruneAnalysisRuns` on **both** adapters (repository contract **35 → 36**). **Dry run is the default** and reports the matching count, the oldest and newest affected timestamps and the reclaimable payload bytes before anything is deleted; `--apply` deletes. MySQL deletes in clamped batches (default 500, ceiling 5 000) with `ORDER BY completed_at ASC`, because `DELETE … LIMIT` without an order is non-deterministic and statement-based replication logs that as unsafe, and it reports `exhausted: false` rather than implying completion when the batch ceiling is hit. The file adapter deletes through the log's existing `delete` op so replay and `compact()` need no format change, and a test reopens the store from disk to prove the deletions replay. Both adapters share `assertIsoCutoff`: `completed_at` is `VARCHAR(32)` compared as **text**, so a `+00:00` offset cutoff would sort differently from the `Z` form of the same instant and delete the wrong rows. **There is deliberately no HTTP route that can delete analysis history** — pinned by a test asserting the module registers no `DELETE` verb. `ANALYSIS_RETENTION_DAYS=0` with `--apply` still deletes nothing, because reading `0` as `now - 0` would mean "delete every run ever written". **Still open:** the cron entry does not exist on any host yet (`PHASE5_ANALYSIS.md` §12 criterion 7), and real legacy row counts are still unmeasured (R-16). |
+
+**R-25 obligation discharged for this module, still open for the next ones.** R-25 required that every
+consumer of market data carry `provenance.synthetic`, `.live`, `.stale` and `.fallbackChain` forward into
+its own responses and inherit the veto/banner rules rather than reimplementing them, with a negative test
+asserting that a synthetic-fed analysis says so. The analysis module does exactly that: provenance is
+copied verbatim into the run payload, promoted to `synthetic`/`source` **columns** on `wf_analysis_runs`
+(so a query can find every synthetic-fed run without opening the payload), written into the
+`analysis.run.completed` audit details, graded into the consensus freshness factor (live 1.0 / synthetic
+0.5 / stale 0.2) and enforced by `blockSyntheticData`/`blockStaleData` in the risk veto. Tests assert a
+synthetic run says so, that a stale run is forced to `NO_TRADE` with its proposal dropped, and that a live
+run leaves the kill switch as the only remaining veto. **R-25 stays open**: strategies, backtesting, paper
+trading and the portfolio monitor are the next consumers and inherit the same obligation.
+
+**R-25 discharged for the Strategy Lab (Phase 6), still open for paper trading and the
+portfolio monitor.** The module carries provenance forward exactly as R-25 requires:
+`provenance.synthetic` is copied into the backtest record, promoted to a **column** on
+`wf_backtests` so "every run built on synthetic data" is answerable in SQL without opening
+a `LONGTEXT` payload, written into the `strategies.backtest.completed` audit details, and
+appended to the run's own `warnings` so a human reading the result sees it too. The
+optimization report carries `dataProvenance` verbatim. Tests assert a synthetic run says so
+in both places and that a live run does not inherit the warning.
+
+---
+
+## Additions after Phase 6 (2026-10-10)
+
+### R-28 — `wf_backtests` grows without bound and nothing prunes it (open)
+
+Each row stores a full `LONGTEXT` payload: the request, the metrics, **every trade** and
+**every equity-curve point**. A 720-bar run produces ~720 curve points and one object per
+trade; the optimizer does not persist its segments, but a busy operator running backtests
+will grow this table steadily, and no code path deletes a row.
+
+This is the same shape as R-27 was for `wf_analysis_runs`, and R-27 was closed with a
+retention setting, a bounded batch delete and an operator CLI. **That remedy was deliberately
+not copied here**, because the two tables are not the same kind of thing. Analysis runs are
+advisory outputs: pruning old ones loses history. Backtests are **load-bearing evidence** —
+the `BACKTESTED` and `VALIDATED` gates count and rank them, so deleting the run that
+justified a promotion destroys the audit basis for a decision already granted. The gates do
+not re-run after `VALIDATED`, so nothing would break loudly; the evidence would simply be
+gone.
+
+That trade-off deserves its own decision rather than an inherited one. Options include
+pruning only runs whose strategy is `RETIRED`, archiving payloads to object storage while
+keeping the summary columns, or keeping evidence for any strategy past `BACKTESTED` forever
+and pruning only abandoned drafts. Recorded so the table does not grow silently while the
+question is unanswered.
+
+### F-29 — no ported module has a workspace console (open)
+
+The SPA ships identity, account, admin and status views and **nothing else**. Market data
+(Phase 4, 3 routes), analysis (Phase 5, 5 routes) and now the Strategy Lab (Phase 6, 11
+routes) are all reachable only with an API client. The legacy served each as a rendered page;
+`views/strategy/index.php` alone is 8 466 bytes of operator UI with forms for backtest,
+optimize and advance, and its four document routes remain unported.
+
+Compounding it, `ModuleCards` labelled market intelligence *"Not yet ported to Node"* — false
+since Phase 5, and still on screen through Phase 6. Corrected in `a2bef0f` with a three-state
+vocabulary (`live` / `api` / `planned`), because two states could not describe reality:
+"not ported" understates a tested, served API, and "ported" implies an operator can click it
+here, which they cannot. The middle state is styled blue rather than the green used for
+`live`, since the colour is part of the claim.
+
+The label fix makes the gap visible instead of hiding it behind a claim that happens to be
+false in the other direction. Building the consoles is a separate, larger piece of work; if a
+future phase adds one it should establish the pattern for all three modules rather than for
+itself alone.
+
 — End of Phase 0 risk register.

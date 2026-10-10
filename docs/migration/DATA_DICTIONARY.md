@@ -111,4 +111,163 @@ Style contrast vs. legacy AEGIS schema: football uses **real `DATETIME(3)`, nati
 9. **collations:** everything is `utf8mb4`; watch `VARCHAR(190)/(191)` UNIQUE index length limits on older MySQL (already respected).
 10. **Backups:** `database/production.sql` is both schema and seed snapshot (2026-08-24 era for the zip copy; the repo copy is current) — treat as **reference seed**, not as a production-data backup; production data lives only on the cPanel host.
 
+## 6. Node platform schema — `wf_*` (added by Phases 1–3; canonical: `apps/workforce-platform/src/db/migrations/`)
+
+Recorded here because it is now part of the repository's data surface. It is **isolated**: every
+table is `wf_`-prefixed, additive, and no migration touches a legacy table, so PHP keeps reading
+and writing the 79-table schema unchanged during coexistence (R-18).
+
+Conventions, deliberately different from §2.0: native `DATETIME(3)` UTC instead of
+`VARCHAR(32)` ISO strings; native `JSON` (`detail_json`) instead of `LONGTEXT`; real foreign
+keys with `ON DELETE SET NULL` for actors; `BIGINT UNSIGNED AUTO_INCREMENT` identifiers;
+`utf8mb4` / `utf8mb4_unicode_ci`; `VARCHAR(190)` for indexed emails. Versioned, checksummed,
+ordered migrations applied by `npm run migrate` and tracked in `wf_schema_migrations`;
+`readiness()` reports `schema:false` until all five are present, so `/api/v1/health/ready`
+stays 503 on a partial schema.
+
+| Table | Migration | Purpose / notes |
+|---|---|---|
+| `wf_schema_migrations` | 001 | Applied-migration ledger with checksums; the migrator refuses a changed checksum |
+| `wf_users` | 001 (+003 index) | Accounts. `password_hash` holds imported PHP `$2y$` digests verbatim (`bcryptjs` verifies them); `legacy_uid` carries the 6-digit UID for login parity; status toggling, never deletion |
+| `wf_roles`, `wf_permissions`, `wf_user_roles`, `wf_role_permissions` | 001, seeded by 003 | The legacy RBAC vocabulary: 8 roles / 14 permissions including `system.super_admin`. `src/db/platform-baseline.js` seeds the same matrix for adapters without migrations (the file store), and a test asserts the SQL and the code agree key for key |
+| `wf_sessions` | 001 (+003 `device_label`, index) | Opaque **hashed** server-side sessions (no JWT), expiry, revocation, rotation; `device_label` supports the session list |
+| `wf_audit_events` | 001 (+003 index) | Audit trail: `actor_user_id` nullable (public contact intake audits with `NULL`), `action_key`, `entity_type`/`entity_id` as `VARCHAR`, `detail_json JSON` |
+| `wf_user_profiles` | 002 | Display name, profile image path, last-login — separated from `wf_users` so identity import stays one-shot and reversible |
+| `wf_data_imports` | 002 | Single-use import ledger for the legacy identity importer (dry-run first; never executed against production data) |
+| `wf_contact_inquiries` | **004 (Phase 3)** | Public contact intake: unique 26-char ULID `reference`, `name`/`email`/`message` (10–2 000 chars, refused rather than truncated), `client_fingerprint CHAR(64)` = HMAC-SHA256 of the client address keyed with `SESSION_SECRET` (**no raw IP is stored**), `user_agent`, `request_id`, `status` (`new`) with `handled_by`/`handled_at` for a future queue, indexes on `created_at` and `(status, created_at)`. The legacy platform stored a contact submission **only** as an audit entry; this is the working copy, written *alongside* the `CONTACT_INQUIRY` audit event. Retention/purge is undecided — see R-22 |
+
+**Phase 4 (market data) added no table and no migration.** The module persists exactly one kind of
+record, through the existing repository contract: a `wf_audit_events` row with
+`action_key = 'marketData.provider.fallback'`, `actor_user_id = NULL` (the platform, not a user, is the
+actor), `entity_type = 'market_data'`, `entity_id = <SYMBOL>` and `detail_json`
+`{legacyAction: "PROVIDER_FALLBACK", message, symbol, marketClass, timeframe, failed[], used, synthetic}`.
+`message` reproduces the legacy wording verbatim
+(`` `BTCUSDT`: providers [binance] failed — falling back to synthetic-demo ``) and `legacyAction` keeps the
+legacy action name addressable, so an audit query written against the PHP platform still finds these rows
+after cutover. Candles, quotes, provider health, circuit-breaker state and the TTL caches are **in-process
+only** — nothing market-data-shaped is written to disk, and no cache survives a restart (finding F-24: that
+also means each Passenger worker keeps its own view of provider health).
+
+## 7. Node platform schema — analysis runs (Phase 5; `005_analysis_runs.sql`)
+
+One table, additive, no legacy table touched.
+
+| Table | Migration | Purpose / notes |
+|---|---|---|
+| `wf_analysis_runs` | **005 (Phase 5)** | One row per completed analysis run. `id CHAR(36)` (a `crypto.randomUUID()`, so re-running a symbol never collides with a legacy numeric id); summary columns `symbol VARCHAR(24)`, `timeframe VARCHAR(5)`, `bias VARCHAR(10)`, `confidence DECIMAL(5,4)`, `regime VARCHAR(20)`, `recommendation VARCHAR(10)`; provenance promoted to columns `synthetic TINYINT(1)` and `source VARCHAR(40)`; `completed_at VARCHAR(32)`; `payload LONGTEXT`; indexes `ix_wf_analysis_runs_completed (completed_at)` and `ix_wf_analysis_runs_symbol (symbol, completed_at)` |
+
+**Why this table breaks the §6 conventions, deliberately.** §6 records that the Node schema uses native
+`DATETIME(3)` instead of `VARCHAR(32)` ISO strings and native `JSON` instead of `LONGTEXT`. Migration 005
+uses `VARCHAR(32)` and `LONGTEXT` anyway, for two reasons:
+
+1. The summary columns **are an API payload** — `GET /api/v1/analysis/history` returns them field for
+   field — and the legacy `analysis_runs` table typed them this way. Retyping `completed_at` as
+   `DATETIME(3)` would change the string a caller receives (no `Z`, no milliseconds in some drivers) and
+   break the parity claim for a cosmetic gain.
+2. History is ordered by `completed_at`. ISO-8601 **UTC** strings sort chronologically as plain text, which
+   is what both adapters rely on. That holds only while every writer uses one format, so this column must
+   never be fed a legacy `+00:00` offset string and a Node `Z` string in the same table; the Node platform
+   writes only its own.
+
+`payload` holds the entire run — agents, debate transcript, scenarios, setup, risk decision, provenance and
+validation — as the audit copy of what the caller was shown, so a run can be re-read years later without
+re-deriving it from market data that no longer exists.
+
+**Retention (R-27, closed by the Phase 5 hardening pass).** That payload is also why this table needed a
+retention policy: it is `LONGTEXT` per row, a consensus scan writes 7–10 rows per call, and nothing else in
+the platform deletes a row. The policy is `ANALYSIS_RETENTION_DAYS` (default **90**; `0` keeps rows forever,
+which is the pre-R-27 behaviour) and the mechanism is `tools/prune-analysis-runs.mjs` /
+`npm run prune:analysis`, backed by `pruneAnalysisRuns(beforeIso, {dryRun, batchSize, maxBatches})` on
+**both** adapters — repository contract **35 → 36**.
+
+The answer to "is a run an audit record or operational data?" is now explicit: **an audit record while it is
+inside the retention window, operational data after it.** Consequently retention is an operator decision
+taken outside a request, and **there is deliberately no HTTP route that can delete analysis history** — a
+test asserts the module registers no `DELETE` verb. A session-scoped API with a delete verb over the audit
+copy of what a user was shown is not a trade worth making.
+
+Two implementation constraints follow from the schema choices above, and both are enforced in code rather
+than left as comments:
+
+1. **`completed_at` is compared as text**, so the cutoff must be the canonical `…Z` form. A `+00:00` offset
+   string sorts *after* the `Z` form of the same instant, which would silently delete the wrong rows rather
+   than fail. Both adapters therefore share one guard, `assertIsoCutoff` in `src/persistence/contract.js`,
+   and refuse anything non-canonical **before** a query runs.
+2. **MySQL deletes in bounded, ordered batches** (default 500 rows per statement, ceiling 5 000) with
+   `ORDER BY completed_at ASC`, because a single `DELETE` matching a year of runs would hold locks and grow
+   the undo log on a shared host, and `DELETE … LIMIT` without an order is non-deterministic — which
+   statement-based replication logs as unsafe. The query uses `ix_wf_analysis_runs_completed`. It reports
+   `exhausted: false` if the batch ceiling is reached with rows still matching, rather than implying the job
+   finished. The file adapter deletes row-by-row through the log's existing `delete` op, so the write-ahead
+   log format, its replay and `compact()` are unchanged.
+
+A dry run is the default and reports the matching count, the oldest and newest affected `completed_at`
+values and the reclaimable payload bytes (`SUM(LENGTH(payload))`) before anything is deleted.
+
+Because `db/pool.js` sets `decimalNumbers: false`, `confidence` comes back from MySQL as a *string*;
+`src/db/analysis-repository.js` converts at the boundary (`Number(row.confidence)`) so both adapters return
+a number. Writes are a single `ON DUPLICATE KEY UPDATE` upsert, and the file adapter mirrors it — pinned by
+a test, because re-running a symbol must update the row rather than duplicate it.
+
+This table accounts for **four** of the contract's 36 methods: `saveAnalysisRun`, `listAnalysisRuns`,
+`findAnalysisRun` and `pruneAnalysisRuns`. Reads are bounded (`limit` 1–100, summaries carry **no**
+payload), so history stays cheap even on a large table; the only way to shrink it is the CLI above.
+
+**Audit rows written by this phase** (existing `wf_audit_events`, no schema change). All six actions use
+`entity_type = 'analysis_run'` and `entity_id = <run id>` — including the risk decision, which is an
+attribute of a run rather than its own entity — and all six carry `actor_user_id` = the signed-in account,
+because analysis is a user action (unlike `marketData.provider.fallback`, where the platform is the actor
+and the column is `NULL`).
+
+| `action_key` | `legacyAction` in `detail_json` | Written when |
+|---|---|---|
+| `analysis.run.completed` | `TRADE_ANALYZED` | every run; also carries `symbol`, `timeframe`, `marketClass`, `regime`, `bias`, `confidence`, `recommendation`, `source`, `synthetic`, `stale` |
+| `analysis.signal.proposed` | `SIGNAL_GENERATED` | a trade setup survived the debate; carries `action`, `entry`, `stopLoss`, `takeProfit`, `riskReward` |
+| `analysis.signal.none` | `NO_SIGNAL` | no setup — mutually exclusive with the row above |
+| `risk.decision.rejected` | `RISK_REJECTED` | a proposal was vetoed; carries `approved:false`, `reasons[]`, `warnings[]` |
+| `risk.decision.approved` | `RISK_APPROVED` | a proposal cleared every gate — **unreachable from an HTTP route on this platform**, because the kill switch is engaged at boot and no ported code path releases it (`PHASE5_ANALYSIS.md` §3.1). It is covered by unit tests that pass `killSwitchActive:false` |
+| `analysis.agent.failed` | `TRADE_REJECTED` | an agent threw; carries `agent` and `error`. The run continues without that agent |
+
+Keeping `legacyAction` in `detail_json` means an audit query written against the PHP platform still finds
+these rows after cutover. The `message` strings reproduce the legacy wording
+(`BTCUSDT 1h: NEUTRAL @ 0.27 confidence`, `ETHUSDT BUY setup proposed (R:R 2.5)`,
+`EURUSD setup rejected by Risk Engine`, `EURUSD 1h: no tradeable setup`).
+
+The file adapter (`STORAGE_ADAPTER=file`) implements the same 35-method repository contract over
+an append-only JSONL log, so every table above has a non-MySQL shape used by tests and local
+rehearsal; it is refused in production unless `ALLOW_FILE_STORE_IN_PRODUCTION=1`.
+
+**Not verified against a real server:** no migration in this set — including 004 — has ever been
+applied by a MySQL/MariaDB instance in this sandbox (F-15). The DDL is unit-checked and
+checksum-verified by the migrator against a fake pool only.
+
 — End of Phase 0 data dictionary.
+
+## 8. Node platform schema — Strategy Lab (Phase 6; `006_strategies.sql`)
+
+Three tables, mirroring the legacy `strategies`, `backtests` and `journal_entries`
+column for column, because those rows are what a lifecycle gate reads and what an
+API payload returns. Platform table count **12 → 15**, all three picked up
+automatically by `tablesFromMigrations()`.
+
+| Table | Key | Notes |
+|---|---|---|
+| `wf_strategies` | **composite** `(strategy_id, version)` | The version is part of the key, not a column on a surrogate row, so a backtest cites the exact code it ran. `market_classes`/`timeframes`/`params`/`lifecycle_history` are JSON in `LONGTEXT` (not MySQL `JSON`) so they survive a `mysqldump` round trip on shared hosting. `source ∈ builtin\|manual\|ai`; `lifecycle ∈ DRAFT\|BACKTESTED\|VALIDATED\|RISK_REVIEWED\|PAPER_TRADING\|APPROVED\|RETIRED` |
+| `wf_backtests` | `id CHAR(36)` | `strategy_id`/`strategy_version`/`symbol`/`timeframe`/`synthetic` **plus** `candles`/`metrics`/`warnings` are denormalised out of `payload` so a listing and the two gate queries never open a `LONGTEXT` blob (DV-11). `trades` and `equityCurve` stay inside it, read only by the detail route |
+| `wf_journal_entries` | `id CHAR(36)` | `source ∈ backtest\|manual\|paper\|live`. Twelve `DECIMAL` money/ratio columns — the pool runs `decimalNumbers: false`, so **both adapters convert them to numbers at their boundary**; the approval gate sums `pnl` and divides gross win by gross loss, and `"-3.00" > 0` is a lexicographic comparison that gives the right answer for the wrong reason |
+
+Timestamps are `VARCHAR(32)` holding canonical ISO-8601 UTC (`…Z`), as
+`wf_analysis_runs` already does: legacy rows are VARCHAR ISO strings so an import
+needs no conversion, and `latestStrategyBacktest` plus the journal listing order by
+them, which is only chronological while every writer uses one format (**DV-2**).
+
+`wf_journal_entries.backtest_id` is deliberately **not** a foreign key — a legacy
+import writes journal and backtest rows in separate passes, and an FK would make
+import order load-bearing. `tools/verify-data.mjs` enforces it instead, on both
+adapters, and can report an orphan rather than refuse the row. `paper_position_id`
+is reserved for row 10 (paper trading); nothing in this migration writes it, but
+legacy rows carry values and dropping the column would lose them on import.
+
+Retention for `wf_backtests` is **not implemented** — recorded as **R-28**, because
+unlike analysis runs these rows are load-bearing evidence for promotions already
+granted.

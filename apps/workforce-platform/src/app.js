@@ -21,12 +21,20 @@ import { randomUUID } from "node:crypto";
 import { AppError, normalizeError } from "./http/errors.js";
 import { createRouter, SUPPORTED_METHODS } from "./http/router.js";
 import { readRawBody, contentTypeOf, parseJsonBody, parseFormBody, parseMultipart, boundaryOf } from "./http/bodies.js";
-import { serveStatic, DEFAULT_DENY_PREFIXES } from "./http/static.js";
+import { resolveStaticFile, serveStatic, DEFAULT_DENY_PREFIXES } from "./http/static.js";
 import { validateRequest, validationDetails, validationMessage } from "./http/validate.js";
 import { applyCorsHeaders, isCrossSiteMutation, resolveCors, securityHeaders } from "./security/headers.js";
-import { createRateLimiter, createLoginGuard } from "./security/ratelimit.js";
+import { createRateLimiter, createLoginGuard, createConcurrencyTracker } from "./security/ratelimit.js";
 import { healthRoutes } from "./modules/platform/health.js";
 import { identityRoutes } from "./modules/identity/routes.js";
+import { siteRoutes } from "./modules/site/routes.js";
+import { createSiteDocuments } from "./modules/site/documents.js";
+import { marketDataRoutes } from "./modules/market-data/routes.js";
+import { createMarketDataService } from "./modules/market-data/service.js";
+import { analysisRoutes } from "./modules/analysis/routes.js";
+import { createAnalysisService } from "./modules/analysis/service.js";
+import { strategyRoutes } from "./modules/strategies/routes.js";
+import { createStrategiesService } from "./modules/strategies/service.js";
 
 const JSON_TYPE = "application/json; charset=utf-8";
 
@@ -116,10 +124,46 @@ export async function buildApp({ config, store, logger = true, publicDir = path.
     lockMs: config.rateLimit?.lockout?.lockMs ?? 900_000,
   });
 
-  await app.register(healthRoutes, { prefix: "/api/v1", store, config, adapter, router });
+  const concurrency = createConcurrencyTracker({ maxEntries: config.rateLimit?.maxEntries ?? 20_000 });
+
+  // One market-data service per app: the provider chain owns in-process caches and
+  // circuit breakers, so both the API routes and the public status snapshot must
+  // read the same instance rather than each building their own view of the world.
+  const marketData = createMarketDataService({ config, store, log: app.log });
+
+  // One analysis engine per app, built on that same market-data service: the engine
+  // reads provider provenance to decide how much to trust its own opinion, so it
+  // must see the same caches, breakers and provenance stamps as the API does.
+  const analysis = createAnalysisService({ store, marketData, log: app.log });
+
+  await app.register(healthRoutes, { prefix: "/api/v1", store, config, adapter, router, marketData, analysis });
   if (config.auth !== false) {
     await app.register(identityRoutes, { prefix: "/api/v1", store, config, loginGuard });
   }
+  // The public site: contact intake over JSON, plus the rendered documents the
+  // transport consults before it falls back to static files.
+  await app.register(siteRoutes, { prefix: "/api/v1", store, config });
+  await app.register(marketDataRoutes, { prefix: "/api/v1", store, config, service: marketData });
+  // The same tracker backs the platform-wide per-address ceiling; the analysis
+  // module keys its slots `analysis:session:<id>` so the two never collide (R-26).
+  await app.register(analysisRoutes, { prefix: "/api/v1", store, config, service: analysis, concurrency });
+  // One Strategy Lab service per app, on that same market-data service: a backtest
+  // reads provider provenance to label its own evidence synthetic-or-not, so it
+  // must see the same caches, breakers and provenance stamps the API sees.
+  const strategies = createStrategiesService({ store, marketData, log: app.log });
+  // Seeding the four builtins is idempotent and runs on every boot, as the legacy
+  // Platform did. A failure is logged rather than fatal: the platform must still
+  // serve documents and every other API on a host whose migration 006 has not been
+  // applied yet, and refusing to boot would turn a missing table into an outage.
+  try {
+    await strategies.seed();
+  } catch (error) {
+    app.log?.warn?.({ err: error }, "strategy builtin seeding failed");
+  }
+  // The same tracker backs the platform-wide ceiling; this module keys its slots
+  // `strategies:session:<id>` so they never collide with `analysis:` ones (R-26).
+  await app.register(strategyRoutes, { prefix: "/api/v1", store, config, service: strategies, marketData, concurrency });
+  const siteDocuments = createSiteDocuments({ config, store, log: app.log, rateLimiter, publicDir });
   for (const extra of config.modules || []) await app.register(extra, { prefix: "/api/v1", store, config, loginGuard });
 
   /** Compatibility alias for the pre-pagination admin surface. */
@@ -154,36 +198,38 @@ export async function buildApp({ config, store, logger = true, publicDir = path.
       return;
     }
     const pathname = parsedUrl.pathname;
+    const client = clientAddress(incoming, config.trustProxy);
+    // `buildRequest` decorates the IncomingMessage itself, so `request === incoming`
+    // for the rest of the pipeline and both branches see the same object.
+    const request = buildRequest(incoming, { requestId, client, parsedUrl });
+    request.pathname = pathname;
 
-    const isApi = pathname.startsWith("/api/");
-    if (!isApi) {
-      if (!["GET", "HEAD"].includes(incoming.method)) {
-        outgoing.setHeader("allow", "GET, HEAD");
-        writeJson(outgoing, 405, { error: { code: "METHOD_NOT_ALLOWED", message: "This resource only supports GET and HEAD" } }, headOnly);
-        return;
-      }
-      try {
-        const served = await serveStatic(incoming, outgoing, {
-          publicRoot: publicDir,
-          pathname,
-          headOnly,
-          denyPrefixes: DEFAULT_DENY_PREFIXES,
-          spaFallback: (candidate, accept) => candidate === "/app" || candidate === "/app/" || (candidate.startsWith("/app/") && accept.includes("text/html")),
-        });
-        if (!served) writeJson(outgoing, 404, { error: { code: "NOT_FOUND", message: "The requested resource was not found" } }, headOnly);
-        logRequest({ incoming, outgoing, requestId, startedAt, pathname, method, status: outgoing.statusCode, kind: "static" });
-      } catch (error) {
-        app.log.error({ requestId, errorCode: error?.code || "STATIC_ERROR" }, "Static response failed");
-        if (outgoing.headersSent) outgoing.destroy();
-        else writeJson(outgoing, 500, { error: { code: "INTERNAL_ERROR", message: "An unexpected error occurred" } }, headOnly);
-      }
+    // Concurrency ceiling (the second half of F-13): a windowed counter limits
+    // rate, this limits what one address can hold open at once. Disabled at 0.
+    if (!concurrency.acquire(client, config.maxRequestsPerClient ?? 0)) {
+      outgoing.setHeader("retry-after", "1");
+      writeJson(outgoing, 429, { error: { code: "TOO_MANY_CONCURRENT_REQUESTS", message: "Too many concurrent requests from this address" } }, headOnly);
+      logRequest({ incoming, outgoing, requestId, startedAt, pathname, method, status: 429, kind: "rejected", errorCode: "TOO_MANY_CONCURRENT_REQUESTS" });
       return;
     }
 
-    outgoing.setHeader("cache-control", "no-store");
-    const client = clientAddress(incoming, config.trustProxy);
-    const request = buildRequest(incoming, { requestId, client, parsedUrl });
+    try {
+      await dispatch(request, outgoing, { requestId, startedAt, pathname, method, headOnly });
+    } finally {
+      concurrency.release(client);
+    }
+  }
+
+  async function dispatch(incoming, outgoing, { requestId, startedAt, pathname, method, headOnly }) {
+    if (!pathname.startsWith("/api/")) {
+      await handleDocument(incoming, outgoing, { requestId, startedAt, pathname, method, headOnly });
+      return;
+    }
+
+    const client = incoming.clientAddress;
+    const request = incoming;
     const reply = createReply(outgoing);
+    outgoing.setHeader("cache-control", "no-store");
 
     try {
       const cors = resolveCors(request, config);
@@ -292,6 +338,59 @@ export async function buildApp({ config, store, logger = true, publicDir = path.
     }
   }
 
+  /**
+   * Everything that is not `/api/*`: rendered public pages, generated SEO
+   * documents, the legacy-compatible contact form, then static files, then a
+   * content-negotiated 404 (HTML for a browser, JSON for a client that asked).
+   */
+  async function handleDocument(incoming, outgoing, { requestId, startedAt, pathname, method, headOnly }) {
+    const allowed = siteDocuments.methodsFor(pathname);
+    if (allowed.length && !allowed.includes(incoming.method)) {
+      outgoing.setHeader("allow", allowed.join(", "));
+      writeJson(outgoing, 405, { error: { code: "METHOD_NOT_ALLOWED", message: "This resource does not support that method" } }, headOnly);
+      logRequest({ incoming, outgoing, requestId, startedAt, pathname, method, status: 405, kind: "document" });
+      return;
+    }
+    if (!["GET", "HEAD"].includes(incoming.method) && allowed.length === 0) {
+      // No document route accepts that verb. 405 only when the path really is a
+      // resource (a static file); otherwise 404 is the honest answer, so a POST
+      // to a made-up path cannot be used to probe which files exist.
+      const existing = await resolveStaticFile(publicDir, pathname, { denyPrefixes: DEFAULT_DENY_PREFIXES }).catch(() => null);
+      if (existing) outgoing.setHeader("allow", "GET, HEAD");
+      writeJson(outgoing, existing ? 405 : 404, existing
+        ? { error: { code: "METHOD_NOT_ALLOWED", message: "This resource only supports GET and HEAD" } }
+        : { error: { code: "NOT_FOUND", message: "The requested resource was not found" } }, headOnly);
+      logRequest({ incoming, outgoing, requestId, startedAt, pathname, method, status: outgoing.statusCode, kind: "document" });
+      return;
+    }
+    try {
+      const rendered = await siteDocuments.handle(incoming, outgoing, { headOnly });
+      if (rendered) {
+        logRequest({ incoming, outgoing, requestId, startedAt, pathname, method, status: outgoing.statusCode, kind: "document" });
+        return;
+      }
+      const served = await serveStatic(incoming, outgoing, {
+        publicRoot: publicDir,
+        pathname,
+        headOnly,
+        denyPrefixes: DEFAULT_DENY_PREFIXES,
+        spaFallback: (candidate, accept) => candidate === "/app" || candidate === "/app/" || (candidate.startsWith("/app/") && accept.includes("text/html")),
+      });
+      if (!served) {
+        // A browser that asked for a page gets the site's own 404; a client that
+        // asked for JSON (or an asset path) keeps the machine-readable one.
+        const wantsHtml = String(incoming.headers.accept || "").includes("text/html");
+        if (wantsHtml) siteDocuments.renderNotFound(incoming, outgoing, { headOnly });
+        else writeJson(outgoing, 404, { error: { code: "NOT_FOUND", message: "The requested resource was not found" } }, headOnly);
+      }
+      logRequest({ incoming, outgoing, requestId, startedAt, pathname, method, status: outgoing.statusCode, kind: "static" });
+    } catch (error) {
+      app.log.error({ requestId, errorCode: error?.code || "DOCUMENT_ERROR", cause: error?.cause?.code }, "Document or static response failed");
+      if (outgoing.headersSent) outgoing.destroy();
+      else writeJson(outgoing, 500, { error: { code: "INTERNAL_ERROR", message: "An unexpected error occurred" } }, headOnly);
+    }
+  }
+
   function buildRequest(incoming, { requestId, client, parsedUrl }) {
     const protocol = config.trustProxy && typeof incoming.headers["x-forwarded-proto"] === "string"
       ? String(incoming.headers["x-forwarded-proto"].split(",")[0]).trim()
@@ -378,7 +477,10 @@ export async function buildApp({ config, store, logger = true, publicDir = path.
     router,
     loginGuard,
     rateLimiter,
+    concurrency,
+    siteDocuments,
     routes: () => router.list(),
+    documents: () => siteDocuments.paths(),
     async listen({ host = config.host, port = config.port } = {}) {
       if (listening) return server.address();
       if (listenPromise) return listenPromise;

@@ -3,6 +3,7 @@ import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { loadConfig } from "../src/config.js";
+import { assertIsoCutoff } from "../src/persistence/contract.js";
 import { buildApp } from "../src/app.js";
 import { createFileStore } from "../src/persistence/file-store.js";
 
@@ -50,6 +51,8 @@ export async function createTestApp({ permissions = ["identity.users.view"], rea
   };
   const sessions = new Map();
   const audits = [];
+  const inquiries = [];
+  const analysisRuns = new Map();
   const passwordUpdates = [];
   const store = {
     adapter: "test",
@@ -112,6 +115,69 @@ export async function createTestApp({ permissions = ["identity.users.view"], rea
     },
     async recordAudit(event) { audits.push(event); },
     async listAuditEvents() { return { total: audits.length, events: audits.map((event, index) => ({ id: index + 1, action: event.action, createdAt: new Date().toISOString(), ...event })) }; },
+    async recordContactInquiry(inquiry) {
+      const id = inquiries.length + 1;
+      const record = { id, status: "new", createdAt: new Date().toISOString(), ...inquiry };
+      inquiries.push(record);
+      return { id, reference: record.reference, createdAt: record.createdAt };
+    },
+    async pageContactInquiries({ limit = 25, offset = 0, search = null, sort = "createdAt", direction = "desc" } = {}) {
+      let rows = [...inquiries];
+      if (search) {
+        const term = String(search).toLowerCase();
+        rows = rows.filter((row) => row.name.toLowerCase().includes(term) || row.email.toLowerCase().includes(term));
+      }
+      const column = { id: "id", createdAt: "createdAt", name: "name", email: "email" }[sort] || "createdAt";
+      const factor = direction === "asc" ? 1 : -1;
+      rows.sort((a, b) => (String(a[column]).localeCompare(String(b[column])) || a.id - b.id) * factor);
+      return { total: rows.length, inquiries: rows.slice(offset, offset + limit) };
+    },
+    /**
+     * Mirrors the durable adapters: `saveAnalysisRun` upserts by id, the listing
+     * returns summaries newest first with no payload, `findAnalysisRun` returns the
+     * stored payload (or null), which is what the route serves, and
+     * `pruneAnalysisRuns` deletes rows strictly older than a validated ISO-8601 UTC
+     * cutoff and reports the same shape both adapters report (risk R-27).
+     */
+    async saveAnalysisRun({ id, symbol, timeframe, bias, confidence, regime, recommendation, synthetic, source, completedAt, payload }) {
+      analysisRuns.set(String(id), {
+        id: String(id), symbol, timeframe, bias, confidence: Number(confidence), regime, recommendation,
+        synthetic: Boolean(synthetic), source, completedAt, payload: payload ?? null,
+      });
+      return { id: String(id), completedAt };
+    },
+    async pruneAnalysisRuns(beforeIso, { dryRun = false } = {}) {
+      const cutoff = assertIsoCutoff(beforeIso);
+      const doomed = [...analysisRuns.values()]
+        .filter((row) => String(row.completedAt) < cutoff)
+        .sort((a, b) => (String(a.completedAt).localeCompare(String(b.completedAt)) || String(a.id).localeCompare(String(b.id))));
+      const report = {
+        matching: doomed.length,
+        deleted: 0,
+        payloadBytes: doomed.reduce((sum, row) => sum + Buffer.byteLength(JSON.stringify(row.payload ?? null), "utf8"), 0),
+        oldest: doomed.length ? String(doomed[0].completedAt) : null,
+        newest: doomed.length ? String(doomed[doomed.length - 1].completedAt) : null,
+        cutoff,
+        batches: 0,
+        exhausted: true,
+        dryRun: Boolean(dryRun),
+      };
+      if (dryRun || doomed.length === 0) return report;
+      for (const row of doomed) analysisRuns.delete(String(row.id));
+      report.deleted = doomed.length;
+      report.batches = 1;
+      return report;
+    },
+    async listAnalysisRuns({ limit = 20 } = {}) {
+      const bounded = Math.min(Math.max(Number.parseInt(limit, 10) || 20, 1), 100);
+      return [...analysisRuns.values()]
+        .sort((a, b) => (String(b.completedAt).localeCompare(String(a.completedAt)) || String(a.id).localeCompare(String(b.id))))
+        .slice(0, bounded)
+        .map(({ payload, ...summary }) => summary);
+    },
+    async findAnalysisRun(id) {
+      return analysisRuns.get(String(id))?.payload ?? null;
+    },
     async listUsers() { return [{ id: 7, username: user.username, email: user.email, status: user.status }]; },
     async pageUsers() { return { total: 1, users: [{ id: 7, username: user.username, email: user.email, status: user.status }] }; },
     async listRoles() { return [{ id: 1, role_key: "platform_member", display_name: "Platform member" }]; },
@@ -119,7 +185,7 @@ export async function createTestApp({ permissions = ["identity.users.view"], rea
   };
   const config = testConfig();
   const app = await buildApp({ config, store, logger: false, publicDir });
-  return { app, store, sessions, audits, user, passwordUpdates };
+  return { app, store, sessions, audits, inquiries, analysisRuns, user, passwordUpdates };
 }
 
 /**

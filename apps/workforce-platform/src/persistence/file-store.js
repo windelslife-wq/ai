@@ -17,17 +17,44 @@
  */
 
 import { open, mkdir, readFile, rename, stat, writeFile } from "node:fs/promises";
+import { assertIsoCutoff } from "./contract.js";
 import { createHash } from "node:crypto";
 import path from "node:path";
 
-const ENTITIES = ["users", "profiles", "sessions", "roles", "permissions", "userRoles", "rolePermissions", "audit"];
+const ENTITIES = ["users", "profiles", "sessions", "roles", "permissions", "userRoles", "rolePermissions", "audit", "inquiries", "analysisRuns", "strategies", "backtests", "journalEntries"];
 const COMPACTION_ENTRIES = 2_000;
+/**
+ * `wf_journal_entries` columns that are DECIMAL in MySQL.
+ *
+ * Kept in step with `JOURNAL_NUMERIC_COLUMNS` in `strategy-repository.js`. Both
+ * adapters must hand callers the same JavaScript types, because the approval gate
+ * sums `pnl` and compares `profitFactor` — a string from one adapter and a number
+ * from the other would make the same evidence produce different verdicts.
+ */
+const JOURNAL_NUMERIC_COLUMNS = Object.freeze([
+  "entry_price",
+  "exit_price",
+  "position_size",
+  "stop_loss",
+  "take_profit",
+  "fees",
+  "slippage",
+  "pnl",
+  "pnl_pct",
+  "r_multiple",
+  "ai_confidence",
+  "risk_score",
+]);
 const USERNAME_PATTERN = /^[a-z][a-z0-9_]{2,19}$/;
 
 function keyOf(entity, record) {
   if (entity === "sessions") return record.tokenHash;
   if (entity === "userRoles") return `${record.userId}:${record.roleId}`;
   if (entity === "rolePermissions") return `${record.roleId}:${record.permissionId}`;
+  // A strategy is identified by (id, version), not by id alone: the lifecycle gates
+  // compare evidence against an exact version, so two versions of one strategy are
+  // two rows, exactly as the MySQL primary key makes them.
+  if (entity === "strategies") return `${record.strategy_id}:${record.version}`;
   return String(record.id);
 }
 
@@ -534,6 +561,287 @@ export async function createFileStore({ dir, logger = console, idFactory = () =>
           createdAt: row.created_at,
         })),
       };
+    },
+
+    // ---- public site: contact intake ------------------------------------
+    /**
+     * Appends one inquiry. The reference is supplied by the caller (the site
+     * service mints it) so both adapters store the same identifier shape, and a
+     * duplicate reference is refused rather than overwriting a visitor's message.
+     */
+    async recordContactInquiry({ reference, name, email, message, clientFingerprint, userAgent = null, requestId = null, createdAt = null }) {
+      if ([...tables.get("inquiries").values()].some((row) => row.reference === reference)) {
+        // References are random 26-character ULIDs, so this is a clock/entropy
+        // fault rather than a user error; refuse the write instead of overwriting
+        // a message that is already on the audit trail.
+        throw new Error(`Duplicate inquiry reference: ${reference}`);
+      }
+      const id = nextId("inquiries");
+      const at = createdAt ? new Date(createdAt).toISOString() : nowIso();
+      await mutate("inquiries", "upsert", {
+        id,
+        reference,
+        name,
+        email,
+        message,
+        client_fingerprint: clientFingerprint,
+        user_agent: userAgent,
+        request_id: requestId,
+        status: "new",
+        handled_by: null,
+        handled_at: null,
+        created_at: at,
+      });
+      return { id, reference, createdAt: at };
+    },
+    async pageContactInquiries({ limit = 25, offset = 0, search = null, status = null, sort = "createdAt", direction = "desc" } = {}) {
+      const boundedLimit = Math.min(Math.max(Number.parseInt(limit, 10) || 25, 1), 200);
+      const boundedOffset = Math.min(Math.max(Number.parseInt(offset, 10) || 0, 0), 1_000_000);
+      let rows = [...tables.get("inquiries").values()];
+      if (search) {
+        const term = String(search).toLowerCase();
+        rows = rows.filter((row) => row.name.toLowerCase().includes(term) || row.email.toLowerCase().includes(term) || row.reference.toLowerCase().includes(term));
+      }
+      if (status) rows = rows.filter((row) => row.status === status);
+      const column = { id: "id", createdAt: "created_at", name: "name", email: "email", status: "status" }[sort] || "created_at";
+      const factor = String(direction).toLowerCase() === "asc" ? 1 : -1;
+      rows.sort((a, b) => (String(a[column]).localeCompare(String(b[column])) || a.id - b.id) * factor);
+      return {
+        total: rows.length,
+        inquiries: rows.slice(boundedOffset, boundedOffset + boundedLimit).map((row) => ({
+          id: row.id,
+          reference: row.reference,
+          name: row.name,
+          email: row.email,
+          message: row.message,
+          status: row.status,
+          clientFingerprint: row.client_fingerprint,
+          userAgent: row.user_agent ?? null,
+          requestId: row.request_id ?? null,
+          handledBy: row.handled_by ?? null,
+          handledAt: row.handled_at ?? null,
+          createdAt: row.created_at,
+        })),
+      };
+    },
+
+    // ---- analysis runs (Phase 5) ----------------------------------------
+    // Keyed by the run's own UUID, so `nextId` is not involved: the engine mints
+    // the identifier and the store only has to be able to find it again.
+    async saveAnalysisRun({ id, symbol, timeframe, bias, confidence, regime, recommendation, synthetic, source, completedAt, payload }) {
+      await mutate("analysisRuns", "upsert", {
+        id: String(id),
+        symbol,
+        timeframe,
+        bias,
+        confidence: Number(confidence),
+        regime,
+        recommendation,
+        synthetic: Boolean(synthetic),
+        source,
+        completed_at: completedAt,
+        payload: payload ?? null,
+      });
+      return { id: String(id), completedAt };
+    },
+
+    async listAnalysisRuns({ limit = 20 } = {}) {
+      const boundedLimit = Math.min(Math.max(Number.parseInt(limit, 10) || 20, 1), 100);
+      const rows = [...tables.get("analysisRuns").values()];
+      // ISO-8601 UTC strings sort chronologically as text; the id is the tie-break
+      // so two runs completed in the same millisecond keep a stable order.
+      rows.sort((a, b) => (String(b.completed_at).localeCompare(String(a.completed_at)) || String(a.id).localeCompare(String(b.id))));
+      return rows.slice(0, boundedLimit).map((row) => ({
+        id: row.id,
+        symbol: row.symbol,
+        timeframe: row.timeframe,
+        bias: row.bias,
+        confidence: Number(row.confidence),
+        regime: row.regime,
+        recommendation: row.recommendation,
+        synthetic: Boolean(row.synthetic),
+        source: row.source,
+        completedAt: row.completed_at,
+      }));
+    },
+
+    async findAnalysisRun(id) {
+      return tables.get("analysisRuns").get(String(id))?.payload ?? null;
+    },
+
+    /**
+     * Retention (risk R-27), mirroring the MySQL adapter's contract and report shape.
+     *
+     * Each row is removed with the log's existing `delete` op rather than a new
+     * "prune" op: the write-ahead log is replayed on every boot and rewritten by
+     * `compact()`, so a new op would have to be understood by both, and an older log
+     * would become unreadable. Row-by-row deletes need no format change and replay
+     * exactly. The cost is one log entry per row, which is acceptable on the adapter
+     * that exists for development and preview — production runs MySQL, where the same
+     * call is a bounded batch delete.
+     *
+     * Rows are visited oldest-first with the same tie-break `listAnalysisRuns` uses,
+     * so the deletion order never depends on map iteration.
+     */
+    async pruneAnalysisRuns(beforeIso, { dryRun = false } = {}) {
+      const cutoff = assertIsoCutoff(beforeIso);
+      const doomed = [...tables.get("analysisRuns").values()]
+        .filter((row) => String(row.completed_at) < cutoff)
+        .sort((a, b) => (String(a.completed_at).localeCompare(String(b.completed_at)) || String(a.id).localeCompare(String(b.id))));
+      const report = {
+        matching: doomed.length,
+        deleted: 0,
+        payloadBytes: doomed.reduce((sum, row) => sum + Buffer.byteLength(JSON.stringify(row.payload ?? null), "utf8"), 0),
+        oldest: doomed.length ? String(doomed[0].completed_at) : null,
+        newest: doomed.length ? String(doomed[doomed.length - 1].completed_at) : null,
+        cutoff,
+        batches: 0,
+        exhausted: true,
+        dryRun: Boolean(dryRun),
+      };
+      if (dryRun || doomed.length === 0) return report;
+      for (const row of doomed) await mutate("analysisRuns", "delete", { id: row.id });
+      report.deleted = doomed.length;
+      report.batches = 1;
+      return report;
+    },
+
+    // ---- strategy lab (Phase 6) -----------------------------------------
+    // Strategies are keyed by (strategy_id, version); backtests and journal
+    // entries by their own id, which the engine mints. The shapes below match
+    // `strategy-repository.js` field for field, including which columns are
+    // denormalised, so the two adapters answer the same query the same way.
+    async saveStrategy(record) {
+      const strategyId = String(record.strategy_id);
+      const version = String(record.version);
+      const existing = tables.get("strategies").get(`${strategyId}:${version}`);
+      await mutate("strategies", "upsert", {
+        ...record,
+        strategy_id: strategyId,
+        version,
+        // `created_at` records when this version first existed. The MySQL adapter
+        // preserves it by omitting the column from its UPDATE list; here the whole
+        // row is replaced, so it has to be carried over explicitly or a strategy
+        // would look newly registered after every stage change.
+        created_at: String(existing?.created_at ?? record.created_at),
+        updated_at: String(record.updated_at),
+      });
+      return { strategy_id: strategyId, version };
+    },
+
+    async findStrategy(strategyId, version) {
+      const row = tables.get("strategies").get(`${String(strategyId)}:${String(version)}`);
+      return row ? structuredClone(row) : null;
+    },
+
+    /**
+     * Ordered `strategy_id ASC, updated_at ASC`, the legacy `all()` ordering.
+     *
+     * It is load-bearing rather than cosmetic: the strategy index groups rows by
+     * id and expects them contiguous, and "latest version" takes the last row of
+     * a group, so within one strategy the most recently updated version must come
+     * last. ISO-8601 UTC strings sort chronologically as text, which is why
+     * migration 006 pins one timestamp format.
+     */
+    async listStrategies() {
+      return [...tables.get("strategies").values()]
+        .sort((a, b) => (
+          String(a.strategy_id).localeCompare(String(b.strategy_id))
+          || String(a.updated_at).localeCompare(String(b.updated_at))
+        ))
+        .map((row) => structuredClone(row));
+    },
+
+    async saveBacktest(record) {
+      const id = String(record.id);
+      await mutate("backtests", "upsert", {
+        id,
+        created_at: String(record.created_at),
+        // Denormalised out of the payload so a listing and the two gate queries can
+        // be answered without opening every stored run.
+        strategy_id: String(record.request?.strategyId ?? ""),
+        strategy_version: String(record.request?.strategyVersion ?? ""),
+        symbol: String(record.request?.symbol ?? ""),
+        timeframe: String(record.request?.timeframe ?? ""),
+        synthetic: Boolean(record.dataProvenance?.synthetic),
+        // The headline parts of a run, promoted out of the payload so a listing can
+        // show them for every row without reading thirty full runs. `trades` and
+        // `equityCurve` stay inside `payload` and are only read by findBacktest.
+        candles: Number(record.dataProvenance?.candles ?? 0),
+        metrics: record.metrics ?? {},
+        warnings: record.warnings ?? [],
+        payload: record,
+      });
+      return { id, created_at: String(record.created_at) };
+    },
+
+    async findBacktest(id) {
+      // A stored run that cannot be read back is a corrupt row, not a missing one;
+      // the payload is whatever `saveBacktest` was handed, so there is nothing to
+      // parse and nothing that can fail here.
+      return structuredClone(tables.get("backtests").get(String(id))?.payload ?? null);
+    },
+
+    async listBacktests({ strategyId = null, limit = 20 } = {}) {
+      const bounded = Math.min(Math.max(Number.parseInt(limit, 10) || 20, 1), 100);
+      const wanted = strategyId === null || strategyId === undefined ? "" : String(strategyId);
+      return [...tables.get("backtests").values()]
+        .filter((row) => !wanted || row.strategy_id === wanted)
+        // Newest first, id as the tie-break so two runs saved in the same
+        // millisecond keep a stable order across calls.
+        .sort((a, b) => (String(b.created_at).localeCompare(String(a.created_at)) || String(a.id).localeCompare(String(b.id))))
+        .slice(0, bounded)
+        // Dropping `payload` is the whole point: the summary keeps the denormalised
+        // columns (including metrics/warnings/candles) and leaves the large arrays
+        // for the detail route.
+        .map(({ payload, ...summary }) => structuredClone(summary));
+    },
+
+    async countStrategyBacktests(strategyId, version) {
+      const id = String(strategyId);
+      const ver = String(version);
+      return [...tables.get("backtests").values()]
+        .filter((row) => row.strategy_id === id && row.strategy_version === ver)
+        .length;
+    },
+
+    async latestStrategyBacktest(strategyId, version) {
+      const id = String(strategyId);
+      const ver = String(version);
+      const rows = [...tables.get("backtests").values()]
+        .filter((row) => row.strategy_id === id && row.strategy_version === ver)
+        .sort((a, b) => (String(b.created_at).localeCompare(String(a.created_at)) || String(a.id).localeCompare(String(b.id))));
+      return rows.length ? structuredClone(rows[0].payload) : null;
+    },
+
+    async saveJournalEntry(entry) {
+      const id = String(entry.id);
+      const row = { ...entry, id };
+      // The money and ratio columns are numbers on the way in and numbers on the
+      // way out. MySQL returns them as strings (decimalNumbers: false) and
+      // `strategy-repository.js` converts them at its boundary; this adapter has no
+      // such boundary, so it coerces on write to keep the two indistinguishable.
+      for (const column of JOURNAL_NUMERIC_COLUMNS) {
+        row[column] = entry[column] === null || entry[column] === undefined ? null : Number(entry[column]);
+      }
+      await mutate("journalEntries", "upsert", row);
+      return { id };
+    },
+
+    async listJournalEntries({ source = null, strategy = null, symbol = null, limit = 200 } = {}) {
+      // 2000 matches the MySQL adapter and the legacy calibration query; see the
+      // note in `strategy-repository.js`.
+      const bounded = Math.min(Math.max(Number.parseInt(limit, 10) || 200, 1), 2_000);
+      return [...tables.get("journalEntries").values()]
+        .filter((row) => {
+          if (source && row.source !== String(source)) return false;
+          if (strategy && row.strategy !== String(strategy)) return false;
+          if (symbol && row.symbol !== String(symbol)) return false;
+          return true;
+        })
+        .sort((a, b) => (String(b.execution_time).localeCompare(String(a.execution_time)) || String(a.id).localeCompare(String(b.id))))
+        .slice(0, bounded)
+        .map((row) => structuredClone(row));
     },
 
     // ---- profile files --------------------------------------------------

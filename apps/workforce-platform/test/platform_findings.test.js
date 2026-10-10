@@ -193,9 +193,12 @@ test("F-03 every verb is declared explicitly: unknown methods get 405 with Allow
   assert.equal(wrongVerb.headers.allow, "POST", "HEAD is only implied where GET exists");
   assert.equal(wrongVerb.json().error.code, "METHOD_NOT_ALLOWED");
 
-  const postToStatic = await app.app.inject({ method: "POST", url: "/index.html" });
-  assert.equal(postToStatic.statusCode, 405);
+  const postToStatic = await app.app.inject({ method: "POST", url: "/styles.css" });
+  assert.equal(postToStatic.statusCode, 405, "a real static resource answers 405 with its verbs");
   assert.equal(postToStatic.headers.allow, "GET, HEAD");
+
+  const postToMissing = await app.app.inject({ method: "POST", url: "/not-a-page" });
+  assert.equal(postToMissing.statusCode, 404, "an unknown path must not reveal itself through 405");
 
   const unknownPath = await app.app.inject({ method: "GET", url: "/api/v1/does-not-exist" });
   assert.equal(unknownPath.statusCode, 404);
@@ -624,7 +627,7 @@ test("F-01 the durable file adapter replays its log, survives a torn write, and 
   const { total, events } = await reopened.listAuditEvents({ userId: user.id });
   assert.equal(total, 1);
   assert.equal(events[0].action, "identity.test");
-  assert.deepEqual(await reopened.stats(), { users: 1, profiles: 1, sessions: 1, roles: 0, permissions: 0, userRoles: 0, rolePermissions: 0, audit: 1 });
+  assert.deepEqual(await reopened.stats(), { users: 1, profiles: 1, sessions: 1, roles: 0, permissions: 0, userRoles: 0, rolePermissions: 0, audit: 1, inquiries: 0, analysisRuns: 0, strategies: 0, backtests: 0, journalEntries: 0 });
 
   await reopened.compact();
   const compacted = (await readFile(fileStorePaths(dir).log, "utf8")).trim();
@@ -657,7 +660,7 @@ test("F-01 the file store and the SQL store implement one repository contract, s
     () => assertRepositoryContract({ adapter: "stub", capabilities: {}, readiness: async () => ({}) }, { adapter: "stub" }),
     /does not implement the repository contract.*findUserByIdentifier/s,
   );
-  assert.equal(REPOSITORY_METHODS.length, 30);
+  assert.equal(REPOSITORY_METHODS.length, 46, "8 identity + 6 session + 9 RBAC + 2 admin + 4 audit/profile + 2 contact intake + 4 analysis runs + 10 strategy lab + 1 readiness");
   assert.equal(file.adapter, "file");
   assert.equal(file.capabilities.durable, true);
   assert.equal(file.capabilities.transactions, false);
@@ -997,22 +1000,40 @@ test("F-02 the status surface is honest about unported modules, and F-03 the rou
   assert.equal(body.trading.enabled, false);
   assert.match(body.trading.reason, /not ported/i);
   assert.equal(body.modules.find((module) => module.key === "identity").state, "ported");
-  assert.equal(body.modules.filter((module) => module.state === "ported").length, 1, "only identity may be claimed as ported in Phase 2");
+  assert.equal(body.modules.find((module) => module.key === "marketData").state, "ported", "market data was ported in Phase 4");
+  assert.equal(body.modules.find((module) => module.key === "analysis").state, "ported", "the analysis engines were ported in Phase 5");
+  assert.equal(body.modules.filter((module) => module.state === "ported").length, 3, "only identity, market data and analysis may be claimed as ported");
   assert.equal(body.modules.find((module) => module.key === "audit").state, "partial");
-  assert.equal(body.modules.filter((module) => module.state === "not-ported").length, 12);
+  // Risk is partial, not ported: the veto gate lives inside analysis, while the
+  // kill-switch control surface and the portfolio snapshot are still legacy-only.
+  assert.equal(body.modules.find((module) => module.key === "risk").state, "partial");
+  assert.equal(body.modules.filter((module) => module.state === "partial").length, 3);
+  assert.equal(body.modules.filter((module) => module.state === "not-ported").length, 9);
+  assert.equal(body.modules.length, 15, "the ledger keeps listing every module, ported or not");
+  // The public status surface carries a market-data snapshot that must not have
+  // probed an external host to produce it.
+  assert.ok(body.marketData && Array.isArray(body.marketData.providers), "status reports the provider registry");
+  assert.ok(body.marketData.providers.every((entry) => entry.status === "UNKNOWN" || typeof entry.status === "string"));
   assert.equal(body.storage.adapter, "file");
   assert.equal(body.readiness.schema, true);
   assert.match(body.version, /@\d+\.\d+\.\d+$/, "the version comes from the package manifest");
   const manifest = JSON.parse(await readFile(path.join(import.meta.dirname, "..", "package.json"), "utf8"));
   assert.equal(body.version, `${manifest.name}@${manifest.version}`);
-  assert.equal(Object.keys(manifest.scripts).filter((name) => ["backup", "restore", "verify:install", "verify:data", "seed:platform", "migrate", "import:identity", "start"].includes(name)).length, 8, "the documented operational commands must exist as scripts");
+  // `prune:analysis` joined the list with R-27: retention is documented as an
+  // operator command in the cPanel instructions, so the script has to exist. The
+  // tool's syntax is already covered by `verify:install` check 1, which walks
+  // `src/` and `tools/`.
+  const operational = ["backup", "restore", "prune:analysis", "verify:install", "verify:data", "seed:platform", "migrate", "import:identity", "start"];
+  const missing = operational.filter((name) => !(name in manifest.scripts));
+  assert.deepEqual(missing, [], "the documented operational commands must exist as scripts");
+  assert.equal(Object.keys(manifest.scripts).filter((name) => operational.includes(name)).length, operational.length);
 
   const routes = await app.app.inject({ method: "GET", url: "/api/v1/system/routes" });
   const inventory = routes.json().routes;
   const adminRoutes = inventory.filter((entry) => entry.path.startsWith("/api/v1/admin/"));
-  assert.equal(adminRoutes.length, 5, "four account-admin routes plus the deprecated identity listing, and no admin route is unguarded");
+  assert.equal(adminRoutes.length, 6, "account-admin routes, the inquiry listing, the deprecated identity listing — and no admin route is unguarded");
   for (const route of adminRoutes) {
-    assert.ok(["identity.users.view", "identity.users.manage"].includes(route.permission), `${route.method} ${route.path} must report its permission in the ledger, got ${route.permission}`);
+    assert.ok(["identity.users.view", "identity.users.manage", "system.super_admin"].includes(route.permission), `${route.method} ${route.path} must report its permission in the ledger, got ${route.permission}`);
   }
   assert.deepEqual(adminRoutes.filter((route) => route.permission === "identity.users.manage").map((route) => route.method).sort(), ["PATCH", "POST"], "writes are the only routes needing manage");
   assert.equal(routes.statusCode, 200);
@@ -1033,6 +1054,10 @@ test("F-02 the status surface is honest about unported modules, and F-03 the rou
   assert.equal(features.statusCode, 200);
   assert.equal(features.json().features.paperTrading, "not-ported");
   assert.equal(features.json().features.identity, "ported");
+  assert.equal(features.json().features.marketData, "ported");
+  assert.equal(features.json().features.analysis, "ported");
+  assert.equal(features.json().features.risk, "partial");
+  assert.equal(features.json().features.execution, "not-ported", "analysis producing proposals must not imply an execution path");
   assert.match(features.json().honesty, /No module is reported as ready/i);
 });
 
@@ -1059,7 +1084,9 @@ test("static serving: a document, an asset and an SPA route are distinguished, a
   assert.equal(document.statusCode, 200);
   assert.match(document.headers["content-type"], /^text\/html/);
   assert.equal(document.headers["cache-control"], "no-cache", "a document must be revalidated so a deploy is visible");
-  assert.match(document.headers.etag, /^W\/"[0-9a-f]+-[0-9a-f]+"$/);
+  // Static files keep the size/mtime weak ETag; generated documents carry a
+  // content hash in the same weak form.
+  assert.match(document.headers.etag, /^W\/"[0-9a-f]+(-[0-9a-f]+)?"$/);
   assert.equal(document.headers["x-content-type-options"], "nosniff");
 
   const asset = await app.inject({ method: "GET", url: "/styles.css" });
