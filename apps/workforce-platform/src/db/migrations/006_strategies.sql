@@ -64,6 +64,18 @@ CREATE TABLE IF NOT EXISTS wf_backtests (
   -- SQL. A synthetic run is not evidence for live trading, and that must be
   -- visible without parsing the payload.
   synthetic TINYINT(1) NOT NULL DEFAULT 0,
+  -- The headline parts of a run, promoted so the results listing can render up to
+  -- thirty rows without opening thirty payloads. `metrics` is ~21 numbers and
+  -- `warnings` a handful of strings; `trades` and `equityCurve` are the large
+  -- parts and stay inside `payload`, which only the detail route reads.
+  --
+  -- The legacy listing decoded every payload to get these (`Api_strategies::
+  -- backtest_results` reads $r['metrics'], $r['warnings'] and
+  -- $r['dataProvenance']['candles']). Splitting small from large keeps that
+  -- response shape while making the listing an indexed column read.
+  candles INT NOT NULL DEFAULT 0,
+  metrics TEXT NOT NULL,
+  warnings TEXT NOT NULL,
   payload LONGTEXT NOT NULL,
   KEY ix_wf_backtests_strategy (strategy_id, strategy_version, created_at),
   KEY ix_wf_backtests_created (created_at)

@@ -305,11 +305,25 @@ test("file adapter round-trips a backtest and returns summaries without payloads
     symbol: "EURUSD",
     timeframe: "1h",
     synthetic: true,
+    candles: 200,
+    metrics: { trades: 40, profitFactor: 1.8, maxDrawdownPct: 12.5, expectancyPnl: 25 },
+    warnings: [],
   });
-  // A listing that carried `payload` would read megabytes to render ten rows.
-  assert.equal("payload" in summary, false, "summaries must not include the payload");
-  assert.equal("metrics" in summary, false);
-  assert.equal("trades" in summary, false);
+  // The headline numbers a listing shows are promoted to columns, because the
+  // legacy listing decoded every payload to reach them. The LARGE parts of a run
+  // stay in the payload for the detail route — that split is the whole point.
+  assert.equal("payload" in summary, false, "a listing must not carry the payload");
+  assert.equal("trades" in summary, false, "the trade list belongs to the detail route");
+  assert.equal("equityCurve" in summary, false, "the equity curve belongs to the detail route");
+  assert.equal("dataProvenance" in summary, false);
+  assert.equal("request" in summary, false);
+  // A promoted column must come back as a deep copy, so a caller that mutates one
+  // listed row cannot corrupt the stored run behind it.
+  summary.metrics.profitFactor = 999;
+  summary.warnings.push("tampered");
+  const reread = await store.findBacktest("bt-1");
+  assert.equal(reread.metrics.profitFactor, 1.8, "mutating a summary must not touch the store");
+  assert.deepEqual(reread.warnings, []);
 });
 
 test("file adapter lists backtests newest first and clamps the limit", async (t) => {
@@ -668,6 +682,7 @@ test("mysql saveBacktest denormalises the payload's identifying fields", async (
 
   assert.match(sql, /INSERT INTO wf_backtests/);
   assert.match(sql, /ON DUPLICATE KEY UPDATE/);
+  assert.equal(sql.split("?").length - 1, 11, "eleven placeholders for eleven columns");
   assert.deepEqual(values, [
     "bt-1",
     NOW,
@@ -676,10 +691,19 @@ test("mysql saveBacktest denormalises the payload's identifying fields", async (
     "EURUSD",
     "1h",
     1,
+    200,
+    JSON.stringify({ trades: 40, profitFactor: 1.8, maxDrawdownPct: 12.5, expectancyPnl: 25 }),
+    "[]",
     JSON.stringify(backtestRecord()),
   ]);
   // `synthetic` is bound as 1/0, not true/false: the column is TINYINT(1).
   assert.equal(values[6], 1);
+  // The promoted columns are bound as JSON text, never interpolated.
+  assert.equal(typeof values[8], "string");
+  assert.equal(values[9], "[]");
+  assert.match(sql, /candles = VALUES\(candles\)/);
+  assert.match(sql, /metrics = VALUES\(metrics\)/);
+  assert.match(sql, /warnings = VALUES\(warnings\)/);
 
   const live = fakePool();
   await createStrategyRepository(live).saveBacktest(
@@ -693,6 +717,9 @@ test("mysql saveBacktest denormalises the payload's identifying fields", async (
   await createStrategyRepository(bare).saveBacktest({ id: "bt-bare", created_at: NOW, request: {} });
   assert.equal(bare.calls[0].values[2], "");
   assert.equal(bare.calls[0].values[6], 0);
+  assert.equal(bare.calls[0].values[7], 0, "candles defaults to 0");
+  assert.equal(bare.calls[0].values[8], "{}", "metrics defaults to an empty object");
+  assert.equal(bare.calls[0].values[9], "[]", "warnings defaults to an empty array");
 });
 
 test("mysql saveJournalEntry binds nulls for absent optional columns", async () => {
@@ -725,6 +752,32 @@ test("mysql saveJournalEntry binds nulls for absent optional columns", async () 
   assert.equal(typeof values[8], "number", "entry_price");
   assert.equal(typeof values[11], "number", "position_size");
   assert.equal(typeof values[14], "number", "fees");
+});
+
+test("mysql listBacktests selects the promoted columns and never the payload", async () => {
+  const pool = fakePool({ rows: [] });
+  await createStrategyRepository(pool).listBacktests({ limit: 5 });
+  const { sql } = pool.calls[0];
+  assert.match(
+    sql,
+    /SELECT id, created_at, strategy_id, strategy_version, symbol, timeframe, synthetic,\s+candles, metrics, warnings/,
+  );
+  // This is the assertion the column promotion exists to make possible: a listing
+  // of thirty runs must not read thirty LONGTEXT payloads.
+  assert.equal(/payload/.test(sql), false, "a listing must never select the payload column");
+  assert.match(sql, /LIMIT 5$/);
+
+  // A corrupt metrics column on one row must not be reported as an empty object,
+  // which would render as "no trades, no edge" rather than as damage.
+  const corrupt = fakePool({ rows: [{ id: "bt-x", metrics: "{not json", warnings: "[]" }] });
+  await assert.rejects(
+    () => createStrategyRepository(corrupt).listBacktests({}),
+    (error) => {
+      assert.equal(error.statusCode, 500);
+      assert.match(error.message, /unreadable JSON column/);
+      return true;
+    },
+  );
 });
 
 test("mysql listStrategies orders by strategy_id then updated_at", async () => {

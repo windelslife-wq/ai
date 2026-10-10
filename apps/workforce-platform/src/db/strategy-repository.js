@@ -20,8 +20,10 @@
  *
  * `listBacktests` returns summary rows and `findBacktest` returns the decoded
  * payload. That split is deliberate: `payload` is a LONGTEXT copy of the whole
- * run (metrics, every trade, the equity curve), so a listing that fetched it
- * would read megabytes to render a table of ten rows.
+ * run (every trade, the equity curve), so a listing that fetched it would read
+ * megabytes to render a table of ten rows. The headline numbers a listing does
+ * show — `metrics`, `warnings`, `candles` — are promoted to their own columns,
+ * which is what makes the split possible without losing route parity.
  */
 
 /** Clamp a caller-supplied LIMIT before it is interpolated into SQL. */
@@ -69,7 +71,15 @@ function strategyRow(row) {
   };
 }
 
-/** Summary projection for a listing: the denormalised columns, never the payload. */
+/**
+ * Summary projection for a listing: the denormalised columns, never the payload.
+ *
+ * `metrics`, `warnings` and `candles` are here because the results listing shows
+ * them for every row, and the legacy listing decoded each payload to get them.
+ * `trades` and `equityCurve` are deliberately absent: they are the large parts of
+ * a run, and only the detail route needs them. That split is what lets thirty rows
+ * be listed with an indexed column read instead of thirty LONGTEXT fetches.
+ */
 function backtestSummary(row) {
   return {
     id: row.id,
@@ -79,6 +89,9 @@ function backtestSummary(row) {
     symbol: row.symbol,
     timeframe: row.timeframe,
     synthetic: Boolean(Number(row.synthetic)),
+    candles: Number(row.candles ?? 0),
+    metrics: decodeJson(row.metrics, {}, `Backtest ${row.id}`),
+    warnings: decodeJson(row.warnings, [], `Backtest ${row.id}`),
   };
 }
 
@@ -191,8 +204,9 @@ export function createStrategyRepository(pool) {
     async saveBacktest(record) {
       await pool.execute(
         `INSERT INTO wf_backtests
-           (id, created_at, strategy_id, strategy_version, symbol, timeframe, synthetic, payload)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+           (id, created_at, strategy_id, strategy_version, symbol, timeframe, synthetic,
+            candles, metrics, warnings, payload)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
          ON DUPLICATE KEY UPDATE
            created_at = VALUES(created_at),
            strategy_id = VALUES(strategy_id),
@@ -200,6 +214,9 @@ export function createStrategyRepository(pool) {
            symbol = VALUES(symbol),
            timeframe = VALUES(timeframe),
            synthetic = VALUES(synthetic),
+           candles = VALUES(candles),
+           metrics = VALUES(metrics),
+           warnings = VALUES(warnings),
            payload = VALUES(payload)`,
         [
           String(record.id),
@@ -209,6 +226,9 @@ export function createStrategyRepository(pool) {
           String(record.request?.symbol ?? ""),
           String(record.request?.timeframe ?? ""),
           Boolean(record.dataProvenance?.synthetic) ? 1 : 0,
+          Number(record.dataProvenance?.candles ?? 0),
+          JSON.stringify(record.metrics ?? {}),
+          JSON.stringify(record.warnings ?? []),
           JSON.stringify(record),
         ],
       );
@@ -240,7 +260,8 @@ export function createStrategyRepository(pool) {
       }
       const where = clauses.length ? `WHERE ${clauses.join(" AND ")}` : "";
       const [rows] = await pool.query(
-        `SELECT id, created_at, strategy_id, strategy_version, symbol, timeframe, synthetic
+        `SELECT id, created_at, strategy_id, strategy_version, symbol, timeframe, synthetic,
+                candles, metrics, warnings
            FROM wf_backtests
            ${where}
           ORDER BY created_at DESC, id ASC

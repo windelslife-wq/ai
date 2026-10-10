@@ -764,6 +764,12 @@ export async function createFileStore({ dir, logger = console, idFactory = () =>
         symbol: String(record.request?.symbol ?? ""),
         timeframe: String(record.request?.timeframe ?? ""),
         synthetic: Boolean(record.dataProvenance?.synthetic),
+        // The headline parts of a run, promoted out of the payload so a listing can
+        // show them for every row without reading thirty full runs. `trades` and
+        // `equityCurve` stay inside `payload` and are only read by findBacktest.
+        candles: Number(record.dataProvenance?.candles ?? 0),
+        metrics: record.metrics ?? {},
+        warnings: record.warnings ?? [],
         payload: record,
       });
       return { id, created_at: String(record.created_at) };
@@ -785,7 +791,10 @@ export async function createFileStore({ dir, logger = console, idFactory = () =>
         // millisecond keep a stable order across calls.
         .sort((a, b) => (String(b.created_at).localeCompare(String(a.created_at)) || String(a.id).localeCompare(String(b.id))))
         .slice(0, bounded)
-        .map(({ payload, ...summary }) => summary);
+        // Dropping `payload` is the whole point: the summary keeps the denormalised
+        // columns (including metrics/warnings/candles) and leaves the large arrays
+        // for the detail route.
+        .map(({ payload, ...summary }) => structuredClone(summary));
     },
 
     async countStrategyBacktests(strategyId, version) {
