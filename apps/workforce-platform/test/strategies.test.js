@@ -1395,8 +1395,9 @@ test("legacy: an adopted AI variant is refused the paper stage without human sig
   assert.equal(stored.source, "ai");
   assert.equal(stored.lifecycle, "DRAFT");
 
-  // Seed the stage directly to reach the paper gate, exactly as the oracle does:
-  // the API path cannot get an AI variant to RISK_REVIEWED at all.
+  // Seed the stage directly to isolate the paper-deployment gate. The API can
+  // reach RISK_REVIEWED only after the separate persisted human sign-off tested
+  // below; this unsigned record must still be refused.
   await repo.save({ ...stored, lifecycle: "RISK_REVIEWED", updated_at: at });
   const gate = await registry.transition("trend-following", "1.0.1", "PAPER_TRADING");
   assert.equal(gate.ok, false);
@@ -1527,6 +1528,7 @@ test("a seeded record carries the full contract and a DRAFT history entry", asyn
   assert.deepEqual(Object.keys(record).sort(), [
     "created_at",
     "description",
+    "human_signoff",
     "lifecycle",
     "lifecycle_history",
     "market_classes",
@@ -1538,7 +1540,7 @@ test("a seeded record carries the full contract and a DRAFT history entry", asyn
     "updated_at",
     "version",
   ]);
-  assert.equal(Object.keys(record).length, 12, "the record shape is a schema");
+  assert.equal(Object.keys(record).length, 13, "the record shape is a schema, including an initially absent human sign-off");
   assert.equal(record.source, "builtin");
   assert.equal(record.lifecycle, "DRAFT");
   assert.deepEqual(record.params, { ...MOMENTUM_DEFAULTS });
@@ -1729,6 +1731,42 @@ test("riskReview refuses an AI-sourced strategy at the review gate", async () =>
   assert.deepEqual(ai.reasons, [AI_SIGNOFF_REQUIRED_PAPER]);
 });
 
+test("persisted human sign-off unlocks only the next AI lifecycle gate and preserves provenance", async () => {
+  const { registry, repo, audit } = await seededRegistry();
+  const base = await repo.find("trend-following", "1.0.0");
+  const ai = { ...base, source: "ai", lifecycle: "VALIDATED", human_signoff: null };
+  await repo.save(ai);
+
+  const signoff = await registry.signOffAiStrategy("trend-following", "1.0.0", {
+    actorId: 42,
+    reason: "Reviewed the stop, exposure, and drawdown controls.",
+  });
+  assert.equal(signoff.ok, true);
+  assert.equal(signoff.strategy.source, "ai");
+  assert.equal(signoff.strategy.lifecycle, "VALIDATED", "recording sign-off cannot promote the stage");
+  assert.equal(signoff.signoff.actorId, 42);
+  assert.equal(signoff.signoff.permission, "trading.control");
+  assert.equal(signoff.signoff.stage, "VALIDATED");
+  assert.match(signoff.signoff.signedAt, /^\d{4}-\d{2}-\d{2}T/);
+
+  const stored = await repo.find("trend-following", "1.0.0");
+  assert.deepEqual(stored.human_signoff, signoff.signoff);
+  assert.equal(registry.riskReview(stored).ok, true);
+  const duplicate = await registry.signOffAiStrategy("trend-following", "1.0.0", {
+    actorId: 99,
+    reason: "Attempt to replace the first human decision.",
+  });
+  assert.equal(duplicate.ok, false);
+  assert.match(duplicate.reasons.join(";"), /already been recorded/);
+  assert.equal((await repo.find("trend-following", "1.0.0")).human_signoff.actorId, 42);
+  assert.equal(audit.events.filter((event) => event.action === "strategies.ai-human-risk-signoff").length, 1);
+
+  const promoted = await registry.transition("trend-following", "1.0.0", "RISK_REVIEWED", null, 42);
+  assert.equal(promoted.ok, true);
+  assert.equal(promoted.strategy.source, "ai");
+  assert.equal(promoted.strategy.lifecycle, "RISK_REVIEWED");
+});
+
 test("canDeployToPaper requires RISK_REVIEWED and refuses AI sources", async () => {
   const { registry, repo } = await seededRegistry();
   const base = await repo.find("trend-following", "1.0.0");
@@ -1841,6 +1879,22 @@ test("approvalReview refuses thin, losing and break-even paper evidence", async 
   assert.match(breakEvenReport.reasons.join(" | "), /Paper expectancy is negative/);
 });
 
+test("approvalReview excludes synthetic paper trades from live-approval evidence", async () => {
+  const genuine = paperEvidence("trend-following", 10).slice(0, 5);
+  const synthetic = paperEvidence("trend-following", 10).slice(5).map((trade) => ({ ...trade, synthetic: true }));
+  const journal = fakeJournal([...genuine, ...synthetic]);
+  const registry = createStrategyRegistry({ repo: fakeRepo(), journal });
+  const record = newStrategyRecord(createTrendFollowingStrategy(), "builtin", isoUtc(FIXTURE_NOW));
+
+  const report = await registry.approvalReview({ ...record, lifecycle: "PAPER_TRADING" });
+  assert.equal(report.ok, false, "five synthetic trades cannot make ten-trade approval evidence");
+  assert.equal(report.evidence.paperTrades, 5);
+  assert.equal(report.evidence.syntheticTradesExcluded, 5);
+  assert.match(report.reasons.join(" | "), /evidence too thin: 5 closed paper trades/);
+  assert.match(report.warnings.join(" | "), /5 synthetic-data paper trades were excluded/);
+  assert.equal(report.evidence.netPnl, 50, "synthetic P&L is absent from the live evidence total");
+});
+
 test("approvalReview warns on an implausibly high paper profit factor", async () => {
   const journal = fakeJournal([
     ...paperEvidence("trend-following", 100).slice(0, 9),
@@ -1942,6 +1996,7 @@ test("APPROVED returns the paper evidence it was granted on", async () => {
   assert.equal(result.ok, true);
   assert.deepEqual(result.evidence, {
     paperTrades: MIN_PAPER_TRADES_FOR_APPROVAL,
+    syntheticTradesExcluded: 0,
     profitFactor: null,
     netPnl: 200,
   });

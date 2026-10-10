@@ -21,7 +21,8 @@ import { assertIsoCutoff } from "./contract.js";
 import { createHash } from "node:crypto";
 import path from "node:path";
 
-const ENTITIES = ["users", "profiles", "sessions", "roles", "permissions", "userRoles", "rolePermissions", "audit", "inquiries", "analysisRuns", "strategies", "backtests", "journalEntries"];
+const ENTITIES = ["users", "profiles", "sessions", "roles", "permissions", "userRoles", "rolePermissions", "audit", "inquiries", "analysisRuns", "strategies", "backtests", "journalEntries", "tradingState", "paperAccounts", "paperOrders", "paperPositions", "paperTrades", "paperDeployments"];
+const PAPER_TX_ENTITIES = Object.freeze(["tradingState", "paperAccounts", "paperOrders", "paperPositions", "paperTrades", "paperDeployments", "strategies", "journalEntries", "audit"]);
 const COMPACTION_ENTRIES = 2_000;
 /**
  * `wf_journal_entries` columns that are DECIMAL in MySQL.
@@ -55,6 +56,7 @@ function keyOf(entity, record) {
   // compare evidence against an exact version, so two versions of one strategy are
   // two rows, exactly as the MySQL primary key makes them.
   if (entity === "strategies") return `${record.strategy_id}:${record.version}`;
+  if (entity === "tradingState") return String(record.key || "global");
   return String(record.id);
 }
 
@@ -139,6 +141,16 @@ export async function createFileStore({ dir, logger = console, idFactory = () =>
   }
 
   function apply(entry, { persist = true }) {
+    if (entry.op === "batch") {
+      for (const change of entry.changes || []) {
+        const table = tables.get(change.entity);
+        if (!table) continue;
+        if (change.op === "delete") table.delete(change.key);
+        else table.set(change.key, change.value);
+      }
+      if (typeof entry.sequence === "number" && entry.sequence > sequence) sequence = entry.sequence;
+      return;
+    }
     if (entry.op === "snapshot") {
       for (const entity of ENTITIES) {
         const table = tables.get(entity);
@@ -156,7 +168,7 @@ export async function createFileStore({ dir, logger = console, idFactory = () =>
     if (!persist) return;
   }
 
-  async function persist(entry) {
+  async function persist(entry, { compactAfter = true } = {}) {
     sequence += 1;
     const record = { ...entry, sequence };
     const line = Buffer.from(`${JSON.stringify(record)}\n`, "utf8");
@@ -167,7 +179,7 @@ export async function createFileStore({ dir, logger = console, idFactory = () =>
     // durability promise in the header comment would be false.
     if (syncWrites) await file.sync();
     appendCount += 1;
-    if (appendCount >= COMPACTION_ENTRIES) await compact();
+    if (compactAfter && appendCount >= COMPACTION_ENTRIES) await compact();
   }
 
   /**
@@ -188,6 +200,11 @@ export async function createFileStore({ dir, logger = console, idFactory = () =>
     appendCount = 1;
   }
 
+  function enqueue(run) {
+    queue = queue.then(run, run);
+    return queue;
+  }
+
   async function mutate(entity, op, record) {
     const key = keyOf(entity, record);
     const run = async () => {
@@ -197,13 +214,220 @@ export async function createFileStore({ dir, logger = console, idFactory = () =>
       apply({ entity, key, op, value: value ? sanitize(value) : undefined }, { persist: false });
       await persist({ entity, key, op, value: op === "delete" ? null : sanitize(record) });
     };
-    queue = queue.then(run, run);
-    return queue;
+    return enqueue(run);
   }
 
   function sanitize(value) {
     const { replace, ...rest } = value;
     return rest;
+  }
+
+  /**
+   * File-adapter equivalent of the paper repository transaction. All affected
+   * rows are changed in a private working copy, appended as one WAL batch, then
+   * exposed together. The queue is the single-process serialization boundary;
+   * this adapter still does not claim multi-process safety.
+   */
+  async function withPaperTransaction(work) {
+    if (typeof work !== "function") throw new TypeError("paper transaction requires a callback");
+    const run = async () => {
+      const working = new Map(PAPER_TX_ENTITIES.map((entity) => [
+        entity,
+        new Map([...tables.get(entity).entries()].map(([key, value]) => [key, structuredClone(value)])),
+      ]));
+      const txRows = (entity) => [...working.get(entity).values()];
+      const txGet = (entity, key) => working.get(entity).get(String(key)) ?? null;
+      const txPut = (entity, record) => {
+        const value = structuredClone(sanitize(record));
+        working.get(entity).set(keyOf(entity, value), value);
+        return structuredClone(value);
+      };
+      const txId = (entity) => {
+        let id = 1;
+        while (working.get(entity).has(String(id))) id += 1;
+        return id;
+      };
+      const accountOwned = (accountId, ownerUserId = null) => {
+        const account = txGet("paperAccounts", accountId);
+        return account && (ownerUserId === null || ownerUserId === undefined || String(account.owner_user_id) === String(ownerUserId))
+          ? account
+          : null;
+      };
+      const tx = {
+        async loadTradingState() {
+          const stored = txGet("tradingState", "global");
+          return stored ? { ...structuredClone(stored.state), updatedByUserId: stored.updatedByUserId ?? null, updatedAt: stored.updatedAt ?? null } : null;
+        },
+        async saveTradingState(state, { updatedByUserId = null, updatedAt = nowIso() } = {}) {
+          const { updatedByUserId: _oldActor, updatedAt: _oldAt, ...stateJson } = state;
+          txPut("tradingState", { key: "global", state: stateJson, updatedByUserId, updatedAt });
+          return { ...stateJson, updatedByUserId, updatedAt };
+        },
+        async createPaperAccount(record) {
+          const id = txId("paperAccounts");
+          return txPut("paperAccounts", { ...record, id, revision: Number(record.revision ?? 0) });
+        },
+        async savePaperAccount(record) {
+          if (!record.id) return this.createPaperAccount(record);
+          if (!accountOwned(record.id, record.owner_user_id)) return null;
+          return txPut("paperAccounts", { ...txGet("paperAccounts", record.id), ...record, revision: Number(record.revision ?? 0) });
+        },
+        async findPaperAccount(id, ownerUserId = null) {
+          const account = accountOwned(id, ownerUserId);
+          return account ? structuredClone(account) : null;
+        },
+        async listPaperAccounts(ownerUserId = null, limit = 500) {
+          const bounded = Math.min(Math.max(Number.parseInt(limit, 10) || 500, 1), 5_000);
+          return txRows("paperAccounts")
+            .filter((account) => ownerUserId === null || ownerUserId === undefined || String(account.owner_user_id) === String(ownerUserId))
+            .sort((a, b) => Number(a.id) - Number(b.id))
+            .slice(0, bounded)
+            .map((account) => structuredClone(account));
+        },
+        async markPaperAccountPeak(id, ownerUserId, equity) {
+          const account = accountOwned(id, ownerUserId);
+          if (!account) return null;
+          if (Number(equity) > Number(account.peak_equity)) {
+            return txPut("paperAccounts", { ...account, peak_equity: Number(equity), revision: Number(account.revision || 0) + 1 });
+          }
+          return structuredClone(account);
+        },
+        async savePaperOrder(record) {
+          if (record.id) return txPut("paperOrders", record);
+          return txPut("paperOrders", { ...record, id: txId("paperOrders") });
+        },
+        async findPaperOrder(id, accountId) {
+          const row = txGet("paperOrders", id);
+          return row && String(row.account_id) === String(accountId) ? structuredClone(row) : null;
+        },
+        async listPaperOrders({ accountId, ownerUserId = null, status = null, limit = 200 } = {}) {
+          if (!accountOwned(accountId, ownerUserId)) return [];
+          const bounded = Math.min(Math.max(Number.parseInt(limit, 10) || 200, 1), 2_000);
+          return txRows("paperOrders")
+            .filter((row) => String(row.account_id) === String(accountId) && (!status || row.status === status))
+            .sort((a, b) => Number(b.id) - Number(a.id)).slice(0, bounded).map((row) => structuredClone(row));
+        },
+        async findOpenPaperOrder(accountId, symbol) {
+          return txRows("paperOrders")
+            .filter((row) => String(row.account_id) === String(accountId) && row.symbol === String(symbol) && row.status === "PENDING")
+            .sort((a, b) => Number(b.id) - Number(a.id)).map((row) => structuredClone(row))[0] ?? null;
+        },
+        async listAllPendingPaperOrders(limit = 2_000) {
+          const bounded = Math.min(Math.max(Number.parseInt(limit, 10) || 2_000, 1), 5_000);
+          return txRows("paperOrders").filter((row) => row.status === "PENDING")
+            .sort((a, b) => Number(a.id) - Number(b.id)).slice(0, bounded).map((row) => structuredClone(row));
+        },
+        async savePaperPosition(record) {
+          if (record.id) return txPut("paperPositions", record);
+          return txPut("paperPositions", { ...record, id: txId("paperPositions") });
+        },
+        async findPaperPosition(accountId, positionId, ownerUserId = null) {
+          if (!accountOwned(accountId, ownerUserId)) return null;
+          const row = txGet("paperPositions", positionId);
+          return row && String(row.account_id) === String(accountId) ? structuredClone(row) : null;
+        },
+        async findOpenPaperPosition(accountId, symbol) {
+          return txRows("paperPositions")
+            .filter((row) => String(row.account_id) === String(accountId) && row.symbol === String(symbol) && row.status === "OPEN")
+            .sort((a, b) => Number(b.id) - Number(a.id)).map((row) => structuredClone(row))[0] ?? null;
+        },
+        async listPaperPositions({ accountId, ownerUserId = null, status = null, limit = 200 } = {}) {
+          if (!accountOwned(accountId, ownerUserId)) return [];
+          const bounded = Math.min(Math.max(Number.parseInt(limit, 10) || 200, 1), 2_000);
+          return txRows("paperPositions")
+            .filter((row) => String(row.account_id) === String(accountId) && (!status || row.status === status))
+            .sort((a, b) => Number(b.id) - Number(a.id)).slice(0, bounded).map((row) => structuredClone(row));
+        },
+        async savePaperTrade(record) {
+          if (record.id) throw new TypeError("paper trade legs are append-only");
+          return txPut("paperTrades", { ...record, id: txId("paperTrades") });
+        },
+        async listPaperTrades({ accountId, ownerUserId = null, limit = 1_000 } = {}) {
+          if (!accountOwned(accountId, ownerUserId)) return [];
+          const bounded = Math.min(Math.max(Number.parseInt(limit, 10) || 1_000, 1), 5_000);
+          return txRows("paperTrades")
+            .filter((row) => String(row.account_id) === String(accountId))
+            .sort((a, b) => Number(b.id) - Number(a.id)).slice(0, bounded)
+            .map((row) => ({ ...structuredClone(row), net_pnl: row.leg === "EXIT" ? (txGet("paperPositions", row.position_id)?.realized_pnl ?? 0) : null }));
+        },
+        async savePaperDeployment(record) {
+          if (record.id) return txPut("paperDeployments", record);
+          return txPut("paperDeployments", { ...record, id: txId("paperDeployments") });
+        },
+        async findPaperDeployment(id, ownerUserId = null) {
+          const row = txGet("paperDeployments", id);
+          return row && accountOwned(row.account_id, ownerUserId) ? structuredClone(row) : null;
+        },
+        async listPaperDeployments({ accountId = null, ownerUserId = null, active = null, limit = 500 } = {}) {
+          const bounded = Math.min(Math.max(Number.parseInt(limit, 10) || 500, 1), 5_000);
+          return txRows("paperDeployments")
+            .filter((row) => (accountId === null || accountId === undefined || String(row.account_id) === String(accountId))
+              && (active === null || active === undefined || Boolean(row.active) === Boolean(active))
+              && Boolean(accountOwned(row.account_id, ownerUserId)))
+            .sort((a, b) => Number(a.id) - Number(b.id)).slice(0, bounded).map((row) => structuredClone(row));
+        },
+        async listAllActivePaperDeployments(limit = 2_000) {
+          const bounded = Math.min(Math.max(Number.parseInt(limit, 10) || 2_000, 1), 5_000);
+          return txRows("paperDeployments").filter((row) => Boolean(row.active))
+            .sort((a, b) => Number(a.id) - Number(b.id)).slice(0, bounded).map((row) => structuredClone(row));
+        },
+        async findStrategy(strategyId, version) {
+          const row = txGet("strategies", `${String(strategyId)}:${String(version)}`);
+          return row ? structuredClone(row) : null;
+        },
+        async saveStrategy(record) {
+          const key = `${String(record.strategy_id)}:${String(record.version)}`;
+          const existing = txGet("strategies", key);
+          return txPut("strategies", {
+            ...record,
+            strategy_id: String(record.strategy_id),
+            version: String(record.version),
+            created_at: String(existing?.created_at ?? record.created_at),
+            updated_at: String(record.updated_at),
+          });
+        },
+        async saveJournalEntry(entry) {
+          const id = String(entry.id);
+          const row = { ...entry, id, synthetic: Boolean(entry.synthetic) };
+          for (const column of JOURNAL_NUMERIC_COLUMNS) row[column] = entry[column] === null || entry[column] === undefined ? null : Number(entry[column]);
+          return txPut("journalEntries", row);
+        },
+        async recordAudit({ actorId = null, action, entityType = null, entityId = null, details = {} }) {
+          return txPut("audit", {
+            id: txId("audit"),
+            actor_user_id: actorId === null || actorId === undefined ? null : Number(actorId),
+            action_key: action,
+            entity_type: entityType,
+            entity_id: entityId === null || entityId === undefined ? null : String(entityId),
+            detail_json: details ?? {},
+            created_at: nowIso(),
+          });
+        },
+      };
+
+      const result = await work(tx);
+      const changes = [];
+      for (const entity of PAPER_TX_ENTITIES) {
+        const before = tables.get(entity);
+        const after = working.get(entity);
+        const keys = new Set([...before.keys(), ...after.keys()]);
+        for (const key of keys) {
+          const oldValue = before.get(key);
+          const newValue = after.get(key);
+          if (JSON.stringify(oldValue) === JSON.stringify(newValue)) continue;
+          changes.push(newValue === undefined
+            ? { entity, key, op: "delete", value: null }
+            : { entity, key, op: "upsert", value: sanitize(structuredClone(newValue)) });
+        }
+      }
+      if (changes.length) {
+        await persist({ op: "batch", changes }, { compactAfter: false });
+        apply({ op: "batch", changes, sequence }, { persist: false });
+        if (appendCount >= COMPACTION_ENTRIES) await compact();
+      }
+      return result;
+    };
+    return enqueue(run);
   }
 
   await load();
@@ -729,6 +953,20 @@ export async function createFileStore({ dir, logger = console, idFactory = () =>
       return { strategy_id: strategyId, version };
     },
 
+    async recordStrategyHumanSignoff(strategyId, version, signoff, updatedAt) {
+      const run = async () => {
+        const key = `${String(strategyId)}:${String(version)}`;
+        const existing = tables.get("strategies").get(key);
+        if (!existing || existing.source !== "ai" || existing.lifecycle !== "VALIDATED" || existing.human_signoff) return false;
+        const updated = { ...existing, human_signoff: structuredClone(signoff), updated_at: String(updatedAt) };
+        await persist({ entity: "strategies", key, op: "upsert", value: sanitize(updated) }, { compactAfter: false });
+        apply({ entity: "strategies", key, op: "upsert", value: sanitize(updated), sequence }, { persist: false });
+        if (appendCount >= COMPACTION_ENTRIES) await compact();
+        return true;
+      };
+      return enqueue(run);
+    },
+
     async findStrategy(strategyId, version) {
       const row = tables.get("strategies").get(`${String(strategyId)}:${String(version)}`);
       return row ? structuredClone(row) : null;
@@ -816,7 +1054,7 @@ export async function createFileStore({ dir, logger = console, idFactory = () =>
 
     async saveJournalEntry(entry) {
       const id = String(entry.id);
-      const row = { ...entry, id };
+      const row = { ...entry, id, synthetic: Boolean(entry.synthetic) };
       // The money and ratio columns are numbers on the way in and numbers on the
       // way out. MySQL returns them as strings (decimalNumbers: false) and
       // `strategy-repository.js` converts them at its boundary; this adapter has no
@@ -842,6 +1080,122 @@ export async function createFileStore({ dir, logger = console, idFactory = () =>
         .sort((a, b) => (String(b.execution_time).localeCompare(String(a.execution_time)) || String(a.id).localeCompare(String(b.id))))
         .slice(0, bounded)
         .map((row) => structuredClone(row));
+    },
+
+    // ---- paper trading + persisted governance (Phase 7) -----------------
+    async withPaperTransaction(work) {
+      return withPaperTransaction(work);
+    },
+    async loadTradingState() {
+      const stored = tables.get("tradingState").get("global");
+      return stored ? { ...structuredClone(stored.state), updatedByUserId: stored.updatedByUserId ?? null, updatedAt: stored.updatedAt ?? null } : null;
+    },
+    async saveTradingState(state, options = {}) {
+      return withPaperTransaction((tx) => tx.saveTradingState(state, options));
+    },
+    async createPaperAccount(record) {
+      return withPaperTransaction((tx) => tx.createPaperAccount(record));
+    },
+    async savePaperAccount(record) {
+      return withPaperTransaction((tx) => tx.savePaperAccount(record));
+    },
+    async findPaperAccount(id, ownerUserId = null) {
+      const row = tables.get("paperAccounts").get(String(id));
+      if (!row || (ownerUserId !== null && ownerUserId !== undefined && String(row.owner_user_id) !== String(ownerUserId))) return null;
+      return structuredClone(row);
+    },
+    async listPaperAccounts(ownerUserId = null, limit = 500) {
+      const bounded = Math.min(Math.max(Number.parseInt(limit, 10) || 500, 1), 5_000);
+      return [...tables.get("paperAccounts").values()]
+        .filter((row) => ownerUserId === null || ownerUserId === undefined || String(row.owner_user_id) === String(ownerUserId))
+        .sort((a, b) => Number(a.id) - Number(b.id)).slice(0, bounded).map((row) => structuredClone(row));
+    },
+    async markPaperAccountPeak(id, ownerUserId, equity) {
+      return withPaperTransaction((tx) => tx.markPaperAccountPeak(id, ownerUserId, equity));
+    },
+    async savePaperOrder(record) {
+      return withPaperTransaction((tx) => tx.savePaperOrder(record));
+    },
+    async findPaperOrder(id, accountId) {
+      const row = tables.get("paperOrders").get(String(id));
+      return row && String(row.account_id) === String(accountId) ? structuredClone(row) : null;
+    },
+    async listPaperOrders({ accountId, ownerUserId = null, status = null, limit = 200 } = {}) {
+      const account = await store.findPaperAccount(accountId, ownerUserId);
+      if (!account) return [];
+      const bounded = Math.min(Math.max(Number.parseInt(limit, 10) || 200, 1), 2_000);
+      return [...tables.get("paperOrders").values()]
+        .filter((row) => String(row.account_id) === String(accountId) && (!status || row.status === status))
+        .sort((a, b) => Number(b.id) - Number(a.id)).slice(0, bounded).map((row) => structuredClone(row));
+    },
+    async findOpenPaperOrder(accountId, symbol) {
+      const rows = [...tables.get("paperOrders").values()]
+        .filter((row) => String(row.account_id) === String(accountId) && row.symbol === String(symbol) && row.status === "PENDING")
+        .sort((a, b) => Number(b.id) - Number(a.id));
+      return rows.length ? structuredClone(rows[0]) : null;
+    },
+    async listAllPendingPaperOrders(limit = 2_000) {
+      const bounded = Math.min(Math.max(Number.parseInt(limit, 10) || 2_000, 1), 5_000);
+      return [...tables.get("paperOrders").values()].filter((row) => row.status === "PENDING")
+        .sort((a, b) => Number(a.id) - Number(b.id)).slice(0, bounded).map((row) => structuredClone(row));
+    },
+    async savePaperPosition(record) {
+      return withPaperTransaction((tx) => tx.savePaperPosition(record));
+    },
+    async findPaperPosition(accountId, positionId, ownerUserId = null) {
+      const account = await store.findPaperAccount(accountId, ownerUserId);
+      const row = tables.get("paperPositions").get(String(positionId));
+      return account && row && String(row.account_id) === String(accountId) ? structuredClone(row) : null;
+    },
+    async findOpenPaperPosition(accountId, symbol) {
+      const rows = [...tables.get("paperPositions").values()]
+        .filter((row) => String(row.account_id) === String(accountId) && row.symbol === String(symbol) && row.status === "OPEN")
+        .sort((a, b) => Number(b.id) - Number(a.id));
+      return rows.length ? structuredClone(rows[0]) : null;
+    },
+    async listPaperPositions({ accountId, ownerUserId = null, status = null, limit = 200 } = {}) {
+      const account = await store.findPaperAccount(accountId, ownerUserId);
+      if (!account) return [];
+      const bounded = Math.min(Math.max(Number.parseInt(limit, 10) || 200, 1), 2_000);
+      return [...tables.get("paperPositions").values()]
+        .filter((row) => String(row.account_id) === String(accountId) && (!status || row.status === status))
+        .sort((a, b) => Number(b.id) - Number(a.id)).slice(0, bounded).map((row) => structuredClone(row));
+    },
+    async savePaperTrade(record) {
+      return withPaperTransaction((tx) => tx.savePaperTrade(record));
+    },
+    async listPaperTrades({ accountId, ownerUserId = null, limit = 1_000 } = {}) {
+      const account = await store.findPaperAccount(accountId, ownerUserId);
+      if (!account) return [];
+      const bounded = Math.min(Math.max(Number.parseInt(limit, 10) || 1_000, 1), 5_000);
+      return [...tables.get("paperTrades").values()]
+        .filter((row) => String(row.account_id) === String(accountId))
+        .sort((a, b) => Number(b.id) - Number(a.id)).slice(0, bounded)
+        .map((row) => ({ ...structuredClone(row), net_pnl: row.leg === "EXIT" ? (tables.get("paperPositions").get(String(row.position_id))?.realized_pnl ?? 0) : null }));
+    },
+    async savePaperDeployment(record) {
+      return withPaperTransaction((tx) => tx.savePaperDeployment(record));
+    },
+    async findPaperDeployment(id, ownerUserId = null) {
+      const row = tables.get("paperDeployments").get(String(id));
+      const account = row ? await store.findPaperAccount(row.account_id, ownerUserId) : null;
+      return row && account ? structuredClone(row) : null;
+    },
+    async listPaperDeployments({ accountId = null, ownerUserId = null, active = null, limit = 500 } = {}) {
+      const bounded = Math.min(Math.max(Number.parseInt(limit, 10) || 500, 1), 5_000);
+      const ownerAccounts = ownerUserId === null || ownerUserId === undefined
+        ? null
+        : new Set((await store.listPaperAccounts(ownerUserId, 5_000)).map((account) => String(account.id)));
+      return [...tables.get("paperDeployments").values()]
+        .filter((row) => (accountId === null || accountId === undefined || String(row.account_id) === String(accountId))
+          && (active === null || active === undefined || Boolean(row.active) === Boolean(active))
+          && (!ownerAccounts || ownerAccounts.has(String(row.account_id))))
+        .sort((a, b) => Number(a.id) - Number(b.id)).slice(0, bounded).map((row) => structuredClone(row));
+    },
+    async listAllActivePaperDeployments(limit = 2_000) {
+      const bounded = Math.min(Math.max(Number.parseInt(limit, 10) || 2_000, 1), 5_000);
+      return [...tables.get("paperDeployments").values()].filter((row) => Boolean(row.active))
+        .sort((a, b) => Number(a.id) - Number(b.id)).slice(0, bounded).map((row) => structuredClone(row));
     },
 
     // ---- profile files --------------------------------------------------

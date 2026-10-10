@@ -16,6 +16,7 @@
  */
 
 import assert from "node:assert/strict";
+import bcrypt from "bcryptjs";
 import test from "node:test";
 
 import { cookieFrom, createFileStoreApp } from "./helpers.js";
@@ -53,6 +54,26 @@ async function signIn(app) {
   };
 }
 
+async function signInUnprivileged(app, store) {
+  await store.createUser({
+    username: "paperreviewer",
+    email: "paperreviewer@example.test",
+    passwordHash: await bcrypt.hash("Reviewer pass phrase", 4),
+    displayName: "Paper Reviewer",
+  });
+  const response = await app.inject({
+    method: "POST",
+    url: "/api/v1/auth/login",
+    payload: { identifier: "paperreviewer", password: "Reviewer pass phrase" },
+  });
+  assert.equal(response.statusCode, 200, response.body);
+  const body = response.json();
+  return {
+    cookie: cookieFrom(response),
+    headers: { cookie: cookieFrom(response), "x-csrf-token": body.csrfToken },
+  };
+}
+
 function harness(options = {}) {
   return createFileStoreApp({
     configOverrides: { env: { ...STRATEGIES_ENV, ...(options.env || {}) } },
@@ -78,7 +99,7 @@ const RUN_BODY = Object.freeze({
 // surface and authentication
 // ============================================================================
 
-test("the seven Strategy Lab routes are registered under /api/v1", async () => {
+test("the eight Strategy Lab routes are registered under /api/v1", async () => {
   const instance = await harness();
   try {
     const paths = instance.app.routes().map((route) => `${route.method} ${route.path}`);
@@ -86,6 +107,7 @@ test("the seven Strategy Lab routes are registered under /api/v1", async () => {
       "GET /api/v1/strategies",
       "GET /api/v1/strategies/:strategyId",
       "POST /api/v1/strategies/:strategyId/status",
+      "POST /api/v1/strategies/:strategyId/sign-off",
       "POST /api/v1/strategies/:strategyId/optimize",
       "POST /api/v1/backtesting/run",
       "GET /api/v1/backtesting/results",
@@ -104,7 +126,7 @@ test("the seven Strategy Lab routes are registered under /api/v1", async () => {
   }
 });
 
-test("every route requires a session, and none requires a permission", async () => {
+test("Strategy Lab routes require a session; human sign-off additionally requires trading.control", async () => {
   const instance = await harness();
   try {
     const session = await signIn(instance.app);
@@ -125,6 +147,7 @@ test("every route requires a session, and none requires a permission", async () 
     // nothing about the session gate.
     for (const [url, payload] of [
       ["/api/v1/strategies/trend-following/status", { to: "BACKTESTED" }],
+      ["/api/v1/strategies/trend-following/sign-off", { version: "1.0.0", reason: "Reviewed and approved risk controls" }],
       ["/api/v1/strategies/trend-following/optimize", {}],
       ["/api/v1/backtesting/run", RUN_BODY],
     ]) {
@@ -142,22 +165,34 @@ test("every route requires a session, and none requires a permission", async () 
     assert.deepEqual(rejectedFields(invalidUnauthenticated).sort(),
       ["marketClass", "strategyId", "symbol", "timeframe"]);
 
-    // Signed in, the read routes answer — proving the gate is authentication only,
-    // not a permission the seeded root admin might happen to hold.
+    // Signed in, ordinary Strategy Lab reads remain session-only.
     const list = await instance.app.inject({ method: "GET", url: "/api/v1/strategies", headers: session.headers });
     assert.equal(list.statusCode, 200, list.body);
+
+    // Human sign-off is the exception: a signed-in member without trading.control
+    // cannot use it, even with a valid session-bound CSRF token.
+    const member = await signInUnprivileged(instance.app, instance.store);
+    const denied = await instance.app.inject({
+      method: "POST",
+      url: "/api/v1/strategies/trend-following/sign-off",
+      headers: member.headers,
+      payload: { version: "1.0.0", reason: "Reviewed and approved risk controls" },
+    });
+    assert.equal(denied.statusCode, 403, denied.body);
+    assert.equal(denied.json().error.code, "PERMISSION_DENIED");
   } finally {
     await instance.cleanup();
   }
 });
 
-test("the three mutating routes refuse a cookie session without a CSRF token", async () => {
+test("all four Strategy Lab mutations refuse a cookie session without a CSRF token", async () => {
   const instance = await harness();
   try {
     const session = await signIn(instance.app);
     const cookieOnly = { cookie: session.cookie };
     for (const [url, payload] of [
       ["/api/v1/strategies/trend-following/status", { to: "BACKTESTED" }],
+      ["/api/v1/strategies/trend-following/sign-off", { version: "1.0.0", reason: "Reviewed and approved risk controls" }],
       ["/api/v1/strategies/trend-following/optimize", {}],
       ["/api/v1/backtesting/run", RUN_BODY],
     ]) {
@@ -650,6 +685,66 @@ test("lifecycle changes are audited against the acting account", async () => {
     // And the filter really filters: an unrelated account sees none of them.
     const nobody = await instance.store.listAuditEvents({ userId: admin.id + 9999, limit: 200 });
     assert.equal(nobody.total, 0);
+  } finally {
+    await instance.cleanup();
+  }
+});
+
+test("AI human sign-off is permissioned, persisted, audited, and does not change source or lifecycle", async () => {
+  const instance = await harness();
+  try {
+    const session = await signIn(instance.app);
+    const existing = await instance.store.findStrategy("trend-following", "1.0.0");
+    await instance.store.saveStrategy({
+      ...existing,
+      source: "ai",
+      lifecycle: "VALIDATED",
+      human_signoff: null,
+      updated_at: "2026-10-11T00:00:00.000Z",
+    });
+
+    const signed = await instance.app.inject({
+      method: "POST",
+      url: "/api/v1/strategies/trend-following/sign-off",
+      headers: session.headers,
+      payload: { version: "1.0.0", reason: "Reviewed stops, exposure and drawdown controls." },
+    });
+    assert.equal(signed.statusCode, 200, signed.body);
+    assert.equal(signed.json().strategy.source, "ai");
+    assert.equal(signed.json().strategy.lifecycle, "VALIDATED");
+    assert.equal(signed.json().signoff.permission, "trading.control");
+    assert.equal(signed.json().signoff.stage, "VALIDATED");
+
+    const stored = await instance.store.findStrategy("trend-following", "1.0.0");
+    assert.equal(stored.source, "ai", "human review must not launder AI provenance");
+    assert.equal(stored.lifecycle, "VALIDATED", "sign-off itself must not advance lifecycle");
+    assert.equal(stored.human_signoff.actorId, 1);
+    assert.equal(stored.human_signoff.reason, "Reviewed stops, exposure and drawdown controls.");
+
+    const reviewEvents = await instance.store.listAuditEvents({ userId: 1, limit: 100 });
+    const signoffEvent = reviewEvents.events.find((event) => event.action === "strategies.ai-human-risk-signoff");
+    assert.ok(signoffEvent, "the permissioned human decision must be audited to its actor");
+    assert.equal(signoffEvent.details.reviewerId, 1);
+    assert.equal(signoffEvent.details.version, "1.0.0");
+
+    const duplicate = await instance.app.inject({
+      method: "POST",
+      url: "/api/v1/strategies/trend-following/sign-off",
+      headers: session.headers,
+      payload: { version: "1.0.0", reason: "Trying to replace the first decision." },
+    });
+    assert.equal(duplicate.statusCode, 409);
+    assert.equal(duplicate.json().error.code, "STRATEGY_SIGNOFF_REJECTED");
+
+    const review = await instance.app.inject({
+      method: "POST",
+      url: "/api/v1/strategies/trend-following/status",
+      headers: session.headers,
+      payload: { to: "RISK_REVIEWED", version: "1.0.0" },
+    });
+    assert.equal(review.statusCode, 200, review.body);
+    assert.equal(review.json().strategy.lifecycle, "RISK_REVIEWED");
+    assert.equal(review.json().strategy.source, "ai");
   } finally {
     await instance.cleanup();
   }

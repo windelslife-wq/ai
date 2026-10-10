@@ -161,6 +161,17 @@ export const STATUS_BODY = Object.freeze({
   }),
 });
 
+/** An explicit, separately permission-gated AI strategy risk review. */
+export const HUMAN_SIGNOFF_BODY = Object.freeze({
+  type: "object",
+  additionalProperties: false,
+  required: ["version", "reason"],
+  properties: Object.freeze({
+    version: Object.freeze({ type: "string", minLength: 1, maxLength: 20, pattern: VERSION }),
+    reason: Object.freeze({ type: "string", minLength: 10, maxLength: 1_000, trim: true }),
+  }),
+});
+
 export const STRATEGY_PARAMS = Object.freeze({
   strategyId: Object.freeze({ type: "string", required: true, minLength: 1, maxLength: 60, pattern: STRATEGY_ID }),
 });

@@ -141,7 +141,7 @@ test("F-13 the MySQL row counts cover every table the migrations create, and not
   assert.equal(new Set(tables).size, tables.length, "no duplicates across migrations");
   for (const table of tables) assert.match(table, /^wf_[a-z_]+$/, `${table} is interpolated into a COUNT query, so it must be a plain identifier`);
 
-  assert.equal(tables.length, 15, `expected the 15 tables the migrations create, got: ${tables.join(", ")}`);
+  assert.equal(tables.length, 21, `expected the 21 tables the migrations create, got: ${tables.join(", ")}`);
   assert.ok(!tables.includes("wf_user_files"), "the phantom table must stay out — counting it broke MySQL backups");
   for (const expected of [
     "wf_analysis_runs",
@@ -176,6 +176,12 @@ test("F-13 the MySQL row counts cover every table the migrations create, and not
       strategies: "wf_strategies",
       backtests: "wf_backtests",
       journalEntries: "wf_journal_entries",
+      tradingState: "wf_trading_state",
+      paperAccounts: "wf_paper_accounts",
+      paperOrders: "wf_paper_orders",
+      paperPositions: "wf_paper_positions",
+      paperTrades: "wf_paper_trades",
+      paperDeployments: "wf_paper_deployments",
     };
     const stats = await store.stats();
     for (const collection of Object.keys(stats)) {

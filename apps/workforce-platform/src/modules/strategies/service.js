@@ -113,6 +113,7 @@ export function createStrategiesService({
         find: (id, version) => store.findStrategy(id, version),
         all: () => store.listStrategies(),
         save: (record) => store.saveStrategy(record),
+        recordHumanSignoff: (id, version, signoff, updatedAt) => store.recordStrategyHumanSignoff(id, version, signoff, updatedAt),
         countBacktests: (id, version) => store.countStrategyBacktests(id, version),
         latestBacktest: (id, version) => store.latestStrategyBacktest(id, version),
       },
@@ -264,6 +265,18 @@ export function createStrategiesService({
       });
     }
     return { ok: true, strategy: result.strategy, warnings: result.warnings, evidence: result.evidence ?? null };
+  }
+
+  async function signOffAiStrategy(strategyId, { version, reason } = {}, { actorId = null } = {}) {
+    requireStore();
+    const registry = strategies();
+    const result = await registry.signOffAiStrategy(strategyId, version, { reason, actorId });
+    if (!result.ok) {
+      throw new AppError(409, "STRATEGY_SIGNOFF_REJECTED", "Human risk sign-off was not recorded", {
+        details: { strategyId, version, reasons: result.reasons },
+      });
+    }
+    return { ok: true, strategy: result.strategy, signoff: result.signoff };
   }
 
   // ---- backtesting ---------------------------------------------------------
@@ -667,6 +680,7 @@ export function createStrategiesService({
     results,
     result,
     transition,
+    signOffAiStrategy,
     runBacktest,
     optimizeStrategy,
     nextVariantVersion,

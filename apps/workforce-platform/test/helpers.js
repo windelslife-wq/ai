@@ -205,6 +205,7 @@ export async function createFileStoreApp({ publicDir, configOverrides = {}, seed
     directory,
     async cleanup() {
       await app.close();
+      await store.close();
       await rm(directory, { recursive: true, force: true });
     },
   };

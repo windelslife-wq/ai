@@ -3,6 +3,12 @@
 **Audit date:** 2026-10-05 · **Audited commit:** `675a05c`
 Complete inventory of every database schema in the repository (per master plan §6: "read-only inventory of every MySQL, SQLite, and PostgreSQL schema used by the current applications, plus all migration/seed scripts").
 
+> **Current Node schema addendum (2026-10-11):** The Node workforce platform now
+> has migrations 001–007 and 21 tables. Phase 7's six additional tables and three
+> additive ALTER TABLE changes are summarized in §9 and [`PHASE7_PAPER_TRADING.md`](PHASE7_PAPER_TRADING.md).
+> SQL has not been executed against a real MySQL/MariaDB server; this remains a
+> schema inventory, not a deployment-validation report.
+
 ---
 
 ## 1. Storage engines at a glance
@@ -225,7 +231,7 @@ and the column is `NULL`).
 | `analysis.signal.proposed` | `SIGNAL_GENERATED` | a trade setup survived the debate; carries `action`, `entry`, `stopLoss`, `takeProfit`, `riskReward` |
 | `analysis.signal.none` | `NO_SIGNAL` | no setup — mutually exclusive with the row above |
 | `risk.decision.rejected` | `RISK_REJECTED` | a proposal was vetoed; carries `approved:false`, `reasons[]`, `warnings[]` |
-| `risk.decision.approved` | `RISK_APPROVED` | a proposal cleared every gate — **unreachable from an HTTP route on this platform**, because the kill switch is engaged at boot and no ported code path releases it (`PHASE5_ANALYSIS.md` §3.1). It is covered by unit tests that pass `killSwitchActive:false` |
+| `risk.decision.approved` | `RISK_APPROVED` | a proposal cleared every risk gate. Phase 5 documented this as unreachable while the kill switch had no control route; Phase 7 persists a `trading.control` kill-switch release, after which an analysis proposal may return this decision. It is risk clearance, not execution authorization: analysis remains account-agnostic and proposal-only, paper orders require `PAPER_TRADING` and are rechecked against the owned account portfolio, and no live-order route exists. See [`PHASE7_PAPER_TRADING.md`](PHASE7_PAPER_TRADING.md). |
 | `analysis.agent.failed` | `TRADE_REJECTED` | an agent threw; carries `agent` and `error`. The run continues without that agent |
 
 Keeping `legacyAction` in `detail_json` means an audit query written against the PHP platform still finds
@@ -271,3 +277,43 @@ legacy rows carry values and dropping the column would lose them on import.
 Retention for `wf_backtests` is **not implemented** — recorded as **R-28**, because
 unlike analysis runs these rows are load-bearing evidence for promotions already
 granted.
+
+
+---
+
+## 9. Node platform schema — Paper Trading and persisted risk controls (Phase 7; `007_paper_trading.sql`)
+
+Migration 007 adds six tables to the Phase-6 Node schema (15 → 21 tables) and
+makes three additive `ALTER TABLE` changes. These structures are for simulation-only execution;
+there is no broker foreign key or live-order route.
+
+| Table | Key / ownership | Purpose and important fields |
+|---|---|---|
+| `wf_trading_state` | `state_key` singleton (`global`) | `state_json` stores trading mode, kill switch, synthetic-paper setting and risk limits; `updated_by_user_id` / `updated_at` preserve the last control actor/time. Migration seeds `ANALYSIS_ONLY`, active kill switch and synthetic input denied. |
+| `wf_paper_accounts` | `BIGINT UNSIGNED` id; `owner_user_id` FK to `wf_users` | Owner-private account, currency, starting/current balance, peak equity and revision counter. Owner index supports scoped listings. |
+| `wf_paper_orders` | `BIGINT UNSIGNED` id; account FK | Market/limit request, side, units, protection, state, rejection reason, strategy reference and `synthetic` flag. |
+| `wf_paper_positions` | `BIGINT UNSIGNED` id; account FK | Simulated position, mandatory stop/target, entry/exit values, realized P&L, strategy reference and synthetic provenance. |
+| `wf_paper_trades` | `BIGINT UNSIGNED` id; account/order/position FKs | Append-only entry/exit legs, price, units, fee, timestamp and synthetic-data flag. Closed-position journal evidence is created from these fills. |
+| `wf_paper_deployments` | `BIGINT UNSIGNED` id; account and composite strategy-version FKs | Active/inactive executable strategy deployment per owned paper account, with symbol, market class, timeframe and last evaluation/signal. |
+
+The additive alterations preserve strategy provenance and foreign-key width:
+
+- `wf_strategies.human_signoff LONGTEXT NULL` stores the one-time attributed
+  reviewer decision for an AI-sourced version. `source: "ai"` is never rewritten;
+  the separately permissioned sign-off does not itself advance lifecycle.
+- `wf_journal_entries.synthetic TINYINT(1) NOT NULL DEFAULT 0` makes synthetic
+  provenance queryable. The strategy approval query excludes synthetic paper
+  trades from live-approval evidence.
+- `wf_journal_entries.paper_position_id` is widened from the Phase-6 `INT` to
+  `BIGINT UNSIGNED` to match paper position identifiers.
+
+All account, order, position, trade and deployment reads/writes are owner-scoped
+at the service layer; SQL child-list queries also join accounts and bind the owner
+ID. The MySQL mutation path uses a pinned transaction and `SELECT … FOR UPDATE`;
+the file adapter serializes a WAL batch but is a single-process development
+adapter, not production multi-worker storage.
+
+Migration 007 is statically parsed and its repository SQL is tested with a
+recording fake pool only. It has **not** been executed on a real MySQL/MariaDB
+server, and no cPanel validation is claimed. Full details and safety constraints:
+[`PHASE7_PAPER_TRADING.md`](PHASE7_PAPER_TRADING.md).

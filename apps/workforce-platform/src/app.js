@@ -35,6 +35,8 @@ import { analysisRoutes } from "./modules/analysis/routes.js";
 import { createAnalysisService } from "./modules/analysis/service.js";
 import { strategyRoutes } from "./modules/strategies/routes.js";
 import { createStrategiesService } from "./modules/strategies/service.js";
+import { paperRoutes } from "./modules/paper/routes.js";
+import { createPaperService } from "./modules/paper/service.js";
 
 const JSON_TYPE = "application/json; charset=utf-8";
 
@@ -163,6 +165,8 @@ export async function buildApp({ config, store, logger = true, publicDir = path.
   // The same tracker backs the platform-wide ceiling; this module keys its slots
   // `strategies:session:<id>` so they never collide with `analysis:` ones (R-26).
   await app.register(strategyRoutes, { prefix: "/api/v1", store, config, service: strategies, marketData, concurrency });
+  const paper = createPaperService({ store, marketData, strategies, log: app.log });
+  await app.register(paperRoutes, { prefix: "/api/v1", store, config, service: paper, marketData, strategies, log: app.log });
   const siteDocuments = createSiteDocuments({ config, store, log: app.log, rateLimiter, publicDir });
   for (const extra of config.modules || []) await app.register(extra, { prefix: "/api/v1", store, config, loginGuard });
 

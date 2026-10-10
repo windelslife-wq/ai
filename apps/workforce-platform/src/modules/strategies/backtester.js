@@ -570,6 +570,7 @@ export function journalEntriesFromBacktest(record, req, ids = {}) {
     return {
       id: nextId(),
       source: "backtest",
+      synthetic: Boolean(record.dataProvenance?.synthetic),
       symbol: req.symbol,
       market: req.marketClass,
       strategy: req.strategyId,

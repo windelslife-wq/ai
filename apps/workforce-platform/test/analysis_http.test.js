@@ -22,6 +22,7 @@ import { createAnalysisService } from "../src/modules/analysis/service.js";
 import { createAnalysisEngine, CANDLE_LIMIT, DEFAULT_TRADING_STATE, REFERENCE_SYMBOLS } from "../src/modules/analysis/engine.js";
 import { AGENT_CATALOGUE, DEFAULT_WATCHLIST, inferMarketClass } from "../src/modules/analysis/contracts.js";
 import { generateSyntheticCandles } from "../src/modules/market-data/providers/synthetic.js";
+import { DEFAULT_RISK_LIMITS } from "../src/modules/analysis/risk-engine.js";
 
 /**
  * R-26 puts real window limits and a per-session concurrency cap on the two POST
@@ -308,7 +309,7 @@ test("engine: live data clears the data vetoes, and the kill switch is still the
     // appears in its nested legacy shape rather than as a flat boolean.
     assert.equal(run.riskContext.killSwitch.active, true);
     assert.equal(run.riskContext.tradingMode, "ANALYSIS_ONLY");
-    assert.match(run.riskContext.note, /not ported/, "the run states why the portfolio gates are vacuous");
+    assert.match(run.riskContext.note, /paper order decisions are made separately against an authenticated account portfolio/i, "analysis proposals use a separate account-scoped paper risk check");
   } finally {
     await instance.cleanup();
   }
@@ -806,7 +807,7 @@ test("persistence: a run id is upserted, not duplicated", async () => {
   }
 });
 
-test("status surface: analysis is ported, risk is partial, and trading stays disabled", async () => {
+test("status surface: analysis remains proposal-only while paper and persisted risk are simulation-only", async () => {
   const instance = await harness();
   try {
     const status = await instance.app.inject({ method: "GET", url: "/api/v1/system/status" });
@@ -815,31 +816,95 @@ test("status surface: analysis is ported, risk is partial, and trading stays dis
 
     const moduleState = Object.fromEntries(body.modules.map((entry) => [entry.key, entry.state]));
     assert.equal(moduleState.analysis, "ported");
-    assert.equal(moduleState.risk, "partial", "only the veto gate is ported, not the risk module");
+    assert.equal(moduleState.risk, "ported", "Phase 7 adds persisted limits, kill switch and a paper portfolio scan");
     assert.equal(moduleState.marketData, "ported");
     assert.equal(moduleState.execution, "not-ported");
     assert.equal(moduleState.brokers, "not-ported");
-    assert.equal(moduleState.paperTrading, "not-ported");
+    assert.equal(moduleState.paperTrading, "ported");
 
     assert.deepEqual(body.analysis.agents, ["technical", "market-structure", "forex", "crypto", "sentiment", "fundamentals"]);
     assert.equal(body.analysis.candleLimit, 300);
     assert.equal(body.analysis.killSwitchActive, true);
     assert.equal(body.analysis.proposalsOnly, true);
-    assert.equal(body.analysis.canPlaceOrders, false, "the status surface states the platform cannot trade");
-    assert.match(body.analysis.note, /not ported/);
+    assert.equal(body.analysis.canPlaceOrders, false, "analysis itself does not submit orders");
+    assert.match(body.analysis.note, /authenticated account portfolio/i);
     assert.deepEqual(body.analysis.referenceSymbols, [...REFERENCE_SYMBOLS]);
 
-    assert.equal(body.trading.enabled, false);
-    assert.match(body.trading.reason, /not ported/i);
-    assert.match(body.trading.reason, /kill switch stays engaged/i);
+    assert.equal(body.trading.enabled, true, "paper trading is available");
+    assert.equal(body.trading.simulationOnly, true);
+    assert.equal(body.trading.liveTradingEnabled, false);
+    assert.match(body.trading.reason, /simulation-only/i);
+    assert.match(body.trading.reason, /no broker or live-order route/i);
 
     const features = await instance.app.inject({ method: "GET", url: "/api/v1/system/features" });
     assert.equal(features.json().features.analysis, "ported");
-    assert.equal(features.json().features.risk, "partial");
+    assert.equal(features.json().features.paperTrading, "ported");
+    assert.equal(features.json().features.risk, "ported");
     assert.equal(features.json().features.execution, "not-ported");
   } finally {
     await instance.cleanup();
   }
+});
+
+test("analysis governance reverts to safe defaults when persisted state is missing or unreadable", async () => {
+  const active = structuredClone(DEFAULT_TRADING_STATE);
+  const warnings = [];
+  const storeStates = [
+    {
+      tradingMode: "PAPER_TRADING",
+      killSwitch: { active: false, activatedAt: null, reason: null },
+      riskLimits: { riskPerTradePct: 0.005 },
+    },
+    new Error("database temporarily unavailable"),
+    {
+      tradingMode: "PAPER_TRADING",
+      killSwitch: { active: "false" },
+      allowSyntheticPaperData: "true",
+      riskLimits: { riskPerTradePct: -1, minDataQuality: -1 },
+    },
+    null,
+  ];
+  const store = {
+    async loadTradingState() {
+      const next = storeStates.shift();
+      if (next instanceof Error) throw next;
+      return next;
+    },
+  };
+  const engine = {
+    get tradingState() { return structuredClone(active); },
+    setTradingState(state) { Object.assign(active, structuredClone(state)); },
+    async run() { return { state: structuredClone(active) }; },
+  };
+  const service = createAnalysisService({
+    store,
+    engine,
+    log: { warn: (event, message) => warnings.push({ event, message }) },
+  });
+  const request = { symbol: "EURUSD", marketClass: "forex", timeframe: "1h" };
+
+  const released = await service.run(request);
+  assert.equal(released.state.tradingMode, "PAPER_TRADING");
+  assert.equal(released.state.killSwitch.active, false);
+  assert.equal(released.state.riskLimits.riskPerTradePct, 0.005);
+
+  const unavailable = await service.run(request);
+  assert.equal(unavailable.state.tradingMode, "ANALYSIS_ONLY");
+  assert.equal(unavailable.state.killSwitch.active, true);
+  assert.deepEqual(unavailable.state.riskLimits, DEFAULT_RISK_LIMITS);
+  assert.match(unavailable.state.note, /governance is unavailable/i);
+  assert.equal(warnings.length, 1);
+
+  const malformed = await service.run(request);
+  assert.equal(malformed.state.tradingMode, "PAPER_TRADING");
+  assert.equal(malformed.state.killSwitch.active, true, "only the exact persisted boolean false can release the switch");
+  assert.equal(malformed.state.allowSyntheticPaperData, false);
+  assert.deepEqual(malformed.state.riskLimits, DEFAULT_RISK_LIMITS, "invalid limits must normalize conservatively");
+
+  const missing = await service.run(request);
+  assert.equal(missing.state.tradingMode, "ANALYSIS_ONLY");
+  assert.equal(missing.state.killSwitch.active, true);
+  assert.deepEqual(missing.state.riskLimits, DEFAULT_RISK_LIMITS);
 });
 
 test("route inventory: all five analysis routes are listed with what they enforce", async () => {

@@ -68,6 +68,7 @@ function strategyRow(row) {
     created_at: row.created_at,
     updated_at: row.updated_at,
     lifecycle_history: decodeJson(row.lifecycle_history, [], `Strategy ${row.strategy_id}@${row.version}`),
+    human_signoff: decodeJson(row.human_signoff, null, `Strategy ${row.strategy_id}@${row.version}`),
   };
 }
 
@@ -120,14 +121,15 @@ const JOURNAL_NUMERIC_COLUMNS = Object.freeze([
 ]);
 
 function journalRow(row) {
-  const entry = { ...row };
+  const entry = { ...row, synthetic: Boolean(Number(row.synthetic)) };
   for (const column of JOURNAL_NUMERIC_COLUMNS) {
     entry[column] = row[column] === null || row[column] === undefined ? null : Number(row[column]);
   }
   return entry;
 }
 
-export function createStrategyRepository(pool) {
+export function createStrategyRepository(pool, { lockRows = false } = {}) {
+  const lock = lockRows ? " FOR UPDATE" : "";
   return {
     // ---- strategies -----------------------------------------------------
 
@@ -135,8 +137,8 @@ export function createStrategyRepository(pool) {
       await pool.execute(
         `INSERT INTO wf_strategies
            (strategy_id, version, name, description, market_classes, timeframes, params,
-            source, lifecycle, created_at, updated_at, lifecycle_history)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            source, lifecycle, created_at, updated_at, lifecycle_history, human_signoff)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
          ON DUPLICATE KEY UPDATE
            name = VALUES(name),
            description = VALUES(description),
@@ -146,7 +148,8 @@ export function createStrategyRepository(pool) {
            source = VALUES(source),
            lifecycle = VALUES(lifecycle),
            updated_at = VALUES(updated_at),
-           lifecycle_history = VALUES(lifecycle_history)`,
+           lifecycle_history = VALUES(lifecycle_history),
+           human_signoff = VALUES(human_signoff)`,
         [
           String(record.strategy_id),
           String(record.version),
@@ -160,6 +163,7 @@ export function createStrategyRepository(pool) {
           String(record.created_at),
           String(record.updated_at),
           JSON.stringify(record.lifecycle_history ?? []),
+          record.human_signoff === null || record.human_signoff === undefined ? null : JSON.stringify(record.human_signoff),
         ],
       );
       // `created_at` is deliberately absent from the UPDATE list: it records when
@@ -168,13 +172,25 @@ export function createStrategyRepository(pool) {
       return { strategy_id: String(record.strategy_id), version: String(record.version) };
     },
 
+    /** Atomic one-time sign-off: concurrent reviewers cannot replace one another. */
+    async recordStrategyHumanSignoff(strategyId, version, signoff, updatedAt) {
+      const [result] = await pool.execute(
+        `UPDATE wf_strategies
+            SET human_signoff = ?, updated_at = ?
+          WHERE strategy_id = ? AND version = ?
+            AND source = 'ai' AND lifecycle = 'VALIDATED' AND human_signoff IS NULL`,
+        [JSON.stringify(signoff), String(updatedAt), String(strategyId), String(version)],
+      );
+      return Number(result.affectedRows) === 1;
+    },
+
     async findStrategy(strategyId, version) {
       const [rows] = await pool.execute(
         `SELECT strategy_id, version, name, description, market_classes, timeframes, params,
-                source, lifecycle, created_at, updated_at, lifecycle_history
+                source, lifecycle, created_at, updated_at, lifecycle_history, human_signoff
            FROM wf_strategies
           WHERE strategy_id = ? AND version = ?
-          LIMIT 1`,
+          LIMIT 1${lock}`,
         [String(strategyId), String(version)],
       );
       return rows.length ? strategyRow(rows[0]) : null;
@@ -192,7 +208,7 @@ export function createStrategyRepository(pool) {
     async listStrategies() {
       const [rows] = await pool.query(
         `SELECT strategy_id, version, name, description, market_classes, timeframes, params,
-                source, lifecycle, created_at, updated_at, lifecycle_history
+                source, lifecycle, created_at, updated_at, lifecycle_history, human_signoff
            FROM wf_strategies
           ORDER BY strategy_id ASC, updated_at ASC`,
       );
@@ -308,13 +324,14 @@ export function createStrategyRepository(pool) {
     async saveJournalEntry(entry) {
       await pool.execute(
         `INSERT INTO wf_journal_entries
-           (id, source, symbol, market, strategy, strategy_version, direction, entry_time,
+           (id, source, synthetic, symbol, market, strategy, strategy_version, direction, entry_time,
             entry_price, exit_time, exit_price, position_size, stop_loss, take_profit, fees,
             slippage, pnl, pnl_pct, r_multiple, reason, ai_confidence, confidence_source,
             agent_consensus, risk_score, execution_time, backtest_id, paper_position_id)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
          ON DUPLICATE KEY UPDATE
            source = VALUES(source),
+           synthetic = VALUES(synthetic),
            symbol = VALUES(symbol),
            market = VALUES(market),
            strategy = VALUES(strategy),
@@ -342,6 +359,7 @@ export function createStrategyRepository(pool) {
         [
           String(entry.id),
           String(entry.source),
+          entry.synthetic ? 1 : 0,
           String(entry.symbol),
           String(entry.market ?? ""),
           entry.strategy === null || entry.strategy === undefined ? null : String(entry.strategy),
@@ -366,8 +384,6 @@ export function createStrategyRepository(pool) {
           entry.risk_score === null || entry.risk_score === undefined ? null : Number(entry.risk_score),
           String(entry.execution_time),
           entry.backtest_id === null || entry.backtest_id === undefined ? null : String(entry.backtest_id),
-          // Never written by this module: it belongs to paper trading (row 10 of
-          // UNFINISHED_MODULES.md). Bound as NULL so an import can set it later.
           entry.paper_position_id === null || entry.paper_position_id === undefined ? null : Number(entry.paper_position_id),
         ],
       );
@@ -406,7 +422,7 @@ export function createStrategyRepository(pool) {
       }
       const where = clauses.length ? `WHERE ${clauses.join(" AND ")}` : "";
       const [rows] = await pool.query(
-        `SELECT id, source, symbol, market, strategy, strategy_version, direction, entry_time,
+        `SELECT id, source, synthetic, symbol, market, strategy, strategy_version, direction, entry_time,
                 entry_price, exit_time, exit_price, position_size, stop_loss, take_profit, fees,
                 slippage, pnl, pnl_pct, r_multiple, reason, ai_confidence, confidence_source,
                 agent_consensus, risk_score, execution_time, backtest_id, paper_position_id
