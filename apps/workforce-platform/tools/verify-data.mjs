@@ -78,7 +78,11 @@ try {
     const [[{ users }]] = await pool.query("SELECT COUNT(*) AS users FROM wf_users");
     const [[{ sessions }]] = await pool.query("SELECT COUNT(*) AS sessions FROM wf_sessions");
     const [[{ audit }]] = await pool.query("SELECT COUNT(*) AS audit FROM wf_audit_events");
+    const [[{ strategies }]] = await pool.query("SELECT COUNT(*) AS strategies FROM wf_strategies");
+    const [[{ backtests }]] = await pool.query("SELECT COUNT(*) AS backtests FROM wf_backtests");
+    const [[{ journal }]] = await pool.query("SELECT COUNT(*) AS journal FROM wf_journal_entries");
     note("row counts", `${users} users, ${sessions} sessions, ${audit} audit events`);
+    note("strategy lab row counts", `${strategies} strategies, ${backtests} backtests, ${journal} journal entries`);
 
     for (const [label, table, key] of [["username collisions", "wf_users", "username"], ["email collisions", "wf_users", "email"], ["legacy UID collisions", "wf_users", "legacy_uid"]]) {
       const [rows] = await pool.query(
@@ -112,6 +116,25 @@ try {
     const [disabled] = await pool.query("SELECT COUNT(*) AS total FROM wf_sessions s JOIN wf_users u ON u.id = s.user_id WHERE u.status <> 'active' AND s.revoked_at IS NULL");
     if (disabled[0].total) warn("disabled accounts have no live session", `${disabled[0].total} session(s) still active for a disabled account; sign-in is refused but the token was not revoked`);
     else note("disabled accounts have no live session", "none");
+
+    // `wf_journal_entries.backtest_id` is deliberately NOT a foreign key (migration
+    // 006 explains why: a legacy import writes the two tables in separate passes),
+    // so this is the only thing that enforces it. A journal row citing a backtest
+    // that does not exist is a trade whose provenance cannot be inspected, which is
+    // exactly the evidence a lifecycle gate is supposed to rest on.
+    const [orphanJournal] = await pool.query(
+      "SELECT COUNT(*) AS total FROM wf_journal_entries j LEFT JOIN wf_backtests b ON b.id = j.backtest_id WHERE j.backtest_id IS NOT NULL AND b.id IS NULL",
+    );
+    if (orphanJournal[0].total) fail("journal rows cite an existing backtest", `${orphanJournal[0].total} orphan journal row(s)`);
+    else note("journal rows cite an existing backtest", "none orphaned");
+
+    // A backtest must name a strategy version that exists, or the VALIDATED gate can
+    // be satisfied by evidence attached to nothing.
+    const [orphanBacktests] = await pool.query(
+      "SELECT COUNT(*) AS total FROM wf_backtests b LEFT JOIN wf_strategies s ON s.strategy_id = b.strategy_id AND s.version = b.strategy_version WHERE s.strategy_id IS NULL",
+    );
+    if (orphanBacktests[0].total) fail("backtests cite an existing strategy version", `${orphanBacktests[0].total} orphan backtest row(s)`);
+    else note("backtests cite an existing strategy version", "none orphaned");
   } else {
     const snapshot = await store.snapshot();
     note("row counts", `${snapshot.users.length} users, ${snapshot.sessions.length} sessions, ${snapshot.audit.length} audit events, ${snapshot.roles.length} roles, ${snapshot.permissions.length} permissions`);
@@ -141,6 +164,21 @@ try {
     const stale = snapshot.sessions.filter((session) => !session.revokedAt && new Date(session.expiresAt).getTime() <= now);
     if (stale.length) warn("expired sessions are swept", `${stale.length} row(s) are past expiry but not revoked`);
     else note("expired sessions are swept", "none pending");
+    // The same two invariants the MySQL branch checks, against the snapshot. Both
+    // adapters must describe the same world, so neither gets a weaker check.
+    const backtestIds = new Set(snapshot.backtests.map((row) => String(row.id)));
+    const orphanJournal = snapshot.journalEntries.filter((entry) => entry.backtest_id && !backtestIds.has(String(entry.backtest_id)));
+    if (orphanJournal.length) fail("journal rows cite an existing backtest", `${orphanJournal.length} orphan journal row(s)`);
+    else note("journal rows cite an existing backtest", "none orphaned");
+
+    const strategyKeys = new Set(snapshot.strategies.map((row) => `${String(row.strategy_id)}:${String(row.version)}`));
+    const orphanBacktests = snapshot.backtests.filter(
+      (row) => !strategyKeys.has(`${String(row.strategy_id)}:${String(row.strategy_version)}`),
+    );
+    if (orphanBacktests.length) fail("backtests cite an existing strategy version", `${orphanBacktests.length} orphan backtest row(s)`);
+    else note("backtests cite an existing strategy version", "none orphaned");
+
+    note("strategy lab row counts", `${snapshot.strategies.length} strategies, ${snapshot.backtests.length} backtests, ${snapshot.journalEntries.length} journal entries`);
     note("state checksum", await store.checksum());
   }
 } finally {

@@ -27,6 +27,7 @@
 import { createHash } from "node:crypto";
 import { spawn } from "node:child_process";
 import { createWriteStream, existsSync } from "node:fs";
+import { readFileSync, readdirSync } from "node:fs";
 import { copyFile, mkdir, readFile, readdir, rm, stat, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { pipeline } from "node:stream/promises";
@@ -35,10 +36,39 @@ import { loadConfig } from "../src/config.js";
 import { createStoreFor } from "../src/persistence/index.js";
 
 const SILENT = { warn: () => {}, info: () => {}, error: () => {} };
-const MYSQL_TABLES = Object.freeze([
-  "wf_users", "wf_user_profiles", "wf_sessions", "wf_roles", "wf_permissions",
-  "wf_role_permissions", "wf_user_roles", "wf_audit_events", "wf_user_files", "wf_schema_migrations",
-]);
+/**
+ * The MySQL row counts recorded in `snapshot.json` come from the migrations, not
+ * from a hand-maintained list.
+ *
+ * It used to be a literal array, and it drifted: `wf_contact_inquiries` (Phase 3),
+ * `wf_data_imports` and `wf_analysis_runs` (Phase 5) were all created by committed
+ * migrations but absent here. The dump itself is whole-database, so no *data* was
+ * ever lost — but `snapshot.json` is what an operator compares before and after a
+ * restore, and three tables were silently uncounted, so a restore could not prove
+ * they came back. Deriving the list makes that class of drift impossible: adding a
+ * migration extends the backup counts by construction.
+ *
+ * Only names matching `wf_[a-z_]+` are accepted, because they are interpolated into
+ * `SELECT COUNT(*)` rather than bound as parameters. The source is committed SQL, so
+ * this is a guard rail against a malformed migration rather than against an
+ * attacker — but an identifier that reached a query unchecked would be an injection
+ * point either way.
+ *
+ * @returns {string[]} every table the committed migrations create, sorted.
+ */
+export function tablesFromMigrations(directory = new URL("../src/db/migrations/", import.meta.url)) {
+  const tables = new Set();
+  for (const entry of readdirSync(directory, { withFileTypes: true }).sort((a, b) => a.name.localeCompare(b.name))) {
+    if (!entry.isFile() || !entry.name.endsWith(".sql")) continue;
+    const sql = readFileSync(new URL(entry.name, directory), "utf8");
+    for (const match of sql.matchAll(/CREATE\s+TABLE\s+(?:IF\s+NOT\s+EXISTS\s+)?`?(wf_[a-z_]+)`?/gi)) {
+      if (!/^wf_[a-z_]+$/.test(match[1])) throw new Error(`backup refused: migration ${entry.name} declares an unusable table name ${match[1]}`);
+      tables.add(match[1]);
+    }
+  }
+  if (tables.size === 0) throw new Error("backup refused: no tables found in src/db/migrations — the schema cannot be counted");
+  return [...tables].sort();
+}
 
 function sha256(buffer) {
   return createHash("sha256").update(buffer).digest("hex");
@@ -149,9 +179,19 @@ export async function createBackup({ config, destination, now = new Date(), tmpD
       snapshot = { adapter, counts: await store.stats(), checksum: await store.checksum(), copied: { store: storeFiles, uploads: uploadFiles } };
     } else {
       const counts = {};
-      for (const table of MYSQL_TABLES) {
-        const [[row]] = await pool.query(`SELECT COUNT(*) AS total FROM ${table}`);
-        counts[table] = Number(row.total);
+      for (const table of tablesFromMigrations()) {
+        try {
+          const [[row]] = await pool.query(`SELECT COUNT(*) AS total FROM ${table}`);
+          counts[table] = Number(row.total);
+        } catch (error) {
+          // A missing table means a committed migration was never applied. Saying so
+          // beats a raw driver error at the point an operator is trying to take a
+          // backup before doing something dangerous.
+          if (error?.code === "ER_NO_SUCH_TABLE") {
+            throw new Error(`backup refused: table ${table} does not exist — the migration that creates it has not been applied (run \`npm run migrate\`)`);
+          }
+          throw error;
+        }
       }
       const dumpName = `database-${stamp(now)}.sql`;
       await dumpDatabase({ database: config.database, dumpPath: path.join(backupDir, dumpName), tmpDir });

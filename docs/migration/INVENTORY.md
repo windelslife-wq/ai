@@ -279,4 +279,39 @@ No application calls another application's database. The two lead-discovery impl
 6. **The MT5 bridge stays Python** unless/until a Node bridge is contract-tested against a real demo terminal (master plan §3 agrees; treat as documented migration exception).
 7. **Three auth stacks** (CI3 sessions; Scout JWT; football sessions) must be unified or deliberately kept separate in the target design.
 
+## 8. Node port status against this inventory (updated 2026-10-09, Phase 5)
+
+The audit above describes the **PHP** platform and is unchanged. This section maps it to the
+Node target so a reader does not have to infer port status from prose elsewhere. Evidence:
+[`PHASE2_IDENTITY.md`](PHASE2_IDENTITY.md), [`PHASE3_PUBLIC_SITE.md`](PHASE3_PUBLIC_SITE.md),
+[`PHASE4_MARKET_DATA.md`](PHASE4_MARKET_DATA.md), [`PHASE5_ANALYSIS.md`](PHASE5_ANALYSIS.md),
+[`ROUTE_MAP.md`](ROUTE_MAP.md) §14–15.
+
+| Inventory row (§3.1 and neighbours) | Node status | Note |
+|---|---|---|
+| Auth: login (username/email/6-digit UID), register, logout, account self-service | **Ported** (Phase 2) | Parity-tested; PHP bcrypt `$2y$` verified via `bcryptjs` |
+| Auth: forgot-password (mailer) | **Not ported — honest refusal** | `POST /api/v1/auth/password-reset-request` answers `delivered:false`; `/forgot-password` redirects to `/app/login`. Needs a mail transport and a single-use token store |
+| Auth: avatar upload/serve/remove | **Ported** (Phase 2) | Signature-sniffed, stored outside the static root, owner-or-admin download |
+| RBAC: roles/permissions/user_roles, seeded matrix | **Ported** (Phase 2) | Legacy 8 roles / 14 permissions incl. `system.super_admin`; SQL and code asserted against each other |
+| Admin console: user create/toggle | **Ported** (Phase 2) | `identity.users.manage`; test-email action **not** ported (no mail) |
+| Workspace dashboard / app shell | **Partially ported** (Phase 3) | SPA shell with router, permission-gated nav, account/admin/status views; **no domain dashboards** |
+| Notifications | **Not ported** | reported `not-ported` by `/api/v1/system/status` |
+| Audit log | **Partially ported** | Ported actions write audit events (`identity.*`, `CONTACT_INQUIRY`); no audit browser UI beyond the account activity list |
+| Public site & SEO (`Site.php`, `Seo.php`, `views/site/*`, `config/seo.php`) | **Ported** (Phase 3) | 8 pages, 3 aliases, robots/sitemap/manifest/worker generated per request, contact intake stored + audited + throttled |
+| Chat assistant (`Api_chat.php`, `Aegis/ChatAssistant.php`, `aegis-chat.js`, `chat_widget.php`) | **Not ported** | The public widget is deliberately absent, which is why `publicSite` reports `partial` rather than `ported` |
+| Mailer (SMTP) | **Not ported** | Every response that could imply delivery says it did not happen |
+| Feature/status honesty matrix (`GET /api/system/features`) | **Ported** | `GET /api/v1/system/features` + `/system/status`, per-module `ported`/`partial`/`not-ported` |
+| Announcement bar (`views/partials/announcement_bar.php`) | **Partially ported** | Renders from `SITE_ANNOUNCEMENT`, **empty by default**: the legacy default copy advertises the unported AI Language Teacher |
+| Market data: provider manager, breaker, HTTP, normalization, Binance, Frankfurter/ECB, labelled synthetic (§3.2) | **Ported** (Phase 4) | 3 endpoints + provider health; provenance labels synthetic output; licensed adapters still inert. No live upstream call was possible in the sandbox |
+| Licensed asset market data (stock/ETF/futures/options) (§3.2, **SCAFFOLD**) | **Ported as a scaffold** (Phase 4) | Same inert contract: `DISABLED` → `NOT_CONFIGURED` → `UP`; no vendor, schema or license verified |
+| Indicator set, `MathUtils`, regime/setup/scenario generation (§3.2–§3.3) | **Ported** (Phase 5) | `indicators.js` (~20 indicators), `math.js` (PHP half-away-from-zero rounding and both `number_format` behaviours), `regime.js` (all seven labels, setups with 1.5/2.5/3.5 R targets, three scenarios). Golden values re-derived by hand; **not** diffed against PHP output (F-26) |
+| Sentiment / fundamentals feed boundaries and their abstention contracts (§3.2–§3.3) | **Ported as abstention** (Phase 5) | `feeds.js` + the two agents: abstention is computed by a validator (licensed, attributable, fresh, ≥ 2 observations), so both report `available:false` and `votes:false` and are excluded from the panel. They vote when a licensed feed is injected — proven by test. **No real feed exists** |
+| Analysis engines, specialized agents, consensus and debate (§3.3) | **Ported** (Phase 5) + **hardened** (0.6.1) | Seven-agent panel with the legacy weights and the ±0.15 vote threshold, weighted consensus with two hard gates, a four-round adversarial debate whose transcript is persisted, five endpoints under `/api/v1/analysis/*`, `wf_analysis_runs` (migration `005`). 115 tests, 36 of the 38 legacy cases. The hardening pass added per-route window limits (12 runs / 4 scans per 10 min) and a per-session in-flight cap (**R-26 closed**), plus retention: `ANALYSIS_RETENTION_DAYS` (default 90) and `npm run prune:analysis` over a new `pruneAnalysisRuns`, contract **35 → 36** (**R-27 closed**). **No UI, no live data, no portfolio state, and no HTTP route that can delete a run** |
+| Risk Engine veto rules and sizing (§3.4) | **Partially ported** (Phase 5) + **one deliberate divergence** (0.6.1) | `RiskEngine.php` ported in full **as the veto gate inside analysis**: frozen limits, exact sizing, min R:R, required stop, kill switch, synthetic/stale/quality vetoes, notional and leverage caps, portfolio gates, audited decisions. **DV-10:** the Node engine also vetoes zero, negative and non-finite equity, where the legacy engine approves (**F-27 closed in Node**; the PHP is untouched until cutover, so the two now disagree on purpose). `risk` reports **`partial`** |
+| Portfolio monitor, limits API, kill-switch control surface (§3.4) | **Not ported** | The kill switch is engaged at boot and **no ported code path releases it**, equity/open-risk are defaults, so no proposal can be approved from an HTTP route and the portfolio gates are vacuous there (every run says so in `riskContext.note`). **F-27 is resolved on the Node side (DV-10)** — but this row must call the *Node* engine, never `RiskEngine.php`, or it inherits the zero-equity approval the Node side just closed |
+| Strategies, backtesting, journal, paper trading, execution, brokers, sports, lottery, language learning, lead discovery (§3.4–§3.9) | **Not ported** | Reported `not-ported` by the status surface; trading stays disabled. The two legacy `08-engine-journal` cases not ported in Phase 5 belong here (backtester, journal analytics) |
+| Football predictions (§3.12) | Unchanged, isolated | 29 tests re-run green in Phase 5 |
+| Scout (`apps/api`, `apps/web`) | Unchanged | Consolidation gated on F-18/R-02; 12 contract tests re-run green in Phase 5 |
+| MT5 bridge (Python) | Unchanged | Documented migration exception; its pytest suite was not re-run in Phase 4 or 5 |
+
 — End of Phase 0 inventory.

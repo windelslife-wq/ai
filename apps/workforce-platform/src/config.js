@@ -138,18 +138,235 @@ function loadRateLimitConfig(env) {
       lockMs: integer(env.LOGIN_LOCKOUT_MS, "LOGIN_LOCKOUT_MS", { fallback: 15 * 60_000, min: 1_000, max: 24 * 3_600_000 }),
     },
     maxEntries: integer(env.RATE_LIMIT_MAX_ENTRIES, "RATE_LIMIT_MAX_ENTRIES", { fallback: 20_000, min: 100, max: 1_000_000 }),
+    /**
+     * Analysis is the most expensive authenticated surface on the platform (R-26):
+     * one run fetches up to 8 upstream series — a forex or commodity run also
+     * fetches seven reference legs — and one consensus scan is up to 10 runs, so a
+     * 10-symbol scan can fan out into ~80 provider calls. The global `api` limiter
+     * bounds *requests*; these bound *work*.
+     *
+     * The window limits ride the existing per-route mechanism (keyed by client
+     * address, checked before validation, so a refused request still counts and
+     * cannot be used to hammer the contract for free). The concurrency cap is
+     * per-session and lives in the analysis routes; `0` disables it, matching the
+     * `MAX_REQUESTS_PER_CLIENT` convention.
+     */
+    analysisRun: {
+      max: integer(env.RATE_LIMIT_ANALYSIS_RUN_MAX, "RATE_LIMIT_ANALYSIS_RUN_MAX", { fallback: 12, min: 1, max: 10_000 }),
+      windowMs: integer(env.RATE_LIMIT_ANALYSIS_RUN_WINDOW_MS, "RATE_LIMIT_ANALYSIS_RUN_WINDOW_MS", { fallback: 600_000, min: 1_000, max: 24 * 3_600_000 }),
+    },
+    analysisConsensus: {
+      max: integer(env.RATE_LIMIT_ANALYSIS_CONSENSUS_MAX, "RATE_LIMIT_ANALYSIS_CONSENSUS_MAX", { fallback: 4, min: 1, max: 10_000 }),
+      windowMs: integer(env.RATE_LIMIT_ANALYSIS_CONSENSUS_WINDOW_MS, "RATE_LIMIT_ANALYSIS_CONSENSUS_WINDOW_MS", { fallback: 600_000, min: 1_000, max: 24 * 3_600_000 }),
+    },
+    analysisMaxConcurrentRuns: integer(env.ANALYSIS_MAX_CONCURRENT_RUNS, "ANALYSIS_MAX_CONCURRENT_RUNS", { fallback: 2, min: 0, max: 100 }),
+    /**
+     * Strategy Lab cost control (risk R-26, applied to this module at birth).
+     *
+     * A backtest fetches up to 5 000 candles and simulates every bar. An
+     * optimization is roughly fifty times heavier: the optimizer re-runs the
+     * backtester once per grid combination and once per walk-forward segment, so a
+     * trend-following search is 24 combinations x 2 segments plus the baseline.
+     * That is why the optimize window is much tighter than the backtest window.
+     *
+     * The in-flight cap defaults to 1 where the analysis module's is 2, and the
+     * difference is deliberate: one analyze slot can hold ~50 simulations, so two
+     * concurrent slots would put ~100 on a host that may have two cores. One heavy
+     * job per signed-in session at a time is the honest bound, and it is
+     * configurable for a host that has more to give.
+     */
+    strategyBacktest: {
+      max: integer(env.RATE_LIMIT_STRATEGY_BACKTEST_MAX, "RATE_LIMIT_STRATEGY_BACKTEST_MAX", { fallback: 12, min: 1, max: 10_000 }),
+      windowMs: integer(env.RATE_LIMIT_STRATEGY_BACKTEST_WINDOW_MS, "RATE_LIMIT_STRATEGY_BACKTEST_WINDOW_MS", { fallback: 600_000, min: 1_000, max: 24 * 3_600_000 }),
+    },
+    strategyOptimize: {
+      max: integer(env.RATE_LIMIT_STRATEGY_OPTIMIZE_MAX, "RATE_LIMIT_STRATEGY_OPTIMIZE_MAX", { fallback: 2, min: 1, max: 10_000 }),
+      windowMs: integer(env.RATE_LIMIT_STRATEGY_OPTIMIZE_WINDOW_MS, "RATE_LIMIT_STRATEGY_OPTIMIZE_WINDOW_MS", { fallback: 600_000, min: 1_000, max: 24 * 3_600_000 }),
+    },
+    strategyMaxConcurrentRuns: integer(env.STRATEGY_MAX_CONCURRENT_RUNS, "STRATEGY_MAX_CONCURRENT_RUNS", { fallback: 1, min: 0, max: 100 }),
   });
 }
 
-function loadSiteConfig(env) {
-  const raw = env.SITE_NAME || "WINDELS AI WORKFORCE";
+/**
+ * Public-site identity and SEO settings (finding F-10).
+ *
+ * These drive the rendered public pages, `/robots.txt`, `/sitemap.xml` and
+ * `/manifest.webmanifest`, so every value is validated here rather than in a
+ * template: a metadata field that accepted any string would be an injection
+ * point into every page head.
+ *
+ * Legacy parity: the PHP application reads the same settings from
+ * `application/config/seo.php` (`VP_SITE_NAME`, `VP_SITE_DESCRIPTION`,
+ * `VP_SITE_KEYWORDS`, `VP_ROBOTS`, `VP_BASE_URL`, `VP_OG_IMAGE`,
+ * `VP_THEME_COLOR`). The Node names drop the `VP_` prefix but keep the
+ * semantics, including the default title suffix and the robots vocabulary.
+ */
+const ROBOTS_VALUES = Object.freeze(["index, follow", "noindex, follow", "index, nofollow", "noindex, nofollow"]);
+
+function loadSiteConfig(env, { production, publicBaseUrl }) {
+  const name = (env.SITE_NAME || "WINDELS AI WORKFORCE").slice(0, 120);
+  const description = (env.SITE_DESCRIPTION
+    || "WINDELS AI WORKFORCE — research, learning and operational tools in one governed workspace. Evidence-first, audited and fail-closed.").slice(0, 300);
+  const canonicalBase = publicBaseUrl || null;
+
+  // The Open Graph image must be an absolute URL to be usable by a crawler. When
+  // no canonical origin is configured (development) it stays null and the page
+  // head omits the tag instead of publishing a relative or invented URL.
+  let ogImage = null;
+  if (env.SITE_OG_IMAGE) {
+    let parsed = null;
+    try {
+      parsed = new URL(env.SITE_OG_IMAGE);
+    } catch {
+      throw new Error("SITE_OG_IMAGE must be an absolute https:// URL to the shared image");
+    }
+    if (parsed.protocol !== "https:" && !(parsed.protocol === "http:" && !production)) {
+      throw new Error("SITE_OG_IMAGE must use https:// in production");
+    }
+    ogImage = parsed.href;
+  } else if (canonicalBase) {
+    ogImage = `${canonicalBase}/icons/icon-512.png`;
+  }
+
+  const announcement = String(env.SITE_ANNOUNCEMENT || "")
+    .split("|")
+    .map((entry) => entry.trim().slice(0, 160))
+    .filter(Boolean)
+    .slice(0, 3);
+
   return Object.freeze({
-    name: raw.slice(0, 120),
-    description: (env.SITE_DESCRIPTION || "Research, learning and operational tools with clear guardrails.").slice(0, 300),
-    titleSuffix: (env.SITE_TITLE_SUFFIX || "").slice(0, 60),
-    themeColor: /^#[0-9a-fA-F]{6}$/.test(env.THEME_COLOR || "") ? env.THEME_COLOR : "#071511",
-    robots: ["index, follow", "noindex, follow", "index, nofollow", "noindex, nofollow"].includes(env.ROBOTS) ? env.ROBOTS : "index, follow",
-    keywords: (env.SITE_KEYWORDS || "").slice(0, 500),
+    name,
+    description,
+    titleSuffix: (env.SITE_TITLE_SUFFIX === undefined ? ` · ${name}` : env.SITE_TITLE_SUFFIX).slice(0, 60),
+    themeColor: /^#[0-9a-fA-F]{6}$/.test(env.THEME_COLOR || "") ? env.THEME_COLOR.toLowerCase() : "#071511",
+    backgroundColor: /^#[0-9a-fA-F]{6}$/.test(env.SITE_BACKGROUND_COLOR || "") ? env.SITE_BACKGROUND_COLOR.toLowerCase() : "#071511",
+    robots: ROBOTS_VALUES.includes(env.ROBOTS) ? env.ROBOTS : "index, follow",
+    keywords: (env.SITE_KEYWORDS || "WINDELS AI Workforce, AI workforce, language learning, market intelligence, sports research, lottery analysis, lead discovery").slice(0, 500),
+    canonicalBase,
+    ogImage,
+    announcement: Object.freeze(announcement),
+    /**
+     * The legacy public pages quote the size of the authored language-teacher
+     * registry (`count($this->platform->langlearn->languages())` → 20). Language
+     * learning is not ported to this platform, so there is no registry to count:
+     * the number is a stated configuration value describing the product, and the
+     * parity ledger records exactly that. Set it to 0 to drop the claim.
+     */
+    languageCount: integer(env.SITE_LANGUAGE_COUNT, "SITE_LANGUAGE_COUNT", { fallback: 20, min: 0, max: 500 }),
+    contact: Object.freeze({
+      // A public, unauthenticated write endpoint: the limit is per client address
+      // and deliberately tight, and the accepted message length matches the legacy
+      // form (10..2000 characters).
+      maxPerWindow: integer(env.CONTACT_MAX_PER_HOUR, "CONTACT_MAX_PER_HOUR", { fallback: 3, min: 1, max: 1_000 }),
+      windowMs: integer(env.CONTACT_WINDOW_MS, "CONTACT_WINDOW_MS", { fallback: 3_600_000, min: 60_000, max: 86_400_000 }),
+      messageMinLength: 10,
+      messageMaxLength: 2_000,
+    }),
+  });
+}
+
+/**
+ * Market-data provider configuration (module: marketData).
+ *
+ * Legacy parity: `Aegis\Platform` registers Binance, Frankfurter/ECB, four inert
+ * licensed-asset adapters and — always last — the synthetic demo provider. The
+ * environment names for the licensed adapters keep their legacy `AEGIS_*_DATA_*`
+ * spelling on purpose: a host that already has them set keeps working at cutover.
+ *
+ * Two honesty switches matter more than the rest:
+ *  - `MARKET_DATA_REAL_PROVIDERS=0` registers the synthetic provider alone
+ *    (the legacy `$disableRealProviders` flag used by the dev runtime and tests);
+ *  - `MARKET_DATA_ALLOW_SYNTHETIC=0` refuses to serve simulated data at all, so a
+ *    host that must never show a synthetic candle can say so and get an error
+ *    instead of a fallback.
+ */
+const LICENSED_ASSET_CLASSES = Object.freeze([
+  { assetClass: "stock", envPrefix: "AEGIS_STOCK_DATA", displayName: "Licensed stock data", priority: 30 },
+  { assetClass: "etf", envPrefix: "AEGIS_ETF_DATA", displayName: "Licensed ETF data", priority: 31 },
+  { assetClass: "futures", envPrefix: "AEGIS_FUTURES_DATA", displayName: "Licensed futures data", priority: 32 },
+  { assetClass: "options", envPrefix: "AEGIS_OPTIONS_DATA", displayName: "Licensed options data", priority: 33 },
+]);
+
+function httpsBaseUrl(value, name, { production, optional = true }) {
+  const raw = String(value || "").trim();
+  if (!raw) {
+    if (optional) return null;
+    throw new Error(`${name} is required`);
+  }
+  let parsed;
+  try {
+    parsed = new URL(raw);
+  } catch {
+    throw new Error(`${name} must be an absolute URL`);
+  }
+  if (parsed.protocol !== "https:" && !(parsed.protocol === "http:" && !production)) {
+    throw new Error(`${name} must use https:// in production`);
+  }
+  if (parsed.username || parsed.password) throw new Error(`${name} must not contain credentials`);
+  return parsed.origin;
+}
+
+function symbolList(value) {
+  return Object.freeze(String(value || "")
+    .split(",")
+    .map((entry) => entry.trim().toUpperCase())
+    .filter(Boolean)
+    .slice(0, 500));
+}
+
+function loadMarketDataConfig(env, { production }) {
+  const licensed = LICENSED_ASSET_CLASSES.map((entry) => Object.freeze({
+    ...entry,
+    baseUrl: httpsBaseUrl(env[`${entry.envPrefix}_URL`], `${entry.envPrefix}_URL`, { production }),
+    healthUrl: httpsBaseUrl(env[`${entry.envPrefix}_HEALTH_URL`], `${entry.envPrefix}_HEALTH_URL`, { production }),
+    token: String(env[`${entry.envPrefix}_TOKEN`] || "").trim(),
+    license: String(env[`${entry.envPrefix}_LICENSE`] || "").trim(),
+    enabled: boolean(env[`${entry.envPrefix}_ENABLED`], `${entry.envPrefix}_ENABLED`, false),
+    // Legacy rule: delayed unless the host says `_DELAYED=0` explicitly.
+    delayed: String(env[`${entry.envPrefix}_DELAYED`] || "").trim() !== "0",
+    symbols: symbolList(env[`${entry.envPrefix}_SYMBOLS`]),
+  }));
+
+  return Object.freeze({
+    realProviders: boolean(env.MARKET_DATA_REAL_PROVIDERS, "MARKET_DATA_REAL_PROVIDERS", true),
+    allowSynthetic: boolean(env.MARKET_DATA_ALLOW_SYNTHETIC, "MARKET_DATA_ALLOW_SYNTHETIC", true),
+    timeoutMs: integer(env.MARKET_DATA_TIMEOUT_MS, "MARKET_DATA_TIMEOUT_MS", { fallback: 6_000, min: 500, max: 30_000 }),
+    retries: integer(env.MARKET_DATA_RETRIES, "MARKET_DATA_RETRIES", { fallback: 2, min: 0, max: 5 }),
+    // Hardening added during the port: the legacy manager had no overall budget,
+    // so a host with no outbound access stacked one provider timeout after
+    // another. Every request — including health probes — now dies inside this
+    // window and reports the honest failure instead of hanging.
+    deadlineMs: integer(env.MARKET_DATA_DEADLINE_MS, "MARKET_DATA_DEADLINE_MS", { fallback: 15_000, min: 1_000, max: 120_000 }),
+    healthTimeoutMs: integer(env.MARKET_DATA_HEALTH_TIMEOUT_MS, "MARKET_DATA_HEALTH_TIMEOUT_MS", { fallback: 5_000, min: 500, max: 60_000 }),
+    binanceBaseUrl: httpsBaseUrl(env.BINANCE_API_BASE, "BINANCE_API_BASE", { production }) || "https://api.binance.com",
+    frankfurterBaseUrl: httpsBaseUrl(env.FRANKFURTER_API_BASE, "FRANKFURTER_API_BASE", { production }) || "https://api.frankfurter.dev",
+    licensed: Object.freeze(licensed),
+  });
+}
+
+/**
+ * Analysis retention policy (risk R-27).
+ *
+ * `wf_analysis_runs.payload` is a LONGTEXT copy of an entire run — every agent
+ * verdict, the debate transcript, scenarios, the setup, the risk decision and the
+ * data provenance — kept so a decision can be re-read later without re-deriving it
+ * from market data that no longer exists. Nothing else in the platform ever deletes
+ * a row, so without retention the table grows for the life of the deployment on
+ * shared hosting where disk is not elastic.
+ *
+ * Only the *policy* is configurable. Retention is applied by an operator running
+ * `npm run prune:analysis`, never by a request: there is deliberately no HTTP route
+ * that can delete analysis history, because a session-scoped API with a delete verb
+ * on the audit copy of what a user was shown is not a trade worth making. Batch size
+ * stays a code constant with a CLI override, since it is an implementation detail
+ * about lock duration rather than a decision about what to keep.
+ *
+ * `0` keeps rows forever — the pre-R-27 behaviour, still available to a deployment
+ * that would rather grow than lose history.
+ */
+function loadAnalysisConfig(env) {
+  return Object.freeze({
+    retentionDays: integer(env.ANALYSIS_RETENTION_DAYS, "ANALYSIS_RETENTION_DAYS", { fallback: 90, min: 0, max: 3_650 }),
   });
 }
 
@@ -215,9 +432,16 @@ export function loadConfig(env = process.env) {
     logLevel,
     database,
     storage,
-    site: loadSiteConfig(env),
+    site: loadSiteConfig(env, { production, publicBaseUrl }),
+    marketData: loadMarketDataConfig(env, { production }),
+    analysis: loadAnalysisConfig(env),
     uploads: loadUploadConfig(env, { production }),
     rateLimit: loadRateLimitConfig(env),
+    // Concurrent in-flight requests tracked per client address. A per-window
+    // counter cannot stop a client that opens hundreds of parallel slow
+    // connections; this ceiling can. 0 disables it (the default) so a shared
+    // office address is never throttled by accident — set it deliberately.
+    maxRequestsPerClient: integer(env.MAX_REQUESTS_PER_CLIENT, "MAX_REQUESTS_PER_CLIENT", { fallback: 0, min: 0, max: 10_000 }),
     sessionSecret: env.SESSION_SECRET,
     sessionTtlSeconds: integer(env.SESSION_TTL_SECONDS, "SESSION_TTL_SECONDS", {
       fallback: 8 * 60 * 60,

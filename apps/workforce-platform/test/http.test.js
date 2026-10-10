@@ -4,6 +4,7 @@ import { mkdtemp, mkdir, rm, symlink, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { createTestApp } from "./helpers.js";
+import { neverCachePatternLiteral, SERVICE_WORKER_NEVER_CACHE } from "../src/modules/site/seo.js";
 
 function responseText(response) {
   return response.body || "";
@@ -81,7 +82,15 @@ test("PWA shell and install manifest are served without caching authenticated AP
   const worker = await app.inject({ method: "GET", url: "/service-worker.js" });
   assert.equal(worker.statusCode, 200);
   assert.equal(worker.headers["cache-control"], "no-cache");
-  assert.match(responseText(worker), /url\.pathname\.startsWith\("\/api\/"\)/);
+  assert.match(worker.headers["content-type"], /javascript/);
+  // The worker is generated per deployment, so the policy is asserted as data and
+  // then confirmed present in the exact bytes a browser would download.
+  assert.ok(SERVICE_WORKER_NEVER_CACHE.includes("/api/"), "the API must never enter the cache");
+  for (const prefix of SERVICE_WORKER_NEVER_CACHE) {
+    assert.ok(responseText(worker).includes(neverCachePatternLiteral(prefix)), `the served worker must bypass ${prefix}`);
+  }
+  assert.match(responseText(worker), /request\.method !== "GET"/, "mutations are never cached");
+  assert.match(responseText(worker), /SKIP_WAITING/, "the page must be able to trigger an update it offered");
   assert.match(responseText(worker), /request\.method !== "GET"/);
 
   const api = await app.inject({ method: "GET", url: "/api/v1/health/live" });

@@ -223,3 +223,109 @@ Measured here: **85** app tests (`apps/workforce-platform`), **367** legacy runt
 tests, **21/21** install checks, `verify:data` clean on a seeded store and failing (exit 1)
 on an unseeded one. No production host, real database, provider or signed native build
 was touched.
+
+## 11. Closure status after Phase 3 (2026-10-09, branch `arena/774d9e70-ai`)
+
+Public site, SEO documents, PWA shell and contact intake. Full record with the parity tables,
+the divergences and the rehearsal log: [`PHASE3_PUBLIC_SITE.md`](PHASE3_PUBLIC_SITE.md).
+
+| ID | Severity | Status | Evidence |
+|---|---|---|---|
+| **F-09** | 🟠 | **Closed** — generated PNG icon set (192/512/maskable-512/apple-touch-180) reproducible from `tools/generate-icons.mjs`; service worker generated per request with a content-hash cache name (`windels-shell-<sha256[:16]>`), hashed build assets cache-first, unhashed shell no longer cache-first, `/api/`, `/uploads/`, `/private/`, `/data/`, the worker itself and `/contact/submit` never cached; update prompt (Reload / Not now → `SKIP_WAITING`, reload on `controllerchange`) in both `public/site.js` and the SPA; offline banner; worker served `no-cache` | `test/site.test.js`: `F-09 the icon set is real PNGs at the sizes install prompts require, reproducible from the generator`, `F-09 the service worker is generated, versioned by shell content, and its policy is data` (the generated source is **compiled** in the test); `test/http.test.js` worker assertions; `verify:install` checks 22–25 (icons present) and 28 (icons byte-identical to the generator) |
+| **F-10** | 🟠 | **Closed** — all 8 legacy public pages + 3 aliases + 6 auth/workspace redirects rendered, `robots.txt` (6 legacy disallow rules + 3 Node-only prefixes, conditional `Sitemap:`), `sitemap.xml` (8 paths, refuses relative `<loc>`), `manifest.webmanifest`, canonical/Open Graph/twitter/theme metadata from one validated `SITE_*` surface, contact intake stored + audited + throttled with a signed one-shot flash. `publicSite` still reports **`partial`**: the legacy chat widget is deliberately not ported | `test/site.test.js`: 6 `F-10` tests, the first of which parses `application/config/routes.php` and asserts every legacy site rule is answered; heading parity is compared against `application/views/site/*.php` with entities decoded |
+| **F-13** | 🟡 | **Further closed** — `MAX_REQUESTS_PER_CLIENT` concurrency ceiling (429 `TOO_MANY_CONCURRENT_REQUESTS` + `Retry-After: 1`) landed, the last item from this finding that was implementable without a database. Pool-saturation metrics still open | `test/site.test.js`: `F-13 the concurrency ceiling refuses parallel slow requests from one address` |
+| **F-14** | 🟡 | **Still closed, re-verified** — `.env.example` documents **45** variables including the new `SITE_*`, `THEME_COLOR`, `ROBOTS`, `CONTACT_*` and `MAX_REQUESTS_PER_CLIENT` | `verify:install` check 25 |
+| **F-11** | 🟠 | Open — unchanged | needs an approval-gated upgrade pass |
+| **F-12** | 🟡 | Open — decision, not code. **The gate was not triggered:** Phase 3 added no package to any manifest (server dependencies remain exactly `bcryptjs` + `mysql2`; client `devDependencies` unchanged). Recommendation recorded for approval: per-package lockfiles, starting with `npm install --package-lock-only` inside `apps/workforce-platform/`, because a cPanel install runs per application directory and root hoisting is unavailable there | `PHASE3_PUBLIC_SITE.md` §10 |
+| **F-15** | 🔴 | **Open, cannot close here** — migration `004_public_site.sql` and `src/db/site-repository.js` are unit-covered against a fake pool only; no MySQL server exists in this sandbox, so `wf_contact_inquiries` has never been created by one | blocking on a staging host |
+| **F-16** | 🔴 | Open — unchanged | production action, needs approval |
+| **F-17** | 🟠 | **Closed** — `BASELINE_TESTS.md` re-counted for Phase 3 (this was the remaining item) | `BASELINE_TESTS.md`, Phase 3 section |
+| **F-18** | 🟠 | Open by decision — unchanged | `RISK_REGISTER.md` R-02 |
+
+Measured here: **103** app tests (18 new), **30/30** install checks, **4/4** icon checks,
+**367** legacy runtime tests, **12** Scout contract tests, **29** football-prediction tests —
+**511** passed, 0 failed — plus a green client build (20 modules, 265.27 kB JS / 79.47 kB gzip)
+and a live `curl` rehearsal of every document route on the file adapter. `application/` and
+`system/` are unchanged; no production host, real database, provider, browser or signed native
+build was touched.
+
+## 12. Closure status after Phase 4 (2026-10-09, branch `arena/774d9e70-ai`)
+
+Market data and provider health — the first module in the master plan's dependency order, because
+analysis, strategies and paper trading all consume it. Full record with the parity tables, the
+divergences and the rehearsal log: [`PHASE4_MARKET_DATA.md`](PHASE4_MARKET_DATA.md).
+
+| ID | Severity | Status | Evidence |
+|---|---|---|---|
+| **F-02** | 🟠 | **Extended to a real external dependency** — market data is the first module that calls a third party, and a provider failure answers `503` + `Retry-After` with `MARKET_DATA_UNAVAILABLE` / `SYNTHETIC_DATA_DISABLED` instead of the legacy `502` + bare `{error}`. The provider's own message is preserved in `error.details.reason` | `test/market_data.test.js`: `a host that refuses synthetic data returns an outage, never invented candles` (asserts the status, the code, `details.syntheticAllowed:false`, a positive `Retry-After` and the absence of a candle array) |
+| **F-14** | 🟡 | **Still closed, re-verified** — `.env.example` documents **53** variables including the 8 new `MARKET_DATA_*` / `BINANCE_API_BASE` / `FRANKFURTER_API_BASE` and the `AEGIS_*_DATA_*` licensed-feed family (read through a computed key, so documented by hand) | `verify:install` check 25 |
+| **F-12** | 🟡 | Open — decision, not code. **The gate was not triggered again:** Phase 4 added no package to any manifest; `fetch`, `AbortSignal` and `URLSearchParams` are platform built-ins, so server dependencies remain exactly `bcryptjs` + `mysql2` | `PHASE4_MARKET_DATA.md` §1 |
+| **F-15** | 🔴 | **Open, unchanged but narrowed** — this phase added no schema and no migration (market data persists only an audit row through the existing repository contract), so there is nothing new for a real MySQL server to prove. The four existing migrations remain unexercised against one | `PHASE4_MARKET_DATA.md` §9 |
+| **F-11**, **F-16**, **F-17**, **F-18** | — | Open — unchanged; none was touched by this phase | `PHASE4_MARKET_DATA.md` §10 |
+| **F-24** (new) | 🟡 | **Open** — *provider health is per-process.* Circuit breakers, the failure log and the TTL caches live inside one Node process, so under Passenger's multi-process model each worker keeps its own view and `/api/v1/market-data/providers` can answer `UP` from one worker and `DOWN` from another. Acceptable while PHP is authoritative | `PHASE4_MARKET_DATA.md` §10; needs a shared health store or a single prober before market data is trusted operationally |
+| **F-25** (new) | 🟡 | **Open** — *nothing in CI ever calls a real provider.* Every provider test injects a transport, and this sandbox has no egress, so a silent upstream API change (a renamed field, a new error envelope) would be caught by a user rather than by a build | `PHASE4_MARKET_DATA.md` §9–§10; wants a scheduled probe on a host with outbound HTTPS |
+| **F-26** (new) | 🟡 | **Open** — *the ported numeric algorithms are not diffed against PHP output.* Both suites are green, but the golden constants in `test/market_data.test.js` (synthetic candles, `hashString`, PRNG and Gaussian sequences) were produced by the Node port; an attempt to extract the same values from WASM PHP timed out in this sandbox. A pure-function comparison — no database, no network — would close it | `PHASE4_MARKET_DATA.md` §9 item 2; cutover prerequisite |
+| **R-24**, **R-25** (new) | 🟠 / 🟡 | **Recorded** in `RISK_REGISTER.md`: external market-data dependency (egress, vendor drift, rate limits, no licensed feed) and the risk that labelled synthetic data is consumed as if it were real by a later module | `RISK_REGISTER.md`, "Additions after Phase 4" |
+
+Measured here: **140** app tests (37 new), **30/30** install checks, **367** legacy PHP/WASM oracle tests
+(all eleven `tests/cases/02-providers.php` cases among them, passing on both sides of the migration),
+**12** Scout contract tests, **29** football-prediction tests and a clean `npm run typecheck` — **548
+passed, 0 failed** — plus a live `curl` rehearsal of all three endpoints, their 401/400 boundaries, the
+provider registry and the audit trail on the file adapter. The first CI run of this phase failed on one
+network-dependent test (a sandbox with no egress cannot reproduce a runner with one); it is fixed,
+recorded as **D-6** in `PHASE4_MARKET_DATA.md` §6, and the market-data suite now makes no outbound call. **Not** measured: a live upstream provider (no
+egress — both real providers reported `DOWN` and the chain fell back to labelled synthetic data), a
+licensed feed, a value-for-value diff of PHP versus Node numeric output (F-26), a real MySQL server, any
+market-data UI, or any cutover. `application/` and `system/` are unchanged.
+
+## 13. Closure status after Phase 5 (2026-10-09, branch `arena/774d9e70-ai`)
+
+Analysis engines, specialized agents, consensus/debate and the risk veto gate — the second module in the
+master plan's dependency order, and the first consumer of Phase 4's market data (which is what made R-25
+testable rather than theoretical). Full record with the parity tables, the divergences and the rehearsal
+log: [`PHASE5_ANALYSIS.md`](PHASE5_ANALYSIS.md).
+
+| ID | Severity | Status | Evidence |
+|---|---|---|---|
+| **F-02** | 🟠 | **Still closed, extended** — a provider outage on the analysis routes answers the same platform-wide `503` + `Retry-After` contract as market data, not a `500`: `market-data/errors.js` was extracted from the market-data routes so both modules share it, and a consensus scan reports a failed symbol as an `error:` row instead of failing the batch | `test/analysis_http.test.js`: `a provider outage on the run route is a 503 with a retry, never a 500` (asserts status, `SYNTHETIC_DATA_DISABLED`, `details.syntheticAllowed:false`, a positive `Retry-After`, and that no `bias` is present) and `engine: a market-data outage surfaces as the provider's own refusal` |
+| **F-14** | 🟡 | **Still closed, and the principle survived the hardening pass — but the count moved.** The analysis *engine* adds no environment variable: agent weights, thresholds, candle limits and risk limits remain code constants, because they are safety parameters and an env var would let a host silently weaken a veto. The hardening pass then added **six operational** knobs (R-26 limits, R-27 retention), which is the opposite category — things an operator must be able to tune per host without a code change. `.env.example` therefore goes **53 → 59**, every one documented, and out-of-range values are refused at boot rather than clamped | `verify:install` check 25, **30/30**, **59 documented**; `test/config.test.js`: `R-26: analysis carries its own work limits…` |
+| **F-12** | 🟡 | Open — decision, not code. **The gate was not triggered again:** no package was added to any manifest; server dependencies remain exactly `bcryptjs` + `mysql2` | `PHASE5_ANALYSIS.md` header table |
+| **F-15** | 🔴 | **Open, and re-widened** — unlike Phase 4, this phase **did** add schema: migration `005_analysis_runs.sql` and `src/db/analysis-repository.js`, including an `ON DUPLICATE KEY UPDATE` upsert and a `DECIMAL(5,4)` → `Number()` conversion forced by `decimalNumbers: false`. Both are verified by the readiness probe, the contract check, SQL-text assertions and the file adapter, but **never executed against a real MySQL server** — exactly the MySQL-only behaviour class R-14 warns about | `PHASE5_ANALYSIS.md` §9 item 2; `test/store.test.js` (5-migration readiness), `test/analysis_http.test.js` (`persistence: a run id is upserted, not duplicated`) |
+| **F-11**, **F-16**, **F-17**, **F-18** | — | Open — unchanged; none was touched by this phase | `PHASE5_ANALYSIS.md` §10 |
+| **F-24**, **F-25** | 🟡 | Open — unchanged. Analysis multiplies F-24's blast radius rather than adding to it: one consensus scan performs up to 80 provider calls through per-process caches and breakers, so two Passenger workers can disagree about the same symbol's health while serving the same scan | `RISK_REGISTER.md` R-26 |
+| **F-26** | 🟡 | **Open, and now load-bearing for a much larger surface.** The 36 ported legacy cases were re-derived by hand and pinned as goldens, but `Indicators.php` (~20 indicators), `MathUtils.php` (PHP half-away-from-zero rounding, two distinct `number_format` behaviours), `Analysis.php` (seven regime labels, setup and scenario generation), the seven agents and `RiskEngine::evaluate` sizing have **not** been diffed value-for-value against PHP output. Both suites are green independently; that is not the same claim | `PHASE5_ANALYSIS.md` §9 item 3 and §12 entry criterion 2; cutover prerequisite |
+| **F-27** (new) | ✅ **Closed in Node** (was 🟡) | **Closed on explicit instruction: fix it in Node, record the divergence, leave the legacy PHP untouched until cutover.** The defect stands as diagnosed — `RiskEngine::evaluate` **approves** a proposal when equity is `0`, because every portfolio gate (daily/weekly loss, drawdown, symbol and portfolio exposure, correlated positions) sits behind `equity > 0` and the notional and leverage checks then clear trivially (`0 ≤ cap`). The Node engine now vetoes zero, negative **and** non-finite equity before sizing, with a reason that names the problem. It is recorded as divergence **DV-10** rather than quietly "fixed", because the two engines now disagree on purpose and F-26's value-for-value diff must show that as an *expected* difference. **No legacy case is affected** — `04-risk-engine` uses equity 100 and 10 000, so all 8 ported cases pass and the 36-of-38 parity is unchanged; the oracle is still **367/367** because no PHP was edited. The hazard for the paper-trading, execution and broker ports is now closed on the Node side: they must call the Node engine, never the legacy one | `test/analysis.test.js`: `risk engine: equity that cannot measure risk is a veto (divergence DV-10, finding F-27)` — the test that pinned the legacy approval was **inverted**, and now also covers negative and non-finite equity plus a positive-equity control; `PHASE5_ANALYSIS.md` §5 DV-10, §13.1 |
+| **R-25** | 🟠 | **Obligation discharged for this module; the risk stays open.** Analysis carries `provenance.synthetic`/`.live`/`.stale` forward into the run payload, promotes `synthetic`/`source` to **columns** on `wf_analysis_runs`, writes them into the audit details, grades them into the consensus freshness factor (live 1.0 / synthetic 0.5 / stale 0.2) and enforces them through `blockSyntheticData`/`blockStaleData` in the veto. Strategies, backtesting, paper trading and the portfolio monitor inherit the same obligation next | `test/analysis_http.test.js`: `engine: live data clears the data vetoes, and the kill switch is still the binding one` and `engine: a stale series is a critical objection…`; `RISK_REGISTER.md` "Additions after Phase 5" |
+| **R-26**, **R-27** (new) | ✅ **Both closed** (were 🟠 / 🟡) | **Closed in the hardening pass, on instruction to close them before porting another module.** R-26: per-route window limits on both POST routes (12 runs / 4 scans per 10 min per address, charged before validation) **plus** a per-session in-flight cap (`createAnalysisRunGate`, default 2, `0` disables, released in `finally`), keyed by session so a shared NAT cannot starve a colleague; worst case per window ≤ 416 upstream series instead of 120 req/min × 80 calls. R-27: `ANALYSIS_RETENTION_DAYS` (default 90, `0` = keep forever) plus `tools/prune-analysis-runs.mjs` / `npm run prune:analysis` over a new `pruneAnalysisRuns` on both adapters (contract **35 → 36**), dry-run by default, batched and `ORDER BY`-deterministic on MySQL, sharing one `assertIsoCutoff` guard because `completed_at` is compared as **text**. **No HTTP route can delete analysis history** — pinned by a test | `PHASE5_ANALYSIS.md` §13.2, §13.3; `RISK_REGISTER.md`; `test/retention.test.js` (14), `test/analysis.test.js` gate tests (4), `test/analysis_http.test.js` limit tests (2) |
+| **F-28** (new) | 🟠 | **Found and fixed while implementing R-27 — MySQL backups never worked.** `tools/backup.mjs` recorded its `snapshot.json` row counts from a hardcoded table list that had drifted in both directions: it omitted `wf_contact_inquiries` (Phase 3), `wf_data_imports` and `wf_analysis_runs` (Phase 5), and it counted **`wf_user_files`, a table nothing in this repository creates or references** — avatars live in `wf_user_profiles.profile_image`. On MySQL, `SELECT COUNT(*) FROM wf_user_files` throws `ER_NO_SUCH_TABLE`, so `npm run backup` **failed outright** on the adapter production uses. No test caught it: the backup suite drives the file adapter only and this sandbox has no MySQL. The dump itself is whole-database, so no *data* was ever lost — but three tables were silently uncounted around a restore while a fourth guaranteed failure. Fixed by deriving the list from `src/db/migrations/*.sql`, which makes the drift impossible by construction, accepts only `wf_[a-z_]+` names before interpolating them into a `COUNT`, and reports a missing table as an unapplied migration. Found because a prune that changes row counts is only safe if the operator can prove counts before and after | `test/backup.test.js`: `F-13 the MySQL row counts cover every table the migrations create, and nothing else`; `PHASE5_ANALYSIS.md` §13.4 |
+
+**Trading safety (R-10) — the invariant that mattered most this phase, stated plainly:** the risk engine is
+ported as a **veto gate only**. `DEFAULT_TRADING_STATE` is frozen with the kill switch engaged and
+`tradingMode: ANALYSIS_ONLY`, no ported code path releases it, and `/api/v1/system/features` reports `risk`
+as **`partial`** rather than `ported` for exactly that reason. `risk.decision.approved` is unreachable from
+any HTTP route on this platform; it is covered only by unit tests that pass `killSwitchActive: false`, which
+pin exact sizing (100 / 0.003 / 33 333 units). No agent can route an order, because no order path exists.
+
+Measured here: **235** app tests (**+95** new, porting **36 of the 38** legacy cases across
+`01-indicators`, `03-agents`, `04-risk-engine`, `34-agent-debate` and `08-engine-journal` — the two not
+ported are the backtester and journal-analytics cases, which belong to unported modules), **30/30** install
+checks, **367** legacy PHP/WASM oracle tests, **12** Scout contract tests, **29** football-prediction tests
+and a clean `npm run typecheck` — **643 passed, 0 failed** — plus a live rehearsal of all five endpoints on
+the file adapter, their 401/400/403 boundaries, the consensus scan, history ordering, run retrieval by id
+and the audit trail. The suite is hermetic: **235/235 with and without** a whole-suite egress interceptor,
+so no test can reach the network (the CI trap that produced Phase 4's D-6 was designed out from the start).
+
+**Re-measured after the Phase 5 hardening pass (0.6.1), which closed F-27, R-26 and R-27 and exposed
+F-28:** **257** app tests across 16 files (**+22**), **30/30** install checks with **59** documented
+variables, **367** oracle tests (**unchanged — no legacy PHP was edited**), **12** contract tests, **29**
+football tests, a clean typecheck and a byte-stable client build: **665 passed, 0 failed**, and **257/257**
+with and without the egress interceptor, which now reports *"no outbound requests attempted"* for every
+file. The figures in the paragraph above are the phase as delivered and are left as measured.
+Six defects were found and closed while porting, including a JS operator-precedence bug in the open-risk
+reduction, body schemas written in the query dialect (which made the run route answer `400` *before*
+authentication), the engine's injectable clock not reaching the feed agents' freshness check, a hard store
+requirement that broke the documented store-less boot, and a position-based audit assertion that was a
+latent flake in the test itself — all recorded as **D-7 … D-12** in `PHASE5_ANALYSIS.md` §6. **Not**
+measured: live upstream data (no egress), a licensed sentiment or fundamentals feed, a value-for-value
+PHP↔Node numeric diff (F-26), a real MySQL server (F-15, re-widened), the approve path over HTTP, any
+portfolio state, any analysis UI, MT5 `pytest`, or any cutover. `application/` and `system/` are unchanged.

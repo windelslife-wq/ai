@@ -19,13 +19,25 @@ let cachedVersion = null;
 /** Ported product modules and their acceptance state. Never invented. */
 export const MODULE_STATUS = Object.freeze([
   { key: "identity", label: "Identity, sessions, RBAC, account management", state: "ported", tests: "unit + http + parity" },
+  // Pages, robots/sitemap/manifest, the PWA shell and contact intake are ported
+  // and parity-tested; the legacy public chat assistant is not, so the module is
+  // reported partial rather than ported.
+  { key: "publicSite", label: "Public site, SEO + PWA shell, contact intake (chat assistant not ported)", state: "partial", tests: "unit + http + parity" },
   { key: "audit", label: "Security audit trail for ported actions", state: "partial", tests: "unit" },
   { key: "notifications", label: "Operator notifications", state: "not-ported", tests: null },
-  { key: "marketData", label: "Market data providers and health", state: "not-ported", tests: null },
-  { key: "analysis", label: "Analysis engines, agents, consensus", state: "not-ported", tests: null },
+  // Market data is ported: the provider chain, normalization, circuit breakers
+  // and the three legacy endpoints, with provenance that labels synthetic output.
+  { key: "marketData", label: "Market data providers and health", state: "ported", tests: "unit + http + parity" },
+  // Analysis is ported: indicators, regime detection, the six-agent panel, the
+  // consensus combiner, the adversarial debate and the five legacy endpoints. It
+  // produces proposals only — nothing here can place an order.
+  { key: "analysis", label: "Analysis engines, agents, consensus (proposals only)", state: "ported", tests: "unit + http + parity" },
   { key: "strategies", label: "Strategy lab, lifecycle, backtesting", state: "not-ported", tests: null },
   { key: "paperTrading", label: "Paper trading engine", state: "not-ported", tests: null },
-  { key: "risk", label: "Risk engine and portfolio monitor", state: "not-ported", tests: null },
+  // The risk ENGINE (veto authority + position sizing) is ported because analysis
+  // cannot emit a proposal without being measured by it. The rest of the risk
+  // module is not: no portfolio monitor, no limits API, no kill-switch control.
+  { key: "risk", label: "Risk engine ported as the analysis veto gate; portfolio monitor, limits API and kill-switch control not ported", state: "partial", tests: "unit" },
   { key: "execution", label: "Execution supervisor (15-step pipeline)", state: "not-ported", tests: null },
   { key: "brokers", label: "Broker connectors", state: "not-ported", tests: null },
   { key: "sports", label: "Sports intelligence", state: "not-ported", tests: null },
@@ -51,7 +63,7 @@ export function platformVersion() {
   return cachedVersion;
 }
 
-export async function healthRoutes(app, { store, config, adapter, router }) {
+export async function healthRoutes(app, { store, config, adapter, router, marketData = null, analysis = null }) {
   app.get("/health/live", async () => ({
     status: "ok",
     uptimeSeconds: Math.round(process.uptime()),
@@ -108,9 +120,18 @@ export async function healthRoutes(app, { store, config, adapter, router }) {
         ...(readiness.detail ? { detail: readiness.detail } : {}),
       },
       modules: MODULE_STATUS,
+      // The legacy status surface reported provider health inline. This snapshot
+      // never probes an external host: an unauthenticated endpoint must not be
+      // able to make the server fan out to third parties. Authenticated callers
+      // use GET /api/v1/market-data/providers for a live probe.
+      marketData: marketData ? await marketData.statusSnapshot() : null,
+      // Static description of the analysis panel and the trading state it is
+      // evaluated against. Like the market-data snapshot it never probes or
+      // computes: an unauthenticated caller cannot make this server do work.
+      analysis: analysis ? analysis.statusSnapshot() : null,
       trading: {
         enabled: false,
-        reason: "The trading, risk, execution and broker modules are not ported to Node yet. The legacy application remains authoritative.",
+        reason: "The trading, execution and broker modules are not ported to Node yet, and the risk engine is ported only as the veto gate inside analysis: the kill switch stays engaged and no order can be placed from this platform. The legacy application remains authoritative.",
       },
     };
   });

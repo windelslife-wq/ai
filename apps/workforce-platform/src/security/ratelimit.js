@@ -108,3 +108,69 @@ export function createLoginGuard({ maxFailures = 5, lockMs = 15 * 60_000, window
     },
   };
 }
+
+/**
+ * Concurrent in-flight request ceiling per client (the remaining half of F-13).
+ *
+ * A windowed counter limits *rate*; it cannot stop a client that opens hundreds
+ * of parallel slow connections, each of which holds a socket, a request timeout
+ * and (on the MySQL adapter) possibly a pooled connection. This tracker counts
+ * what is unfinished right now and refuses the next request once the ceiling is
+ * reached, with `Retry-After: 1` because the state changes as soon as any
+ * in-flight request completes.
+ *
+ * Bounded like the limiter: keys are dropped when they reach zero and the map is
+ * capped, so a spread of random client addresses cannot grow memory.
+ */
+export function createConcurrencyTracker({ maxEntries = 20_000 } = {}) {
+  const inflight = new Map();
+
+  function count(key) {
+    return inflight.get(key) || 0;
+  }
+
+  /**
+   * @returns {boolean} true when the request was admitted and MUST be released.
+   */
+  function acquire(key, max) {
+    if (!Number.isFinite(max) || max < 1) return true; // disabled
+    const current = inflight.get(key) || 0;
+    if (current >= max) return false;
+    if (inflight.size >= maxEntries && current === 0) {
+      // Evict a zero-count key rather than refusing an honest client: the ceiling
+      // exists to bound memory, not to become a denial-of-service of its own.
+      for (const [candidate, value] of inflight) {
+        if (value <= 0) {
+          inflight.delete(candidate);
+          break;
+        }
+      }
+    }
+    inflight.set(key, current + 1);
+    return true;
+  }
+
+  function release(key) {
+    const current = inflight.get(key);
+    if (current === undefined) return;
+    if (current <= 1) inflight.delete(key);
+    else inflight.set(key, current - 1);
+  }
+
+  return {
+    acquire,
+    release,
+    count,
+    get size() {
+      return inflight.size;
+    },
+    get total() {
+      let sum = 0;
+      for (const value of inflight.values()) sum += value;
+      return sum;
+    },
+    reset() {
+      inflight.clear();
+    },
+  };
+}
