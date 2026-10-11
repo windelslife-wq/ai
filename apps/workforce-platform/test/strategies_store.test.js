@@ -27,6 +27,7 @@ import { createTrendFollowingStrategy, createVersionedStrategy } from "../src/mo
 
 const STRATEGY_METHODS = Object.freeze([
   "saveStrategy",
+  "recordStrategyHumanSignoff",
   "findStrategy",
   "listStrategies",
   "saveBacktest",
@@ -138,12 +139,12 @@ function fakePool({ rows = [], count = 0, affected = 0 } = {}) {
 
 // ---- the contract ----------------------------------------------------------
 
-test("the ten Strategy Lab methods are part of the contract, not adapter extras", () => {
+test("the eleven Strategy Lab methods are part of the contract, not adapter extras", () => {
   for (const method of STRATEGY_METHODS) {
     assert.ok(REPOSITORY_METHODS.includes(method), `${method} must be in REPOSITORY_METHODS`);
   }
-  assert.equal(STRATEGY_METHODS.length, 10);
-  assert.equal(REPOSITORY_METHODS.length, 46);
+  assert.equal(STRATEGY_METHODS.length, 11);
+  assert.equal(REPOSITORY_METHODS.length, 72);
   // No method may be declared twice: a duplicate would let one adapter satisfy
   // the count while missing a distinct behaviour.
   assert.equal(new Set(REPOSITORY_METHODS).size, REPOSITORY_METHODS.length);
@@ -277,6 +278,8 @@ test("file adapter survives close and reopen for all three new entities", async 
     users: 0, profiles: 0, sessions: 0, roles: 0, permissions: 0, userRoles: 0,
     rolePermissions: 0, audit: 0, inquiries: 0, analysisRuns: 0,
     strategies: 1, backtests: 1, journalEntries: 1,
+    tradingState: 0, paperAccounts: 0, paperOrders: 0, paperPositions: 0, paperTrades: 0, paperDeployments: 0,
+    executionProposals: 0,
   });
   // The checksum covers the new entities, so a restore can prove they came back.
   assert.match(await second.checksum(), /^[0-9a-f]{64}$/);
@@ -494,8 +497,9 @@ test("mysql saveStrategy binds every value and never rewrites created_at", async
     NOW,
     NOW,
     JSON.stringify(record.lifecycle_history),
+    null,
   ]);
-  assert.equal(sql.split("?").length - 1, 12, "twelve placeholders for twelve columns");
+  assert.equal(sql.split("?").length - 1, 13, "thirteen placeholders for thirteen columns");
 });
 
 test("mysql findStrategy decodes JSON columns and returns null when absent", async () => {
@@ -744,16 +748,17 @@ test("mysql saveJournalEntry binds nulls for absent optional columns", async () 
     }),
   );
   const { sql, values } = pool.calls[0];
-  assert.equal(sql.split("?").length - 1, 27, "twenty-seven columns");
-  // paper_position_id belongs to paper trading (row 10) and is never written here.
-  assert.equal(values[26], null);
-  assert.equal(values[9], null, "exit_time");
-  assert.equal(values[10], null, "exit_price");
-  assert.equal(values[16], null, "pnl");
+  assert.equal(sql.split("?").length - 1, 28, "twenty-eight columns including synthetic provenance");
+  assert.equal(values[2], 0, "a non-synthetic row binds false explicitly");
+  assert.equal(values[26], null, "absent backtest id");
+  assert.equal(values[27], null, "absent paper-position id");
+  assert.equal(values[10], null, "exit_time");
+  assert.equal(values[11], null, "exit_price");
+  assert.equal(values[17], null, "pnl");
   // Non-nullable money columns are still numbers.
-  assert.equal(typeof values[8], "number", "entry_price");
-  assert.equal(typeof values[11], "number", "position_size");
-  assert.equal(typeof values[14], "number", "fees");
+  assert.equal(typeof values[9], "number", "entry_price");
+  assert.equal(typeof values[12], "number", "position_size");
+  assert.equal(typeof values[15], "number", "fees");
 });
 
 test("mysql listBacktests selects the promoted columns and never the payload", async () => {

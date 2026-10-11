@@ -1,5 +1,7 @@
 # Phase 5 — Market analysis, agents, consensus and the risk veto gate (2026-10-09)
 
+> **Historical boundary:** This report records the Phase 5 state. Phase 7 later added persisted paper accounts, trading controls and an owner-scoped portfolio-risk scan; Phase 8A added human-reviewed paper proposals only. See [`PHASE7_PAPER_TRADING.md`](PHASE7_PAPER_TRADING.md), [`PHASE8_EXECUTION_PROPOSALS.md`](PHASE8_EXECUTION_PROPOSALS.md) and [`UNFINISHED_MODULES.md`](UNFINISHED_MODULES.md) for current status. The analysis API itself still has no selected-account handoff; none of the later SQL has been validated against real MySQL/MariaDB or cPanel.
+
 **Status: complete in the sandbox, not accepted as the production replacement.** The legacy
 application stays authoritative and deployable; nothing here cuts over traffic, changes production
 data, enables live trading or deletes legacy code (master plan §11, §13).

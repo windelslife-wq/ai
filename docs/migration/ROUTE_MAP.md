@@ -3,6 +3,15 @@
 **Audit date:** 2026-10-05 · **Audited commit:** `675a05c`
 Source of truth: `application/config/routes.php` (285 explicit rules) + CodeIgniter 3 convention routing + controller code. This is the complete legacy route inventory the Node migration must cover. Per-route request/response shapes and the legacy→Node parity table are a Phase 1+ deliverable (`docs/migration/route-parity.md` in the target layout); this document enumerates **what exists today**.
 
+
+> **Current Node route note (2026-10-11):** Sections 1–13 remain the Phase-0
+> legacy inventory. Sections 14.7–14.10 describe the Node API through Phase 8A;
+> 75 API routes are implementation inventory, not a PHP-parity claim. Paper
+> trading and approved proposal submission remain simulation-only and owner-scoped.
+> The full supervisor and all live broker/order routes remain unavailable. See
+> [`PHASE8_EXECUTION_PROPOSALS.md`](PHASE8_EXECUTION_PROPOSALS.md) for scope and
+> verification limits.
+
 ---
 
 ## 1. Routing & auth model (must be replicated)
@@ -307,7 +316,73 @@ wait for the run you already started. These are per **process**, so N Passenger 
 (F-24). **No route was added or removed:** retention is CLI-only, and a test asserts this module registers
 no `DELETE` verb at all.
 
-5 + 7 + 11 + 6 + 1 + 3 + 5 = **38** routes, matching the `count` the live inventory reports.
+At the Phase-5 cutoff, 5 + 7 + 11 + 6 + 1 + 3 + 5 = **38** API routes. Phase 6 added 11,
+Phase 7 added 19 paper/risk routes and one strategy sign-off route, and Phase 8A adds
+six paper-proposal routes, for **75 current Node API routes**. This is an implementation
+inventory, not a legacy-parity claim.
+
+### 14.9 Paper trading and persisted portfolio risk controls (19) — Phase 7
+
+Every endpoint requires an authenticated session (or explicit bearer token). Cookie
+mutations require the session-bound CSRF token. Paper account IDs are never treated
+as authorization: all account and child-resource reads/writes enforce owner scope
+in the service and persistence layer.
+
+| Method/path | Permission | Scope |
+|---|---|---|
+| `GET /api/v1/paper/accounts` | `trading.view` | List caller-owned accounts only |
+| `POST /api/v1/paper/accounts` | `trading.execute` | Create an account owned by the caller |
+| `GET /api/v1/paper/accounts/:accountId` | `trading.view` | Owner-only account summary |
+| `GET /api/v1/paper/accounts/:accountId/orders` | `trading.view` | Owner-only order list |
+| `POST /api/v1/paper/accounts/:accountId/orders` | `trading.execute` | Submit a simulated market/limit order; accepted market fills return 201, pending limits 202 and vetoed orders 409 |
+| `GET /api/v1/paper/accounts/:accountId/positions` | `trading.view` | Owner-only positions |
+| `POST /api/v1/paper/accounts/:accountId/positions/:positionId/close` | `trading.execute` | Owner-only manual close |
+| `POST /api/v1/paper/accounts/:accountId/tick` | `trading.execute` | Evaluate limit fills, protective exits and active strategy deployments |
+| `GET /api/v1/paper/accounts/:accountId/deployments` | `trading.view` | Owner-only deployment list |
+| `POST /api/v1/paper/accounts/:accountId/deployments` | `trading.execute` | Deploy an eligible executable strategy to the owned paper account |
+| `POST /api/v1/paper/accounts/:accountId/deployments/:deploymentId/toggle` | `trading.execute` | Pause/resume an owned deployment |
+| `GET /api/v1/risk/limits` | `trading.view` | Read persisted limits |
+| `PATCH /api/v1/risk/limits` | `trading.control` | Validate, persist and audit limits |
+| `POST /api/v1/risk/limits/update` | `trading.control` | Legacy-style update alias to the same validator |
+| `GET /api/v1/trading/mode` | `trading.view` | Read persisted trading mode and kill state |
+| `POST /api/v1/trading/mode` | `trading.control` | Change mode; boot default remains `ANALYSIS_ONLY` |
+| `POST /api/v1/trading/kill-switch` | `trading.control` | Change kill switch with actor/reason audit |
+| `POST /api/v1/trading/synthetic-paper` | `trading.control` | Explicitly allow/deny synthetic paper input (default denied) |
+| `GET /api/v1/portfolio/risk-scan` | `trading.view` | Scan the authenticated owner's paper portfolios only |
+
+The Node risk engine retains DV-10: non-positive or non-finite equity is vetoed.
+Synthetic-data provenance is retained through paper orders, positions, journal and
+audit; synthetic trades do not count as live-approval evidence. All execution in
+this surface is a simulation—no live broker route is present. SQL-repository tests
+use recording fake pools, and migration assertions are static; neither proves that
+the SQL has executed on MySQL/MariaDB.
+
+### 14.10 Human-reviewed paper execution proposals (6) — Phase 8A
+
+The bounded Phase-8A workflow is not a port of the full legacy supervisor. Proposal
+creation, decisions and reads are scoped to the authenticated owner and that owner's
+paper account. `trading.control` is required for the explicit human decision; actual
+submission requires `trading.execute` and goes only through the existing Paper Trading
+service, which reruns market-data, risk, account-equity and governance checks. Every
+route requires authenticated credentials (cookie or bearer); cookie mutations also
+require the session-bound CSRF token.
+
+| Method/path | Permission | Scope |
+|---|---|---|
+| `GET /api/v1/execution/status` | `trading.view` | Reports paper-only scope, approval requirement and unavailable live/broker capabilities |
+| `POST /api/v1/execution/proposals` | `trading.execute` | Normalize, preflight and persist an owner/account-scoped proposal; eligible proposals await approval |
+| `GET /api/v1/execution/proposals` | `trading.view` | List only the caller's proposals; optional status/limit filters |
+| `GET /api/v1/execution/proposals/:proposalId` | `trading.view` | Owner-bound detail (foreign IDs are indistinguishable from missing records) |
+| `POST /api/v1/execution/proposals/:proposalId/decision` | `trading.control` | One-time approve/decline with a required reason; pending approvals expire after four hours |
+| `POST /api/v1/execution/proposals/:proposalId/paper-submit` | `trading.execute` | One-time claimed submission to Paper Trading only; no generic `/route`, broker, or live-order handler exists |
+
+Proposal and decision events are audited. Submission outcomes preserve synthetic
+provenance, and use of the existing paper service ensures synthetic fills do not become
+live-approval evidence. The 4-hour approval and at-most-once claim are not an automated
+recovery queue: an interrupted `PAPER_SUBMITTING` attempt is not retried to avoid a
+possible duplicate. The wider ordered supervisor, its automation envelope, broker/demo
+gates, real MySQL/MariaDB execution and cPanel/Passenger rehearsal all remain
+incomplete. See [`PHASE8_EXECUTION_PROPOSALS.md`](PHASE8_EXECUTION_PROPOSALS.md).
 
 ## 15. Node rendered document routes (22)
 
@@ -331,15 +406,17 @@ carrying `Accept: text/html` receives the built SPA shell (200); without that he
 
 ### 14.8 Strategies, backtesting and the journal (11) — Phase 6
 
-All session-only with **no permission gate**, matching the legacy `Api_controller`
-surface; the four mutating routes are CSRF-gated and bearer callers are exempt.
-Route count for the platform: **38 → 49**.
+The Phase-6 routes are session-only with no permission gate, matching their legacy
+`Api_controller` surface; unsafe cookie mutations are CSRF-gated and bearer callers
+are exempt. Phase 7 adds the separately permissioned human sign-off route (shown
+below). Route count: **38 at Phase 5 → 49 at Phase 6 → 69 after Phase 7 → 75 after Phase 8A**.
 
 | Method/path | Auth | Legacy relationship |
 |---|---|---|
 | `GET /api/v1/strategies` | session | `GET /api/strategies`: grouped by id, `latest` plus every `versions[]` entry with `lifecycle`/`updatedAt`. `supportsShorts` comes from the executable implementation, not the record |
 | `GET /api/v1/strategies/:strategyId` | session | `GET /api/strategies/(:any)`: the record plus `supportsShorts` and `nextStage`. `?version=` selects one exactly; an **empty** `?version=` means latest, as legacy did |
 | `POST /api/v1/strategies/:strategyId/status` | session + CSRF | `api/strategies/(:any)/status` — **DV-4:** `POST` only, since a legacy `GET` could only ever 400 on an empty body. A refusal is **409** with `reasons` and `warnings`, and warnings now survive a *successful* transition too (**DV-3**) |
+| `POST /api/v1/strategies/:strategyId/sign-off` | session + `trading.control` + CSRF | Phase 7 addition: persists one-time attributed human risk review for an AI version; does not change `source: "ai"` or advance lifecycle by itself |
 | `POST /api/v1/strategies/:strategyId/optimize` | session + CSRF, own window limit (2/10 min) + concurrency slot | `api/strategies/(:any)/optimize` — **DV-6:** id from the path only. Returns the walk-forward report; `register: true` adopts a winner as a new `source: "ai"` version at `DRAFT` |
 | `POST /api/v1/backtesting/run` | session + CSRF, own window limit (12/10 min) + concurrency slot | `POST /api/backtesting/run`. Resolves the record (404) before the implementation (400), so an omitted version means latest |
 | `GET /api/v1/backtesting/results` | session | `GET /api/backtesting/results` — **DV-11:** summaries carrying promoted `metrics`/`warnings`/`candles` columns rather than decoded payloads. Same response shape |

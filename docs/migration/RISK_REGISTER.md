@@ -85,17 +85,18 @@ copied verbatim into the run payload, promoted to `synthetic`/`source` **columns
 `analysis.run.completed` audit details, graded into the consensus freshness factor (live 1.0 / synthetic
 0.5 / stale 0.2) and enforced by `blockSyntheticData`/`blockStaleData` in the risk veto. Tests assert a
 synthetic run says so, that a stale run is forced to `NO_TRADE` with its proposal dropped, and that a live
-run leaves the kill switch as the only remaining veto. **R-25 stays open**: strategies, backtesting, paper
-trading and the portfolio monitor are the next consumers and inherit the same obligation.
+run leaves the kill switch as the only remaining veto. This was the Phase 5 boundary; Phase 6 and Phase 7
+records below describe the subsequent consumers.
 
-**R-25 discharged for the Strategy Lab (Phase 6), still open for paper trading and the
-portfolio monitor.** The module carries provenance forward exactly as R-25 requires:
-`provenance.synthetic` is copied into the backtest record, promoted to a **column** on
-`wf_backtests` so "every run built on synthetic data" is answerable in SQL without opening
-a `LONGTEXT` payload, written into the `strategies.backtest.completed` audit details, and
-appended to the run's own `warnings` so a human reading the result sees it too. The
-optimization report carries `dataProvenance` verbatim. Tests assert a synthetic run says so
-in both places and that a live run does not inherit the warning.
+**R-25 discharged for the Strategy Lab (Phase 6) and paper/risk surface (Phase 7).**
+The strategy module copies `provenance.synthetic` into the backtest record, promotes it
+to a **column** on `wf_backtests`, writes it into audit details and warnings, and carries
+`dataProvenance` into optimization reports. Phase 7 preserves synthetic provenance on
+paper orders, positions, trade legs and journal rows, audits account/control actions, and
+applies the configured synthetic-data veto before a fill. The global synthetic-paper
+setting defaults off; synthetic paper trades are not counted as live-approval evidence.
+These Node tests establish local behavior only; no real feed, MySQL execution or
+PHP↔Node parity diff was performed.
 
 ---
 

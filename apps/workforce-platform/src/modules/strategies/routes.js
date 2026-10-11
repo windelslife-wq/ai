@@ -43,10 +43,11 @@
  */
 
 import { AppError } from "../../http/errors.js";
-import { createAuthenticator, requireCsrf } from "../platform/guards.js";
+import { createAuthenticator, requireCsrf, requirePermission } from "../platform/guards.js";
 import {
   BACKTEST_BODY,
   BACKTEST_PARAMS,
+  HUMAN_SIGNOFF_BODY,
   JOURNAL_QUERY,
   MANUAL_JOURNAL_BODY,
   OPTIMIZE_BODY,
@@ -132,6 +133,8 @@ export function strategyRoutes(app, { store, config, service = null, marketData 
   // `request.auth.via`), exactly as in the identity and analysis modules.
   const csrf = requireCsrf(config);
   const actorOf = (request) => request.auth?.user?.id ?? null;
+  const requireTradingControl = requirePermission("trading.control", config);
+  requireTradingControl.permission = "trading.control";
   const gate = createStrategyRunGate({
     tracker: concurrency,
     max: config?.rateLimit?.strategyMaxConcurrentRuns ?? 0,
@@ -163,6 +166,21 @@ export function strategyRoutes(app, { store, config, service = null, marketData 
     }
     return strategy;
   });
+
+  /**
+   * Record the required human review on an AI-generated variant. This endpoint
+   * is intentionally separate from lifecycle transition and requires
+   * `trading.control`; it cannot be used to advance lifecycle stages.
+   */
+  app.post("/strategies/:strategyId/sign-off", {
+    preHandler: [authenticate, requireTradingControl],
+    paramsSchema: STRATEGY_PARAMS,
+    bodySchema: HUMAN_SIGNOFF_BODY,
+  }, async (request) => strategies.signOffAiStrategy(
+    request.params.strategyId,
+    request.body,
+    { actorId: actorOf(request) },
+  ));
 
   /**
    * Advance or retire a strategy through its evidence-gated lifecycle.

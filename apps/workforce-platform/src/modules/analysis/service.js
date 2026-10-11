@@ -15,6 +15,8 @@
 import { AppError } from "../../http/errors.js";
 import { AGENT_CATALOGUE, DEFAULT_WATCHLIST, inferMarketClass } from "./contracts.js";
 import { createAnalysisEngine, CANDLE_LIMIT, DEFAULT_TRADING_STATE, REFERENCE_SYMBOLS } from "./engine.js";
+import { DEFAULT_RISK_LIMITS } from "./risk-engine.js";
+import { normalizeTradingState } from "../paper/service.js";
 
 export function createAnalysisService({
   store = null,
@@ -42,11 +44,49 @@ export function createAnalysisService({
     }
   }
 
+  function applyFailSafeGovernance(note = DEFAULT_TRADING_STATE.note) {
+    analysisEngine.setTradingState({
+      ...DEFAULT_TRADING_STATE,
+      riskLimits: { ...DEFAULT_RISK_LIMITS },
+      note,
+    });
+  }
+
+  async function syncPersistedGovernance() {
+    if (!store || typeof store.loadTradingState !== "function" || typeof analysisEngine.setTradingState !== "function") return;
+    try {
+      const persisted = await store.loadTradingState();
+      if (!persisted) {
+        applyFailSafeGovernance();
+        return;
+      }
+      const governance = normalizeTradingState(persisted);
+      analysisEngine.setTradingState({
+        ...analysisEngine.tradingState,
+        ...governance,
+        // Analysis has no selected paper account; account-specific exposure is
+        // evaluated by paper order submission. The persisted kill switch and risk
+        // limits inform proposal vetoes; PAPER_TRADING mode is enforced by the
+        // paper-order service, not treated as execution permission here.
+        equity: analysisEngine.tradingState.equity ?? DEFAULT_TRADING_STATE.equity,
+        peakEquity: analysisEngine.tradingState.peakEquity ?? DEFAULT_TRADING_STATE.peakEquity,
+        riskLimits: { ...DEFAULT_RISK_LIMITS, ...governance.riskLimits },
+        note: "Governance settings are persisted. Analysis remains proposal-only; paper order decisions use the authenticated account portfolio.",
+      });
+    } catch (error) {
+      // Never keep an earlier released switch in memory after persisted governance
+      // becomes unavailable or unreadable. Fall back to ANALYSIS_ONLY + kill on.
+      applyFailSafeGovernance("Persisted governance is unavailable; analysis reverted to ANALYSIS_ONLY with the kill switch active.");
+      if (log) log.warn({ err: error }, "analysis could not refresh persisted trading governance");
+    }
+  }
+
   /**
    * @param {{symbol: string, marketClass: string, timeframe: string}} body already validated
    * @param {{actorId?: number|null}} options
    */
   async function run(body, { actorId = null } = {}) {
+    await syncPersistedGovernance();
     return analysisEngine.run(body.symbol, body.marketClass, body.timeframe, { actorId });
   }
 
@@ -72,6 +112,7 @@ export function createAnalysisService({
    * the market class is inferred per symbol with the legacy mapping.
    */
   async function consensus({ timeframe = "1h", symbols = null } = {}, { actorId = null } = {}) {
+    await syncPersistedGovernance();
     const requested = Array.isArray(symbols) && symbols.length ? symbols : [...DEFAULT_WATCHLIST];
     const requests = requested.map((symbol) => {
       const upper = String(symbol).trim().toUpperCase();

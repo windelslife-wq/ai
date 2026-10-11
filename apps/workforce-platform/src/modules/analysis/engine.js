@@ -42,18 +42,11 @@ const REFERENCE_LIMIT = 60;
 /**
  * The trading state the risk engine is evaluated against.
  *
- * This is the legacy *boot default* (`platform_state`: `tradingMode`
- * `ANALYSIS_ONLY`, kill switch **active**, "orders blocked until explicitly
- * released"), and in this platform it cannot be changed yet: the kill-switch
- * control surface (`api/system/kill_switch`, permission `trading.control`) belongs
- * to the system/risk module, which is not ported. Keeping it engaged is the
- * fail-safe reading — no proposal can be approved from a platform that has no
- * execution path anyway.
- *
- * The portfolio numbers are defaults for the same reason: paper trading is not
- * ported, so there is no equity, no open position and no realised P&L to read. The
- * portfolio gates therefore cannot fire, and `riskContext.note` says so in every
- * run rather than leaving a reader to infer it from an empty object.
+ * This is the fail-safe boot default (`ANALYSIS_ONLY`, kill switch active).
+ * Phase 7 persists governance controls, and the service refreshes the mode,
+ * switch and limits before an analysis run. Analysis itself remains proposal-only;
+ * account-specific exposure is measured by the paper service when an order is
+ * submitted.
  */
 export const DEFAULT_TRADING_STATE = Object.freeze({
   source: "platform-defaults",
@@ -69,9 +62,7 @@ export const DEFAULT_TRADING_STATE = Object.freeze({
   openRiskBySymbol: Object.freeze({}),
   dailyPnl: 0,
   weeklyPnl: 0,
-  note: "Paper trading and the kill-switch control surface are not ported yet: the kill switch stays engaged and the "
-    + "portfolio gates are evaluated against an empty portfolio, so no proposal can be approved from this platform. "
-    + "The synthetic-data, stale-data and data-quality vetoes are fully active.",
+  note: "Safe default: analysis-only mode with the kill switch active. No proposal can be approved from the analysis surface; paper order decisions are made separately against an authenticated account portfolio.",
 });
 
 function riskContextFrom(state) {
@@ -99,8 +90,16 @@ export function createAnalysisEngine({
 } = {}) {
   if (!marketData) throw new Error("the analysis engine requires a market-data service");
 
-  const riskEngine = risk || createRiskEngine();
+  let activeTradingState = structuredClone(tradingState);
+  const riskEngine = risk || createRiskEngine(activeTradingState.riskLimits ?? {});
+  if (risk && activeTradingState.riskLimits) riskEngine.updateLimits(activeTradingState.riskLimits);
   const intelligence = createTradingIntelligenceAgent();
+
+  function setTradingState(state) {
+    activeTradingState = { ...activeTradingState, ...structuredClone(state ?? {}) };
+    if (activeTradingState.riskLimits) riskEngine.updateLimits(activeTradingState.riskLimits);
+    return structuredClone(activeTradingState);
+  }
   /**
    * The feed agents judge freshness against a clock of their own by default. They
    * must use the engine's clock instead, or an injected `now` would leave the
@@ -206,7 +205,7 @@ export function createAnalysisEngine({
     }
 
     const riskContext = {
-      ...riskContextFrom(tradingState),
+      ...riskContextFrom(activeTradingState),
       dataQuality,
       syntheticData: Boolean(series.provenance?.synthetic),
       staleData: Boolean(series.provenance?.stale),
@@ -255,9 +254,10 @@ export function createAnalysisEngine({
       scenarios,
       tradeSetup: setup,
       riskDecision,
-      // Where the risk numbers came from, so a reader can see that the portfolio
-      // gates are vacuous on this platform rather than satisfied.
-      riskContext: { ...tradingState, dataQuality, syntheticData: riskContext.syntheticData, staleData: riskContext.staleData },
+      // Where the risk numbers came from. This proposal has no selected paper
+      // account, so its account context is not evidence that a user's portfolio is
+      // empty; paper orders repeat the gates against the authenticated account.
+      riskContext: { ...activeTradingState, dataQuality, syntheticData: riskContext.syntheticData, staleData: riskContext.staleData },
       agents: reports,
       provenance: series.provenance,
       validation: series.validation,
@@ -405,5 +405,12 @@ export function createAnalysisEngine({
     return out;
   }
 
-  return { run, consensus, riskEngine, agents: panel, tradingState };
+  return {
+    run,
+    consensus,
+    riskEngine,
+    agents: panel,
+    setTradingState,
+    get tradingState() { return structuredClone(activeTradingState); },
+  };
 }

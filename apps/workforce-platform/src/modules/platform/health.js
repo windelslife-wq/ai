@@ -18,27 +18,24 @@ let cachedVersion = null;
 
 /** Ported product modules and their acceptance state. Never invented. */
 export const MODULE_STATUS = Object.freeze([
-  { key: "identity", label: "Identity, sessions, RBAC, account management", state: "ported", tests: "unit + http + parity" },
-  // Pages, robots/sitemap/manifest, the PWA shell and contact intake are ported
-  // and parity-tested; the legacy public chat assistant is not, so the module is
-  // reported partial rather than ported.
-  { key: "publicSite", label: "Public site, SEO + PWA shell, contact intake (chat assistant not ported)", state: "partial", tests: "unit + http + parity" },
+  { key: "identity", label: "Identity, sessions, RBAC, account management", state: "ported", tests: "unit + http + compatibility fixtures" },
+  // Pages, robots/sitemap/manifest, the PWA shell and contact intake have local
+  // rendering/content checks; the legacy chat assistant is absent, so the module
+  // remains partial. These checks do not claim complete legacy parity.
+  { key: "publicSite", label: "Public site, SEO + PWA shell, contact intake (chat assistant not ported)", state: "partial", tests: "unit + http + content checks" },
   { key: "audit", label: "Security audit trail for ported actions", state: "partial", tests: "unit" },
   { key: "notifications", label: "Operator notifications", state: "not-ported", tests: null },
   // Market data is ported: the provider chain, normalization, circuit breakers
   // and the three legacy endpoints, with provenance that labels synthetic output.
-  { key: "marketData", label: "Market data providers and health", state: "ported", tests: "unit + http + parity" },
-  // Analysis is ported: indicators, regime detection, the six-agent panel, the
+  { key: "marketData", label: "Market data providers and health", state: "ported", tests: "unit + http + provider fixtures" },
+  // Analysis is ported: indicators, regime detection, the seven-agent panel, the
   // consensus combiner, the adversarial debate and the five legacy endpoints. It
   // produces proposals only — nothing here can place an order.
-  { key: "analysis", label: "Analysis engines, agents, consensus (proposals only)", state: "ported", tests: "unit + http + parity" },
-  { key: "strategies", label: "Strategy lab, lifecycle, backtesting", state: "not-ported", tests: null },
-  { key: "paperTrading", label: "Paper trading engine", state: "not-ported", tests: null },
-  // The risk ENGINE (veto authority + position sizing) is ported because analysis
-  // cannot emit a proposal without being measured by it. The rest of the risk
-  // module is not: no portfolio monitor, no limits API, no kill-switch control.
-  { key: "risk", label: "Risk engine ported as the analysis veto gate; portfolio monitor, limits API and kill-switch control not ported", state: "partial", tests: "unit" },
-  { key: "execution", label: "Execution supervisor (15-step pipeline)", state: "not-ported", tests: null },
+  { key: "analysis", label: "Analysis engines, agents, consensus (proposals only)", state: "ported", tests: "unit + http + persistence" },
+  { key: "strategies", label: "Strategy lab, lifecycle, backtesting and durable AI review", state: "ported", tests: "unit + http + persistence" },
+  { key: "paperTrading", label: "Owner-scoped simulation accounts, orders, fills and deployments", state: "ported", tests: "unit + http + persistence" },
+  { key: "risk", label: "Risk engine, persisted limits, kill switch and paper-portfolio monitor", state: "ported", tests: "unit + http + persistence" },
+  { key: "execution", label: "Human-reviewed paper proposals; full execution supervisor and live route unavailable", state: "partial", tests: "unit + http + persistence" },
   { key: "brokers", label: "Broker connectors", state: "not-ported", tests: null },
   { key: "sports", label: "Sports intelligence", state: "not-ported", tests: null },
   { key: "lottery", label: "Lottery intelligence", state: "not-ported", tests: null },
@@ -130,8 +127,13 @@ export async function healthRoutes(app, { store, config, adapter, router, market
       // computes: an unauthenticated caller cannot make this server do work.
       analysis: analysis ? analysis.statusSnapshot() : null,
       trading: {
-        enabled: false,
-        reason: "The trading, execution and broker modules are not ported to Node yet, and the risk engine is ported only as the veto gate inside analysis: the kill switch stays engaged and no order can be placed from this platform. The legacy application remains authoritative.",
+        enabled: true,
+        simulationOnly: true,
+        paperTradingAvailable: true,
+        paperProposalWorkflowAvailable: true,
+        liveTradingEnabled: false,
+        brokerConnectorAvailable: false,
+        reason: "Paper accounts, proposal submissions and fills are simulation-only. Human approval and the existing paper risk/governance checks are required. The broader execution supervisor and every live broker/order route remain unavailable.",
       },
     };
   });

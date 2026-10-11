@@ -3,6 +3,8 @@ import { createAccountRepository } from "./account-repository.js";
 import { createAnalysisRepository } from "./analysis-repository.js";
 import { createSiteRepository } from "./site-repository.js";
 import { createStrategyRepository } from "./strategy-repository.js";
+import { createPaperRepository } from "./paper-repository.js";
+import { createExecutionRepository } from "./execution-repository.js";
 
 export const REQUIRED_MIGRATIONS = Object.freeze([
   "001_platform_foundation",
@@ -11,6 +13,8 @@ export const REQUIRED_MIGRATIONS = Object.freeze([
   "004_public_site",
   "005_analysis_runs",
   "006_strategies",
+  "007_paper_trading",
+  "008_execution_supervisor",
 ]);
 
 /** Only driver codes are ever reported; never an SQL statement or credential. */
@@ -29,11 +33,18 @@ export function createStore(pool, { requiredMigrations = REQUIRED_MIGRATIONS } =
   const site = createSiteRepository(pool);
   const analysis = createAnalysisRepository(pool);
   const strategies = createStrategyRepository(pool);
+  const paper = createPaperRepository(pool);
+  const execution = createExecutionRepository(pool);
   return {
     ...repository,
     ...site,
     ...analysis,
     ...strategies,
+    ...paper,
+    // Public execution-store contract is read-only; transitions are available
+    // only on the pinned paper transaction view below.
+    findExecutionProposal: execution.findExecutionProposal,
+    listExecutionProposals: execution.listExecutionProposals,
     adapter: "mysql",
     capabilities: Object.freeze({
       adapter: "mysql",
@@ -43,6 +54,40 @@ export function createStore(pool, { requiredMigrations = REQUIRED_MIGRATIONS } =
       crossProcessSafety: true,
       recommendedForProduction: true,
     }),
+
+    /**
+     * Run one paper command on a pinned MySQL connection. The callback receives
+     * transaction-scoped paper rows (SELECT ... FOR UPDATE), journal writes and
+     * audit insertion; no write can escape the commit/rollback boundary.
+     */
+    async withPaperTransaction(work) {
+      if (typeof work !== "function") throw new TypeError("paper transaction requires a callback");
+      const connection = await pool.getConnection();
+      try {
+        await connection.beginTransaction();
+        const tx = {
+          ...createPaperRepository(connection, { lockRows: true }),
+          ...createStrategyRepository(connection, { lockRows: true }),
+          ...createExecutionRepository(connection),
+          async recordAudit({ actorId = null, action, entityType = null, entityId = null, details = {} }) {
+            await connection.execute(
+              `INSERT INTO wf_audit_events
+                (actor_user_id, action_key, entity_type, entity_id, detail_json, created_at)
+               VALUES (?, ?, ?, ?, ?, UTC_TIMESTAMP(3))`,
+              [actorId, action, entityType, entityId === null ? null : String(entityId), JSON.stringify(details)],
+            );
+          },
+        };
+        const result = await work(tx);
+        await connection.commit();
+        return result;
+      } catch (error) {
+        await connection.rollback().catch(() => {});
+        throw error;
+      } finally {
+        connection.release();
+      }
+    },
 
     async readiness() {
       try {

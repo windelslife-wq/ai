@@ -1,5 +1,7 @@
 # Phase 6 — Strategy Lab, backtesting, lifecycle gates and confidence calibration (2026-10-10)
 
+> **Historical boundary:** This report records Phase 6. Phase 7 added paper trading/persisted risk controls and closed the AI sign-off gap; Phase 8A added the partial, human-reviewed paper proposal workflow only. Consult [`PHASE7_PAPER_TRADING.md`](PHASE7_PAPER_TRADING.md), [`PHASE8_EXECUTION_PROPOSALS.md`](PHASE8_EXECUTION_PROPOSALS.md) and the current [`UNFINISHED_MODULES.md`](UNFINISHED_MODULES.md) roadmap for present status. Migrations 007–008 have not been executed on real MySQL/MariaDB; no cPanel validation or parity sign-off has occurred.
+
 Row 8 of [`UNFINISHED_MODULES.md`](UNFINISHED_MODULES.md): *"Strategy Lab,
 lifecycle, backtesting and model/decision analytics."* Item 3 in the master plan's
 module order.
@@ -285,18 +287,22 @@ global API limiter bounds *requests*, not *work*.
 
 ## 9. What was **not** exercised (honest limitations)
 
-1. **No MySQL server exists in this sandbox (F-15, unchanged).** Migration 006,
-   every statement in `strategy-repository.js`, the MySQL branch of
-   `verify-data.mjs`, and backup's three new table counts are pinned on **SQL text
-   and bound values through a recording fake pool** — never executed. The file
-   adapter paths *are* executed for real, including close-and-reopen WAL replay.
+1. **No MySQL server exists in this sandbox (F-15, unchanged).** Migrations 006
+   and 007, the statements in the strategy and paper repositories, the MySQL
+   branch of `verify-data.mjs`, and backup's table counts are pinned on **SQL
+   text and bound values through recording fake pools** — never executed. The
+   file-adapter paths *are* executed for real, including close-and-reopen WAL
+   replay. Phase 7's current status and limitations are documented in
+   [`PHASE7_PAPER_TRADING.md`](PHASE7_PAPER_TRADING.md).
 2. **No live provider data.** With `MARKET_DATA_REAL_PROVIDERS=0` every backtest
    in every test runs on synthetic candles, and each asserts `synthetic: true`.
    No test proves behaviour against a real feed.
-3. **The `APPROVED` stage is unreachable end-to-end.** Its gate requires 10+
-   closed `source: "paper"` journal trades, and paper trading is row 10 — not
-   ported. Tests satisfy the gate by writing paper rows directly, which proves the
-   gate's arithmetic and not that anything can produce those rows.
+3. **No full approval lifecycle is demonstrated end-to-end.** Phase 7 now
+   provides a paper service that can write closed `source: "paper"` journal rows,
+   and the approval tests verify that synthetic rows do not count as live evidence.
+   The tests still use focused fixtures for threshold arithmetic; they do not
+   demonstrate a complete strategy promotion through ten qualifying paper trades
+   or establish PHP↔Node threshold parity.
 4. **No cron on any host.** Retention and pruning remain operator-run.
 5. **No headless browser.** The F-29 client change is verified by a successful
    production build and by `verify-install`'s bundle-reference check, not by
@@ -330,22 +336,18 @@ rather than smuggled in, and the four legacy document routes
 (`/strategy`, `/strategy/backtest`, `/strategy/optimize`, `/strategy/advance`)
 remain **unported**.
 
-### The AI sign-off dead end (reported, deliberately **not** fixed)
+### Phase-6 AI sign-off gap (closed in Phase 7)
 
-`riskReview` refuses `source === "ai"`, and **no route in either edition can
-record a human sign-off or change a strategy's source.** An optimizer variant
-adopted with `register: true` is written as `source: "ai"` at `DRAFT` and
-therefore stops permanently at `VALIDATED` — the "manual human risk sign-off" the
-refusal messages promise has no mechanism anywhere.
+At the Phase-6 boundary, `riskReview` refused `source === "ai"` and the Node
+service had no route to record the human review the gate required. Phase 7 closes
+that specific gap with a separately permissioned (`trading.control`), persisted,
+one-time sign-off record and an audit event. The strategy remains
+`source: "ai"`; sign-off does not itself advance lifecycle. The Phase 7 record
+covers the schema, route and remaining verification limits.
 
-Oracle `33-optimizer.php` confirms the path is unreachable through the API: to
-reach the paper gate it writes `lifecycle = 'RISK_REVIEWED'` **straight into the
-database**.
-
-Adding a sign-off route would widen the surface and weaken a control, so it is
-left as a finding for the Risk Center row. The control is honest about itself in
-the meantime: `register: true` returns a note saying exactly this, and the API
-refuses the transition with a reason naming the missing sign-off.
+This closes the Node dead end without claiming complete optimizer/approval
+parity. The legacy oracle's direct lifecycle write remains an implementation
+detail of that oracle, not a reason to weaken the Node gate.
 
 ### Still open from earlier phases
 
@@ -356,18 +358,18 @@ still closed: F-27 (DV-10 in Phase 5), R-26, R-27, F-28.
 
 ## 11. cPanel notes for this phase
 
-1. **Apply migration 006** before deploying. `readiness` requires all six ordered
-   migrations and reports `schema: false` until they are present, so `/health/ready`
-   stays 503 and traffic is not served against a partial schema. Seeding the four
-   builtins runs on every boot and is idempotent; a seeding failure is **logged,
-   not fatal**, so a host missing the migration still serves documents and every
-   other API rather than turning a missing table into an outage.
+1. **Phase 6 required migration 006; Phase 7 added 007 and Phase 8A added 008.**
+   Current readiness requires all eight ordered migrations and reports `schema: false`
+   until they are present. Apply all three newer migrations on the target database
+   before enabling normal traffic; this is an operational requirement, not proof of
+   cPanel validation. Seeding the four builtins remains idempotent.
 2. **Add the five environment variables** (§7). `verify-install` fails the install
    if any `env.*` the config reads is undocumented, and now reports 64.
-3. **Backups now cover 15 tables** (was 12). `tablesFromMigrations()` derives the
-   list from the migration files by regex, so 006 was picked up automatically —
-   which is the point of F-28's fix. A restore taken before this phase will not
-   contain the three new tables.
+3. **Phase 6 increased backup coverage to 15 tables; Phase 7 added six and
+   Phase 8A adds one, for 22 tables in the current migrations.**
+   `tablesFromMigrations()` derives this list from the migration files. A restore
+   taken before Phase 7/8A will not contain the newer paper-trading, governance or
+   proposal table.
 4. **`verify-data` runs two more integrity checks per adapter** (§6). Both are
    failures, not warnings: an orphaned journal row or backtest means evidence whose
    provenance cannot be inspected.
@@ -384,20 +386,25 @@ still closed: F-27 (DV-10 in Phase 5), R-26, R-27, F-28.
 
 ---
 
-## 12. Entry criteria for the next phase
+## 12. Follow-up acceptance criteria (updated after Phase 8A)
 
-1. **Row 10, paper trading.** It is the only way to produce `source: "paper"`
-   journal rows, so until it exists the `APPROVED` gate is arithmetically
-   satisfiable and practically unreachable (§9.3). It must also resolve the AI
-   sign-off dead end in §10 deliberately, not inherit it.
-2. **Row 9, `PortfolioOptimizer.php`** — a separate row, explicitly out of scope
-   here, and not touched.
-3. **Module consoles (F-29).** Three ported modules now have no UI. If the next
-   phase adds one, it should establish the pattern for all three rather than for
-   itself alone.
-4. **R-28.** Decide the retention policy for `wf_backtests` before the table is
-   large enough for the decision to be expensive.
-5. **F-15 remains the largest unverified surface.** Six migrations and five
-   repository modules have now been written against a server this sandbox does not
-   have. Every phase adds to that debt; none of it is discharged by more SQL-text
-   tests.
+1. **Real MySQL/MariaDB execution (F-15).** Run migrations 001–008 and repository
+   tests on a supported server, including paper-account/governance/proposal
+   transaction behavior, commit/rollback and backup/restore. Static migration checks
+   and recording fake pools do not discharge this requirement.
+2. **cPanel/Passenger rehearsal.** Validate deployment, health/readiness, quotas,
+   DB version, cron policy, backups and rollback on the actual target host; none
+   has been exercised in this environment.
+3. **Approval evidence and parity.** Paper rows can now be produced by the Phase 7
+   service, and synthetic rows are excluded from live-approval evidence. Still
+   required: PHP↔Node fixtures for the evidence thresholds and a full lifecycle
+   exercise before claiming equivalent approval behavior.
+4. **Row 9, `PortfolioOptimizer.php`,** remains separate and untouched. **F-29**
+   also remains open: the legacy strategy document routes and workspace console
+   are not ported. **R-28** remains open pending a decision on retention for
+   evidence-bearing `wf_backtests`.
+5. **Live execution is unavailable.** Phase 8A adds only owner-scoped paper proposals
+   with a human decision and submission through Paper Trading. The broader Node
+   Execution Supervisor, broker routing, automation envelope and host validation
+   remain incomplete; preserve safe defaults and add separate bypass/recovery tests
+   before considering any expansion.

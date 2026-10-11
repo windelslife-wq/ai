@@ -17,9 +17,9 @@
  *  - `RISK_REVIEWED` requires an executable implementation and a declared stop
  *    distance, because a strategy that cannot say where it is wrong cannot be
  *    risk-reviewed;
- *  - `PAPER_TRADING` and `APPROVED` both refuse `source: "ai"` strategies, and
- *    `APPROVED` additionally requires at least ten closed *paper* trades with
- *    positive expectancy and a profit factor above one.
+ *  - `PAPER_TRADING` and `APPROVED` require a recorded human risk sign-off for
+ *    `source: "ai"` versions, and `APPROVED` additionally requires at least ten
+ *    closed *paper* trades with positive expectancy and a profit factor above one.
  *
  * Nothing in this file can place an order. Advancing a stage changes a label and
  * writes an audit event; the execution supervisor (not yet ported) is the only
@@ -36,17 +36,13 @@
  * transitions. This port accumulates warnings across every gate the transition
  * passes through and returns them. Reasons for a *rejection* are unchanged.
  *
- * ## Known governance dead-end (recorded, not fixed here)
+ * ## Human review for optimizer-created variants
  *
- * `riskReview` refuses `source: "ai"`, and no route in either edition can record
- * a human sign-off or change a strategy's source. An optimizer variant that is
- * adopted therefore stops permanently at `VALIDATED`: the "manual human risk
- * sign-off" the messages promise has no mechanism. Oracle case
- * `33-optimizer.php` works around this by writing `lifecycle = RISK_REVIEWED`
- * straight into the database to reach the paper gate, which confirms the path is
- * unreachable through the API. Adding a sign-off route would widen the surface
- * and weaken a control, so it is reported as a finding for the Risk Center row
- * instead of being invented here.
+ * An AI optimizer variant keeps `source: "ai"` forever. It can only pass the
+ * `RISK_REVIEWED` gate after a separate `trading.control` operator action records
+ * who reviewed it, when and why; this does not skip backtests, validation or the
+ * ordinary lifecycle order. The route is deliberately separate from `status`, so
+ * a generic lifecycle request cannot manufacture its own sign-off.
  */
 
 import { numberFormat, roundTo } from "../analysis/math.js";
@@ -229,6 +225,7 @@ export function newStrategyRecord(strategy, source, at) {
     created_at: at,
     updated_at: at,
     lifecycle_history: [{ from: null, to: "DRAFT", at, reason: "registered" }],
+    human_signoff: null,
   };
 }
 
@@ -287,6 +284,22 @@ export function createStrategyRegistry({
 
   function isoNow() {
     return new Date(now()).toISOString();
+  }
+
+  function hasHumanRiskSignoff(record) {
+    const signoff = record?.human_signoff;
+    return Boolean(
+      record?.source === "ai"
+      && signoff
+      && Number.isSafeInteger(Number(signoff.actorId))
+      && Number(signoff.actorId) > 0
+      && typeof signoff.signedAt === "string"
+      && !Number.isNaN(Date.parse(signoff.signedAt))
+      && typeof signoff.reason === "string"
+      && signoff.reason.trim().length >= 5
+      && signoff.permission === "trading.control"
+      && signoff.stage === "VALIDATED",
+    );
   }
 
   /**
@@ -424,6 +437,62 @@ export function createStrategyRegistry({
   }
 
   /**
+   * Record an explicit operator risk review for an AI-generated variant.
+   *
+   * Sign-off is accepted only at VALIDATED, after the strategy's backtests and
+   * validation are complete, and cannot be overwritten once recorded. The
+   * separate risk-review transition still checks implementation and stop-loss
+   * requirements. This makes the human decision durable without allowing it to
+   * skip any automated gate.
+   */
+  async function signOffAiStrategy(strategyId, version, { actorId, reason } = {}) {
+    const record = await repo.find(strategyId, version);
+    if (!record) return { ok: false, reasons: [`Strategy ${strategyId}@${version} not found`] };
+    if (record.source !== "ai") return { ok: false, reasons: ["Human risk sign-off is only required for AI-generated strategies"] };
+    if (record.lifecycle !== "VALIDATED") {
+      return { ok: false, reasons: [`Human risk sign-off requires VALIDATED, not ${record.lifecycle}`], strategy: record };
+    }
+    if (record.human_signoff) return { ok: false, reasons: ["Human risk sign-off has already been recorded"], strategy: record };
+
+    const normalizedReason = typeof reason === "string" ? reason.trim().replace(/\s+/g, " ") : "";
+    const actor = Number(actorId);
+    if (!Number.isSafeInteger(actor) || actor <= 0) return { ok: false, reasons: ["A valid authenticated reviewer is required"] };
+    if (normalizedReason.length < 10 || normalizedReason.length > 1_000) {
+      return { ok: false, reasons: ["Sign-off reason must be between 10 and 1000 characters"] };
+    }
+
+    const signedAt = isoNow();
+    const human_signoff = {
+      actorId: actor,
+      signedAt,
+      reason: normalizedReason,
+      permission: "trading.control",
+      stage: "VALIDATED",
+    };
+    const updated = { ...record, human_signoff, updated_at: signedAt };
+    if (typeof repo.recordHumanSignoff === "function") {
+      const recorded = await repo.recordHumanSignoff(strategyId, version, human_signoff, signedAt);
+      if (!recorded) {
+        const latest = await repo.find(strategyId, version);
+        return {
+          ok: false,
+          reasons: [latest?.human_signoff ? "Human risk sign-off has already been recorded" : "Strategy changed before sign-off could be recorded"],
+          ...(latest ? { strategy: latest } : {}),
+        };
+      }
+    } else {
+      await repo.save(updated);
+    }
+    await emitAudit(
+      "strategies.ai-human-risk-signoff",
+      `Human risk sign-off recorded for AI strategy ${strategyId}@${version}`,
+      { strategyId, version, reviewerId: actor, signedAt, reason: normalizedReason },
+      String(actor),
+    );
+    return { ok: true, reasons: [], strategy: updated, signoff: human_signoff };
+  }
+
+  /**
    * The `RISK_REVIEWED` gate.
    *
    * Two things are checked: that an executable implementation exists for this
@@ -442,7 +511,7 @@ export function createStrategyRegistry({
     const warnings = [];
     const impl = implementations.get(keyOf(record.strategy_id, record.version)) ?? null;
 
-    if (record.source === "ai") reasons.push(AI_SIGNOFF_REQUIRED_PAPER);
+    if (record.source === "ai" && !hasHumanRiskSignoff(record)) reasons.push(AI_SIGNOFF_REQUIRED_PAPER);
 
     if (!impl) {
       reasons.push("No executable implementation registered for this version");
@@ -470,8 +539,8 @@ export function createStrategyRegistry({
    * The `PAPER_TRADING` gate.
    *
    * Deploying to a paper account *is* this stage, so the gate and the transition
-   * target are the same check. Requires `RISK_REVIEWED` or better, and refuses
-   * AI-sourced strategies outright.
+   * target are the same check. Requires `RISK_REVIEWED` or better, and an
+   * operator-recorded risk sign-off on AI-sourced strategies.
    *
    * A `RETIRED` record yields `ok: false` here (its index is `-1`), but
    * `transition` blocks retirement earlier with a clearer message; this function
@@ -492,7 +561,7 @@ export function createStrategyRegistry({
         ],
       };
     }
-    if (record.source === "ai") {
+    if (record.source === "ai" && !hasHumanRiskSignoff(record)) {
       return { ok: false, reasons: [AI_SIGNOFF_REQUIRED_PAPER] };
     }
     return { ok: true, reasons: [] };
@@ -526,7 +595,7 @@ export function createStrategyRegistry({
         `Strategy lifecycle is ${record.lifecycle} — live approval requires the PAPER_TRADING stage first`,
       );
     }
-    if (record.source === "ai") reasons.push(AI_SIGNOFF_REQUIRED_LIVE);
+    if (record.source === "ai" && !hasHumanRiskSignoff(record)) reasons.push(AI_SIGNOFF_REQUIRED_LIVE);
 
     if (journal === null) {
       reasons.push("Paper-trading evidence is unavailable (journal not wired)");
@@ -534,8 +603,13 @@ export function createStrategyRegistry({
     }
 
     const listed = await journal.list({ source: "paper", strategy: id }, 200);
-    const trades = listed.filter((trade) => (trade.strategy ?? null) === id);
+    const strategyTrades = listed.filter((trade) => (trade.strategy ?? null) === id);
+    const syntheticExcluded = strategyTrades.filter((trade) => Boolean(trade.synthetic)).length;
+    const trades = strategyTrades.filter((trade) => !trade.synthetic);
     const count = trades.length;
+    if (syntheticExcluded > 0) {
+      warnings.push(`${syntheticExcluded} synthetic-data paper trades were excluded from approval evidence`);
+    }
     if (count < MIN_PAPER_TRADES_FOR_APPROVAL) {
       reasons.push(
         `Paper-trading evidence too thin: ${count} closed paper trades — at least ${MIN_PAPER_TRADES_FOR_APPROVAL} required`,
@@ -575,6 +649,7 @@ export function createStrategyRegistry({
       warnings,
       evidence: {
         paperTrades: count,
+        syntheticTradesExcluded: syntheticExcluded,
         profitFactor: profitFactor !== null ? roundTo(profitFactor, 3) : null,
         netPnl: roundTo(net, 2),
       },
@@ -752,6 +827,7 @@ export function createStrategyRegistry({
     findRecord,
     findRecordForPaper,
     registerVariant,
+    signOffAiStrategy,
     riskReview,
     canDeployToPaper,
     approvalReview,

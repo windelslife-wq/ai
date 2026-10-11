@@ -64,6 +64,54 @@ test("identity parity migration creates its profile table idempotently", async (
   assert.match(statements[1], /source_checksum CHAR\(64\)/);
 });
 
+test("Phase 7 migration is ordered, parseable and starts with simulation blocked", async () => {
+  const migrationPath = new URL("../src/db/migrations/007_paper_trading.sql", import.meta.url);
+  const sql = await readFile(migrationPath, "utf8");
+  const statements = splitSqlStatements(sql);
+  assert.equal(statements.length, 10, "three additive column changes, six tables and the safe-state seed");
+  const createPrefix = "CREATE TABLE IF NOT EXISTS ";
+  assert.deepEqual(
+    statements.filter((statement) => statement.startsWith(createPrefix))
+      .map((statement) => statement.slice(createPrefix.length).split(" ")[0]),
+    ["wf_trading_state", "wf_paper_accounts", "wf_paper_orders", "wf_paper_positions", "wf_paper_trades", "wf_paper_deployments"],
+  );
+  assert.ok(statements[0].includes("ALTER TABLE wf_strategies"));
+  assert.ok(statements[0].includes("ADD COLUMN human_signoff LONGTEXT"));
+  assert.ok(statements[2].includes("MODIFY COLUMN paper_position_id BIGINT UNSIGNED"));
+  assert.ok(sql.includes("owner_user_id BIGINT UNSIGNED NOT NULL"));
+  assert.ok(sql.includes("FOREIGN KEY (owner_user_id) REFERENCES wf_users(id)"));
+  assert.ok(sql.includes("synthetic TINYINT(1) NOT NULL DEFAULT 0"));
+  assert.ok(!sql.includes("CREATE TABLE IF NOT EXISTS wf_live_orders"));
+  assert.ok(!sql.includes("CREATE TABLE IF NOT EXISTS wf_broker_orders"));
+
+  const seed = statements.find((statement) => statement.startsWith("INSERT IGNORE INTO wf_trading_state"));
+  assert.ok(seed, "a persisted singleton state is seeded");
+  const stateLiteral = seed.split("\n").map((line) => line.trim()).find((line) => line.startsWith("'{"));
+  assert.ok(stateLiteral, "the safe-state JSON literal is present");
+  const state = JSON.parse(stateLiteral.slice(1, -2));
+  assert.equal(state.tradingMode, "ANALYSIS_ONLY");
+  assert.equal(state.killSwitch.active, true);
+  assert.equal(state.allowSyntheticPaperData, false);
+  assert.equal(state.riskLimits.requireStopLoss, true);
+  assert.ok((await listMigrationFiles(new URL("../src/db/migrations/", import.meta.url))).includes("007_paper_trading.sql"));
+});
+
+test("Phase 8A migration creates only the paper-proposal record, with owner and paper-order integrity", async () => {
+  const migrationPath = new URL("../src/db/migrations/008_execution_supervisor.sql", import.meta.url);
+  const sql = await readFile(migrationPath, "utf8");
+  const statements = splitSqlStatements(sql);
+  assert.equal(statements.length, 1);
+  assert.match(statements[0], /CREATE TABLE IF NOT EXISTS wf_execution_proposals/);
+  assert.match(sql, /owner_user_id BIGINT UNSIGNED NOT NULL/);
+  assert.match(sql, /account_id BIGINT UNSIGNED NOT NULL/);
+  assert.match(sql, /FOREIGN KEY \(account_id\) REFERENCES wf_paper_accounts\(id\)/);
+  assert.match(sql, /FOREIGN KEY \(paper_order_id\) REFERENCES wf_paper_orders\(id\)/);
+  assert.match(sql, /intent_json LONGTEXT NOT NULL/);
+  assert.match(sql, /decision_by_user_id BIGINT UNSIGNED NULL/);
+  assert.doesNotMatch(sql, /CREATE TABLE IF NOT EXISTS wf_(?:live|broker)_/i);
+  assert.equal((await listMigrationFiles(new URL("../src/db/migrations/", import.meta.url))).at(-1), "008_execution_supervisor.sql");
+});
+
 test("migration status reports pending, applied and drifted without writing", async (t) => {
   const directory = await mkdtemp(join(tmpdir(), "wf-migration-status-"));
   t.after(() => rm(directory, { recursive: true, force: true }));

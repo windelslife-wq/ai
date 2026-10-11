@@ -1,6 +1,39 @@
 # JavaScript / Node.js / cPanel migration status
 
-**Updated:** 2026-10-09 · **Branch:** `arena/774d9e70-ai`
+**Updated:** 2026-10-11 · **Branch:** `arena/b175c3e9-ai`
+
+
+## Current Phase 8A status (2026-10-11)
+
+The Execution Supervisor workstream has a **partial, paper-only proposal workflow**:
+owner-scoped proposals, explicit human approve/decline, four-hour approval expiry,
+audited state transitions, and one-time submission through the existing Paper
+Trading service. Migration `008_execution_supervisor` adds one table; the Node
+schema contains 22 tables. `execution` reports `partial`, not `ported`. This is a
+bounded start, not a port of the broader legacy supervisor, and it does not assume
+a fixed number of supervisor steps.
+
+- Phase record: [`PHASE8_EXECUTION_PROPOSALS.md`](PHASE8_EXECUTION_PROPOSALS.md).
+- Phase 7 remains in force: persisted risk/governance, owner-scoped paper accounts,
+  simulation-only fills, synthetic provenance, DV-10 equity veto, and exclusion of
+  synthetic paper trades from live-approval evidence.
+- Node has no generic route, broker connector, live order path or automated mode.
+  Proposal submission calls only Paper Trading, which reruns its risk and governance
+  checks. `liveTradingEnabled` remains `false`.
+- MySQL/MariaDB SQL is covered by static parsing and a recording fake only. No real
+  MySQL/MariaDB or cPanel/Passenger validation, multi-worker rehearsal, PHP↔Node
+  parity sign-off, live-feed validation or cutover has occurred. Keep PHP
+  authoritative and live trading disabled.
+- Final Phase 8A verification: workforce-platform `npm test` **482/482** and
+  `npm run verify:install` **29/29** (102 source files syntax-checked; 64 config
+  variables documented). The generated client-bundle check was skipped because
+  `public/app/index.html` is absent. These checks do not substitute for real DB or
+  host validation.
+
+The Phase 1–7 detail below is dated implementation history. For today's state,
+use this Phase 8A record, the phase report and current backlog; historical statements
+about earlier migration counts or which module was next are not current deployment
+evidence.
 
 ## Decision and safety boundary
 
@@ -276,7 +309,7 @@ Full detail, including what the pass deliberately did **not** do (no PHP diff, n
 entry on any host, no load test — this sandbox has no egress, so any throughput figure would have been
 invented): `PHASE5_ANALYSIS.md` §13.
 
-## Current implementation slice — foundation only
+## Phase 1 implementation snapshot — foundation only (historical)
 
 `apps/workforce-platform/` now contains:
 
@@ -289,7 +322,7 @@ invented): `PHASE5_ANALYSIS.md` §13.
 - **Capacitor wrapper:** Android/iOS project configuration and HTTPS API-origin validation. Native sign-in is intentionally disabled: a native token/refresh/revocation contract, API-origin policy and audited Keychain/Android Keystore storage plugin still need design and tests. Native SDK builds, signing and store releases have not been verified.
 - **Separate dependency boundary:** the server package has `mysql2` and `bcryptjs` as its production dependencies. React/Vite and Capacitor dependencies live in their own client/native packages and are build-time/native dependencies; they are not loaded by the HTTP server.
 
-This is **not** a production replacement. The Node API covers health/readiness, identity/accounts/administration and the public site with contact intake; no business (product) module has been ported and accepted. No production database integration test, real import rehearsal, cPanel/Passenger host test, provider/broker validation or traffic cutover has been performed. The PHP application remains intact as the source of truth and rollback target.
+This paragraph records the Phase 1 foundation snapshot, not the current feature set. Phases 2–7 subsequently added identity/public-site work, market data, analysis, strategies and paper-risk APIs; their dated records are linked above. The production boundaries remain: no real MySQL integration test, import rehearsal, cPanel/Passenger host validation, live provider/broker validation or traffic cutover has been performed. The PHP application remains intact as the source of truth and rollback target.
 
 ## Migration inputs still to consolidate
 
@@ -333,16 +366,13 @@ ISO-8601 (DV-1); and legacy `transition()` returns a hardcoded empty `warnings` 
 success, discarding the advisories its own gates compute at exactly the moment a strategy is
 promoted (DV-3).
 
-**Two findings recorded and deliberately not fixed.** No route in either edition can record a
-human sign-off or change a strategy's `source`, so an optimizer variant adopted with
-`register: true` stops permanently at `VALIDATED` — the "manual human risk sign-off" the
-refusal messages promise has no mechanism. Oracle `33-optimizer.php` confirms the path is
-unreachable through the API by writing `lifecycle = 'RISK_REVIEWED'` straight to the database.
-Adding a sign-off route would widen the surface and weaken a control, so it is left for the
-Risk Center row. And **F-29**: no ported module has a workspace console, so the four legacy
-document routes and `views/strategy/index.php` remain unported. **R-28** records that
-`wf_backtests` grows without bound and that R-27's remedy was *not* copied, because these rows
-are evidence for promotions already granted rather than advisory outputs.
+At the Phase-6 boundary, the AI human-sign-off path was a reported gap. Phase 7
+closed that specific gap with a separately permissioned, persisted one-time sign-off;
+`source: "ai"` is preserved, and sign-off does not advance lifecycle by itself. See
+[`PHASE7_PAPER_TRADING.md`](PHASE7_PAPER_TRADING.md). **F-29** remains: the four legacy
+document routes and `views/strategy/index.php` are unported. **R-28** remains open:
+`wf_backtests` grows without bound, and deleting evidence needs a separate retention
+decision.
 
 Measured in this sandbox on 2026-10-10: app suite **428/428** (**+171**), `tsc --noEmit`
 clean, `verify-install --require-bundle` **30/30** with **64** documented environment
@@ -352,18 +382,19 @@ in `strategy-repository.js` and the MySQL branch of `verify-data.mjs` are pinned
 and bound values through a recording fake pool and were **never executed** (F-15, unchanged).
 Every backtest in every test ran on synthetic candles and asserts that it did.
 
-## Next phases
+## Next phases and acceptance gates
 
-1. Add real MySQL/MariaDB integration coverage for Node migrations, sessions, the single-use identity-import ledger, uniqueness conflicts, transaction behavior and restore.
-2. Finish native authentication architecture (exact allowed API origin, token lifecycle/revocation, secure-storage plugin, CORS/origin/CSRF tests) before enabling native sign-in or signing an app.
-3. Port the remaining shared platform — notifications, the audit browser, settings and the domain dashboards — with route and permission parity. Identity/account management (Phase 2), the public site, SEO/PWA shell and contact intake (Phase 3), market data (Phase 4), the analysis engines (Phase 5) and the Strategy Lab with backtesting, lifecycle gates and confidence calibration (Phase 6) are done; the public chat widget, password-reset delivery, outbound mail and **every** module UI surface are not (**F-29** — three ported modules now have APIs and no console).
-4. Migrate domain modules one at a time using [`UNFINISHED_MODULES.md`](UNFINISHED_MODULES.md), preserving the trading Risk Engine, ordered 15-step Execution Supervisor, kill switch, lottery honesty rules, provider provenance and tenant/user isolation. Analysis (`Indicators.php`, the agent set, consensus, the debate and the fundamentals/sentiment abstention contracts) is **done** as of Phase 5, importing the Phase 4 normalizer and carrying `provenance.synthetic` forward into its own payloads. **Next in dependency order: the portfolio state that would make the risk gates non-vacuous** (paper trading and the portfolio monitor), which must resolve finding **F-27** deliberately rather than inherit the legacy zero-equity approval, and must not weaken the kill switch to do it.
-5. Consolidate Scout, Football Predictions and the MT5 bridge only after their separate storage/runtime assumptions are mapped and tested.
-6. Rehearse the full data import, backup/restore, cPanel limits, deployment package and rollback; obtain explicit approval before any production cutover.
+1. **Validate the current Node database work on real MySQL/MariaDB.** Execute migrations 001–008 and test repository locking/transactions, backup/restore and integrity checks against the supported server version. Static SQL parsing and recording fake pools are not substitutes.
+2. **Rehearse cPanel/Passenger deployment and rollback.** Confirm Node version, proxy behavior, quotas, cron policy, DB settings, clean packaging, health/readiness, backups, logs and rollback on the actual target host. No cPanel rehearsal has occurred.
+3. **Keep live execution separate.** Phase 8A adds only owner-scoped, human-reviewed paper proposals; the broader Execution Supervisor and Broker Center remain incomplete. Reconcile the PHP flow instead of assuming a fixed step count. Add bypass/recovery tests and demo-terminal validation before considering live capability; Node has no broker route.
+4. **Finish shared UI and other product modules** as ordered in [`UNFINISHED_MODULES.md`](UNFINISHED_MODULES.md): notifications/audit/settings, domain consoles, public chat, password-reset delivery, outbound mail, portfolio optimization and the remaining product surfaces.
+5. **Compare behavior to PHP before any parity claim.** Produce value-for-value fixtures for critical numeric and lifecycle behavior; record DV-10 (Node refuses non-positive/non-finite equity while legacy PHP approves) as an intentional difference, not a parity defect to erase.
+6. Consolidate Scout, Football Predictions and the MT5 bridge only after their separate storage/runtime assumptions are mapped and tested.
+7. Keep PHP authoritative through full data import, checksum reconciliation, backup/restore, a stability window and explicit human cutover approval.
 
 See [`FULL_STACK_ARCHITECTURE_PROPOSAL.md`](FULL_STACK_ARCHITECTURE_PROPOSAL.md) for the target boundaries and [`IDENTITY_IMPORT.md`](IDENTITY_IMPORT.md) for the one-time importer contract and dry-run/apply procedure.
 
-## Test evidence from this implementation turn
+## Foundation test evidence — 2026-10-06 snapshot (historical)
 
 - Node HTTP/auth/database-contract suite: **43 passed, 0 failed** (`npm run check:workforce`). These use deterministic test stores; they do not prove real MySQL behavior.
 - React/Vite production build: **passed** (`npm run build:workforce-client` and clean nested `npm ci`). Build output under `apps/workforce-platform/public/app/` is generated and ignored.
