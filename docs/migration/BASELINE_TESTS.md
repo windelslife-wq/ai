@@ -636,3 +636,78 @@ import**, so a cutover starts the Node trail empty unless row 22 covers it; any 
 measurement** of pagination, which is proven bounded rather than measured under a large trail;
 and anything needing a cPanel/Passenger host, a real browser, outbound SMTP, provider
 credentials or a native SDK.
+
+## Re-measured 2026-10-11 — Phase 11 (research-only portfolio optimization), branch `arena/8de8de2e-ai`, Node v22.22.3
+
+Same machine, same sandbox limits as the rows above: no MySQL/MariaDB server, no outbound
+egress, no cPanel/Passenger host, no real browser, no SMTP, no licensed market-data feed, two
+CPUs. Everything below was executed for this phase; nothing is inherited from an earlier row.
+
+| Suite | Exact command | Result |
+|---|---|---|
+| Node platform (**33** files, was 31) | `cd apps/workforce-platform && npm test` | **582 passed, 0 failed** (~74 s) — was 532, **+50** |
+| Install verification | `npm run verify:install` | **29/29 checks**, **67** documented env vars (was 64 — the three new portfolio rate-limit variables are in `.env.example`). No new migration, so the migration check still reports `store requires 9` |
+| AEGIS PHP/WASM (the parity oracle) | `node runtime/run-tests.mjs` | **367 passed, 0 failed**, 18.8 s — unchanged, and `git status --porcelain` reports **0** modified paths under `application/`, `system/` or `tests/` |
+
+**Total executed in this sandbox for this phase: 949 passed, 0 failed** (582 app + 367 oracle).
+Composition stated because these are two different runners and a bare total invites
+double-counting. Scout (12), football-predictions (29) and the MT5-bridge `pytest` suite were
+**not** re-run: Phase 11 touches no path they exercise.
+
+Three new files, **50** cases:
+
+| File | Cases | Note |
+|---|---|---|
+| `test/portfolio_optimizer.test.js` | **19** (new) | The pure numeric core. Asserts properties that make the output *trustworthy* rather than reproducing a number: every published allocation satisfies the constraints the report advertises (fully invested within 1e-9, long-only, within the cap) including the degenerate zero-variance case; minimum variance beats equal weight on volatility **and** favours the calmer of two assets; maximum Sharpe beats equal weight on the sample it was given; a cap below the concentration the optimum wants is respected and the best asset sits at it; the same input produces the same weights **exactly** (`deepEqual`, not a tolerance, so a future nondeterminism source cannot hide); a flat series yields the analytically derivable ridge artifact `sqrt(EPSILON·252)/√2 ≈ 1.581e-5` rather than `NaN`; alignment excludes unmatched timestamps and discloses it; duplicate timestamps are counted per symbol with first-row-wins; invalid candles are skipped and too few survivors is a refusal naming the symbol; the 12-asset maximum universe completes inside the iteration budget |
+| `test/portfolio_service.test.js` | **18** (new) | The orchestration ported from `Platform::optimizePortfolio()`, against a fake speaking the real `marketData.candles({...})` seam. Both synthetic gates (all-synthetic refused until a **strict-boolean** opt-in, and then still labelled `SIMULATION:`; a **mixed** universe refused with no override — asserted across `undefined`/`false`/`true`); annualization inferred for one calendar and refused for a mixed universe; an explicit `periodsPerYear` overriding the inference; assets fetched with normalized symbol/class and the requested timeframe and limit; an unsupported `marketClass` refused **before any provider call**; a provider failure surfaced rather than swallowed into a smaller universe; no provider chain at all answering 503 rather than fabricating prices; the audit event carrying actor, objective, universe, selected weights and the legacy action key; an audit failure logged and never costing the caller a valid report |
+| `test/portfolio_http.test.js` | **13** (new) | Authority (401 anonymous, 403 without `trading.view`, 403 `CSRF_INVALID` for a cookie session with a missing or wrong token); the legacy `{optimization: …}` envelope; the all-synthetic 422 → opted-in 200 transition; a host with `MARKET_DATA_ALLOW_SYNTHETIC=0` answering **503 `SYNTHETIC_DATA_DISABLED`** with a positive `Retry-After` where the flag cannot override it; `execute`/`amount`/`orderId`/`accountId`/`notional` each refused **by name** as `UNKNOWN_PROPERTY` at the top level and inside an asset; thirteen bound cases at 400; a `maxWeight` too small to be fully invested refused with a message naming the asset count; both objectives selecting the allocation they name; the per-session concurrency gate answering **429 `TOO_MANY_CONCURRENT_OPTIMIZATIONS`** and releasing its slot after both a refusal and a failure; the run visible in the Phase 10 audit browser at `?action=portfolio`; and a **refused** run recording nothing |
+| — | **+1** | `the window limit is charged before validation, so malformed requests still count` — pinned separately because it is a cost-control property, not a convenience: garbage must not buy unlimited free requests just because it never reaches the provider chain |
+
+Ledger assertions updated because the counts they pin genuinely changed: ported **8 → 9** and
+modules **15 → 16** (`platform_findings`), plus three new label regexes requiring the
+`portfolioOptimizer` label to keep saying `research-only`, `no console screen` and `no saved
+reports`, so `ported` cannot be read as a finished workstream. `REPOSITORY_METHODS` stays at
+**78** and the migration set at **001–009**: this phase adds no storage surface.
+
+**A latent defect in shared infrastructure was found and fixed (D-15).**
+`src/http/validate.js` threw a `TypeError` on any object-typed array item, surfacing as a 500:
+the array branch forced `required: true` onto the item schema to mark the item mandatory, and the
+object branch then read `schema.required` as the list of mandatory *keys* and called `.includes()`
+on that boolean. It was **latent, not live** — every `items` node in the platform was a string
+(`analysis/contracts.js` consensus symbols) until this phase declared the first object-typed one.
+It is fixed rather than worked around, because a validator that crashes on a valid schema shape is
+worse than one that rejects it, and the next nested-object schema would have hit the same 500.
+Verified against eight schema shapes (valid, valid-with-options, `null` item, item missing
+`symbol`, item missing `marketClass`, unknown item key, too-few items, no `assets`) **and by the
+full 582-test suite**, since `validate.js` backs every route in the platform — that the count went
+up rather than sideways is the evidence the fix did not weaken an existing contract.
+
+Two further defects found by this phase's own tests and fixed before the row was written, rather
+than relaxing the assertions. **D-16:** three locals in `optimizePortfolio` shadowed the
+module-level solver functions of the same name, so `const f = f(...)` was a runtime
+`ReferenceError` that took down 18 of 19 tests at once — `node --check` cannot see a
+temporal-dead-zone error, only a syntax error. **D-17:** the service called
+`marketData.getCandleSeries(...)`, which exists on the market-data **manager** but not on the
+market-data **service** every other module consumes, so every request answered 503 "no provider
+chain configured" on a host that had one; switched to `marketData.candles({...})`, the house seam
+used by analysis, Strategy Lab and paper, which delegates to the same manager method and returns
+the identical `{candles, provenance, validation}` shape while also applying the symbol floor and
+market-class inference.
+
+Still not executed here, and therefore still not claimed: **real market data** — every HTTP test
+ran with `MARKET_DATA_REAL_PROVIDERS=0` and `MARKET_DATA_ALLOW_SYNTHETIC=1`, so no claim is made
+that a licensed feed produces a well-conditioned covariance, and row 6's provider gaps are what
+stop this module optimizing a real equity universe; a **numerical parity check against the PHP
+implementation** (**F-26**) — the two were ported instruction-for-instruction and the constraints
+are asserted, but no test runs the same candles through both engines and compares weights, which
+is where F-26 bites hardest because divergence **PO-1** (keeping the legacy bisection projection
+rather than the closed-form water filling) exists precisely to hold the numbers aligned and
+nothing currently verifies that it does; a **console screen** (`views/portfolio/optimizer.php`
+unported, so **F-29 still stands** — this is the third ported API with no screen, after
+notifications and the audit browser); **saved reports** — a run is returned, never persisted, so
+there is no history endpoint and a caller cannot read back what the platform told them last week,
+only the audit event records that a run happened; a real **MySQL** server (**F-15 unchanged**,
+though this phase adds no new SQL, writing only to the existing audit table); any **load
+measurement**, the 12-asset bound (20 s on two cores) being a guard against a future change making
+the inner loop quadratic rather than a performance benchmark; and anything needing a
+cPanel/Passenger host, a real browser, outbound SMTP, provider credentials or a native SDK.

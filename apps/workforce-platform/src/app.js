@@ -41,6 +41,8 @@ import { executionRoutes } from "./modules/execution/routes.js";
 import { createExecutionService } from "./modules/execution/service.js";
 import { notificationRoutes } from "./modules/notifications/routes.js";
 import { createNotificationService } from "./modules/notifications/service.js";
+import { portfolioRoutes } from "./modules/portfolio/routes.js";
+import { createPortfolioService } from "./modules/portfolio/service.js";
 
 const JSON_TYPE = "application/json; charset=utf-8";
 
@@ -179,6 +181,16 @@ export async function buildApp({ config, store, logger = true, publicDir = path.
   // The same tracker backs the platform-wide ceiling; this module keys its slots
   // `strategies:session:<id>` so they never collide with `analysis:` ones (R-26).
   await app.register(strategyRoutes, { prefix: "/api/v1", store, config, service: strategies, marketData, concurrency });
+  // Research-only portfolio optimization (row 9). Built on the SAME market-data
+  // service as analysis and the Strategy Lab, so a series it labels synthetic is
+  // labelled synthetic here too — the gates that refuse a synthetic/live mix depend
+  // on that shared provenance rather than on a second opinion. Deliberately not
+  // given `paper`, `strategies` or `execution`: it cannot reach an order path.
+  const portfolio = createPortfolioService({ store, marketData, log: app.log });
+  // The same tracker backs the platform-wide ceiling; this module keys its slots
+  // `portfolio:session:<id>` so they never collide with `analysis:` or `strategies:`
+  // ones (R-26).
+  await app.register(portfolioRoutes, { prefix: "/api/v1", store, config, service: portfolio, marketData, concurrency });
   const paper = createPaperService({ store, marketData, strategies, notifications, log: app.log });
   await app.register(paperRoutes, { prefix: "/api/v1", store, config, service: paper, marketData, strategies, log: app.log });
   const execution = createExecutionService({ store, paper, strategies, notifications, log: app.log });

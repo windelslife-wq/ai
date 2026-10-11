@@ -5,7 +5,7 @@ Source of truth: `application/config/routes.php` (285 explicit rules) + CodeIgni
 
 
 > **Current Node route note (2026-10-11):** Sections 1–13 remain the Phase-0
-> legacy inventory. Sections 14.4 and 14.7–14.11 describe the Node API through Phase 10;
+> legacy inventory. Sections 14.4 and 14.7–14.12 describe the Node API through Phase 11;
 > 75 API routes are implementation inventory, not a PHP-parity claim. Paper
 > trading and approved proposal submission remain simulation-only and owner-scoped.
 > The full supervisor and all live broker/order routes remain unavailable. See
@@ -319,8 +319,8 @@ no `DELETE` verb at all.
 
 At the Phase-5 cutoff, 5 + 7 + 11 + 6 + 1 + 3 + 5 = **38** API routes. Phase 6 added 11,
 Phase 7 added 19 paper/risk routes and one strategy sign-off route, and Phase 8A adds
-six paper-proposal routes; Phase 9 adds three notification routes and Phase 10 adds the audit browser, for
-**79 current Node API routes**. This is an implementation inventory, not a legacy-parity claim.
+six paper-proposal routes; Phase 9 adds three notification routes, Phase 10 the audit browser and Phase 11 the
+portfolio optimizer, for **80 current Node API routes**. This is an implementation inventory, not a legacy-parity claim.
 
 ### 14.9 Paper trading and persisted portfolio risk controls (19) — Phase 7
 
@@ -431,12 +431,57 @@ a real static file with a non-GET method answers **405** + `Allow: GET, HEAD`. A
 carrying `Accept: text/html` receives the built SPA shell (200); without that header it stays
 **404**, so a missing asset is never masked by HTML.
 
+### 14.12 Research-only portfolio optimization (1) — Phase 11
+
+Ports `POST /api/portfolio/optimize` (`Api_portfolio::optimize` →
+`Aegis\Platform::optimizePortfolio()`). Session-only like its legacy
+`Api_controller` surface, and gated on `trading.view` exactly as legacy was — a
+permission every member role already holds, so this is a "signed-in operator" gate
+rather than an administrative one. The unsafe cookie mutation is CSRF-gated; bearer
+callers are exempt.
+
+| Method/path | Permission | Legacy relationship |
+|---|---|---|
+| `POST /api/v1/portfolio/optimize` | `trading.view` + CSRF | `POST /api/portfolio/optimize`. Body: `assets` (2–12 `{symbol, marketClass}`), `timeframe` (`15m`/`1h`/`4h`/`1d`), `limit` 31–2000 default 500, `objective` (`max_sharpe` default / `min_variance`), `maxWeight`, `riskFreeRate`, `shrinkage`, `periodsPerYear`, `allowSyntheticData`. Response keeps the legacy envelope — the report is under `optimization`. **PO-5:** no alias for the unversioned legacy path. **PO-6:** the `/portfolio/` prefix is shared with the paper module's pre-existing `GET /api/v1/portfolio/risk-scan` (§14.9) — two different concerns, not re-homed because that would break a shipped path |
+
+**It cannot reach an order path**, structurally rather than by comment: the service is
+built with `{store, marketData, log}` and is never given the paper, strategy or
+execution services. `additionalProperties: false` makes `execute`, `amount`,
+`orderId`, `accountId` and `notional` a **400** at both the top level and inside an
+asset. There is no `GET` counterpart — a run is computed and returned, never
+persisted, so there is no history to read back.
+
+Error mapping refines the legacy controller's three catches (**PO-2**): input-shape
+failures answer **400 `INVALID_REQUEST`** (schema) or **400
+`INVALID_PORTFOLIO_REQUEST`** (solver-level input guards such as a `maxWeight` too
+small to be fully invested for the asset count); estimation and data conditions
+answer **422 `PORTFOLIO_OPTIMIZATION_UNAVAILABLE`** (mixed synthetic/live, or
+all-synthetic without the opt-in); provider failures answer **503** through the
+shared `marketDataFailure` mapping, so an outage reads identically here and on
+`/market-data/candles`, and a host with `MARKET_DATA_ALLOW_SYNTHETIC=0` answers
+**503 `SYNTHETIC_DATA_DISABLED`** with a positive `Retry-After`; a missing provider
+chain answers **503 `PORTFOLIO_DATA_UNAVAILABLE`** rather than fabricating prices.
+
+Cost control (risk R-26), applied at birth: its own window limit
+(`RATE_LIMIT_PORTFOLIO_OPTIMIZE_MAX`, default 6 per 10 min) **charged before
+validation**, so a malformed request still counts against the budget, plus a
+per-session in-flight cap (`PORTFOLIO_MAX_CONCURRENT_RUNS`, default **1**, keyed by
+session so a shared office NAT cannot let one colleague starve another's) answered as
+**429 `TOO_MANY_CONCURRENT_OPTIMIZATIONS`**. Assets are fetched sequentially, so one
+request cannot open twelve concurrent provider connections. The slot is released in
+`finally`, so a refused run cannot lock a session out until the process restarts.
+
+Runs are audited as `portfolio.optimization.run` (entity type `portfolio`, legacy
+action preserved in `details.legacyAction`), so they are visible through the Phase 10
+audit browser at `?action=portfolio`. A **refused** run records nothing: nothing was
+computed, so nothing is recorded as computed.
+
 ### 14.8 Strategies, backtesting and the journal (11) — Phase 6
 
 The Phase-6 routes are session-only with no permission gate, matching their legacy
 `Api_controller` surface; unsafe cookie mutations are CSRF-gated and bearer callers
 are exempt. Phase 7 adds the separately permissioned human sign-off route (shown
-below). Route count: **38 at Phase 5 → 49 at Phase 6 → 69 after Phase 7 → 75 after Phase 8A → 78 after Phase 9 → 79 after Phase 10**.
+below). Route count: **38 at Phase 5 → 49 at Phase 6 → 69 after Phase 7 → 75 after Phase 8A → 78 after Phase 9 → 79 after Phase 10 → 80 after Phase 11**.
 
 | Method/path | Auth | Legacy relationship |
 |---|---|---|

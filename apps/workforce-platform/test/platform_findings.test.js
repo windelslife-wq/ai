@@ -1005,7 +1005,7 @@ test("F-02 the status surface is honest about unported modules, and F-03 the rou
   assert.equal(body.modules.find((module) => module.key === "identity").state, "ported");
   assert.equal(body.modules.find((module) => module.key === "marketData").state, "ported", "market data was ported in Phase 4");
   assert.equal(body.modules.find((module) => module.key === "analysis").state, "ported", "the analysis engines were ported in Phase 5");
-  assert.equal(body.modules.filter((module) => module.state === "ported").length, 8, "identity, market data, analysis, strategies, paper trading, risk, notifications and the audit browser have tested Node surfaces");
+  assert.equal(body.modules.filter((module) => module.state === "ported").length, 9, "identity, market data, analysis, the portfolio optimizer, strategies, paper trading, risk, notifications and the audit browser have tested Node surfaces");
   // Notifications are stored and read in-product only; the module says so itself
   // rather than implying an alert reached a device or an email inbox.
   assert.equal(body.modules.find((module) => module.key === "notifications").state, "ported");
@@ -1018,13 +1018,21 @@ test("F-02 the status surface is honest about unported modules, and F-03 the rou
   assert.equal(body.modules.find((module) => module.key === "audit").state, "ported");
   assert.match(body.modules.find((module) => module.key === "audit").label, /no console screen/i);
   assert.match(body.modules.find((module) => module.key === "audit").label, /no retention policy/i);
+  // Phase 11 ports the research-only portfolio optimizer (row 9). It computes
+  // weights and nothing else: no console screen (views/portfolio/optimizer.php is
+  // app-shell work, row 3) and no saved reports — a run is returned, not persisted,
+  // so the label must not let `ported` imply a history a caller could read back.
+  assert.equal(body.modules.find((module) => module.key === "portfolioOptimizer").state, "ported");
+  assert.match(body.modules.find((module) => module.key === "portfolioOptimizer").label, /research-only/i);
+  assert.match(body.modules.find((module) => module.key === "portfolioOptimizer").label, /no console screen/i);
+  assert.match(body.modules.find((module) => module.key === "portfolioOptimizer").label, /no saved reports/i);
   // Phase 7 adds persisted governance and account-scoped paper risk. Phase 8A
   // adds human-reviewed paper proposals, not the full supervisor or a live route.
   assert.equal(body.modules.find((module) => module.key === "paperTrading").state, "ported");
   assert.equal(body.modules.find((module) => module.key === "risk").state, "ported");
   assert.equal(body.modules.filter((module) => module.state === "partial").length, 2, "the public site (chat widget) and execution (no full supervisor, no live route) remain partial");
   assert.equal(body.modules.filter((module) => module.state === "not-ported").length, 5, "brokers, sports, lottery, language learning and lead discovery remain legacy-only");
-  assert.equal(body.modules.length, 15, "the ledger keeps listing every module, ported or not");
+  assert.equal(body.modules.length, 16, "the ledger keeps listing every module, ported or not");
   // The public status surface carries a market-data snapshot that must not have
   // probed an external host to produce it.
   assert.ok(body.marketData && Array.isArray(body.marketData.providers), "status reports the provider registry");

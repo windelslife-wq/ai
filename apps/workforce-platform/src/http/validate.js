@@ -164,7 +164,16 @@ function validateNode(schema, input, field, issues, options) {
       }
       if (schema.items) {
         value = value.map((item, index) => {
-          const result = validateNode({ ...schema.items, required: true }, item, `${field}[${index}]`, issues, options);
+          // `required: true` marks the ITEM as mandatory. When the item schema is
+          // itself an object, that boolean must not survive into the object branch,
+          // which reads `schema.required` as the list of mandatory KEYS — see the
+          // `requiredList` guard below. Without this an object-typed `items` node
+          // throws a TypeError instead of validating, which surfaced as a 500 on
+          // the first route in the platform to declare one (finding D-15).
+          const itemSchema = schema.items.type === "object"
+            ? schema.items
+            : { ...schema.items, required: true };
+          const result = validateNode(itemSchema, item, `${field}[${index}]`, issues, options);
           return result.value;
         });
       }
@@ -183,10 +192,17 @@ function validateNode(schema, input, field, issues, options) {
           }
         }
       }
+      // `required` is an ARRAY of mandatory keys on an object node, but a BOOLEAN
+      // on a scalar node (and was forced to `true` for array items before the fix
+      // below). Reading it as an array unconditionally would throw on any object
+      // schema that arrived through an `items` node, so the two meanings are
+      // separated: the array answers "which of my keys are mandatory", and a
+      // `true` value — which only an `items` node can now carry — is handled there.
+      const requiredList = Array.isArray(schema.required) ? schema.required : [];
       const next = {};
       for (const [key, childSchema] of Object.entries(properties)) {
         const result = validateNode(
-          { ...childSchema, required: childSchema.required ?? (schema.required || []).includes(key) },
+          { ...childSchema, required: childSchema.required ?? requiredList.includes(key) },
           value[key],
           `${field}.${key}`,
           issues,

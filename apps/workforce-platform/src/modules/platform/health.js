@@ -43,6 +43,14 @@ export const MODULE_STATUS = Object.freeze([
   // consensus combiner, the adversarial debate and the five legacy endpoints. It
   // produces proposals only — nothing here can place an order.
   { key: "analysis", label: "Analysis engines, agents, consensus (proposals only)", state: "ported", tests: "unit + http + persistence" },
+  // Research-only portfolio optimization (row 9) is ported: the long-only
+  // mean-variance core with diagonal shrinkage, minimum-variance and maximum-Sharpe
+  // allocations under a per-asset cap, the synthetic-data gates and per-asset
+  // provenance. It computes weights and nothing else — it has no reference to the
+  // paper, strategy or execution services, so it cannot reach an order path. The
+  // console screen (views/portfolio/optimizer.php) is app-shell work (row 3), and
+  // there is no persisted-run history: a report is returned, not stored.
+  { key: "portfolioOptimizer", label: "Research-only portfolio optimization, long-only mean-variance (no console screen, no saved reports)", state: "ported", tests: "unit + http" },
   { key: "strategies", label: "Strategy lab, lifecycle, backtesting and durable AI review", state: "ported", tests: "unit + http + persistence" },
   { key: "paperTrading", label: "Owner-scoped simulation accounts, orders, fills and deployments", state: "ported", tests: "unit + http + persistence" },
   { key: "risk", label: "Risk engine, persisted limits, kill switch and paper-portfolio monitor", state: "ported", tests: "unit + http + persistence" },

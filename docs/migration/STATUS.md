@@ -3,7 +3,97 @@
 **Updated:** 2026-10-11 · **Branch:** `arena/8de8de2e-ai`
 
 
-## Current Phase 10 status (2026-10-11)
+## Current Phase 11 status (2026-10-11)
+
+**The research-only portfolio optimizer is ported** (row 9). App version is now
+**0.10.0**. `portfolioOptimizer` is a new key in `MODULE_STATUS`, taking the ledger
+to **9 ported / 2 partial / 5 not-ported** across **16** modules. Full record:
+[`PHASE11_PORTFOLIO_OPTIMIZER.md`](PHASE11_PORTFOLIO_OPTIMIZER.md).
+
+`POST /api/v1/portfolio/optimize` ports the 501-line `PortfolioOptimizer` class and
+`Aegis\Platform::optimizePortfolio()`: annualized arithmetic returns and a sample
+covariance aligned on the timestamps every asset shares, diagonal shrinkage plus a
+numerical ridge, minimum variance by projected gradient and maximum Sharpe by
+deterministic multi-start projected ascent, all under a fully-invested, long-only,
+per-asset weight cap. **No migration, no contract method and no new table** — the
+contract stays at 78 and the migrations at 001–009, and runs are recorded in the
+existing audit trail.
+
+**It cannot reach an order path, structurally rather than by comment.** The service
+is constructed with `{store, marketData, log}` and is not given the paper service,
+the strategy registry or the execution supervisor. The body schema cannot express an
+instruction either: `additionalProperties: false` makes `execute`, `amount`,
+`orderId`, `accountId` and `notional` a 400 at both the top level and inside an
+asset, and a test asserts each by name.
+
+Seven divergences (PO-1…PO-7) are recorded in the phase record. Three matter beyond
+this module:
+
+- **PO-2** separates estimation failures (**422**) from input-shape failures
+  (**400**). Legacy used one exception class for both, so "your prices produced a
+  non-finite return" answered 400 — a status telling the caller to fix a request
+  that was not wrong.
+- **PO-3** refuses an unsupported `marketClass` before any provider call. Legacy let
+  a bad class fall through to `getCandleSeries`, so a typo surfaced as an outage.
+- **PO-6** records that the `/portfolio/` prefix is now shared by two modules — this
+  optimizer and the paper module's pre-existing `GET /portfolio/risk-scan` (Phase 7)
+  — rather than silently re-homing a shipped path.
+
+The synthetic-data gates are the honesty core and both are asserted over HTTP: an
+all-synthetic universe is refused with 422 unless the caller passes
+`allowSyntheticData: true` (a strict boolean — `"true"` and `1` do not unlock it),
+and an opted-in run still carries a warning beginning `SIMULATION:`. A **mixed**
+synthetic/live universe is refused with no flag that can unlock it, because a
+covariance across one real and one generated series describes neither. Annualization
+is inferred only for a single market calendar; a mixed universe must state
+`periodsPerYear` itself rather than be handed a number wrong for every asset in it.
+
+**A defect in shared infrastructure was found and fixed (D-15).**
+`src/http/validate.js` threw a `TypeError` on any object-typed array item, surfacing
+as a 500: the array branch forced `required: true` onto the item schema to mark the
+item mandatory, and the object branch then called `.includes()` on that boolean
+while reading it as the list of mandatory keys. It was **latent, not live** — every
+`items` node in the platform was a string until this phase declared the first
+object-typed one — and it is fixed rather than worked around, because a validator
+that crashes on a valid schema shape is worse than one that rejects it. Verified
+against eight schema shapes and by the full suite, since `validate.js` backs every
+route in the platform. Two further defects (D-16 shadowed solver functions causing a
+runtime `ReferenceError` that `node --check` cannot see; D-17 the service calling the
+market-data **manager's** method rather than the **service's** house seam, so every
+request 503'd on a host that had a provider chain) were found by this phase's own
+tests and fixed before commit.
+
+Measured in this sandbox on 2026-10-11 (Node v22.22.3): workforce-platform
+`npm test` **582/582** (up from 532; **50** new tests across
+`portfolio_optimizer` 19, `portfolio_service` 18, `portfolio_http` 13),
+`npm run verify:install` **29/29** with **67** documented config variables (was 64;
+the three new portfolio rate-limit variables are in `.env.example`), and the legacy
+PHP oracle **367/367** with `git status --porcelain` reporting **0** modified paths
+under `application/`, `system/` or `tests/`. Route count **79 → 80**; admin routes
+unchanged at **7**.
+
+**Not** exercised, and therefore not claimed: **real market data** — every HTTP test
+runs with `MARKET_DATA_REAL_PROVIDERS=0` and `MARKET_DATA_ALLOW_SYNTHETIC=1`, so no
+claim is made that a licensed feed produces a well-conditioned covariance, and row
+6's provider gaps are what stop this optimizing a real equity universe; a
+**numerical parity check against the PHP implementation** — the two were ported
+instruction-for-instruction and the constraints are asserted, but no test runs the
+same candles through both engines (**F-26**, and PO-1 exists precisely to keep the
+numbers aligned, which nothing currently verifies); a **console screen**
+(`views/portfolio/optimizer.php` unported, **F-29 still stands** — this is the third
+ported API with no screen, after notifications and the audit browser); **saved
+reports** (a run is returned, never persisted, so there is no history endpoint and a
+caller cannot read back what the platform told them last week — only the audit event
+records that a run happened); a real MySQL server (**F-15 unchanged**, though this
+phase adds no new SQL); and any load measurement, the 12-asset bound being a guard
+against a future quadratic inner loop rather than a benchmark.
+
+Phases 8A, 9 and 10 remain in force and unchanged. The next gates are unchanged too
+— validate migrations **001–009** and repository transactions against real
+MySQL/MariaDB, then rehearse deployment, backup/restore and rollback on the actual
+cPanel/Passenger host.
+
+## Phase 10 status (2026-10-11)
 
 **The audit browser is ported.** App version is now **0.9.0**. `audit` moves from
 `partial` to `ported`, taking the ledger to **8 ported / 2 partial / 5 not-ported**.

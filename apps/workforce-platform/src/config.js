@@ -184,6 +184,25 @@ function loadRateLimitConfig(env) {
       windowMs: integer(env.RATE_LIMIT_STRATEGY_OPTIMIZE_WINDOW_MS, "RATE_LIMIT_STRATEGY_OPTIMIZE_WINDOW_MS", { fallback: 600_000, min: 1_000, max: 24 * 3_600_000 }),
     },
     strategyMaxConcurrentRuns: integer(env.STRATEGY_MAX_CONCURRENT_RUNS, "STRATEGY_MAX_CONCURRENT_RUNS", { fallback: 1, min: 0, max: 100 }),
+    /**
+     * Portfolio optimizer cost control (risk R-26, applied to this module at birth).
+     *
+     * One optimization fetches up to twelve candle series — sequentially, so a
+     * single request can hold a provider connection open for twelve round trips —
+     * and then solves two programs over a 12×12 covariance with up to 2 000
+     * iterations each. The fan-out is the reason the window is tighter than the
+     * analysis run window: the *requests* are cheap to refuse, the upstream calls
+     * are not.
+     *
+     * The in-flight cap defaults to 1, matching the Strategy Lab rather than the
+     * analysis module's 2. One slot per signed-in session is the honest bound on a
+     * two-core cPanel host; a host with more to give can raise it.
+     */
+    portfolioOptimize: {
+      max: integer(env.RATE_LIMIT_PORTFOLIO_OPTIMIZE_MAX, "RATE_LIMIT_PORTFOLIO_OPTIMIZE_MAX", { fallback: 6, min: 1, max: 10_000 }),
+      windowMs: integer(env.RATE_LIMIT_PORTFOLIO_OPTIMIZE_WINDOW_MS, "RATE_LIMIT_PORTFOLIO_OPTIMIZE_WINDOW_MS", { fallback: 600_000, min: 1_000, max: 24 * 3_600_000 }),
+    },
+    portfolioMaxConcurrentRuns: integer(env.PORTFOLIO_MAX_CONCURRENT_RUNS, "PORTFOLIO_MAX_CONCURRENT_RUNS", { fallback: 1, min: 0, max: 100 }),
   });
 }
 

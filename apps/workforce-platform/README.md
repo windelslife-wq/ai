@@ -34,6 +34,16 @@ production replacement and no traffic has been cut over.
   changes and the paper-proposal lifecycle. Alerts are stored and read in-product
   only — there is **no** mail, push or webhook delivery channel, and no HTTP route
   can publish one. See [`docs/migration/PHASE9_NOTIFICATIONS.md`](../../docs/migration/PHASE9_NOTIFICATIONS.md).
+- **Research-only portfolio optimization is ported**: `POST /api/v1/portfolio/optimize`
+  estimates returns and covariance from history aligned on the timestamps every asset
+  shares, then solves minimum-variance and maximum-Sharpe allocations under a
+  fully-invested, long-only, per-asset cap. It **cannot reach an order path** — the
+  service is never given the paper, strategy or execution services, and the body
+  schema refuses `execute`, `amount`, `orderId` and `notional` by name. An
+  all-synthetic universe needs an explicit `allowSyntheticData: true` opt-in and is
+  then labelled `SIMULATION:`; a **mixed** synthetic/live universe is refused with no
+  override. No console screen and no saved reports yet.
+  See [`docs/migration/PHASE11_PORTFOLIO_OPTIMIZER.md`](../../docs/migration/PHASE11_PORTFOLIO_OPTIMIZER.md).
 - **The audit browser is ported**: `GET /api/v1/admin/audit` serves the whole trail
   filterable by actor, action prefix, entity and inclusive UTC window, paginated,
   with every event carrying a resolved `actor {userId, username, kind}`. It is
