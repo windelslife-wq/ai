@@ -763,3 +763,51 @@ ceilings** (fixtures are small, so `exhausted: false` is asserted only through t
 an **end-to-end run over a populated portfolio**, so the wall-clock duration — and therefore
 whether the default 10-minute TTL is genuinely generous — is reasoned, not measured; and
 anything needing a real browser, outbound SMTP, provider credentials or a native SDK.
+
+## Re-measured 2026-10-12 — Phase 13 (Execution Supervisor reconciliation, blocked-routing evidence), branch `arena/8de8de2e-ai`, Node v22.22.3
+
+Same machine, same sandbox limits as the rows above. Everything below was executed for this
+phase; nothing is inherited from an earlier row.
+
+| Suite | Exact command | Result |
+|---|---|---|
+| Node platform (**36** files, was 35) | `cd apps/workforce-platform && npm test` | **616 passed, 0 failed** (~87 s) — was 609, **+7** |
+| Install verification | `cd apps/workforce-platform && npm run verify:install` | **29/29 checks**, **67** documented env vars (unchanged). Migration list still reports **10** required — `001`–`010`, no new file |
+| AEGIS PHP/WASM (the parity oracle) | `node runtime/run-tests.mjs` | **367 passed, 0 failed**, 20.7 s — unchanged, and `git status --porcelain application/ tests/cases/` reports **0** modified paths |
+
+**Total executed in this sandbox for this phase: 983 passed, 0 failed** (616 app + 367 oracle).
+Composition stated because these are two different runners and a bare total invites
+double-counting. Scout (12), football-predictions (29) and the MT5-bridge `pytest` suite were
+**not** re-run: Phase 13 touches no path they exercise.
+
+One new file, **7** cases, and **no change to any count the suite pins** — no migration, no
+contract method, no route, no table, no ledger row:
+
+| File | Cases | Note |
+|---|---|---|
+| `test/execution_governance.test.js` | **7** (new) | An approval granted while the platform was live cannot become an order after the kill switch is thrown, and the paper engine is never reached; the blocked attempt leaves **exactly one** audit event — not zero (rolled back with the transaction) and not two; **three** refusals on one UTC day produce **one** broadcast alert and the next UTC day produces another, while every attempt is still individually audited; a trading-mode flip blocks identically; **recovery** — the same proposal submits once governance is restored and reaches the paper engine exactly once; owner scoping — a foreign owner gets the owner-scoped **404**, not a governance answer, and records no blocked-submission evidence; and a broken audit writer plus a broken notifier each still surface the real 409 |
+| `test/execution_service.test.js` | **+0** cases, **assertions strengthened** | The pinned audit-action sequence moved **4 → 7** because the three refusals this test already provokes are now recorded. It also asserts each blocked event's `legacyAction`, `code`, `orderCreated: false`, `retryable: true` and `actor_user_id`, and that no `ROUTING_BLOCKED` was published for caller-state refusals |
+| `test/execution_http.test.js` | **+0** cases, **assertions strengthened** | Sequence moved **4 → 5** for the deterministic `pendingSubmit` 409. A **non-vacuity guard** (`assert.ok(inbox.length > 0)`) was added before the "no `ROUTING_BLOCKED` in the inbox" assertion, because an empty inbox would have made that assertion pass for the wrong reason |
+| `test/platform_findings.test.js` | **+0** cases, **assertions added** | The `execution` label is now pinned to `/blocked-submission evidence/`, `/broker-bound/`, `/no live route/` and `/no automated mode/`, matching the convention already applied to `audit`, `portfolioOptimizer` and `scheduledJobs`. `partial` must keep saying *what* is missing, not just hedge |
+
+The label change in `src/modules/platform/health.js` is why `platform_findings` needed touching
+at all; the state stayed **`partial`** and the ledger stayed at 9 ported / 3 partial /
+5 not-ported across 17 modules.
+
+Still not executed here, and therefore still not claimed: **no broker-bound supervisor step was
+exercised**, because none was ported — steps 4–9 and 12–15 have no Node code path, so nothing
+in this row is evidence about them; **the daily dedupe is proven on the file adapter only**
+(`hasUnreadNotificationDedupe` is Phase 9 machinery, pinned on MySQL by a recording executor
+and never run against a server — **F-15 unchanged**); **concurrency was simulated, not raced** —
+the "concurrent submit" case gates one submission in `PAPER_SUBMITTING` and attempts another
+inside a single process, so two real Passenger workers claiming one proposal remains untested
+(**F-24** is the same unresolved question elsewhere); **no legacy `trade_executions` import**,
+because no Node equivalent exists; and **the reconciliation itself is a reading, not a
+differential test** (**F-26 stands**) — every verdict in the Phase 13 step table was reached by
+reading both implementations, not by running one intent through PHP and Node and comparing.
+
+Reproducibility note for this sandbox: `node_modules` does not persist between sessions, so
+`npm ci --no-audit --no-fund` at the repository root (291 packages) and a separate
+`npm ci` inside `runtime/` (29 packages) were both required before the two runners above would
+start. A previously-green test failing with `ERR_MODULE_NOT_FOUND` on `bcryptjs` is that
+condition, not a regression.

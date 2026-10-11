@@ -182,6 +182,116 @@ export function createExecutionService({ store = null, paper = null, strategies 
     }
   }
 
+  /**
+   * The submission refusals that leave evidence, and what each one records.
+   *
+   * Legacy routed every refusal in `ExecutionSupervisor::route()` through one
+   * `routingBlocked()` helper which audited `EXECUTION_ROUTING_BLOCKED` as `'system'`
+   * and published a `ROUTING_BLOCKED` notification deduped to **one per UTC day**
+   * (`routing-blocked:` . `gmdate('Ymd')`). Until now this port threw a bare 409 for
+   * all three, so an attempt to submit an order while the kill switch was active left
+   * **no trace at all** — and "who tried to route while the platform was stopped, and
+   * when" is the first question a governance review asks.
+   *
+   * The audit event is per attempt for all three, because each is a distinct event
+   * worth reconstructing. The notification is limited to the governance refusal, and
+   * keeps legacy's daily dedupe: `ROUTING_BLOCKED` means "routing is unavailable
+   * today", which is a platform condition. Broadcasting it for a caller who submitted
+   * a proposal that was simply not approved yet would say the platform is down when it
+   * is not — a misleading alert is worse than no alert.
+   *
+   * The proposal's status is deliberately **not** changed, exactly as legacy left it:
+   * a blocked attempt is retryable, and consuming the proposal would punish an
+   * operator for the platform's own state.
+   */
+  const SUBMISSION_REFUSALS = Object.freeze({
+    EXECUTION_GOVERNANCE_BLOCKED: {
+      reason: "trading governance blocks submission (kill switch active, or the mode is not PAPER_TRADING)",
+      notify: true,
+    },
+    PAPER_SUBMISSION_NOT_APPROVED: {
+      reason: "the proposal has not been human-approved",
+      notify: false,
+    },
+    PAPER_SUBMISSION_ALREADY_CLAIMED: {
+      reason: "the proposal was already claimed for submission",
+      notify: false,
+    },
+  });
+
+  /**
+   * Record an audit event **outside** any transaction.
+   *
+   * Every other audit write in this service goes through `tx.recordAudit`, which is
+   * right for events describing a transition that committed. This one describes a
+   * transition that was *refused* and whose transaction therefore rolled back — writing
+   * it inside that transaction would roll the evidence back with it, which is the
+   * silent-failure shape this recorder exists to avoid.
+   *
+   * Best-effort, like `publish`: the refusal itself must reach the caller even when the
+   * evidence write fails.
+   */
+  async function auditOutsideTransaction(event) {
+    if (!store || typeof store.recordAudit !== "function") return;
+    try {
+      await store.recordAudit(event);
+    } catch (error) {
+      log?.warn?.({ err: error, action: event.action }, "refused-submission audit event could not be recorded");
+    }
+  }
+
+  /** The UTC `YYYYMMDD` legacy's `gmdate('Ymd')` produced, for the daily dedupe key. */
+  function utcDayStamp() {
+    return isoNow(now).slice(0, 10).replaceAll("-", "");
+  }
+
+  /**
+   * Record evidence of a refused submission, then let the refusal propagate.
+   *
+   * Called **outside** the transaction that threw, because that transaction rolled
+   * back: an audit event written inside it would have been rolled back with it, and
+   * the evidence would silently not exist. Legacy's `audit->emit` was likewise a
+   * separate write, not part of the proposal transaction.
+   *
+   * Best-effort by construction. The refusal must reach the caller even if the audit
+   * or notification write fails, so nothing here throws.
+   */
+  async function recordSubmissionRefusal(owner, proposal, error) {
+    const code = error?.code;
+    const refusal = SUBMISSION_REFUSALS[code];
+    if (!refusal) return;
+    const proposalId = String(proposal?.id ?? "unknown");
+    const details = {
+      legacyAction: "EXECUTION_ROUTING_BLOCKED",
+      code,
+      reason: refusal.reason,
+      proposalStatus: proposal?.status ?? null,
+      // Legacy answered 200 with `{status: "ROUTING_BLOCKED", brokerOrderCreated:
+      // false}`; this port answers 409 with the same meaning, so the record says
+      // plainly that no order exists.
+      orderCreated: false,
+      retryable: true,
+      summary: `Paper submission refused: ${refusal.reason}`,
+    };
+    await auditOutsideTransaction({
+      actorId: owner,
+      action: "execution.paper-submission.blocked",
+      entityType: "execution_proposal",
+      entityId: proposalId,
+      details,
+    });
+    if (refusal.notify) {
+      await publish(
+        "ROUTING_BLOCKED",
+        "warning",
+        `Routing blocked: ${refusal.reason}`,
+        { proposalId, code, reason: refusal.reason, proposalStatus: proposal?.status ?? null, orderCreated: false },
+        `routing-blocked:${utcDayStamp()}`,
+        null,
+      );
+    }
+  }
+
   /** Publishes an alert queued by a committed transaction. `null` is a no-op. */
   async function publishPending(pending) {
     if (!pending) return null;
@@ -605,6 +715,13 @@ export function createExecutionService({ store = null, paper = null, strategies 
         details: { accountId: Number(proposal.account_id), summary: "Approved proposal claimed for one simulation-only paper submission" },
       });
       return proposal;
+    }).catch(async (error) => {
+      // Recorded OUTSIDE the transaction that just rolled back — see
+      // `auditOutsideTransaction`. Legacy audited every routing refusal and published
+      // a daily-deduped `ROUTING_BLOCKED` alert; a bare 409 leaves no evidence that
+      // anyone tried to submit an order while the platform was stopped.
+      await recordSubmissionRefusal(owner, existing, error);
+      throw error;
     });
 
     let paperResult;

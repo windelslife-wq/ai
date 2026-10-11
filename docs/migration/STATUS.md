@@ -1,9 +1,72 @@
 # JavaScript / Node.js / cPanel migration status
 
-**Updated:** 2026-10-11 · **Branch:** `arena/8de8de2e-ai`
+**Updated:** 2026-10-12 · **Branch:** `arena/8de8de2e-ai`
 
 
-## Current Phase 12 status (2026-10-11)
+## Current Phase 13 status (2026-10-12)
+
+**The Execution Supervisor is reconciled, step by step** (row 12). App version is now
+**0.12.0**. Full record: [`PHASE13_EXECUTION_GOVERNANCE.md`](PHASE13_EXECUTION_GOVERNANCE.md).
+
+Row 12 told this phase to reconcile before deciding scope, and the reconciliation
+changed the question. **Node's `execution` module was never a port of the legacy
+supervisor's broker pipeline** — it is a paper-scoped analogue of that pipeline's
+human-approval workflow. Legacy says so itself: step 2 rejects any mode outside
+`HUMAN_APPROVAL / SEMI_AUTONOMOUS / FULLY_AUTOMATED` with *"broker execution requires
+… (paper orders go through the Paper Trading engine)"*. The supervisor was always the
+connector path, driven by the console controller `Execution.php`; **there is no
+`Api_execution.php`**. Nine of its fifteen steps read broker state that does not
+exist here and belong to row 13. Steps 1, 3, 10, 11 and 14 were already ported —
+several **stricter** than legacy (an executable exact strategy version, a persisted
+human risk sign-off for AI strategies, owner-scoped proposal reads, bounded `riskPct`).
+
+**The real gap was evidence, and it is closed.** Legacy ran every routing refusal
+through `routingBlocked()`, which audited `EXECUTION_ROUTING_BLOCKED` and published a
+`ROUTING_BLOCKED` alert deduped to one per UTC day. Node threw a bare 409, so an
+attempt to submit an order **while the kill switch was active left no trace at all** —
+and "who tried to route while the platform was stopped, and when" is the first
+question a governance review asks. All three in-transaction refusals are now audited
+per attempt; the governance refusal also broadcasts. **The evidence is written outside
+the transaction that rolled back**, because an audit event written inside it would have
+vanished with it — the precise failure this change exists to prevent. Both writers are
+best-effort, so an evidence outage cannot turn a blocked submission into a successful
+one.
+
+The re-verification itself was correct but **untested**: `route()`'s kill-switch and
+status checks had been ported into `submitToPaper`'s transaction in Phase 8A with no
+test proving an approval granted while live cannot become an order after the switch is
+thrown. `test/execution_governance.test.js` (7 tests) adds the bypass *and recovery*
+cases row 12 named, including that the same proposal submits once governance is
+restored and reaches the paper engine exactly once. Two existing assertions were
+**strengthened, not relaxed** to absorb the new events.
+
+**One thing was deliberately not ported.** `automationLimits` and its two legacy JSON
+endpoints bind only to the automated modes. Porting a settable, echoed-back limit with
+nothing enforcing it would recreate **F-30** — recorded one day earlier for
+`maxCorrelatedPositions` — and enforcing it would apply a cap designed for robots to
+human-approved paper trades, which legacy never did (ES-6). Row 13 brings the limits
+with the modes, enforced from the first commit.
+
+Reading the legacy source also produced **F-31**: `Api_system::automation_limits()`
+makes **no `requirePermission` call**, so every signed-in user could read the
+automation governance envelope — the same authenticate-without-authorizing shape as
+AV-1. Not exploitable in Node, because the endpoint was never ported.
+
+`ROUTING_BLOCKED` is now the second Phase 9 type to gain a real publisher (after
+Phase 12's `PORTFOLIO_RISK`); **NV-6 lists three**, not four.
+
+Gates: `npm test` **616 / 616** (was 609, +7), `verify:install` **29 / 29** with 67
+config vars, PHP oracle **367 / 367** with **0** PHP files modified. **No migration,
+no contract method, no route and no table** — 80 routes, 7 admin routes, 86 contract
+methods, migrations 001–010, ledger unchanged at **9 ported / 3 partial / 5
+not-ported**.
+
+**Not claimed:** no broker-bound step was exercised, because none was ported; the daily
+dedupe is proven on the file adapter only (F-15); concurrency was simulated by gating
+one submission inside one process, not raced between two Passenger workers (F-24); and
+the reconciliation is a **reading**, not a differential test — F-26 still stands.
+
+## Phase 12 status (2026-10-11)
 
 **The scheduled operations cron is ported** (row 19). App version is now **0.11.0**.
 `scheduledJobs` is a new key in `MODULE_STATUS`, taking the ledger to **9 ported /

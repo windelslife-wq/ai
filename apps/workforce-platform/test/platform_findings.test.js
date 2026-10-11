@@ -1030,6 +1030,16 @@ test("F-02 the status surface is honest about unported modules, and F-03 the rou
   // adds human-reviewed paper proposals, not the full supervisor or a live route.
   assert.equal(body.modules.find((module) => module.key === "paperTrading").state, "ported");
   assert.equal(body.modules.find((module) => module.key === "risk").state, "ported");
+  // Phase 13 reconciles the execution module against `ExecutionSupervisor.php` step by
+  // step. It stays `partial`, and the label must carry *why* — nine of fifteen steps
+  // read broker state that does not exist here — so that `partial` is not read as
+  // "the governance work is unfinished". It must also name the evidence this phase
+  // added: a submission refused by the kill switch used to leave no trace at all.
+  assert.equal(body.modules.find((module) => module.key === "execution").state, "partial");
+  assert.match(body.modules.find((module) => module.key === "execution").label, /blocked-submission evidence/i);
+  assert.match(body.modules.find((module) => module.key === "execution").label, /broker-bound/i);
+  assert.match(body.modules.find((module) => module.key === "execution").label, /no live route/i);
+  assert.match(body.modules.find((module) => module.key === "execution").label, /no automated mode/i);
   // Phase 12 ports `Tools::cron()` as a scheduled-jobs module. It is `partial` and
   // the label must carry the gap: legacy alerted at 80/70/60% of a limit as a
   // `warning` and at the limit as `critical`, while this port alerts only on the
@@ -1039,7 +1049,7 @@ test("F-02 the status surface is honest about unported modules, and F-03 the rou
   assert.match(body.modules.find((module) => module.key === "scheduledJobs").label, /no HTTP route/i);
   assert.match(body.modules.find((module) => module.key === "scheduledJobs").label, /no early-warning tiers/i);
   assert.match(body.modules.find((module) => module.key === "scheduledJobs").label, /CLI only/i);
-  assert.equal(body.modules.filter((module) => module.state === "partial").length, 3, "the public site (chat widget), execution (no full supervisor, no live route) and scheduled jobs (no early-warning tiers, no broker/sports/lottery cron) remain partial");
+  assert.equal(body.modules.filter((module) => module.state === "partial").length, 3, "the public site (chat widget), execution (the remaining supervisor steps are broker-bound, no live route, no automated mode) and scheduled jobs (no early-warning tiers, no broker/sports/lottery cron) remain partial");
   assert.equal(body.modules.filter((module) => module.state === "not-ported").length, 5, "brokers, sports, lottery, language learning and lead discovery remain legacy-only");
   assert.equal(body.modules.length, 17, "the ledger keeps listing every module, ported or not");
   // The public status surface carries a market-data snapshot that must not have

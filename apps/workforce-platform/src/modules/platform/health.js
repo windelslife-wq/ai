@@ -54,7 +54,21 @@ export const MODULE_STATUS = Object.freeze([
   { key: "strategies", label: "Strategy lab, lifecycle, backtesting and durable AI review", state: "ported", tests: "unit + http + persistence" },
   { key: "paperTrading", label: "Owner-scoped simulation accounts, orders, fills and deployments", state: "ported", tests: "unit + http + persistence" },
   { key: "risk", label: "Risk engine, persisted limits, kill switch and paper-portfolio monitor", state: "ported", tests: "unit + http + persistence" },
-  { key: "execution", label: "Human-reviewed paper proposals; full execution supervisor and live route unavailable", state: "partial", tests: "unit + http + persistence" },
+  // Phase 8A adds human-reviewed paper proposals; Phase 13 reconciles them against
+  // `ExecutionSupervisor.php` step by step. It stays `partial`, but the label now says
+  // *why* rather than letting a reader assume the governance work is unfinished: nine
+  // of the supervisor's fifteen steps read broker state that does not exist here
+  // (connector readiness, market session, per-class quote freshness, duplicate
+  // positions, margin, order placement, execution confirmation, portfolio update),
+  // and two more bind to `SEMI_AUTONOMOUS`/`FULLY_AUTOMATED`. Legacy's own step 2
+  // routes paper orders elsewhere, so this module is a paper-scoped analogue of the
+  // supervisor's human-approval workflow, not a partial port of its broker pipeline.
+  // What Phase 13 added is evidence: a submission refused by the kill switch or the
+  // trading mode used to throw a bare 409 and leave no trace, so "who tried to route
+  // while the platform was stopped" was unanswerable. Every refusal is now audited
+  // outside the transaction that rolled back, and the governance refusal broadcasts a
+  // daily-deduped `ROUTING_BLOCKED` alert, as legacy's `routingBlocked()` did.
+  { key: "execution", label: "Human-reviewed paper proposals with fail-closed governance and blocked-submission evidence (no live route, no automated mode; the remaining supervisor steps are broker-bound row 13, not unfinished governance)", state: "partial", tests: "unit + http + persistence + governance bypass/recovery" },
   // Phase 12 ports `Tools::cron()`: the portfolio risk sweep across every owner and
   // the cross-owner stale-proposal expiry, coordinated by a `wf_job_locks` row and
   // driven by the host's cron through `tools/scheduled-jobs.mjs`. It is `partial`,

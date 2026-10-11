@@ -142,12 +142,39 @@ test("proposal decisions are explicit, owner-bound and permit one simulation-onl
   assert.equal(calls.length, 1);
 
   const audit = (await store.snapshot()).audit.filter((event) => event.entity_id === created.id);
+  // Three of these are refusals, and each corresponds to an attempt this test
+  // deliberately made. Legacy routed every routing refusal through `routingBlocked()`,
+  // which audited `EXECUTION_ROUTING_BLOCKED`; a bare 409 left no evidence that anyone
+  // had tried. The middle one is the interesting case: a second submit racing a row
+  // already in PAPER_SUBMITTING is a bypass attempt, and it is now reconstructable.
   assert.deepEqual(audit.map((event) => event.action_key), [
     "execution.proposal.created",
+    "execution.paper-submission.blocked",   // submitted while PENDING_APPROVAL
     "execution.proposal.approved",
     "execution.paper-submission.started",
+    "execution.paper-submission.blocked",   // concurrent submit against PAPER_SUBMITTING
     "execution.paper-submission.completed",
+    "execution.paper-submission.blocked",   // resubmitted after PAPER_EXECUTED
   ]);
+
+  const blocked = audit.filter((event) => event.action_key === "execution.paper-submission.blocked");
+  assert.equal(blocked.length, 3);
+  for (const event of blocked) {
+    assert.equal(event.detail_json.legacyAction, "EXECUTION_ROUTING_BLOCKED");
+    assert.equal(event.detail_json.code, "PAPER_SUBMISSION_NOT_APPROVED");
+    assert.equal(event.detail_json.orderCreated, false, "a refused submission must record that no order exists");
+    assert.equal(event.detail_json.retryable, true, "and that the proposal is still usable");
+    assert.equal(event.actor_user_id, OWNER, "the attempt is attributed to whoever made it");
+  }
+  assert.deepEqual(blocked.map((event) => event.detail_json.proposalStatus),
+    ["PENDING_APPROVAL", "PAPER_SUBMITTING", "PAPER_EXECUTED"],
+    "each record says what state the proposal was actually in when it was refused");
+
+  // `ROUTING_BLOCKED` is reserved for the platform being unable to route. Broadcasting
+  // it because a caller submitted the wrong proposal would say the platform is down
+  // when it is not, so this class records evidence and stays quiet.
+  const inbox = await store.listNotifications(OWNER, { limit: 50 });
+  assert.equal(inbox.filter((row) => row.type === "ROUTING_BLOCKED").length, 0);
   assert.ok(audit.every((event) => event.actor_user_id === OWNER));
   assert.equal(service.route, undefined, "there is no generic or live routing method");
   assert.equal(service.statusSnapshot().liveTradingEnabled, false);

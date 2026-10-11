@@ -178,4 +178,47 @@ optimizer already builds, or to **remove the limit from the API** so it stops re
 enforced. The third is the only one that is honest without doing any modelling, and it is the
 minimum acceptable action. Related: R-20 and divergence SJ-9.
 
+### F-31 — legacy `automation_limits` authenticated but never authorized (open, legacy-only)
+
+Found in Phase 13 while reconciling the Execution Supervisor against its controller surface
+([`PHASE13_EXECUTION_GOVERNANCE.md`](PHASE13_EXECUTION_GOVERNANCE.md)).
+
+`Api_system::automation_limits()` (`application/controllers/Api_system.php:266`) is the read
+half of the automation governance envelope — `approvedSymbols`, `maxTradeNotionalUsd`,
+`maxDailyTrades`, `maxRiskPerTradePct`, `updatedAt`. It makes **no `requirePermission` call**:
+
+```php
+public function automation_limits()
+{
+    $this->json(['limits' => \Aegis\ExecutionSupervisor::automationLimits($this->platform->state())]);
+}
+```
+
+`api_system/automation_limits` is not in `MY_Controller::PUBLIC_ACTIONS`
+(`application/core/MY_Controller.php:165`, which lists only `api_auth/login`,
+`api_chat/respond`, `api_system/status` and `api_system/features`), so it is not anonymous —
+but authentication without authorization means **every signed-in user** could read the
+governance envelope. Its sibling `update_automation_limits()` correctly requires
+`trading.control` and catches `InvalidArgumentException`, which makes the omission on the read
+side look like an oversight rather than a decision.
+
+This is the same shape as **AV-1** (Phase 10: `Api_system::events()` exposed the whole audit
+trail to any signed-in operator because it never called `requirePermission`). Lower severity —
+configuration rather than identity and trade history — but the same class, and the pair is
+evidence for a general statement about the legacy API: **it authenticated broadly and
+authorized inconsistently.** A read endpoint sitting next to a correctly gated write endpoint
+in the same controller is exactly the pattern a reviewer should expect to find more of.
+
+Impact on this migration: **none, because the endpoint was never ported.** The Node platform
+has no automation-limits state and no route for it (divergence ES-6 explains why porting the
+document without enforcement would recreate F-30). Recorded so the gap is not inherited:
+**row 13 must port `automation_limits` gated** — `trading.control` for the write and at minimum
+`trading.view` for the read — and must port the limits *with* enforcement from the first
+commit, never as an echoed-back document nothing acts on.
+
+The PHP source is authoritative and must not be modified during migration, so this is **not
+fixed in legacy**. If the PHP application remains reachable in production after cutover, the
+gap is live there and belongs in the cutover decision (row 22), not in this port. Related:
+AV-1, F-30, ES-6.
+
 — End of Phase 0 risk register.
