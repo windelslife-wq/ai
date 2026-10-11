@@ -5,6 +5,7 @@ import { createSiteRepository } from "./site-repository.js";
 import { createStrategyRepository } from "./strategy-repository.js";
 import { createPaperRepository } from "./paper-repository.js";
 import { createExecutionRepository } from "./execution-repository.js";
+import { createNotificationRepository } from "./notification-repository.js";
 
 export const REQUIRED_MIGRATIONS = Object.freeze([
   "001_platform_foundation",
@@ -15,6 +16,7 @@ export const REQUIRED_MIGRATIONS = Object.freeze([
   "006_strategies",
   "007_paper_trading",
   "008_execution_supervisor",
+  "009_notifications",
 ]);
 
 /** Only driver codes are ever reported; never an SQL statement or credential. */
@@ -35,6 +37,7 @@ export function createStore(pool, { requiredMigrations = REQUIRED_MIGRATIONS } =
   const strategies = createStrategyRepository(pool);
   const paper = createPaperRepository(pool);
   const execution = createExecutionRepository(pool);
+  const notifications = createNotificationRepository(pool);
   return {
     ...repository,
     ...site,
@@ -45,6 +48,15 @@ export function createStore(pool, { requiredMigrations = REQUIRED_MIGRATIONS } =
     // only on the pinned paper transaction view below.
     findExecutionProposal: execution.findExecutionProposal,
     listExecutionProposals: execution.listExecutionProposals,
+    // Notifications are written outside any paper transaction: they are evidence
+    // about a change that already committed, and a failed notification must never
+    // roll back a governance decision (see `modules/notifications/service.js`).
+    createNotification: notifications.createNotification,
+    listNotifications: notifications.listNotifications,
+    markNotificationRead: notifications.markNotificationRead,
+    markAllNotificationsRead: notifications.markAllNotificationsRead,
+    countUnreadNotifications: notifications.countUnreadNotifications,
+    hasUnreadNotificationDedupe: notifications.hasUnreadNotificationDedupe,
     adapter: "mysql",
     capabilities: Object.freeze({
       adapter: "mysql",

@@ -93,6 +93,13 @@ export const REPOSITORY_METHODS = Object.freeze([
   "findExecutionProposal",
   "listExecutionProposals",
   "withPaperTransaction",
+  // operator notifications (row 5): unread-deduped alerts, broadcast or targeted
+  "createNotification",
+  "listNotifications",
+  "markNotificationRead",
+  "markAllNotificationsRead",
+  "countUnreadNotifications",
+  "hasUnreadNotificationDedupe",
   // operational
   "readiness",
 ]);

@@ -515,3 +515,59 @@ MT5-bridge `pytest` (9, unrelated, last recorded 9 passed); and anything needing
 cPanel/Passenger host, a real browser — so the F-29 client change is verified by a successful
 production build and by `verify-install`'s bundle-reference check, **not** by rendering —
 outbound SMTP, provider credentials or a native SDK.
+
+## Re-measured 2026-10-11 — Phase 9 (operator notifications), branch `arena/8de8de2e-ai`, Node v22.22.3
+
+Same machine, same sandbox limits as the rows above: no MySQL/MariaDB server, no outbound
+egress, no cPanel/Passenger host, no real browser, no SMTP, two CPUs. Everything below was
+executed for this phase; nothing is inherited from an earlier row.
+
+| Suite | Exact command | Result |
+|---|---|---|
+| Node platform (**30** files, was 27) | `cd apps/workforce-platform && npm test` | **522 passed, 0 failed** (~58 s) — was 482, **+40** |
+| Install verification | `npm run verify:install` | **29/29 checks**, **64** documented env vars (unchanged — this phase adds no configuration). The migration check now lists `009_notifications.sql` and reports `store requires 9` |
+| AEGIS PHP/WASM (the parity oracle) | `node runtime/run-tests.mjs` | **367 passed, 0 failed**, 18.3 s — unchanged, and `git status --porcelain` returns no path under `application/`, `system/` or `tests/` |
+
+**Total executed in this sandbox for this phase: 889 passed, 0 failed** (522 app + 367 oracle).
+Composition stated because these are two different runners and a bare total invites
+double-counting. Scout (12), football-predictions (29) and the MT5-bridge `pytest` suite were
+**not** re-run: Phase 9 touches no path they exercise.
+
+New files in the platform suite:
+
+| File | Cases | Note |
+|---|---|---|
+| `test/notifications_store.test.js` | **8** (new) | Both adapters against one contract. The file side is executed for real, including WAL replay of a notification across close/reopen and the global dedupe check afterwards; the MySQL side is pinned on SQL text and bound values through a recording executor, asserting that `(user_id IS NULL OR user_id = ?)` is the visibility predicate, that `LIMIT` is a bounded interpolation, that `markRead` is conditional on `read_at IS NULL`, and that the dedupe check contains no `user_id` at all |
+| `test/notifications_service.test.js` | **20** (new) | The legacy `Notifier` rules — unread-dedupe, re-arming on acknowledgement, broadcast/targeted visibility, severity coercion to `info`, 200-character title truncation that does not split a surrogate pair — plus the Node-side bounds: payload size/depth/entry truncation is *stated in the row*, and a function, symbol, circular reference and non-finite number cannot reach storage. Also asserts a failing write is reported as `created:false` with a reason instead of breaking the publisher |
+| `test/notifications_http.test.js` | **12** (new) | The three endpoints over HTTP, and the publishers that make them carry real events. Asserts the *complete* list of registered `/api/v1/notifications*` mutations so a publish route cannot be added quietly; that a targeted alert cannot be read — or discovered — through another operator's session; that CSRF applies to cookie mutations; that engaging the kill switch raises one deduped critical broadcast with the legacy key while re-affirming the boot state raises nothing; and that the governance action **still commits** when the notification write throws |
+
+Ledger assertions updated because the counts they pin genuinely changed, not to make a failure
+pass: `REPOSITORY_METHODS` **72 → 78** (`platform_findings`, `retention`, `strategies_store`),
+migration placeholders **8 → 9** (`store`), migration-created tables **22 → 23** and the
+entity→table map (`backup`), last migration file (`migrator`), file-store `stats()` shapes
+(`platform_findings`, `strategies_store`), and the module-state ledger **ported 6 → 7 /
+not-ported 6 → 5** (`platform_findings`).
+
+One defect found by this phase's own tests and fixed before the row was written, rather than
+re-run until green: publishing from inside `store.withPaperTransaction` **deadlocked** the file
+adapter, whose single mutation queue is held for the whole transaction. The suite hung past a
+600 s timeout instead of failing, which is the only reason it was caught. Recorded as **D-12**
+in [`PHASE9_NOTIFICATIONS.md`](PHASE9_NOTIFICATIONS.md); every call site now queues the alert
+inside the transaction and publishes it after commit, and both publish helpers carry the rule
+in a comment. The same tests caught the inbox filter being destructured as `unreadOnly` while
+the route contract and the legacy query string name it `unread`, so `?unread=1` silently
+returned an unfiltered page.
+
+Still not executed here, and therefore still not claimed: **real MySQL** — now including
+migration `009` and all six methods of `notification-repository.js`, pinned on SQL text and
+bound values through a recording executor (**F-15 stays open and is wider than it was**); any
+**delivery** channel, since none exists (`emailDeliveryAvailable: false`, `deliveryChannels:
+[]`) and the module says so in its own status snapshot; the console **UI**
+(`views/notifications/index.php`, `/notifications`), so **F-29** still stands — no ported
+module has a workspace console; **retention** for `wf_notifications`, which is unbounded with
+no delete path, the same open question as R-27/R-28 and needing one decision rather than three;
+a value-for-value **PHP↔Node diff** of notification behaviour (**F-26**) — the rules were ported
+by reading the PHP and asserting them in Node, not by comparing outputs from both runtimes;
+cross-worker **contention** on the conditional `UPDATE`, which is argued from the SQL rather
+than observed; and anything needing a cPanel/Passenger host, a real browser, outbound SMTP,
+provider credentials or a native SDK.

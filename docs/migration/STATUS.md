@@ -1,9 +1,83 @@
 # JavaScript / Node.js / cPanel migration status
 
-**Updated:** 2026-10-11 · **Branch:** `arena/b175c3e9-ai`
+**Updated:** 2026-10-11 · **Branch:** `arena/8de8de2e-ai`
 
 
-## Current Phase 8A status (2026-10-11)
+## Current Phase 9 status (2026-10-11)
+
+**Operator notifications are ported.** App version is now **0.8.0**. Row 5 of
+[`UNFINISHED_MODULES.md`](UNFINISHED_MODULES.md) is partly closed and the
+`notifications` entry the status surface reported as `not-ported` now reports
+`ported`. Full record: [`PHASE9_NOTIFICATIONS.md`](PHASE9_NOTIFICATIONS.md).
+
+Ported from `Aegis/Notifications/Notifier.php`, the `NotificationRepository`
+implementation in `Aegis_model.php`, the `notifications` table and the three
+`Api_system` endpoints. Migration `009_notifications` adds `wf_notifications`;
+the Node schema now has **23** tables and the repository contract **78** methods.
+Route count **75 → 78**.
+
+Behaviour preserved rather than redesigned: unread-dedupe (one badge per active
+issue until acknowledged), broadcast-plus-own visibility, severity coercion to
+`info`, 200-character title truncation, the `?unread=1` flag, the 50/200 limit
+window, the legacy dedupe keys verbatim, and one indistinguishable `404` for a
+missing/already-read/foreign id so the route cannot enumerate notification ids.
+Six divergences (NV-1…NV-6) are recorded in §"Divergences" of the phase record;
+the two that matter are that `detail` payloads are now **bounded** (legacy stored
+an unbounded LONGTEXT) and that read state stays **global** to a broadcast row —
+legacy behaviour, kept deliberately, with per-recipient read state left as a
+product decision rather than a silent "fix".
+
+Real publishers are wired, so the inbox carries actual platform events: the kill
+switch (`KILL_SWITCH` / `kill-switch:active`, the legacy key), trading-mode
+changes, and the paper-proposal lifecycle (`TRADE_APPROVAL_REQUESTED`,
+`PROPOSAL_EXPIRED`, `ORDER_FILLED`, `EXECUTION_FAILED`). Five declared types have
+**no publisher yet** because their legacy publishers (`PortfolioRiskMonitor`, the
+broker health loop, `ModelDriftMonitor`) are not ported; inventing publishers
+would fabricate alerts.
+
+Two safety properties are asserted by test, not asserted in prose. **Publishing is
+not reachable over HTTP** — the module registers one read and two read-state
+transitions and nothing else, so no caller can inject an alert that looks like it
+came from the risk engine. **A notification can never break the action that caused
+it** — publishers run after the audit row commits and swallow their own failures,
+because `wf_audit_events` is the evidence and the alert is the nudge; a host
+without migration 009 can still move the kill switch.
+
+Two defects were found by this phase's own tests rather than shipped. **D-12** was
+a deadlock: the first implementation published from *inside*
+`withPaperTransaction`, and the file adapter holds its single mutation queue for
+the whole transaction, so the suite **hung** past a 600 s timeout instead of
+failing. Every call site now queues the alert inside and publishes it after
+commit. The second was the inbox filter being destructured as `unreadOnly` while
+the route contract and the legacy query string name it `unread`, so `?unread=1`
+silently returned an unfiltered page.
+
+Measured in this sandbox on 2026-10-11 (Node v22.22.3): workforce-platform
+`npm test` **522/522** (up from 482; 40 new tests), `npm run verify:install`
+**29/29** with the migration check listing `009_notifications.sql` and 64 config
+variables documented (this phase adds **no** configuration — the bounds and the
+type vocabulary are code constants on purpose), and the legacy PHP oracle
+**367/367** with `git status` showing no change under `application/`, `system/`
+or `tests/`. The generated client-bundle check was skipped because
+`public/app/index.html` is absent.
+
+**Not** exercised, and therefore not claimed: a real MySQL/MariaDB server (the SQL
+repository is pinned by a recording executor and has never run against a server —
+F-15 unchanged), any delivery channel (`emailDeliveryAvailable: false`,
+`deliveryChannels: []`), the console UI (`views/notifications/index.php` is
+unported; F-29 still stands — no ported module has a workspace console), retention
+(`wf_notifications` is unbounded with no delete path, the same open question as
+R-27/R-28), a PHP↔Node value-for-value diff (F-26), and cross-worker contention on
+the conditional `UPDATE`.
+
+Phase 8A remains in force and is unchanged: owner-scoped paper proposals, explicit
+human approve/decline, four-hour expiry, no generic route, no broker connector, no
+live order path, `liveTradingEnabled` false. The next gates are unchanged too —
+validate migrations **001–009** and repository transactions against real
+MySQL/MariaDB, then rehearse deployment, backup/restore and rollback on the actual
+cPanel/Passenger host.
+
+## Phase 8A status (2026-10-11)
 
 The Execution Supervisor workstream has a **partial, paper-only proposal workflow**:
 owner-scoped proposals, explicit human approve/decline, four-hour approval expiry,

@@ -138,7 +138,7 @@ function safeFailure(error) {
   };
 }
 
-export function createExecutionService({ store = null, paper = null, strategies = null, now = () => Date.now() } = {}) {
+export function createExecutionService({ store = null, paper = null, strategies = null, notifications = null, log = null, now = () => Date.now() } = {}) {
   function requireStore() {
     if (!store || typeof store.withPaperTransaction !== "function" || typeof store.findExecutionProposal !== "function") {
       throw AppError.unavailable("Execution proposals require a configured persistence adapter", { code: "EXECUTION_STORE_UNAVAILABLE", retryAfter: 30 });
@@ -149,6 +149,41 @@ export function createExecutionService({ store = null, paper = null, strategies 
     if (!paper || typeof paper.submitOrder !== "function") {
       throw AppError.unavailable("The paper-order service is unavailable; execution is disabled", { code: "PAPER_SERVICE_UNAVAILABLE", retryAfter: 30 });
     }
+  }
+
+  /**
+   * Publish the operator alerts the legacy `ExecutionSupervisor` published, with
+   * its dedupe keys, at the points where this paper-only workflow reaches the same
+   * state.
+   *
+   * **Never call this inside `store.withPaperTransaction`.** The file adapter
+   * serializes every mutation through one queue and holds it for the whole
+   * transaction, so a notification write from inside a transaction waits on the
+   * transaction that is waiting on it — a deadlock, not a slow write. Every call
+   * site here collects a pending alert inside the transaction and publishes it
+   * afterwards through `publishPending`.
+   *
+   * Best-effort by design: `wf_audit_events` is the evidence, the notification is
+   * the nudge. A host without migration 009, or an adapter with no notification
+   * surface, must still be able to approve and submit a proposal, so a failure
+   * here is logged and never propagated — otherwise an alerting outage would look
+   * like a trading outage.
+   */
+  async function publish(type, severity, title, detail = {}, dedupeKey = null, userId = null) {
+    if (!notifications || typeof notifications.notify !== "function") return null;
+    try {
+      const result = await notifications.notify(type, severity, title, detail, dedupeKey, userId);
+      return result?.notification ?? null;
+    } catch (error) {
+      log?.warn?.({ err: error, notificationType: type }, "Operator notification could not be published");
+      return null;
+    }
+  }
+
+  /** Publishes an alert queued by a committed transaction. `null` is a no-op. */
+  async function publishPending(pending) {
+    if (!pending) return null;
+    return publish(pending.type, pending.severity, pending.title, pending.detail, pending.dedupeKey, pending.userId ?? null);
   }
 
   function requireProposalId(value) {
@@ -171,7 +206,7 @@ export function createExecutionService({ store = null, paper = null, strategies 
     return !Number.isFinite(created) || now() - created > MAX_PROPOSAL_AGE_MS;
   }
 
-  async function expireInTransaction(tx, owner, proposal) {
+  async function expireInTransaction(tx, owner, proposal, pendingNotifications = []) {
     const current = await tx.findExecutionProposal(proposal.id, owner);
     if (!current || current.status !== "PENDING_APPROVAL" || !isProposalStale(current)) return false;
     const account = await tx.findPaperAccount(current.account_id, owner);
@@ -186,13 +221,22 @@ export function createExecutionService({ store = null, paper = null, strategies 
       entityId: current.id,
       details: { accountId: Number(current.account_id), summary: "Paper execution approval expired after four hours" },
     });
+    pendingNotifications.push({
+      type: "PROPOSAL_EXPIRED",
+      severity: "warning",
+      title: `Approval request expired: ${current.intent?.symbol ?? "proposal"} ${current.intent?.side ?? ""}`.trim(),
+      detail: { proposalId: current.id, accountId: Number(current.account_id), expiredAt: updatedAt },
+      dedupeKey: `proposal:${current.id}:expired`,
+    });
     return true;
   }
 
   async function expireIfStale(ownerUserId, proposal) {
     if (!isProposalStale(proposal)) return proposal;
     const owner = actorIdOf(ownerUserId);
-    await store.withPaperTransaction((tx) => expireInTransaction(tx, owner, proposal));
+    const pending = [];
+    await store.withPaperTransaction((tx) => expireInTransaction(tx, owner, proposal, pending));
+    for (const alert of pending) await publishPending(alert);
     return store.findExecutionProposal(proposal.id, owner);
   }
 
@@ -203,7 +247,8 @@ export function createExecutionService({ store = null, paper = null, strategies 
     const id = randomUUID();
     const createdAt = isoNow(now);
 
-    return store.withPaperTransaction(async (tx) => {
+    const pending = [];
+    const view = await store.withPaperTransaction(async (tx) => {
       // Owner check is first: no strategy lookup, provider call or proposal write
       // occurs for a guessed/foreign account id.
       const account = await tx.findPaperAccount(accountId, owner);
@@ -273,8 +318,27 @@ export function createExecutionService({ store = null, paper = null, strategies 
           summary: rejected ? checks.find((check) => !check.ok)?.detail : "Paper proposal awaits a separately permissioned human decision",
         },
       });
+      // Legacy `ExecutionSupervisor` raised TRADE_APPROVAL_REQUESTED as a
+      // broadcast warning keyed on the proposal id. A proposal rejected by its own
+      // pre-checks raises nothing: it never reached the approval queue, so there
+      // is no decision for an operator to make.
+      // The alert is a side effect only: `propose()` keeps returning exactly the
+      // proposal view it returned before this module existed, so no existing
+      // caller or test observes a shape change. A proposal rejected by its own
+      // pre-checks raises nothing — it never reached the approval queue.
+      if (!rejected) {
+        pending.push({
+          type: "TRADE_APPROVAL_REQUESTED",
+          severity: "warning",
+          title: `Approval required: ${intent.symbol} ${intent.side}`,
+          detail: { proposalId: id, accountId, symbol: intent.symbol, side: intent.side, type: intent.type, price: intent.price, expiresAt: new Date(now() + MAX_PROPOSAL_AGE_MS).toISOString() },
+          dedupeKey: `proposal:${id}`,
+        });
+      }
       return proposalView(proposal);
     });
+    await publishPending(pending[0] ?? null);
+    return view;
   }
 
   async function list(ownerUserId, { status = null, limit = 100 } = {}) {
@@ -285,11 +349,13 @@ export function createExecutionService({ store = null, paper = null, strategies 
     if (current.some(isProposalStale)) {
       // Expire a stale page in one transaction rather than opening one SQL
       // connection per row when an owner has accumulated many old proposals.
+      const pending = [];
       await store.withPaperTransaction(async (tx) => {
         for (const proposal of current) {
-          if (isProposalStale(proposal)) await expireInTransaction(tx, owner, proposal);
+          if (isProposalStale(proposal)) await expireInTransaction(tx, owner, proposal, pending);
         }
       });
+      for (const alert of pending) await publishPending(alert);
     }
     const proposals = await store.listExecutionProposals(owner, { status, limit: bounded });
     return { proposals: proposals.map(proposalView), simulationOnly: true, liveTradingEnabled: false };
@@ -407,6 +473,7 @@ export function createExecutionService({ store = null, paper = null, strategies 
       }, { actorId: owner });
     } catch (error) {
       const failure = safeFailure(error);
+      const pending = [];
       await store.withPaperTransaction(async (tx) => {
         const proposal = await tx.findExecutionProposal(id, owner);
         if (!proposal) return;
@@ -425,8 +492,21 @@ export function createExecutionService({ store = null, paper = null, strategies 
             entityId: id,
             details: { accountId: Number(proposal.account_id), errorCode: failure.code, summary: failure.message },
           });
+          // Legacy wording named the broker; this workflow has no broker, so the
+          // alert says what actually refused it. `safeFailure` has already
+          // replaced a 5xx message with a non-leaking one.
+          pending.push({
+            type: "EXECUTION_FAILED",
+            severity: "critical",
+            title: `Paper submission failed for ${claimed.intent?.symbol ?? id}`,
+            detail: { proposalId: id, accountId: Number(proposal.account_id), errorCode: failure.code, error: failure.message },
+            dedupeKey: `proposal:${id}:failed`,
+          });
         }
       });
+      // Published before the throw so the operator is told why the request failed;
+      // `publishPending` cannot itself throw.
+      await publishPending(pending[0] ?? null);
       throw error instanceof AppError ? error : AppError.internal("Paper submission failed", { cause: error });
     }
 
@@ -435,6 +515,7 @@ export function createExecutionService({ store = null, paper = null, strategies 
     const status = paperResult?.order?.status === "REJECTED"
       ? "PAPER_REJECTED"
       : paperResult?.filled ? "PAPER_EXECUTED" : "PAPER_PENDING";
+    const pending = [];
     const completed = await store.withPaperTransaction(async (tx) => {
       const proposal = await tx.findExecutionProposal(id, owner);
       if (!proposal) throw AppError.notFound("Execution proposal not found", { code: "EXECUTION_PROPOSAL_NOT_FOUND" });
@@ -448,8 +529,41 @@ export function createExecutionService({ store = null, paper = null, strategies 
         entityId: id,
         details: { accountId: Number(proposal.account_id), paperOrderId: orderId, paperStatus: paperResult?.order?.status ?? null, summary: `Paper-only proposal submission finished as ${status}` },
       });
+      const intent = proposal.intent ?? {};
+      if (status === "PAPER_REJECTED") {
+        pending.push({
+          type: "EXECUTION_FAILED",
+          severity: "critical",
+          title: `Paper risk/governance rejected ${intent.symbol ?? id}`,
+          detail: {
+            proposalId: id,
+            accountId: Number(proposal.account_id),
+            paperOrderId: orderId,
+            rejectReasons: safe.order?.rejectReasons ?? [],
+            riskReasons: safe.riskDecision?.reasons ?? [],
+          },
+          dedupeKey: `proposal:${id}:rejected`,
+        });
+      } else if (status === "PAPER_EXECUTED") {
+        pending.push({
+          type: "ORDER_FILLED",
+          severity: "info",
+          title: `Filled ${intent.side ?? ""} ${intent.symbol ?? id} (paper)`.trim(),
+          detail: { proposalId: id, accountId: Number(proposal.account_id), paperOrderId: orderId, simulationOnly: true },
+          dedupeKey: `proposal:${id}:filled`,
+        });
+      } else {
+        pending.push({
+          type: "ORDER_FILLED",
+          severity: "info",
+          title: `Paper order accepted and pending: ${intent.symbol ?? id}`,
+          detail: { proposalId: id, accountId: Number(proposal.account_id), paperOrderId: orderId, status: "PAPER_PENDING", simulationOnly: true },
+          dedupeKey: `proposal:${id}:pending`,
+        });
+      }
       return row;
     });
+    await publishPending(pending[0] ?? null);
     return { proposal: proposalView(completed), paper: safe };
   }
 

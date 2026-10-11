@@ -39,6 +39,8 @@ import { paperRoutes } from "./modules/paper/routes.js";
 import { createPaperService } from "./modules/paper/service.js";
 import { executionRoutes } from "./modules/execution/routes.js";
 import { createExecutionService } from "./modules/execution/service.js";
+import { notificationRoutes } from "./modules/notifications/routes.js";
+import { createNotificationService } from "./modules/notifications/service.js";
 
 const JSON_TYPE = "application/json; charset=utf-8";
 
@@ -140,7 +142,17 @@ export async function buildApp({ config, store, logger = true, publicDir = path.
   // must see the same caches, breakers and provenance stamps as the API does.
   const analysis = createAnalysisService({ store, marketData, log: app.log });
 
-  await app.register(healthRoutes, { prefix: "/api/v1", store, config, adapter, router, marketData, analysis });
+  // One notification service per app. It is built before the paper service
+  // because governance transitions publish through it, and it is handed to that
+  // service as an *optional* collaborator: a host whose migration 009 has not
+  // been applied must still be able to move the kill switch, so the publisher
+  // degrades to a logged no-op instead of failing the governance action.
+  const notifications = createNotificationService({ store, log: app.log });
+
+  // The status surface reports the notification module alongside market data and
+  // analysis, so an operator can see that alerts are stored-and-read only and that
+  // no outbound delivery channel exists.
+  await app.register(healthRoutes, { prefix: "/api/v1", store, config, adapter, router, marketData, analysis, notifications });
   if (config.auth !== false) {
     await app.register(identityRoutes, { prefix: "/api/v1", store, config, loginGuard });
   }
@@ -167,10 +179,11 @@ export async function buildApp({ config, store, logger = true, publicDir = path.
   // The same tracker backs the platform-wide ceiling; this module keys its slots
   // `strategies:session:<id>` so they never collide with `analysis:` ones (R-26).
   await app.register(strategyRoutes, { prefix: "/api/v1", store, config, service: strategies, marketData, concurrency });
-  const paper = createPaperService({ store, marketData, strategies, log: app.log });
+  const paper = createPaperService({ store, marketData, strategies, notifications, log: app.log });
   await app.register(paperRoutes, { prefix: "/api/v1", store, config, service: paper, marketData, strategies, log: app.log });
-  const execution = createExecutionService({ store, paper, strategies });
-  await app.register(executionRoutes, { prefix: "/api/v1", store, config, service: execution, paper, strategies, log: app.log });
+  const execution = createExecutionService({ store, paper, strategies, notifications, log: app.log });
+  await app.register(executionRoutes, { prefix: "/api/v1", store, config, service: execution, paper, strategies, notifications, log: app.log });
+  await app.register(notificationRoutes, { prefix: "/api/v1", store, config, service: notifications, log: app.log });
   const siteDocuments = createSiteDocuments({ config, store, log: app.log, rateLimiter, publicDir });
   for (const extra of config.modules || []) await app.register(extra, { prefix: "/api/v1", store, config, loginGuard });
 

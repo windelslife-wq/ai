@@ -22,8 +22,18 @@ production replacement and no traffic has been cut over.
   `manifest.webmanifest`, `service-worker.js` (all generated per request), the
   deterministic PNG icon set, and public contact intake with a signed one-shot
   flash for the no-script form path. The legacy public chat widget is **not**
-  ported, so `publicSite` reports `partial`. The 12 other product domains remain
-  unported and `/api/v1/system/status` says so per module.
+  ported, so `publicSite` reports `partial`.
+- **Market data, analysis, the Strategy Lab, paper trading, persisted risk
+  governance, the paper-proposal workflow and operator notifications are ported**;
+  `/api/v1/system/status` states each module's acceptance level individually.
+  Brokers, sports, lottery, language learning and lead discovery remain
+  legacy-only, and the status surface says so rather than implying coverage.
+- **Operator notifications are ported** (migration `009`, `wf_notifications`): an
+  unread-deduped notifier, broadcast plus targeted visibility, the three legacy
+  `/api/v1/notifications` endpoints, and publishers for the kill switch, trading-mode
+  changes and the paper-proposal lifecycle. Alerts are stored and read in-product
+  only — there is **no** mail, push or webhook delivery channel, and no HTTP route
+  can publish one. See [`docs/migration/PHASE9_NOTIFICATIONS.md`](../../docs/migration/PHASE9_NOTIFICATIONS.md).
 - Two storage adapters implement one repository contract:
   - `STORAGE_ADAPTER=mysql` (production target) — the MySQL/MariaDB tables created by
     `src/db/migrations/*.sql`.

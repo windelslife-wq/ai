@@ -21,7 +21,7 @@ import { assertIsoCutoff } from "./contract.js";
 import { createHash } from "node:crypto";
 import path from "node:path";
 
-const ENTITIES = ["users", "profiles", "sessions", "roles", "permissions", "userRoles", "rolePermissions", "audit", "inquiries", "analysisRuns", "strategies", "backtests", "journalEntries", "tradingState", "paperAccounts", "paperOrders", "paperPositions", "paperTrades", "paperDeployments", "executionProposals"];
+const ENTITIES = ["users", "profiles", "sessions", "roles", "permissions", "userRoles", "rolePermissions", "audit", "inquiries", "analysisRuns", "strategies", "backtests", "journalEntries", "tradingState", "paperAccounts", "paperOrders", "paperPositions", "paperTrades", "paperDeployments", "executionProposals", "notifications"];
 const PAPER_TX_ENTITIES = Object.freeze(["tradingState", "paperAccounts", "paperOrders", "paperPositions", "paperTrades", "paperDeployments", "executionProposals", "strategies", "journalEntries", "audit"]);
 const COMPACTION_ENTRIES = 2_000;
 /**
@@ -62,6 +62,16 @@ function keyOf(entity, record) {
 
 function normalizeIdentifier(value) {
   return String(value ?? "").trim().toLowerCase();
+}
+
+/**
+ * The one notification visibility rule, shared by every read and write so the
+ * file adapter cannot drift from the SQL predicate in `notification-repository.js`.
+ */
+function visibleTo(row, userId) {
+  if (row.user_id === null || row.user_id === undefined) return true;
+  if (userId === null || userId === undefined) return false;
+  return Number(row.user_id) === Number(userId);
 }
 
 /**
@@ -1285,6 +1295,64 @@ export async function createFileStore({ dir, logger = console, idFactory = () =>
     },
     async findAvatarPath(userId) {
       return tables.get("profiles").get(String(userId))?.profile_image ?? null;
+    },
+
+    // ---- operator notifications (row 5) ---------------------------------
+    /**
+     * Visibility and read state follow `notification-repository.js` exactly:
+     * `user_id === null` is a broadcast, `read_at` is global to the row, and the
+     * dedupe check is global rather than per recipient.
+     */
+    async createNotification({ userId = null, type, severity, title, detail = {}, dedupeKey = null, createdAt }) {
+      const id = nextId("notifications");
+      const record = {
+        id,
+        user_id: userId === null || userId === undefined ? null : Number(userId),
+        type: String(type),
+        severity: String(severity),
+        title: String(title),
+        detail: detail && typeof detail === "object" ? structuredClone(detail) : {},
+        dedupe_key: dedupeKey === null || dedupeKey === undefined ? null : String(dedupeKey),
+        read_at: null,
+        created_at: String(createdAt),
+      };
+      await mutate("notifications", "upsert", record);
+      return structuredClone(record);
+    },
+    async listNotifications(userId = null, { unreadOnly = false, limit = 50 } = {}) {
+      const bounded = Math.min(Math.max(Number.parseInt(limit, 10) || 50, 1), 200);
+      return [...tables.get("notifications").values()]
+        .filter((row) => (userId === null || userId === undefined ? row.user_id === null : row.user_id === null || Number(row.user_id) === Number(userId)))
+        .filter((row) => (unreadOnly ? row.read_at === null : true))
+        .sort((a, b) => (String(b.created_at).localeCompare(String(a.created_at)) || Number(b.id) - Number(a.id)))
+        .slice(0, bounded)
+        .map((row) => structuredClone(row));
+    },
+    async markNotificationRead(id, userId = null, readAt) {
+      const row = tables.get("notifications").get(String(id));
+      if (!row || row.read_at !== null) return false;
+      if (!visibleTo(row, userId)) return false;
+      await mutate("notifications", "upsert", { ...row, read_at: String(readAt) });
+      return true;
+    },
+    async markAllNotificationsRead(userId = null, readAt) {
+      let marked = 0;
+      for (const row of [...tables.get("notifications").values()]) {
+        if (row.read_at !== null || !visibleTo(row, userId)) continue;
+        await mutate("notifications", "upsert", { ...row, read_at: String(readAt) });
+        marked += 1;
+      }
+      return marked;
+    },
+    async countUnreadNotifications(userId = null) {
+      return [...tables.get("notifications").values()]
+        .filter((row) => row.read_at === null && visibleTo(row, userId))
+        .length;
+    },
+    async hasUnreadNotificationDedupe(dedupeKey) {
+      const key = String(dedupeKey);
+      return [...tables.get("notifications").values()]
+        .some((row) => row.dedupe_key === key && row.read_at === null);
     },
 
     // ---- maintenance ----------------------------------------------------

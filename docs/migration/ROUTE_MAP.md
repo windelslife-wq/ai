@@ -5,7 +5,7 @@ Source of truth: `application/config/routes.php` (285 explicit rules) + CodeIgni
 
 
 > **Current Node route note (2026-10-11):** Sections 1–13 remain the Phase-0
-> legacy inventory. Sections 14.7–14.10 describe the Node API through Phase 8A;
+> legacy inventory. Sections 14.7–14.11 describe the Node API through Phase 9;
 > 75 API routes are implementation inventory, not a PHP-parity claim. Paper
 > trading and approved proposal submission remain simulation-only and owner-scoped.
 > The full supervisor and all live broker/order routes remain unavailable. See
@@ -318,8 +318,8 @@ no `DELETE` verb at all.
 
 At the Phase-5 cutoff, 5 + 7 + 11 + 6 + 1 + 3 + 5 = **38** API routes. Phase 6 added 11,
 Phase 7 added 19 paper/risk routes and one strategy sign-off route, and Phase 8A adds
-six paper-proposal routes, for **75 current Node API routes**. This is an implementation
-inventory, not a legacy-parity claim.
+six paper-proposal routes; Phase 9 adds three notification routes, for **78 current Node
+API routes**. This is an implementation inventory, not a legacy-parity claim.
 
 ### 14.9 Paper trading and persisted portfolio risk controls (19) — Phase 7
 
@@ -384,6 +384,32 @@ possible duplicate. The wider ordered supervisor, its automation envelope, broke
 gates, real MySQL/MariaDB execution and cPanel/Passenger rehearsal all remain
 incomplete. See [`PHASE8_EXECUTION_PROPOSALS.md`](PHASE8_EXECUTION_PROPOSALS.md).
 
+### 14.11 Operator notifications (3) — Phase 9
+
+Ports `Api_system::notifications`, `notification_read` and `notification_read_all`
+(`application/config/routes.php` lines 212–214). All three require the
+`system.authenticated` baseline, exactly as the legacy controller did — an
+operator's own unread alerts are not a privileged surface. Unsafe cookie
+mutations also require the session-bound CSRF token; bearer callers are exempt.
+
+| Method/path | Permission | Scope |
+|---|---|---|
+| `GET /api/v1/notifications` | `system.authenticated` | Broadcast (`user_id IS NULL`) plus the caller's own, newest first. `?unread=1` (legacy flag), `?severity=`, `?type=`, `?limit=` 1–200, default 50. `unread` always counts everything visible, independent of the page filters |
+| `POST /api/v1/notifications/:notificationId/read` | `system.authenticated` + CSRF | Idempotent. A missing, already-read or **foreign** id all answer `404 notification not found or already read`, so the route cannot be used to discover which ids exist |
+| `POST /api/v1/notifications/read-all` | `system.authenticated` + CSRF | Marks the caller's visible unread rows read and reports `markedRead` |
+
+**There is deliberately no publish route.** No create, broadcast or delete
+endpoint exists, so no HTTP caller can inject an alert that appears to come from
+the risk engine or the execution supervisor. Publishing is internal to the
+platform: `paper.setKillSwitch()`, `paper.setTradingMode()` and the execution
+proposal lifecycle publish through the service, always *after* their audit row has
+committed, and a failed alert never fails the governance action that caused it.
+
+The legacy server-rendered console (`/notifications`,
+`views/notifications/index.php`) is **not** ported; it belongs to the app-shell
+workstream (F-29 still stands — no ported module has a workspace console).
+See [`PHASE9_NOTIFICATIONS.md`](PHASE9_NOTIFICATIONS.md).
+
 ## 15. Node rendered document routes (22)
 
 Documents are rendered per request by `src/modules/site/`; **no static copy of any of them is
@@ -409,7 +435,7 @@ carrying `Accept: text/html` receives the built SPA shell (200); without that he
 The Phase-6 routes are session-only with no permission gate, matching their legacy
 `Api_controller` surface; unsafe cookie mutations are CSRF-gated and bearer callers
 are exempt. Phase 7 adds the separately permissioned human sign-off route (shown
-below). Route count: **38 at Phase 5 → 49 at Phase 6 → 69 after Phase 7 → 75 after Phase 8A**.
+below). Route count: **38 at Phase 5 → 49 at Phase 6 → 69 after Phase 7 → 75 after Phase 8A → 78 after Phase 9**.
 
 | Method/path | Auth | Legacy relationship |
 |---|---|---|

@@ -109,7 +109,7 @@ test("Phase 8A migration creates only the paper-proposal record, with owner and 
   assert.match(sql, /intent_json LONGTEXT NOT NULL/);
   assert.match(sql, /decision_by_user_id BIGINT UNSIGNED NULL/);
   assert.doesNotMatch(sql, /CREATE TABLE IF NOT EXISTS wf_(?:live|broker)_/i);
-  assert.equal((await listMigrationFiles(new URL("../src/db/migrations/", import.meta.url))).at(-1), "008_execution_supervisor.sql");
+  assert.equal((await listMigrationFiles(new URL("../src/db/migrations/", import.meta.url))).at(-1), "009_notifications.sql");
 });
 
 test("migration status reports pending, applied and drifted without writing", async (t) => {

@@ -24,7 +24,12 @@ export const MODULE_STATUS = Object.freeze([
   // remains partial. These checks do not claim complete legacy parity.
   { key: "publicSite", label: "Public site, SEO + PWA shell, contact intake (chat assistant not ported)", state: "partial", tests: "unit + http + content checks" },
   { key: "audit", label: "Security audit trail for ported actions", state: "partial", tests: "unit" },
-  { key: "notifications", label: "Operator notifications", state: "not-ported", tests: null },
+  // Notifications are ported: the unread-deduped notifier, broadcast/targeted
+  // visibility and the three legacy inbox endpoints, with governance and
+  // paper-proposal transitions publishing through it. Storage and in-product
+  // reading only — there is no outbound delivery channel, so no alert is ever
+  // reported as delivered to a device or an email inbox.
+  { key: "notifications", label: "Operator notifications: unread-deduped inbox, broadcast + targeted, governance publishers (no outbound delivery)", state: "ported", tests: "unit + http + both adapters" },
   // Market data is ported: the provider chain, normalization, circuit breakers
   // and the three legacy endpoints, with provenance that labels synthetic output.
   { key: "marketData", label: "Market data providers and health", state: "ported", tests: "unit + http + provider fixtures" },
@@ -60,7 +65,7 @@ export function platformVersion() {
   return cachedVersion;
 }
 
-export async function healthRoutes(app, { store, config, adapter, router, marketData = null, analysis = null }) {
+export async function healthRoutes(app, { store, config, adapter, router, marketData = null, analysis = null, notifications = null }) {
   app.get("/health/live", async () => ({
     status: "ok",
     uptimeSeconds: Math.round(process.uptime()),
@@ -126,6 +131,9 @@ export async function healthRoutes(app, { store, config, adapter, router, market
       // evaluated against. Like the market-data snapshot it never probes or
       // computes: an unauthenticated caller cannot make this server do work.
       analysis: analysis ? analysis.statusSnapshot() : null,
+      // Same rule as the two snapshots above: this describes the module, it does
+      // not read the inbox, so an unauthenticated caller cannot enumerate alerts.
+      notifications: notifications ? notifications.statusSnapshot() : null,
       trading: {
         enabled: true,
         simulationOnly: true,

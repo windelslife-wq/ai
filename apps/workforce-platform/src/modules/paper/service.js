@@ -258,7 +258,7 @@ function quoteInfoFromCandleSeries(series, now) {
   };
 }
 
-export function createPaperService({ store = null, marketData = null, strategies = null, log = null, now = () => Date.now() } = {}) {
+export function createPaperService({ store = null, marketData = null, strategies = null, notifications = null, log = null, now = () => Date.now() } = {}) {
   function requireStore() {
     if (!store || typeof store.withPaperTransaction !== "function") {
       throw AppError.unavailable("Paper trading requires a configured persistence adapter", { code: "PAPER_STORE_UNAVAILABLE", retryAfter: 30 });
@@ -271,6 +271,43 @@ export function createPaperService({ store = null, marketData = null, strategies
       throw AppError.unavailable("The Strategy Lab is not available for paper deployments", { code: "STRATEGY_REGISTRY_UNAVAILABLE", retryAfter: 30 });
     }
     return registry;
+  }
+
+  /**
+   * Publish an operator alert about a governance transition that has ALREADY
+   * committed.
+   *
+   * Deliberately best-effort and deliberately outside the transaction: the audit
+   * row written inside `withPaperTransaction` is the authoritative record, and a
+   * notification is a convenience layered on top of it. If the alert cannot be
+   * stored — a host without migration 009, an adapter with no notification
+   * surface — the kill switch or trading mode still moved, so failing here would
+   * report a governance change as broken when it succeeded. The reverse ordering
+   * (notify first, commit second) would be worse: an alert about a change that
+   * then rolled back.
+   */
+  async function publish(type, severity, title, detail = {}, dedupeKey = null) {
+    if (!notifications || typeof notifications.notify !== "function") return null;
+    try {
+      const result = await notifications.notify(type, severity, title, detail, dedupeKey, null);
+      return result?.notification ?? null;
+    } catch (error) {
+      log?.warn?.({ err: error, notificationType: type }, "Operator notification could not be published");
+      return null;
+    }
+  }
+
+  /**
+   * Publishes an alert that a committed transaction queued. `null` is a no-op.
+   *
+   * **Never publish from inside `withPaperTransaction`.** The file adapter holds
+   * its single mutation queue for the whole transaction, so a notification write
+   * from inside it waits on the transaction that is waiting on it. Every caller
+   * here returns the alert as data and publishes it afterwards.
+   */
+  async function publishPending(alert) {
+    if (!alert) return null;
+    return publish(alert.type, alert.severity, alert.title, alert.detail, alert.dedupeKey);
   }
 
   async function loadState(executor = store) {
@@ -1332,7 +1369,7 @@ export function createPaperService({ store = null, marketData = null, strategies
     if (!["ANALYSIS_ONLY", "PAPER_TRADING"].includes(mode)) {
       throw AppError.conflict("Only ANALYSIS_ONLY and PAPER_TRADING modes are available in the simulation-only Node edition", { code: "TRADING_MODE_UNSUPPORTED" });
     }
-    return store.withPaperTransaction(async (tx) => {
+    const result = await store.withPaperTransaction(async (tx) => {
       const current = normalizeTradingState(await tx.loadTradingState());
       const updatedAt = isoNow(now);
       const saved = await tx.saveTradingState({ ...current, tradingMode: mode }, { updatedByUserId: actor, updatedAt });
@@ -1340,8 +1377,31 @@ export function createPaperService({ store = null, marketData = null, strategies
         previous: current.tradingMode,
         mode,
       });
-      return { tradingMode: normalizeTradingState(saved).tradingMode, message: `Trading mode set to ${mode}`, updatedAt };
+      const applied = normalizeTradingState(saved);
+      const changed = applied.tradingMode !== current.tradingMode;
+      return {
+        tradingMode: applied.tradingMode,
+        message: `Trading mode set to ${mode}`,
+        updatedAt,
+        changed,
+        notification: null,
+        // A no-op change queues nothing, so the inbox is not filled by an
+        // operator re-selecting the mode they are already in.
+        alert: changed ? {
+          type: "TRADING_MODE_CHANGED",
+          severity: mode === "PAPER_TRADING" ? "info" : "warning",
+          title: `Trading mode ${current.tradingMode} -> ${applied.tradingMode}`,
+          detail: { previous: current.tradingMode, mode: applied.tradingMode, actorId: actor },
+          dedupeKey: `trading-mode:${applied.tradingMode}`,
+        } : null,
+      };
     });
+    // Published strictly after commit. Publishing inside the transaction would
+    // deadlock the file adapter, whose single mutation queue is held for the whole
+    // transaction — see `publish` below.
+    result.notification = await publishPending(result.alert);
+    delete result.alert;
+    return result;
   }
 
   async function setKillSwitch(active, reason = null, { actorId } = {}) {
@@ -1349,7 +1409,7 @@ export function createPaperService({ store = null, marketData = null, strategies
     const actor = actorIdOf(actorId);
     if (typeof active !== "boolean") throw AppError.badRequest("active must be a boolean", { code: "INVALID_KILL_SWITCH" });
     const normalizedReason = typeof reason === "string" ? reason.trim().slice(0, 500) : "";
-    return store.withPaperTransaction(async (tx) => {
+    const result = await store.withPaperTransaction(async (tx) => {
       const current = normalizeTradingState(await tx.loadTradingState());
       const updatedAt = isoNow(now);
       const killSwitch = {
@@ -1359,8 +1419,31 @@ export function createPaperService({ store = null, marketData = null, strategies
       };
       const saved = await tx.saveTradingState({ ...current, killSwitch }, { updatedByUserId: actor, updatedAt });
       await audit(tx, actor, active ? "governance.kill-switch.activated" : "governance.kill-switch.released", `Kill switch ${active ? "activated" : "released"}`, { killSwitch });
-      return { killSwitch: normalizeTradingState(saved).killSwitch, updatedAt };
+      const changed = current.killSwitch.active !== active;
+      return {
+        killSwitch: normalizeTradingState(saved).killSwitch,
+        updatedAt,
+        changed,
+        notification: null,
+        // The legacy platform published exactly this alert with exactly this
+        // dedupe key (`Aegis/Platform.php`: `KILL_SWITCH` / `kill-switch:active`),
+        // so one unread critical badge exists while the switch is engaged rather
+        // than one per activation attempt. The release uses a separate key so
+        // acknowledging the activation does not suppress the recovery notice.
+        alert: changed ? {
+          type: "KILL_SWITCH",
+          severity: active ? "critical" : "info",
+          title: active
+            ? "KILL SWITCH ACTIVATED — all order placement blocked"
+            : "Kill switch released — paper order placement permitted again",
+          detail: { reason: killSwitch.reason, activatedAt: killSwitch.activatedAt, actorId: actor },
+          dedupeKey: active ? "kill-switch:active" : "kill-switch:released",
+        } : null,
+      };
     });
+    result.notification = await publishPending(result.alert);
+    delete result.alert;
+    return result;
   }
 
   async function setSyntheticPaperData(allow, { actorId } = {}) {

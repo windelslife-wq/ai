@@ -144,7 +144,7 @@ test("the eleven Strategy Lab methods are part of the contract, not adapter extr
     assert.ok(REPOSITORY_METHODS.includes(method), `${method} must be in REPOSITORY_METHODS`);
   }
   assert.equal(STRATEGY_METHODS.length, 11);
-  assert.equal(REPOSITORY_METHODS.length, 72);
+  assert.equal(REPOSITORY_METHODS.length, 78);
   // No method may be declared twice: a duplicate would let one adapter satisfy
   // the count while missing a distinct behaviour.
   assert.equal(new Set(REPOSITORY_METHODS).size, REPOSITORY_METHODS.length);
@@ -279,7 +279,7 @@ test("file adapter survives close and reopen for all three new entities", async 
     rolePermissions: 0, audit: 0, inquiries: 0, analysisRuns: 0,
     strategies: 1, backtests: 1, journalEntries: 1,
     tradingState: 0, paperAccounts: 0, paperOrders: 0, paperPositions: 0, paperTrades: 0, paperDeployments: 0,
-    executionProposals: 0,
+    executionProposals: 0, notifications: 0,
   });
   // The checksum covers the new entities, so a restore can prove they came back.
   assert.match(await second.checksum(), /^[0-9a-f]{64}$/);
