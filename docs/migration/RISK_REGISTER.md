@@ -144,4 +144,38 @@ false in the other direction. Building the consoles is a separate, larger piece 
 future phase adds one it should establish the pattern for all three modules rather than for
 itself alone.
 
+### F-30 — `maxCorrelatedPositions` is a declared risk limit with no enforcement (open)
+
+Found in Phase 12 while porting the portfolio risk monitor's alert vocabulary
+([`PHASE12_SCHEDULED_JOBS.md`](PHASE12_SCHEDULED_JOBS.md), divergence SJ-9).
+
+`maxCorrelatedPositions` appears in three places — the RiskEngine defaults
+(`src/modules/analysis/risk-engine.js:42`, value **3**), the paper contract schema
+(`src/modules/paper/contracts.js:106`, integer 1–100) and the paper service's bounds table
+(`src/modules/paper/service.js:59`) — and in **no check anywhere**. Every other risk limit has
+at least one enforcement point: `maxLeverage` at order time (`risk-engine.js:154`),
+`minDataQuality` and `blockStaleData` in the same file, the exposure, drawdown, position-count
+and daily/weekly loss limits in the portfolio scan.
+
+So an operator can set `maxCorrelatedPositions: 3` through the permissioned
+`PATCH /api/v1/risk/limits` route (or the legacy-style `POST /api/v1/risk/limits/update`), be
+told it was saved, see it echoed back by `GET /api/v1/risk/limits` and inside the
+`GET /api/v1/portfolio/risk-scan` report's `limits` block, and nothing will ever act on it. **A limit that reads as enforced and is not is worse than no limit**, because the
+echo is the evidence an operator or an auditor will accept.
+
+Legacy did enforce it, in the monitor: a static disclosed group table
+(`PortfolioRiskMonitor::CORRELATION_GROUPS` — `CRYPTO_MAJORS`, `USD_MAJORS`, `USD_COUNTER`,
+`METALS`, `ENERGY`, `US_EQUITY_INDEX`) raised `CORRELATED_POSITIONS` as a `warning` when two or
+more open positions shared a group, labelled in its own message as a *"static heuristic, not
+statistical"*. Neither the table nor the alert code was ported, and the Node portfolio scan has
+no correlation check of any kind.
+
+Not fixed in Phase 12, deliberately: choosing a correlation heuristic is a risk-modelling
+decision, not a port, and inventing one inside a phase whose rule is to preserve behaviour
+before improving it would be the wrong way to close it. The three options are to port legacy's
+static group table as-is, to compute correlation from the same sample covariance the Phase 11
+optimizer already builds, or to **remove the limit from the API** so it stops reading as
+enforced. The third is the only one that is honest without doing any modelling, and it is the
+minimum acceptable action. Related: R-20 and divergence SJ-9.
+
 — End of Phase 0 risk register.

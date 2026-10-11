@@ -55,6 +55,22 @@ export const MODULE_STATUS = Object.freeze([
   { key: "paperTrading", label: "Owner-scoped simulation accounts, orders, fills and deployments", state: "ported", tests: "unit + http + persistence" },
   { key: "risk", label: "Risk engine, persisted limits, kill switch and paper-portfolio monitor", state: "ported", tests: "unit + http + persistence" },
   { key: "execution", label: "Human-reviewed paper proposals; full execution supervisor and live route unavailable", state: "partial", tests: "unit + http + persistence" },
+  // Phase 12 ports `Tools::cron()`: the portfolio risk sweep across every owner and
+  // the cross-owner stale-proposal expiry, coordinated by a `wf_job_locks` row and
+  // driven by the host's cron through `tools/scheduled-jobs.mjs`. It is `partial`,
+  // and the label says precisely what is missing rather than letting `ported` imply
+  // the legacy monitor's full alert vocabulary:
+  //   * no early-warning tiers. Legacy raised a `warning` at 80% (exposure,
+  //     leverage), 70% (drawdown) and 60% (daily loss) of a limit, and `critical`
+  //     at the limit. This port alerts on the paper scan's at-limit breaches only,
+  //     so an operator hears about a breach when it happens, not as it approaches.
+  //     The tiers live in the paper scan's vocabulary (row 11, already accepted),
+  //     and adding them here would have meant a second, divergent set of thresholds.
+  //   * no broker transition alerts (`BROKER_CONNECTED`/`BROKER_DISCONNECTED`),
+  //     because the brokers module is not ported — there is no connector to observe.
+  //   * no `sports_cron` or `lottery_cron`; those modules are not ported.
+  // There is deliberately no HTTP route: `runOperations` takes no owner argument.
+  { key: "scheduledJobs", label: "Scheduled operations cron: cross-owner portfolio risk sweep and stale-proposal expiry under a DB-backed lock (CLI only, no HTTP route, no early-warning tiers, no broker/sports/lottery cron)", state: "partial", tests: "unit + both adapters + CLI" },
   { key: "brokers", label: "Broker connectors", state: "not-ported", tests: null },
   { key: "sports", label: "Sports intelligence", state: "not-ported", tests: null },
   { key: "lottery", label: "Lottery intelligence", state: "not-ported", tests: null },

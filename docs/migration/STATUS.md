@@ -3,7 +3,62 @@
 **Updated:** 2026-10-11 · **Branch:** `arena/8de8de2e-ai`
 
 
-## Current Phase 11 status (2026-10-11)
+## Current Phase 12 status (2026-10-11)
+
+**The scheduled operations cron is ported** (row 19). App version is now **0.11.0**.
+`scheduledJobs` is a new key in `MODULE_STATUS`, taking the ledger to **9 ported /
+3 partial / 5 not-ported** across **17** modules. Full record:
+[`PHASE12_SCHEDULED_JOBS.md`](PHASE12_SCHEDULED_JOBS.md).
+
+`tools/scheduled-jobs.mjs` replaces legacy's `php index.php tools cron`, which
+`Tools::cron()` ran every minute: the cross-owner **portfolio risk sweep** and the
+cross-owner **stale-proposal expiry**, one `system.job.run` audit event as the
+**system** actor carrying legacy's `CRON_RUN` summary sentence verbatim. Migration
+**010** adds `wf_job_locks` (23 → **24** tables) and the persistence contract grows
+**84 → 86** methods. **No route was added** — the inventory stays at **80** routes
+and **7** admin routes.
+
+**This phase closes a Phase 9 gap.** `PORTFOLIO_RISK` was declared in the
+notification vocabulary with no publisher, because the monitor's transition memory
+did not exist. It does now: alerts are keyed `paper:<accountId>:<CODE>` exactly as
+legacy keyed them, diffed against a persisted `alertKeys` document, and only
+**transitions** are audited and notified — so a per-minute cron alerts once per
+breach instead of 1 440 times. NV-6 now lists four unpublished types, not five.
+
+**The lock is the one row 19 demanded as a prerequisite**, and legacy had none.
+`job_name` is the primary key, so the arbiter is a duplicate-key error rather than a
+check-then-act race; every lock carries `expires_at`, so a host that kills a job
+cannot wedge the schedule forever; release and extend are holder-scoped, so a run
+whose lock expired cannot delete the new holder's row on its way out. Ownership is
+never inferred from `affectedRows` — MySQL counts *changed* rows, not matched ones —
+so both adapters read the row back and compare `holder`.
+
+**It is `partial`, and the label says why.** Legacy alerted at 80 % / 70 % / 60 % of
+a limit as a `warning` and at the limit as `critical`; this port alerts on the paper
+scan's **at-limit** breaches only (SJ-8). Two legacy codes have no Node equivalent —
+`EXCESSIVE_LEVERAGE` and `CORRELATED_POSITIONS` (SJ-9). Adding either would have
+meant changing row 11's already-accepted breach vocabulary inside a phase whose rule
+is to preserve behaviour first, so the gap is recorded rather than closed by stealth.
+`sports_cron` and `lottery_cron` belong to unported rows 14/15; broker transition
+alerts belong to unported row 13 and stay on NV-6.
+
+Two defects were found by the new tests and fixed: **D-18**, the two adapters
+returned different shapes for a job lock (`lock.expiresAt` was a string on MySQL and
+`undefined` on the file store — the class of divergence that only surfaces when a
+deployment switches adapters), and **D-19**, the scheduled expiry audited the *owner*
+where legacy audited `'system'`. One new finding is recorded: **F-30**,
+`maxCorrelatedPositions` is a declared, settable risk limit with **no enforcement
+anywhere** — the only one of the fifteen.
+
+Gates: `npm test` **609 / 609** (was 582, +27), `verify:install` **29 / 29** with 67
+config vars, PHP oracle **367 / 367** with **0** PHP files modified.
+
+**Not claimed:** the lock has not been proven against real MySQL (F-15 — mutual
+exclusion is tested on the file adapter, the SQL shapes against a recording
+executor); **cPanel cron was not installed**, because this sandbox has no crontab
+and no Passenger; and no overlapping run was produced by two real processes.
+
+## Phase 11 status (2026-10-11)
 
 **The research-only portfolio optimizer is ported** (row 9). App version is now
 **0.10.0**. `portfolioOptimizer` is a new key in `MODULE_STATUS`, taking the ledger

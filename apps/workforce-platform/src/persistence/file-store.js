@@ -17,11 +17,11 @@
  */
 
 import { open, mkdir, readFile, rename, stat, writeFile } from "node:fs/promises";
-import { assertIsoCutoff } from "./contract.js";
+import { assertIsoCutoff, assertJobLockHolder, assertJobLockInstant, assertJobName } from "./contract.js";
 import { createHash } from "node:crypto";
 import path from "node:path";
 
-const ENTITIES = ["users", "profiles", "sessions", "roles", "permissions", "userRoles", "rolePermissions", "audit", "inquiries", "analysisRuns", "strategies", "backtests", "journalEntries", "tradingState", "paperAccounts", "paperOrders", "paperPositions", "paperTrades", "paperDeployments", "executionProposals", "notifications"];
+const ENTITIES = ["users", "profiles", "sessions", "roles", "permissions", "userRoles", "rolePermissions", "audit", "inquiries", "analysisRuns", "strategies", "backtests", "journalEntries", "tradingState", "paperAccounts", "paperOrders", "paperPositions", "paperTrades", "paperDeployments", "executionProposals", "notifications", "jobLocks"];
 const PAPER_TX_ENTITIES = Object.freeze(["tradingState", "paperAccounts", "paperOrders", "paperPositions", "paperTrades", "paperDeployments", "executionProposals", "strategies", "journalEntries", "audit"]);
 const COMPACTION_ENTRIES = 2_000;
 /**
@@ -48,6 +48,44 @@ const JOURNAL_NUMERIC_COLUMNS = Object.freeze([
 ]);
 const USERNAME_PATTERN = /^[a-z][a-z0-9_]{2,19}$/;
 
+/**
+ * The file adapter's copy of `lockRow` in `src/db/job-repository.js`.
+ *
+ * Both adapters must return the SAME shape, because `contract.js` describes one
+ * interface and a caller cannot be expected to branch on which one it got. The SQL
+ * adapter has always mapped its rows to camelCase; returning the raw snake_case row
+ * here would mean `lock.expiresAt` is a string on MySQL and `undefined` on the file
+ * store — the sort of divergence that only shows up when a deployment switches
+ * adapters, which is exactly when it is hardest to debug.
+ */
+function jobLockRow(row) {
+  if (!row) return null;
+  return {
+    jobName: String(row.job_name),
+    holder: String(row.holder),
+    acquiredAt: String(row.acquired_at),
+    expiresAt: String(row.expires_at),
+  };
+}
+
+/**
+ * The file adapter's copy of `assertStateKey` in `src/db/job-repository.js`.
+ *
+ * Duplicated rather than imported because `src/persistence/` must not depend on
+ * `src/db/` — the two adapters are peers that both satisfy `contract.js`. Both
+ * copies refuse the `'global'` governance key, which is the invariant that matters.
+ */
+function assertJobStateKey(value) {
+  const key = typeof value === "string" ? value.trim() : "";
+  if (!/^[a-z][a-z0-9._-]{0,23}$/.test(key)) {
+    throw new TypeError(`job state key must be 1-24 characters of [a-z0-9._-] starting with a letter, received ${JSON.stringify(String(value).slice(0, 40))}`);
+  }
+  if (key === "global") {
+    throw new TypeError(`"${key}" is the trading-governance state key and is not writable through the job state methods`);
+  }
+  return key;
+}
+
 function keyOf(entity, record) {
   if (entity === "sessions") return record.tokenHash;
   if (entity === "userRoles") return `${record.userId}:${record.roleId}`;
@@ -57,6 +95,10 @@ function keyOf(entity, record) {
   // two rows, exactly as the MySQL primary key makes them.
   if (entity === "strategies") return `${record.strategy_id}:${record.version}`;
   if (entity === "tradingState") return String(record.key || "global");
+  // A job lock is identified by its NAME, which is what makes the name itself the
+  // mutual-exclusion guarantee — the file adapter's equivalent of the MySQL primary
+  // key on `wf_job_locks.job_name`.
+  if (entity === "jobLocks") return String(record.job_name);
   return String(record.id);
 }
 
@@ -544,6 +586,133 @@ export async function createFileStore({ dir, logger = console, idFactory = () =>
       crossProcessSafety: false,
       recommendedForProduction: false,
     }),
+    // ------------------------------------------------ job coordination locks
+    /**
+     * The same protocol as `src/db/job-repository.js`, and deliberately so: a job
+     * must behave identically whichever adapter the host is configured with, or a
+     * cron schedule validated on the file adapter would not mean anything on MySQL.
+     *
+     * **This adapter's lock is single-process only.** `capabilities().crossProcessSafety`
+     * is `false` here, and the WAL queue that serializes these mutations does not
+     * span processes — two Node processes on one directory can each believe they
+     * hold the lock. That is a property of the file adapter as a whole, not of this
+     * method, and it is why the file store is never `recommendedForProduction`. A
+     * real cron deployment needs the MySQL adapter, where the primary key on
+     * `wf_job_locks.job_name` is the arbiter. The scheduled-jobs CLI reports the
+     * adapter in its output so a log reader can see which guarantee they got.
+     */
+    async findJobLock(jobName) {
+      return jobLockRow(tables.get("jobLocks").get(assertJobName(jobName)));
+    },
+
+    async listJobLocks(limit = 100) {
+      const bounded = Math.min(Math.max(Number.parseInt(limit, 10) || 100, 1), 500);
+      return [...tables.get("jobLocks").values()]
+        .sort((a, b) => String(a.job_name).localeCompare(String(b.job_name)))
+        .slice(0, bounded)
+        .map(jobLockRow);
+    },
+
+    async acquireJobLock(jobName, { holder, nowIso, expiresAt }) {
+      const name = assertJobName(jobName);
+      const owner = assertJobLockHolder(holder);
+      const now = assertJobLockInstant(nowIso, "nowIso");
+      const expiry = assertJobLockInstant(expiresAt, "expiresAt");
+      if (expiry <= now) {
+        throw new TypeError("a lock must expire after the instant it is acquired at");
+      }
+
+      const table = tables.get("jobLocks");
+      const existing = table.get(name);
+      if (existing && String(existing.expires_at) > now) {
+        const lock = jobLockRow(existing);
+        return { acquired: false, lock, reason: `held by ${lock.holder} until ${lock.expiresAt}` };
+      }
+      const tookOver = Boolean(existing);
+      const record = { job_name: name, holder: owner, acquired_at: now, expires_at: expiry };
+
+      try {
+        // `replace: false` is this adapter's primary-key arbiter: it makes a
+        // concurrent create fail instead of silently overwriting, mirroring the
+        // `ER_DUP_ENTRY` the MySQL adapter catches. `sanitize` strips the flag
+        // before it is persisted, so it never reaches the WAL.
+        await mutate("jobLocks", "upsert", tookOver ? record : { ...record, replace: false });
+      } catch (error) {
+        if (!/already exists/i.test(String(error?.message || error))) throw error;
+        const lock = jobLockRow(table.get(name));
+        return {
+          acquired: false,
+          lock,
+          reason: lock ? `held by ${lock.holder} until ${lock.expiresAt}` : "held by another process",
+        };
+      }
+
+      // Confirm ownership by reading back, exactly as the SQL adapter does, rather
+      // than inferring it from the write having not thrown.
+      const lock = table.get(name);
+      if (!lock || lock.holder !== owner) {
+        const current = jobLockRow(lock);
+        return {
+          acquired: false,
+          lock: current,
+          reason: current ? `held by ${current.holder} until ${current.expiresAt}` : "the lock row vanished before it could be confirmed",
+        };
+      }
+      return { acquired: true, lock: jobLockRow(lock), reason: tookOver ? "took over an expired lock" : "acquired" };
+    },
+
+    async releaseJobLock(jobName, holder) {
+      const name = assertJobName(jobName);
+      const owner = assertJobLockHolder(holder);
+      const existing = tables.get("jobLocks").get(name);
+      // Holder-scoped: a run whose lock expired and was taken over must not delete
+      // the new holder's row on its way out.
+      if (!existing || existing.holder !== owner) return false;
+      await mutate("jobLocks", "delete", { job_name: name });
+      return true;
+    },
+
+    /**
+     * Persisted job state, mirroring `src/db/job-repository.js`.
+     *
+     * Stored in the SAME `tradingState` collection under a different `key`, exactly
+     * as the SQL adapter stores it in the same `wf_trading_state` table under a
+     * different `state_key` — the two adapters must describe the same world. The
+     * governance document lives at key `"global"` and `loadTradingState` reads only
+     * that key, so a job state row is invisible to it and vice versa.
+     */
+    async loadJobState(stateKey) {
+      const key = assertJobStateKey(stateKey);
+      const stored = tables.get("tradingState").get(key);
+      if (!stored || !stored.state || typeof stored.state !== "object") return null;
+      return { ...structuredClone(stored.state), updatedAt: stored.updatedAt ?? null };
+    },
+
+    async saveJobState(stateKey, state, { updatedAt = nowIso() } = {}) {
+      const key = assertJobStateKey(stateKey);
+      const { updatedAt: _ignored, ...stateJson } = state && typeof state === "object" ? state : {};
+      // `mutate` rather than `withPaperTransaction`: this is not paper state, and
+      // routing it through the paper transaction would make a cron write contend
+      // with an operator's order for no reason.
+      await mutate("tradingState", "upsert", {
+        key,
+        state: stateJson,
+        updatedByUserId: null,
+        updatedAt: String(updatedAt),
+      });
+      return { ...stateJson, updatedAt: String(updatedAt) };
+    },
+
+    async extendJobLock(jobName, holder, expiresAt) {
+      const name = assertJobName(jobName);
+      const owner = assertJobLockHolder(holder);
+      const expiry = assertJobLockInstant(expiresAt, "expiresAt");
+      const existing = tables.get("jobLocks").get(name);
+      if (!existing || existing.holder !== owner) return false;
+      await mutate("jobLocks", "upsert", { ...existing, expires_at: expiry });
+      return true;
+    },
+
     /**
      * For a schema-less store, "schema" means the log is loadable in the current
      * format — not that seed data exists. An unseeded install is therefore ready to
@@ -1207,6 +1376,22 @@ export async function createFileStore({ dir, logger = console, idFactory = () =>
             && (!status || row.status === String(status));
         })
         .sort((a, b) => String(b.created_at).localeCompare(String(a.created_at)) || String(b.id).localeCompare(String(a.id)))
+        .slice(0, bounded)
+        .map((row) => structuredClone(row));
+    },
+    /**
+     * Every pending proposal across **all** owners, for the scheduled expiry job.
+     *
+     * The SQL adapter orders oldest-first so a bounded batch drains the backlog in
+     * the order it accrued; this mirrors that exactly, because a job that expired
+     * the newest proposals first would leave the oldest ones pending forever once
+     * the batch limit was reached.
+     */
+    async listExecutionProposalsAllOwners({ status = null, limit = 100 } = {}) {
+      const bounded = Math.min(Math.max(Number.parseInt(limit, 10) || 100, 1), 500);
+      return [...tables.get("executionProposals").values()]
+        .filter((row) => !status || row.status === String(status))
+        .sort((a, b) => String(a.created_at).localeCompare(String(b.created_at)) || String(a.id).localeCompare(String(b.id)))
         .slice(0, bounded)
         .map((row) => structuredClone(row));
     },

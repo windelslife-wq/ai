@@ -322,6 +322,9 @@ Phase 7 added 19 paper/risk routes and one strategy sign-off route, and Phase 8A
 six paper-proposal routes; Phase 9 adds three notification routes, Phase 10 the audit browser and Phase 11 the
 portfolio optimizer, for **80 current Node API routes**. This is an implementation inventory, not a legacy-parity claim.
 
+**Phase 12 added none, deliberately.** The scheduled operations job (`tools cron` in
+legacy) is CLI-only — see §14.13.
+
 ### 14.9 Paper trading and persisted portfolio risk controls (19) — Phase 7
 
 Every endpoint requires an authenticated session (or explicit bearer token). Cookie
@@ -476,12 +479,37 @@ action preserved in `details.legacyAction`), so they are visible through the Pha
 audit browser at `?action=portfolio`. A **refused** run records nothing: nothing was
 computed, so nothing is recorded as computed.
 
+### 14.13 Scheduled operations (0) — Phase 12
+
+| Method & path | Auth | Permission | Rate limit | Validated | Notes |
+|---|---|---|---|---|---|
+| *— none —* | | | | | |
+
+Recorded as an empty section on purpose, because "why is there no route for the cron
+job" is the first question a reader of this map will ask.
+
+Legacy exposed it as `tools/cron`, a public controller method whose only protection was
+that nobody knew the URL. The Node port is `tools/scheduled-jobs.mjs` (`npm run jobs`,
+`npm run jobs:apply`), invoked by the host's cron, and `runOperations` **takes no owner
+argument**: it scans every paper account on the platform and expires every operator's
+stale proposals. Exposing that over HTTP would turn any reachable caller — or any session
+that slipped past a permission check — into a platform-wide actor, which is the same
+mistake AV-1 avoided by requiring `identity.users.view` for the audit trail.
+
+`test/scheduled_jobs.test.js` asserts no route in the whole inventory matches
+`job|cron|schedul|sweep|stale|lock`, so a future phase cannot add one without a test
+failing and someone writing down why. The lock table it coordinates through
+(`wf_job_locks`) is likewise unreachable: there is no route that reads, takes or clears a
+lock, because a client that could clear one could wedge or unwedge the schedule.
+
+See [`PHASE12_SCHEDULED_JOBS.md`](PHASE12_SCHEDULED_JOBS.md), divergence SJ-10.
+
 ### 14.8 Strategies, backtesting and the journal (11) — Phase 6
 
 The Phase-6 routes are session-only with no permission gate, matching their legacy
 `Api_controller` surface; unsafe cookie mutations are CSRF-gated and bearer callers
 are exempt. Phase 7 adds the separately permissioned human sign-off route (shown
-below). Route count: **38 at Phase 5 → 49 at Phase 6 → 69 after Phase 7 → 75 after Phase 8A → 78 after Phase 9 → 79 after Phase 10 → 80 after Phase 11**.
+below). Route count: **38 at Phase 5 → 49 at Phase 6 → 69 after Phase 7 → 75 after Phase 8A → 78 after Phase 9 → 79 after Phase 10 → 80 after Phase 11 → 80 after Phase 12 (no route added)**.
 
 | Method/path | Auth | Legacy relationship |
 |---|---|---|

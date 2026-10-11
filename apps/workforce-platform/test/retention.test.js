@@ -113,7 +113,9 @@ test("R-27 the retention cutoff must be a canonical ISO-8601 UTC instant", () =>
 
   // Both adapters share this one guard, so they cannot disagree about a cutoff.
   assert.ok(REPOSITORY_METHODS.includes("pruneAnalysisRuns"), "retention is part of the contract, not an adapter extra");
-  assert.equal(REPOSITORY_METHODS.length, 78);
+  // Phase 12 adds one cross-owner execution read, the five job-lock methods and
+  // the two job-state methods.
+  assert.equal(REPOSITORY_METHODS.length, 86);
 });
 
 test("R-27 the cutoff arithmetic keeps everything when retention is off, and 0 never means 'delete all'", () => {

@@ -1,6 +1,6 @@
 {
   "name": "@windels/workforce-platform",
-  "version": "0.10.0",
+  "version": "0.11.0",
   "private": true,
   "type": "module",
   "engines": {
@@ -17,6 +17,8 @@
     "backup": "node tools/backup.mjs create",
     "restore": "node tools/backup.mjs restore",
     "prune:analysis": "node tools/prune-analysis-runs.mjs",
+    "jobs": "node tools/scheduled-jobs.mjs",
+    "jobs:apply": "node tools/scheduled-jobs.mjs --apply",
     "verify:install": "node tools/verify-install.mjs",
     "verify:data": "node tools/verify-data.mjs",
     "test": "node --test test/*.test.js",

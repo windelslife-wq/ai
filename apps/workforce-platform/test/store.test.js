@@ -13,7 +13,7 @@ test("database readiness requires every ordered Node identity migration and repo
   };
   const readiness = await createStore(pool).readiness();
   assert.deepEqual(readiness, { database: true, schema: false, adapter: "mysql", detail: null });
-  assert.match(calls[1].sql, /IN \(\?, \?, \?, \?, \?, \?, \?, \?, \?\)/);
+  assert.match(calls[1].sql, /IN \(\?, \?, \?, \?, \?, \?, \?, \?, \?, \?\)/);
   assert.deepEqual(calls[1].values, [
     "001_platform_foundation",
     "002_identity_import_fields",
@@ -24,6 +24,10 @@ test("database readiness requires every ordered Node identity migration and repo
     "007_paper_trading",
     "008_execution_supervisor",
     "009_notifications",
+    // Phase 12: the scheduled-job coordination lock. Readiness must require it, so a
+    // host that has not run migration 010 reports an incomplete schema instead of
+    // letting cron fail on a missing table at 3 a.m.
+    "010_job_locks",
   ]);
 });
 

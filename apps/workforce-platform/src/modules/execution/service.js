@@ -14,6 +14,8 @@ import { MARKET_CLASSES } from "../market-data/timeframes.js";
 import { normalizeTradingState } from "../paper/service.js";
 
 const MAX_PROPOSAL_AGE_MS = 4 * 60 * 60_000;
+/** Legacy swept a fixed 200 pending proposals per cron minute (`ExecutionSupervisor.php:372`). */
+const STALE_SWEEP_LIMIT = 200;
 const PROPOSAL_ID = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 const SYMBOL = /^[A-Z0-9._-]{2,24}$/;
 const STRATEGY_ID = /^[a-z0-9][a-z0-9_-]{0,59}$/;
@@ -206,7 +208,20 @@ export function createExecutionService({ store = null, paper = null, strategies 
     return !Number.isFinite(created) || now() - created > MAX_PROPOSAL_AGE_MS;
   }
 
-  async function expireInTransaction(tx, owner, proposal, pendingNotifications = []) {
+  /**
+   * Expire one stale proposal inside an open paper transaction.
+   *
+   * `actorId` defaults to the owner, which is correct for the HTTP path: there an
+   * operator's own read or decision found the lapsed window, and the trail should say
+   * so. The scheduled sweep passes `null` instead, because legacy audited
+   * `EXECUTION_PROPOSAL_EXPIRED` with actor `'system'` and the operator did nothing —
+   * the clock did. Phase 10 renders a null actor as `kind: "system"`, so an operator
+   * filtering the audit trail by their own id does not see expiries the platform
+   * performed attributed to themselves.
+   *
+   * @returns {Promise<boolean>} whether THIS call made the transition
+   */
+  async function expireInTransaction(tx, owner, proposal, pendingNotifications = [], { actorId = owner } = {}) {
     const current = await tx.findExecutionProposal(proposal.id, owner);
     if (!current || current.status !== "PENDING_APPROVAL" || !isProposalStale(current)) return false;
     const account = await tx.findPaperAccount(current.account_id, owner);
@@ -215,7 +230,7 @@ export function createExecutionService({ store = null, paper = null, strategies 
     const expired = await tx.expireExecutionProposal(current.id, owner, updatedAt);
     if (!expired) return false;
     await tx.recordAudit({
-      actorId: owner,
+      actorId,
       action: "execution.proposal.expired",
       entityType: "execution_proposal",
       entityId: current.id,
@@ -238,6 +253,144 @@ export function createExecutionService({ store = null, paper = null, strategies 
     await store.withPaperTransaction((tx) => expireInTransaction(tx, owner, proposal, pending));
     for (const alert of pending) await publishPending(alert);
     return store.findExecutionProposal(proposal.id, owner);
+  }
+
+  /**
+   * The scheduled cross-owner expiry sweep — legacy
+   * `ExecutionSupervisor::expireStaleProposals()` (`ExecutionSupervisor.php:366`),
+   * which `Tools::cron()` ran every minute.
+   *
+   * **CLI-only. There is deliberately no HTTP route for this.** It writes across
+   * every operator's proposals, so exposing it to a session would hand any caller a
+   * platform-wide mutation; the owner-bound routes above remain the only way to
+   * reach a proposal over HTTP. A test asserts no route can invoke it.
+   *
+   * Expiry itself is *not* re-implemented here. Each stale proposal goes through
+   * the same owner-bound `expireInTransaction` the HTTP path uses, with the owner
+   * read off the listed row. That is what preserves the account-revision invariant,
+   * the `execution.proposal.expired` audit event and the `PROPOSAL_EXPIRED`
+   * notification (dedupe key `proposal:<id>:expired`) — the legacy sweep emitted all
+   * three, and a cron job that silently skipped the notification would stop
+   * operators hearing about approvals that lapsed overnight.
+   *
+   * Divergences from the legacy sweep, all recorded in
+   * `docs/migration/PHASE12_SCHEDULED_JOBS.md`:
+   *  - **SJ-1** per-proposal failure isolation. Legacy had none: one bad row threw
+   *    out of the whole `foreach`, so a deterministic failure on proposal 3 of 200
+   *    left the other 197 pending forever. Failures are collected and reported, and
+   *    the sweep continues.
+   *  - **SJ-2** staleness uses this module's `isProposalStale` (a `Date.parse`
+   *    comparison) rather than legacy's `created_at >= gmdate('c')` string compare.
+   *    `gmdate('c')` emits a `+00:00` offset while this platform stores canonical
+   *    `…Z`, and those two forms do not sort consistently against each other — the
+   *    same hazard as divergence AV-2. Keeping the existing predicate means the
+   *    sweep and the HTTP path can never disagree about what "stale" means.
+   *  - **SJ-3** the sweep reports `scanned`, `staleFound`, `expiredIds`,
+   *    `alreadyExpired` and `failures` instead of legacy's bare array of ids, and a
+   *    bounded batch reports `exhausted` so a partial run is visible rather than
+   *    silent (the row 19 CLI pattern).
+   *
+   * **Dry run.** With `dryRun` the sweep lists and classifies but writes nothing —
+   * no transaction, no audit event, no notification. That is what makes the row 19
+   * CLI safe to schedule as a default: `tools/scheduled-jobs.mjs` measures on every
+   * invocation and only expires with `--apply`. A dry run reports *candidates*
+   * (`wouldExpireIds`), never outcomes: only attempting the transition can say
+   * whether another run already made it, so `alreadyExpired` is necessarily 0 and the
+   * two fields are named differently rather than one standing in for the other.
+   *
+   * @param {{limit?: number, dryRun?: boolean}} [options] batch ceiling (legacy was
+   *   fixed at 200) and whether to measure without writing
+   * @returns {Promise<{scanned:number, staleFound:number, expiredIds:string[], wouldExpireIds?:string[], alreadyExpired:number, failures:Array<{proposalId:string,reason:string}>, exhausted:boolean, dryRun:boolean}>}
+   */
+  async function expireStaleProposals({ limit = STALE_SWEEP_LIMIT, dryRun = false } = {}) {
+    requireStore();
+    if (typeof store.listExecutionProposalsAllOwners !== "function") {
+      throw AppError.unavailable(
+        "The scheduled expiry sweep requires a store that can list proposals across owners",
+        { code: "EXECUTION_STORE_UNAVAILABLE", retryAfter: 30 },
+      );
+    }
+    const bounded = Math.min(Math.max(Number.parseInt(limit, 10) || STALE_SWEEP_LIMIT, 1), 500);
+    // Oldest first, so a bounded batch drains the backlog in the order it accrued:
+    // newest-first would leave the oldest proposals pending forever once the limit
+    // was reached.
+    const pending = await store.listExecutionProposalsAllOwners({ status: "PENDING_APPROVAL", limit: bounded });
+    const stale = pending.filter(isProposalStale);
+
+    if (dryRun) {
+      const wouldExpireIds = [];
+      const unusable = [];
+      for (const proposal of stale) {
+        const owner = Number(proposal.owner_user_id);
+        if (Number.isSafeInteger(owner) && owner > 0) wouldExpireIds.push(String(proposal.id));
+        else unusable.push({
+          proposalId: String(proposal.id),
+          reason: "the proposal has no usable owner, so the owner-bound expiry path cannot run",
+        });
+      }
+      return {
+        scanned: pending.length,
+        staleFound: stale.length,
+        expiredIds: [],
+        wouldExpireIds,
+        alreadyExpired: 0,
+        failures: unusable,
+        exhausted: pending.length < bounded,
+        dryRun: true,
+      };
+    }
+
+    const expiredIds = [];
+    const failures = [];
+    let alreadyExpired = 0;
+
+    for (const proposal of stale) {
+      // The owner comes off the row, and `actorIdOf` throws on anything unusable, so
+      // validate here instead: a row with no owner is a failure to report, not a
+      // reason to abandon the remaining 199.
+      const owner = Number(proposal.owner_user_id);
+      if (!Number.isSafeInteger(owner) || owner <= 0) {
+        failures.push({
+          proposalId: String(proposal.id),
+          reason: "the proposal has no usable owner, so the owner-bound expiry path cannot run",
+        });
+        continue;
+      }
+      try {
+        const notifications = [];
+        // `expireInTransaction` returns whether THIS call made the transition, so a
+        // proposal another run already expired is counted as `alreadyExpired` rather
+        // than claimed. Reading the row back afterwards could not tell the two
+        // apart — both end in status EXPIRED.
+        const transitioned = await store.withPaperTransaction(
+          // `actorId: null` — the system expired this, not its owner. See
+          // `expireInTransaction`.
+          (tx) => expireInTransaction(tx, owner, proposal, notifications, { actorId: null }),
+        );
+        // Published AFTER the commit, never inside: the file adapter holds its
+        // mutation queue for the whole transaction, so notifying from inside
+        // deadlocks. See `publishPending`.
+        for (const alert of notifications) await publishPending(alert);
+        if (transitioned) expiredIds.push(String(proposal.id));
+        else alreadyExpired += 1;
+      } catch (error) {
+        failures.push({ proposalId: String(proposal.id), reason: String(error?.message || error).slice(0, 240) });
+        if (log) log.warn({ err: error, proposalId: proposal.id }, "scheduled proposal expiry failed for one proposal");
+      }
+    }
+
+    return {
+      scanned: pending.length,
+      staleFound: stale.length,
+      expiredIds,
+      alreadyExpired,
+      failures,
+      // `exhausted` false means the batch ceiling was reached and there may be more
+      // to do — the remedy is to re-run, and the CLI says so rather than implying
+      // the backlog is clear.
+      exhausted: pending.length < bounded,
+      dryRun: false,
+    };
   }
 
   async function propose(ownerUserId, input = {}) {
@@ -581,5 +734,5 @@ export function createExecutionService({ store = null, paper = null, strategies 
     };
   }
 
-  return { propose, list, find, decide, submitToPaper, statusSnapshot };
+  return { propose, list, find, decide, submitToPaper, expireStaleProposals, statusSnapshot };
 }

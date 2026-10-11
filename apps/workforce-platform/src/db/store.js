@@ -6,6 +6,7 @@ import { createStrategyRepository } from "./strategy-repository.js";
 import { createPaperRepository } from "./paper-repository.js";
 import { createExecutionRepository } from "./execution-repository.js";
 import { createNotificationRepository } from "./notification-repository.js";
+import { createJobRepository } from "./job-repository.js";
 
 export const REQUIRED_MIGRATIONS = Object.freeze([
   "001_platform_foundation",
@@ -17,6 +18,7 @@ export const REQUIRED_MIGRATIONS = Object.freeze([
   "007_paper_trading",
   "008_execution_supervisor",
   "009_notifications",
+  "010_job_locks",
 ]);
 
 /** Only driver codes are ever reported; never an SQL statement or credential. */
@@ -38,6 +40,7 @@ export function createStore(pool, { requiredMigrations = REQUIRED_MIGRATIONS } =
   const paper = createPaperRepository(pool);
   const execution = createExecutionRepository(pool);
   const notifications = createNotificationRepository(pool);
+  const jobs = createJobRepository(pool);
   return {
     ...repository,
     ...site,
@@ -48,6 +51,24 @@ export function createStore(pool, { requiredMigrations = REQUIRED_MIGRATIONS } =
     // only on the pinned paper transaction view below.
     findExecutionProposal: execution.findExecutionProposal,
     listExecutionProposals: execution.listExecutionProposals,
+    // Cross-owner READ for the scheduled expiry job only. Still read-only: expiry
+    // itself goes through the owner-bound transactional path above, so this adds no
+    // unscoped write to the public contract. See `job-repository.js` and
+    // `src/jobs/scheduled.js` for who is allowed to call it.
+    listExecutionProposalsAllOwners: execution.listExecutionProposalsAllOwners,
+    // Job coordination locks (migration 010). These write, but only to
+    // `wf_job_locks` — they can never touch a proposal, order or account row.
+    findJobLock: jobs.findJobLock,
+    listJobLocks: jobs.listJobLocks,
+    acquireJobLock: jobs.acquireJobLock,
+    releaseJobLock: jobs.releaseJobLock,
+    extendJobLock: jobs.extendJobLock,
+    // Persisted job state (the portfolio-risk monitor's transition memory). Same
+    // table as trading governance, different `state_key`, and the job repository
+    // refuses the `'global'` key outright — so a cron run cannot rewrite the kill
+    // switch. See `PORTFOLIO_RISK_STATE_KEY`.
+    loadJobState: jobs.loadJobState,
+    saveJobState: jobs.saveJobState,
     // Notifications are written outside any paper transaction: they are evidence
     // about a change that already committed, and a failed notification must never
     // roll back a governance decision (see `modules/notifications/service.js`).

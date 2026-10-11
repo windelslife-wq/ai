@@ -141,7 +141,8 @@ test("F-13 the MySQL row counts cover every table the migrations create, and not
   assert.equal(new Set(tables).size, tables.length, "no duplicates across migrations");
   for (const table of tables) assert.match(table, /^wf_[a-z_]+$/, `${table} is interpolated into a COUNT query, so it must be a plain identifier`);
 
-  assert.equal(tables.length, 23, `expected the 23 tables the migrations create, got: ${tables.join(", ")}`);
+  // Phase 12 adds `wf_job_locks` (migration 010), taking the schema to 24 tables.
+  assert.equal(tables.length, 24, `expected the 24 tables the migrations create, got: ${tables.join(", ")}`);
   assert.ok(!tables.includes("wf_user_files"), "the phantom table must stay out — counting it broke MySQL backups");
   for (const expected of [
     "wf_analysis_runs",
@@ -149,6 +150,7 @@ test("F-13 the MySQL row counts cover every table the migrations create, and not
     "wf_contact_inquiries",
     "wf_data_imports",
     "wf_execution_proposals",
+    "wf_job_locks",
     "wf_journal_entries",
     "wf_notifications",
     "wf_schema_migrations",
@@ -186,6 +188,11 @@ test("F-13 the MySQL row counts cover every table the migrations create, and not
       paperDeployments: "wf_paper_deployments",
       executionProposals: "wf_execution_proposals",
       notifications: "wf_notifications",
+      // Phase 12: discovered automatically, because `backup.mjs` derives its table
+      // list by parsing `CREATE TABLE` out of the migrations rather than keeping a
+      // second list that can drift. This mapping is the assertion that the new
+      // file-store collection really does have a MySQL counterpart being counted.
+      jobLocks: "wf_job_locks",
     };
     const stats = await store.stats();
     for (const collection of Object.keys(stats)) {

@@ -39,6 +39,7 @@ import { paperRoutes } from "./modules/paper/routes.js";
 import { createPaperService } from "./modules/paper/service.js";
 import { executionRoutes } from "./modules/execution/routes.js";
 import { createExecutionService } from "./modules/execution/service.js";
+import { createScheduledJobs } from "./jobs/scheduled.js";
 import { notificationRoutes } from "./modules/notifications/routes.js";
 import { createNotificationService } from "./modules/notifications/service.js";
 import { portfolioRoutes } from "./modules/portfolio/routes.js";
@@ -196,6 +197,20 @@ export async function buildApp({ config, store, logger = true, publicDir = path.
   const execution = createExecutionService({ store, paper, strategies, notifications, log: app.log });
   await app.register(executionRoutes, { prefix: "/api/v1", store, config, service: execution, paper, strategies, notifications, log: app.log });
   await app.register(notificationRoutes, { prefix: "/api/v1", store, config, service: notifications, log: app.log });
+
+  /**
+   * Scheduled operations (row 19): the portfolio risk sweep and the cross-owner
+   * stale-proposal expiry that legacy ran from `Tools::cron()`.
+   *
+   * Deliberately **not registered as a route**. `runOperations` takes no owner
+   * argument: it scans every paper account on the platform and expires proposals
+   * belonging to every operator. Exposing that over HTTP would turn any reachable
+   * caller — or any session with the wrong permission check — into a platform-wide
+   * actor, which is the same mistake AV-1 avoided by requiring `identity.users.view`
+   * for the audit trail. The host's cron drives it through
+   * `tools/scheduled-jobs.mjs`, which holds a `wf_job_locks` row for the duration.
+   */
+  const jobs = createScheduledJobs({ store, paper, execution, notifications, log: app.log });
   const siteDocuments = createSiteDocuments({ config, store, log: app.log, rateLimiter, publicDir });
   for (const extra of config.modules || []) await app.register(extra, { prefix: "/api/v1", store, config, loginGuard });
 
@@ -512,6 +527,7 @@ export async function buildApp({ config, store, logger = true, publicDir = path.
     rateLimiter,
     concurrency,
     siteDocuments,
+    jobs,
     routes: () => router.list(),
     documents: () => siteDocuments.paths(),
     async listen({ host = config.host, port = config.port } = {}) {

@@ -627,7 +627,7 @@ test("F-01 the durable file adapter replays its log, survives a torn write, and 
   const { total, events } = await reopened.listAuditEvents({ userId: user.id });
   assert.equal(total, 1);
   assert.equal(events[0].action, "identity.test");
-  assert.deepEqual(await reopened.stats(), { users: 1, profiles: 1, sessions: 1, roles: 0, permissions: 0, userRoles: 0, rolePermissions: 0, audit: 1, inquiries: 0, analysisRuns: 0, strategies: 0, backtests: 0, journalEntries: 0, tradingState: 0, paperAccounts: 0, paperOrders: 0, paperPositions: 0, paperTrades: 0, paperDeployments: 0, executionProposals: 0, notifications: 0 });
+  assert.deepEqual(await reopened.stats(), { users: 1, profiles: 1, sessions: 1, roles: 0, permissions: 0, userRoles: 0, rolePermissions: 0, audit: 1, inquiries: 0, analysisRuns: 0, strategies: 0, backtests: 0, journalEntries: 0, tradingState: 0, paperAccounts: 0, paperOrders: 0, paperPositions: 0, paperTrades: 0, paperDeployments: 0, executionProposals: 0, notifications: 0, jobLocks: 0 });
 
   await reopened.compact();
   const compacted = (await readFile(fileStorePaths(dir).log, "utf8")).trim();
@@ -660,7 +660,7 @@ test("F-01 the file store and the SQL store implement one repository contract, s
     () => assertRepositoryContract({ adapter: "stub", capabilities: {}, readiness: async () => ({}) }, { adapter: "stub" }),
     /does not implement the repository contract.*findUserByIdentifier/s,
   );
-  assert.equal(REPOSITORY_METHODS.length, 78, "8 identity + 6 sessions + 9 RBAC + 2 admin + 4 audit/profile + 2 contact intake + 4 analysis runs + 11 Strategy Lab (including persisted human sign-off) + 23 paper trading + 2 owner-scoped execution proposal reads + 6 operator notifications + 1 readiness");
+  assert.equal(REPOSITORY_METHODS.length, 86, "8 identity + 6 sessions + 9 RBAC + 2 admin + 4 audit/profile + 2 contact intake + 4 analysis runs + 11 Strategy Lab (including persisted human sign-off) + 23 paper trading + 3 execution proposal reads (2 owner-scoped + 1 cross-owner for the scheduled job) + 6 operator notifications + 5 job locks + 2 job state + 1 readiness");
   assert.equal(file.adapter, "file");
   assert.equal(file.capabilities.durable, true);
   assert.equal(file.capabilities.transactions, false);
@@ -1030,9 +1030,18 @@ test("F-02 the status surface is honest about unported modules, and F-03 the rou
   // adds human-reviewed paper proposals, not the full supervisor or a live route.
   assert.equal(body.modules.find((module) => module.key === "paperTrading").state, "ported");
   assert.equal(body.modules.find((module) => module.key === "risk").state, "ported");
-  assert.equal(body.modules.filter((module) => module.state === "partial").length, 2, "the public site (chat widget) and execution (no full supervisor, no live route) remain partial");
+  // Phase 12 ports `Tools::cron()` as a scheduled-jobs module. It is `partial` and
+  // the label must carry the gap: legacy alerted at 80/70/60% of a limit as a
+  // `warning` and at the limit as `critical`, while this port alerts only on the
+  // paper scan's at-limit breaches. Without that in the label, `partial` would be a
+  // vague hedge instead of a statement of what is missing.
+  assert.equal(body.modules.find((module) => module.key === "scheduledJobs").state, "partial");
+  assert.match(body.modules.find((module) => module.key === "scheduledJobs").label, /no HTTP route/i);
+  assert.match(body.modules.find((module) => module.key === "scheduledJobs").label, /no early-warning tiers/i);
+  assert.match(body.modules.find((module) => module.key === "scheduledJobs").label, /CLI only/i);
+  assert.equal(body.modules.filter((module) => module.state === "partial").length, 3, "the public site (chat widget), execution (no full supervisor, no live route) and scheduled jobs (no early-warning tiers, no broker/sports/lottery cron) remain partial");
   assert.equal(body.modules.filter((module) => module.state === "not-ported").length, 5, "brokers, sports, lottery, language learning and lead discovery remain legacy-only");
-  assert.equal(body.modules.length, 16, "the ledger keeps listing every module, ported or not");
+  assert.equal(body.modules.length, 17, "the ledger keeps listing every module, ported or not");
   // The public status surface carries a market-data snapshot that must not have
   // probed an external host to produce it.
   assert.ok(body.marketData && Array.isArray(body.marketData.providers), "status reports the provider registry");
@@ -1046,7 +1055,10 @@ test("F-02 the status surface is honest about unported modules, and F-03 the rou
   // operator command in the cPanel instructions, so the script has to exist. The
   // tool's syntax is already covered by `verify:install` check 1, which walks
   // `src/` and `tools/`.
-  const operational = ["backup", "restore", "prune:analysis", "verify:install", "verify:data", "seed:platform", "migrate", "import:identity", "start"];
+  // `jobs`/`jobs:apply` join with Phase 12: the cPanel cron instructions name the
+  // scheduled-operations CLI, so the script has to exist for the documented command
+  // to work.
+  const operational = ["backup", "restore", "prune:analysis", "jobs", "jobs:apply", "verify:install", "verify:data", "seed:platform", "migrate", "import:identity", "start"];
   const missing = operational.filter((name) => !(name in manifest.scripts));
   assert.deepEqual(missing, [], "the documented operational commands must exist as scripts");
   assert.equal(Object.keys(manifest.scripts).filter((name) => operational.includes(name)).length, operational.length);

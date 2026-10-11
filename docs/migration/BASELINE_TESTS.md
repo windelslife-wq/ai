@@ -711,3 +711,55 @@ though this phase adds no new SQL, writing only to the existing audit table); an
 measurement**, the 12-asset bound (20 s on two cores) being a guard against a future change making
 the inner loop quadratic rather than a performance benchmark; and anything needing a
 cPanel/Passenger host, a real browser, outbound SMTP, provider credentials or a native SDK.
+
+## Re-measured 2026-10-11 — Phase 12 (scheduled jobs, DB-backed lock, operations CLI), branch `arena/8de8de2e-ai`, Node v22.22.3
+
+Same machine, same sandbox limits as the rows above, with one addition that matters for this
+phase specifically: **no crontab and no Passenger**. Everything below was executed for this
+phase; nothing is inherited from an earlier row.
+
+| Suite | Exact command | Result |
+|---|---|---|
+| Node platform (**35** files, was 34) | `cd apps/workforce-platform && npm test` | **609 passed, 0 failed** (~78 s) — was 582, **+27** |
+| Install verification | `npm run verify:install` | **29/29 checks**, **67** documented env vars (unchanged — the job’s knobs are CLI flags, not environment variables). Migration list now reports **10** required, `010_job_locks.sql` present on disk |
+| AEGIS PHP/WASM (the parity oracle) | `node runtime/run-tests.mjs` | **367 passed, 0 failed**, 19.9 s — unchanged, and `git status --porcelain` reports **0** modified paths under `application/` or `tests/cases/` |
+| Operations CLI (manual, not in `npm test`) | `STORAGE_DIR=… node tools/scheduled-jobs.mjs` then `--apply` twice | Dry run exit 0 writing nothing; apply exit 0 with the lock acquired and released; second apply exit 0 with 0 expired. All three printed the file-adapter warning that its lock is single-process only |
+
+**Total executed in this sandbox for this phase: 976 passed, 0 failed** (609 app + 367 oracle).
+Composition stated because these are two different runners and a bare total invites
+double-counting. Scout (12), football-predictions (29) and the MT5-bridge `pytest` suite were
+**not** re-run: Phase 12 touches no path they exercise.
+
+Counting note, recorded rather than left to contradict the row above: the Phase 11 block says
+**33** test files, and `git ls-tree eeb4b80 apps/workforce-platform/test/` counts **34** `.test.js`
+files at that commit. The 34 is correct; the earlier row undercounted by one. This row counts
+from the working tree, so 34 + `test/scheduled_jobs.test.js` = **35**.
+
+One new file, **26** cases:
+
+| File | Cases | Note |
+|---|---|---|
+| `test/scheduled_jobs.test.js` | **26** (new) | Locks (acquire / refuse / release / extend, expiry takeover, the overrun run being unable to release, durability across close/reopen); job state (the `'global'` governance key refused in both directions, the governance document byte-identical afterwards including `updatedByUserId`); the expiry sweep (dry run writing nothing, cross-owner expiry with per-proposal dedupe keys, idempotency, storage-failure and ownerless-row isolation); the risk sweep (a **real** `VALUATION_UNAVAILABLE` breach from the real paper service producing a keyed classified alert, per-owner isolation, ownerless accounts, edge-triggered transitions across three runs, clearing and re-raising, the persisted report dropping `key` and `classified`); the run (concurrent skip with no writes, the legacy `CRON_RUN` sentence and system actor, dry run taking no lock, `finally` releasing on a throwing stage); **no HTTP route** exposing any of it; and the MySQL SQL shapes, bindings and bounds against a recording executor |
+| `test/migrator.test.js` | **+1** | Migration 010 creates exactly one statement and one table, keyed by `job_name`, with VARCHAR(32) canonical-UTC timestamps, the expiry index, and **no** `ALTER TABLE`, no `INSERT` and no live/broker/trading/paper/execution table |
+| — | **2 tripwires moved** | `test/store.test.js` readiness now expects **10** placeholders and `010_job_locks` in the list; `test/migrator.test.js`’s last-migration pin moved `009_notifications.sql` → `010_job_locks.sql` |
+| — | **6 counts moved** | Contract **84 → 86** (three pinned assertions); `stats()` deep-equal maps in `strategies_store` and `platform_findings` gained `jobLocks`; `backup.test.js` gained `jobLocks → wf_job_locks` and its F-13 table count moved **23 → 24**; `platform_findings` moved ledger rows **16 → 17** and partial **2 → 3**, and its `operational` script list gained `jobs` and `jobs:apply` |
+
+Two of the 26 exist because they caught defects, and both are recorded as such in the phase
+record: **D-18** (the two adapters returned different shapes for a job lock — `lock.expiresAt`
+was a string on MySQL and `undefined` on the file store) and **D-19** (the scheduled expiry
+audited the *owner* where legacy audited `'system'`). Neither was found by reading the code.
+
+Still not executed here, and therefore still not claimed: **the lock against real MySQL**
+(**F-15 unchanged**, and this phase is the first to make that gap consequential — mutual
+exclusion is proven on the file adapter and the SQL is proven against a recording executor,
+but no two real connections have raced for a row, so the duplicate-key arbiter is reasoned
+rather than observed); **cPanel cron itself** — no crontab was installed, so the documented
+line, the absolute `node` path and the `cd` are reasoned from the host’s behaviour, and the
+requirement that the cron line source the same environment as the web app (`SESSION_SECRET`,
+`DB_*`) because `loadConfig` is one gate for the whole platform was **discovered by running
+the CLI** and seeing it refuse, not by deploying it; an **overlapping run produced by two real
+processes** (the skip path is driven by holding the lock directly); the **500/5 000 batch
+ceilings** (fixtures are small, so `exhausted: false` is asserted only through the SQL bound);
+an **end-to-end run over a populated portfolio**, so the wall-clock duration — and therefore
+whether the default 10-minute TTL is genuinely generous — is reasoned, not measured; and
+anything needing a real browser, outbound SMTP, provider credentials or a native SDK.

@@ -349,3 +349,47 @@ incomplete. See [`PHASE8_EXECUTION_PROPOSALS.md`](PHASE8_EXECUTION_PROPOSALS.md)
 Migration 008 and repository SQL are currently covered by static migration checks
 and recording-fake SQL assertions. Real MySQL/MariaDB and cPanel/Passenger execution
 have not been performed.
+
+## 11. Node platform schema — scheduled-job locks (Phase 12; `010_job_locks.sql`)
+
+> Numbering note: migration `009_notifications.sql` (`wf_notifications`) was documented in
+> [`PHASE9_NOTIFICATIONS.md`](PHASE9_NOTIFICATIONS.md) rather than here, so this section
+> continues from §10 (migration 008) with migration **010**. The platform table count is
+> **24**: 23 before Phase 12, plus `wf_job_locks`.
+
+| Table | Columns | Purpose |
+|---|---|---|
+| `wf_job_locks` | `job_name` VARCHAR(64) **PK**, `holder` VARCHAR(120), `acquired_at` VARCHAR(32), `expires_at` VARCHAR(32); `KEY ix_wf_job_locks_expiry (expires_at)` | One row per named scheduled job, holding mutual exclusion between overlapping cron runs |
+
+`job_name` is the primary key **because the primary key is the arbiter**: two concurrent
+acquirers both attempt an `INSERT` and the loser receives a duplicate-key error. Any
+`SELECT`-then-`INSERT` sequence would be a check-then-act race, which is the one thing a
+lock must not be. `ix_wf_job_locks_expiry` exists for the single read that is not by
+primary key — finding wedged or long-expired locks when an operator asks why a job has
+not run.
+
+Timestamps are VARCHAR(32) canonical UTC (`…Z`), matching migrations 007, 008 and 009.
+Fixed-width canonical instants compare correctly as strings, so `expires_at <= ?` needs no
+timezone conversion and cannot be reordered by a host `time_zone` setting — the same
+reasoning as divergence AV-2. The repository **refuses an offset form** (`+00:00`, which
+PHP's `gmdate('c')` emits) on both adapters, because `+00:00` sorts *after* the `Z` form of
+the same instant: a mixed-format `expires_at` would read as still live after expiring and
+two runs would overlap.
+
+`holder` is free text an operator can read in a cron log — the CLI writes `cron#<pid>`
+unless `--holder` names the worker. Release and extend are scoped by `AND holder = ?`, so a
+run whose lock expired and was taken over cannot delete the new holder's row on its way out.
+
+**This table stores no business data.** It coordinates work and never authorises any of it:
+no column here can reach an account, an order, a proposal or a permission. Additive only —
+migration 010 alters no existing table and seeds no row, because a lock that exists before
+any job runs would block the first run.
+
+Job *state* is not stored here. The portfolio-risk monitor's transition memory lives in the
+existing `wf_trading_state` table under `state_key = 'portfolio-risk'` — the same table
+legacy used for its platform state — and the job repository refuses the `'global'` key
+outright on both adapters, so a cron run cannot rewrite the kill switch (divergence SJ-4).
+
+Real MySQL/MariaDB execution has not been performed: mutual exclusion is tested on the file
+adapter and the SQL shapes, bindings and bounds against a recording executor (finding F-15).
+See [`PHASE12_SCHEDULED_JOBS.md`](PHASE12_SCHEDULED_JOBS.md).

@@ -107,6 +107,54 @@ export function createExecutionRepository(executor) {
       return Number(result.affectedRows) === 1;
     },
 
+    /**
+     * Every pending proposal across **all** owners, for the scheduled expiry job.
+     *
+     * This is a separate method rather than `listExecutionProposals(null)`. Passing
+     * `null` here would bind `Number(null)` — zero — and silently match nothing, so
+     * "all owners" had to be spelled out; and widening the owner-scoped method to
+     * treat a missing owner as "no filter" would turn one forgotten argument at an
+     * HTTP call site into a platform-wide read of every operator's proposals. The
+     * same reasoning as divergence AV-1's read of `userId: null` in Phase 10: an
+     * existing "do not filter" sentinel is a trap, so a privileged scope gets its
+     * own name that cannot be reached by accident.
+     *
+     * There is deliberately **no** matching all-owners write method. Expiry stays
+     * on the existing owner-bound transactional path (`expireExecutionProposal`
+     * inside `withPaperTransaction`), which the scheduled job reaches by reading
+     * each proposal's owner off the row it just listed. Keeping the write
+     * owner-bound is what preserves the account-revision invariant, the
+     * `PROPOSAL_EXPIRED` notification and the audit event — and it keeps this
+     * store's public execution contract read-only, as it has been since Phase 8A.
+     *
+     * The staleness cutoff is deliberately NOT pushed into SQL. The platform rule
+     * (`isProposalStale`) treats an **unparseable** `created_at` as stale, and a
+     * VARCHAR `created_at <= ?` comparison would instead sort garbage like
+     * `not-a-date` *after* a real instant and exclude it — so SQL and the file
+     * adapter would disagree about exactly the malformed rows that most need
+     * expiring. The predicate stays in the job layer, where both adapters run the
+     * same code. Recorded as divergence SJ-2.
+     */
+    async listExecutionProposalsAllOwners({ status = null, limit = 100 } = {}) {
+      const clauses = [];
+      const values = [];
+      if (status) {
+        clauses.push("p.status = ?");
+        values.push(String(status));
+      }
+      const where = clauses.length ? `WHERE ${clauses.join(" AND ")}` : "";
+      const bounded = boundedLimit(limit, 100, 500);
+      const [rows] = await executor.query(
+        `SELECT p.*
+           FROM wf_execution_proposals p
+           ${where}
+          ORDER BY p.created_at ASC, p.proposal_id ASC
+          LIMIT ${bounded}`,
+        values,
+      );
+      return rows.map(proposalRow);
+    },
+
     /** One-time owner-bound human decision; false means the state already moved. */
     async decideExecutionProposal(id, ownerUserId, { status, decisionByUserId, reason, decidedAt, updatedAt }) {
       const [result] = await executor.execute(
