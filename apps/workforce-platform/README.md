@@ -34,6 +34,14 @@ production replacement and no traffic has been cut over.
   changes and the paper-proposal lifecycle. Alerts are stored and read in-product
   only — there is **no** mail, push or webhook delivery channel, and no HTTP route
   can publish one. See [`docs/migration/PHASE9_NOTIFICATIONS.md`](../../docs/migration/PHASE9_NOTIFICATIONS.md).
+- **The audit browser is ported**: `GET /api/v1/admin/audit` serves the whole trail
+  filterable by actor, action prefix, entity and inclusive UTC window, paginated,
+  with every event carrying a resolved `actor {userId, username, kind}`. It is
+  **read-only** — no route on either adapter can edit, redact or delete an audit
+  event — and requires `identity.users.view`, a deliberate tightening of the legacy
+  `api/events`, which any signed-in user could read (divergence AV-1). No console
+  screen and no retention policy yet.
+  See [`docs/migration/PHASE10_AUDIT_BROWSER.md`](../../docs/migration/PHASE10_AUDIT_BROWSER.md).
 - Two storage adapters implement one repository contract:
   - `STORAGE_ADAPTER=mysql` (production target) — the MySQL/MariaDB tables created by
     `src/db/migrations/*.sql`.

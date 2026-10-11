@@ -836,21 +836,58 @@ export async function createFileStore({ dir, logger = console, idFactory = () =>
         created_at: nowIso(),
       });
     },
-    async listAuditEvents({ userId = null, limit = 50, offset = 0, action = null } = {}) {
+    /**
+     * Mirrors `account-repository.js` filter for filter, including the `actor`
+     * vocabulary (`"system"` = no actor, `"any"` = no filter, a number = that
+     * user) and the actor projection. The file adapter has no join, so the
+     * username is resolved from the users table; a missing user yields null
+     * exactly as the LEFT JOIN does, never a substituted label.
+     */
+    async listAuditEvents({ userId = null, actor = null, limit = 50, offset = 0, action = null, entityType = null, entityId = null, from = null, to = null, sort = "createdAt", direction = "desc" } = {}) {
+      const boundedLimit = Math.min(Math.max(Number.parseInt(limit, 10) || 50, 1), 200);
+      const boundedOffset = Math.min(Math.max(Number.parseInt(offset, 10) || 0, 0), 1_000_000);
       let rows = [...tables.get("audit").values()];
       if (userId !== null) rows = rows.filter((row) => String(row.actor_user_id) === String(userId));
+      if (actor !== null && actor !== undefined && actor !== "any") {
+        rows = actor === "system"
+          ? rows.filter((row) => row.actor_user_id === null || row.actor_user_id === undefined)
+          : rows.filter((row) => String(row.actor_user_id) === String(actor));
+      }
       if (action) rows = rows.filter((row) => row.action_key === action || row.action_key.startsWith(`${action}.`));
-      rows.sort((a, b) => String(b.created_at).localeCompare(String(a.created_at)));
+      if (entityType) rows = rows.filter((row) => row.entity_type === String(entityType));
+      if (entityId !== null && entityId !== undefined && entityId !== "") rows = rows.filter((row) => String(row.entity_id ?? "") === String(entityId));
+      if (from) rows = rows.filter((row) => Date.parse(row.created_at) >= Date.parse(from));
+      if (to) rows = rows.filter((row) => Date.parse(row.created_at) <= Date.parse(to));
+
+      const descending = String(direction).toLowerCase() !== "asc";
+      const by = sort === "id" ? "id" : sort === "action" ? "action" : "createdAt";
+      rows.sort((a, b) => {
+        const left = by === "id" ? Number(a.id) - Number(b.id)
+          : by === "action" ? String(a.action_key).localeCompare(String(b.action_key))
+            : String(a.created_at).localeCompare(String(b.created_at));
+        if (left !== 0) return descending ? -left : left;
+        // A stable tie-break on id, matching the SQL `ORDER BY … , id DESC`.
+        return descending ? Number(b.id) - Number(a.id) : Number(a.id) - Number(b.id);
+      });
+
+      const users = tables.get("users");
+      const usernameOf = (id) => {
+        const user = id === null || id === undefined ? null : users.get(String(id));
+        return user ? user.username : null;
+      };
       const total = rows.length;
       return {
         total,
-        events: rows.slice(offset, offset + limit).map((row) => ({
+        events: rows.slice(boundedOffset, boundedOffset + boundedLimit).map((row) => ({
           id: row.id,
           action: row.action_key,
           entityType: row.entity_type,
           entityId: row.entity_id,
           details: row.detail_json,
           createdAt: row.created_at,
+          actor: row.actor_user_id === null || row.actor_user_id === undefined
+            ? { userId: null, username: null, kind: "system" }
+            : { userId: Number(row.actor_user_id), username: usernameOf(row.actor_user_id), kind: "user" },
         })),
       };
     },

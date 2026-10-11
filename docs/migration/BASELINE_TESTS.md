@@ -571,3 +571,68 @@ by reading the PHP and asserting them in Node, not by comparing outputs from bot
 cross-worker **contention** on the conditional `UPDATE`, which is argued from the SQL rather
 than observed; and anything needing a cPanel/Passenger host, a real browser, outbound SMTP,
 provider credentials or a native SDK.
+
+## Re-measured 2026-10-11 — Phase 10 (audit browser), branch `arena/8de8de2e-ai`, Node v22.22.3
+
+Same machine, same sandbox limits as the rows above: no MySQL/MariaDB server, no outbound
+egress, no cPanel/Passenger host, no real browser, no SMTP, two CPUs. Everything below was
+executed for this phase; nothing is inherited from an earlier row.
+
+| Suite | Exact command | Result |
+|---|---|---|
+| Node platform (**31** files, was 30) | `cd apps/workforce-platform && npm test` | **532 passed, 0 failed** (~64 s) — was 522, **+10** |
+| Install verification | `npm run verify:install` | **29/29 checks**, **64** documented env vars — unchanged. This phase adds **no configuration and no migration**, so the migration check still reports `store requires 9` |
+| AEGIS PHP/WASM (the parity oracle) | `node runtime/run-tests.mjs` | **367 passed, 0 failed**, 19.0 s — unchanged, and `git status --porcelain` reports **0** modified paths under `application/`, `system/` or `tests/` |
+
+**Total executed in this sandbox for this phase: 899 passed, 0 failed** (532 app + 367 oracle).
+Composition stated because these are two different runners and a bare total invites
+double-counting. Scout (12), football-predictions (29) and the MT5-bridge `pytest` suite were
+**not** re-run: Phase 10 touches no path they exercise.
+
+New file in the platform suite:
+
+| File | Cases | Note |
+|---|---|---|
+| `test/audit_browser.test.js` | **10** (new) | Attribution, authority and immutability rather than filter mechanics alone. Asserts every event carries a resolved actor and that a system event says `kind:"system"` instead of borrowing an identity; that a deleted actor keeps its id with a null username; that the endpoint needs `identity.users.view` where legacy needed only a signed-in user (**AV-1**); that `/account/activity` did **not** widen (a member's own view still has exactly one distinct actor while the browser over the same store has two); that an unparseable or inverted window is a 400; and — against the *whole route inventory*, not a written-down path list — that every route matching `/audit` or `/account/activity` is a `GET` and that no non-`GET` route anywhere matches `audit` |
+
+The adapter-parity case in that file executes the file store for real (including WAL replay of
+an audited event across close/reopen, with attribution **re-resolved** after replay rather than
+stored as a stale copy) and pins the SQL adapter on a recording double that applies the `WHERE`
+clause and the `ORDER BY` it is handed — asserting `e.actor_user_id IS NULL` for `actor=system`
+binds nothing, that `from`/`to` bind as `Date` rather than as text, and that attribution comes
+from a `LEFT JOIN wf_users`.
+
+Ledger assertions updated because the counts they pin genuinely changed: admin routes **6 → 7**
+and the module-state ledger **ported 7 → 8 / partial 3 → 2** (`platform_findings`), the latter
+with a new assertion that the `audit` label still names both of its gaps — `no console screen`
+and `no retention policy` — so `ported` cannot be read as a finished workstream.
+`REPOSITORY_METHODS` stays at **78** and the migration set at **001–009**: this phase extends an
+existing method's options and projection rather than adding surface.
+
+Two defects found by this phase's own tests and fixed before the row was written, rather than
+relaxing the assertions to match the code. **D-13:** the first window guard used
+`Number.isFinite(Date.parse(value))`, and `Date.parse("12345")` is the **year 12345**, so
+`?from=12345` was accepted and silently produced an empty window that looked like a filter
+working; replaced by a canonical-UTC validator that also refuses a `+01:00` offset, because
+`created_at` is `DATETIME(3)` with no timezone and the two adapters would otherwise disagree
+about the same window (**AV-2**). **D-14:** the parity double returned every row regardless of
+the `WHERE` clause and in insertion order, so the adapters "agreed" for reasons unrelated to the
+code under test and then disagreed about ordering — it now applies the filters and the ordering
+it is handed, which is what made the comparison mean anything.
+
+Still not executed here, and therefore still not claimed: **real MySQL** — the extended
+`listAuditEvents` is pinned on SQL text and bound values through a recording executor and has
+never run against a server (**F-15 unchanged**), so the `LEFT JOIN wf_users` and the selectivity
+of `ix_wf_audit_entity` are unmeasured and the index is *used by the query text*, not proven
+selective; any **console screen** (`views/admin/index.php` unported, so **F-29 still stands** —
+the SPA's existing `/app/account` activity list is unaffected because it reads named fields and
+the `actor` projection is additive); a **retention policy** for `wf_audit_events`, unbounded with
+no delete path, which is correct for evidence but leaves row 5's retention item undecided and
+needing one policy covering audit, notifications, R-27 and R-28 rather than four; a
+value-for-value **PHP↔Node diff** (**F-26**), where **AV-5** means the legacy `audit_logs`
+(`type`/`summary`/`actor VARCHAR(8)`) and Node `wf_audit_events` (nullable actor FK) hold
+different data models, so a row-level diff would not be meaningful; any **legacy `audit_logs`
+import**, so a cutover starts the Node trail empty unless row 22 covers it; any **load
+measurement** of pagination, which is proven bounded rather than measured under a large trail;
+and anything needing a cPanel/Passenger host, a real browser, outbound SMTP, provider
+credentials or a native SDK.

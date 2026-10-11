@@ -23,7 +23,13 @@ export const MODULE_STATUS = Object.freeze([
   // rendering/content checks; the legacy chat assistant is absent, so the module
   // remains partial. These checks do not claim complete legacy parity.
   { key: "publicSite", label: "Public site, SEO + PWA shell, contact intake (chat assistant not ported)", state: "partial", tests: "unit + http + content checks" },
-  { key: "audit", label: "Security audit trail for ported actions", state: "partial", tests: "unit" },
+  // The trail was already written by every ported action; Phase 10 adds the
+  // permissioned browser over it (filter by actor, action, entity and time
+  // window) and puts the actor's identity in the read view. Still read-only on
+  // both adapters: no route can edit, redact or delete an audit event. The
+  // browser SCREEN is app-shell work (row 3), and security-event retention is an
+  // undecided policy, so neither is claimed here.
+  { key: "audit", label: "Security audit trail plus a permissioned read-only browser API (no console screen, no retention policy)", state: "ported", tests: "unit + http + both adapters" },
   // Notifications are ported: the unread-deduped notifier, broadcast/targeted
   // visibility and the three legacy inbox endpoints, with governance and
   // paper-proposal transitions publishing through it. Storage and in-product

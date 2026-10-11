@@ -3,7 +3,89 @@
 **Updated:** 2026-10-11 · **Branch:** `arena/8de8de2e-ai`
 
 
-## Current Phase 9 status (2026-10-11)
+## Current Phase 10 status (2026-10-11)
+
+**The audit browser is ported.** App version is now **0.9.0**. `audit` moves from
+`partial` to `ported`, taking the ledger to **8 ported / 2 partial / 5 not-ported**.
+Full record: [`PHASE10_AUDIT_BROWSER.md`](PHASE10_AUDIT_BROWSER.md). This closes
+most of row 5 alongside Phase 9; what remains of that row is settings screens and
+the security-event retention policy.
+
+`GET /api/v1/admin/audit` serves the whole trail, filterable by actor, action
+prefix, entity and inclusive time window, paginated and sorted on the three
+columns migrations 001/003 actually index. It ports `Api_system::events()` and
+extends `listAuditEvents`. **No new migration and no new contract method** — the
+contract stays at 78 and the migration set at 001–009 — and it puts
+`ix_wf_audit_entity` `(entity_type, entity_id, created_at)` to use for the first
+time since migration 003 created it.
+
+The substantive gap was not the missing page: **the audit read view did not
+include the actor at all**, so no caller could answer "who did this". Every event
+now carries `{ userId, username, kind }`, a system event says `kind: "system"`
+rather than borrowing an identity, and a user id that no longer resolves keeps the
+id with a null username instead of substituting a label.
+
+Five divergences (AV-1…AV-5) are recorded in the phase record. Two matter beyond
+this module:
+
+- **AV-1 is a security tightening, not parity.** `Api_controller::PUBLIC_ACTIONS`
+  does not list `api_system/events`, so the legacy endpoint required
+  authentication — but `events()` makes no `requirePermission` call, meaning
+  *every* signed-in operator could read *every* operator's identity, governance
+  and execution trail. Node requires `identity.users.view`. This is stated as a
+  deliberate narrowing rather than presented as an equivalent port.
+- **AV-2 refuses a timezone offset** on `from`/`to` with a 400 that explains
+  itself. `wf_audit_events.created_at` is `DATETIME(3)` with no timezone, so the
+  SQL adapter would bind an offset instant through the connection's session
+  timezone while the file adapter compares absolute instants — the same window
+  could select different rows on the two adapters. Canonical `…Z` only, matching
+  the `assertIsoCutoff` convention.
+
+Read-only is asserted against the whole route inventory rather than a list of
+paths: the test filters the inventory for anything matching `/audit` or
+`/account/activity`, requires every one to be a `GET`, and separately requires
+that no non-`GET` route anywhere matches `audit`. `/account/activity` is proven
+not to have widened — `userId: null` still means "do not filter", so "events with
+no actor" got its own word (`actor: "system"`) instead of a reinterpretation of
+null that would have turned a personal view into a platform-wide one.
+
+Two defects found by this phase's own tests and fixed before the record was
+written, rather than relaxing the assertions to match the code. **D-13:** the
+first window guard used `Number.isFinite(Date.parse(value))`, and
+`Date.parse("12345")` is the **year 12345**, so `?from=12345` was accepted and
+silently produced an empty window that looked like a working filter. **D-14:** the
+parity double returned every row regardless of the `WHERE` clause and in insertion
+order, so the adapters "agreed" for reasons unrelated to the code under test and
+then disagreed about ordering; it now applies the filters and the `ORDER BY` it is
+handed.
+
+Measured in this sandbox on 2026-10-11 (Node v22.22.3): workforce-platform
+`npm test` **532/532** (up from 522; 10 new tests in `test/audit_browser.test.js`),
+`npm run verify:install` **29/29** with 64 documented config variables (this phase
+adds no configuration and no migration), and the legacy PHP oracle **367/367** with
+`git status --porcelain` reporting **0** modified paths under `application/`,
+`system/` or `tests/`. Route count **78 → 79**, admin routes **6 → 7**.
+
+**Not** exercised, and therefore not claimed: a real MySQL/MariaDB server — the
+extended query is pinned by a recording executor that applies the recorded
+`WHERE`/`ORDER BY` and has never run against a server (**F-15 unchanged**), so the
+`LEFT JOIN wf_users` and the selectivity of `ix_wf_audit_entity` are unmeasured;
+any **console screen** (`views/admin/index.php` unported, **F-29 still stands** —
+the SPA's existing `/app/account` activity list is unaffected because it reads
+named fields and the `actor` projection is additive); a **retention policy**
+(`wf_audit_events` is unbounded with no delete path, which is correct for evidence
+but leaves row 5's retention item undecided — it needs one policy covering audit,
+notifications, R-27 and R-28, not four); a PHP↔Node value-for-value diff
+(**F-26**), where AV-5 means the two schemas hold different data models anyway;
+any **legacy `audit_logs` import**, so a cutover starts the Node trail empty
+unless row 22 covers it; and any load measurement of pagination.
+
+Phase 8A and Phase 9 remain in force and unchanged. The next gates are unchanged
+too — validate migrations **001–009** and repository transactions against real
+MySQL/MariaDB, then rehearse deployment, backup/restore and rollback on the actual
+cPanel/Passenger host.
+
+## Phase 9 status (2026-10-11)
 
 **Operator notifications are ported.** App version is now **0.8.0**. Row 5 of
 [`UNFINISHED_MODULES.md`](UNFINISHED_MODULES.md) is partly closed and the

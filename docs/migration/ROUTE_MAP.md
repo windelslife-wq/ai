@@ -5,7 +5,7 @@ Source of truth: `application/config/routes.php` (285 explicit rules) + CodeIgni
 
 
 > **Current Node route note (2026-10-11):** Sections 1–13 remain the Phase-0
-> legacy inventory. Sections 14.7–14.11 describe the Node API through Phase 9;
+> legacy inventory. Sections 14.4 and 14.7–14.11 describe the Node API through Phase 10;
 > 75 API routes are implementation inventory, not a PHP-parity claim. Paper
 > trading and approved proposal submission remain simulation-only and owner-scoped.
 > The full supervisor and all live broker/order routes remain unavailable. See
@@ -244,7 +244,7 @@ returns the 38 routes below; `app.documents()` returns the 22 document routes in
 | `DELETE /api/v1/account/avatar` | session + CSRF | `POST /account/avatar/remove` |
 | `GET /api/v1/files/avatars/:fileId` | public bytes, owner-or-admin policy | legacy served uploads straight from `/assets/uploads/` (§12); Node keeps them outside the static root |
 
-### 14.4 Administration (6)
+### 14.4 Administration (7)
 
 | Method/path | Permission | Legacy relationship |
 |---|---|---|
@@ -254,6 +254,7 @@ returns the 38 routes below; `app.documents()` returns the 22 document routes in
 | `GET /api/v1/admin/roles` | `identity.users.view` | the `tools/rbac.php` seeded matrix, read-only |
 | `GET /api/v1/admin/identity/users` | `identity.users.view` | alias retained from the Phase 1 foundation slice |
 | `GET /api/v1/admin/inquiries` | `system.super_admin` | new working copy of the legacy `CONTACT_INQUIRY` audit entries; super-admin only because a row holds a visitor's name and email |
+| `GET /api/v1/admin/audit` | `identity.users.view` | **Phase 10.** `api/events` · `api/events/(:num)` (`Api_system::events`). The whole trail: `action` (exact key or its dotted children), `entityType`/`entityId`, `actor` (`any` · `system` · a user id), inclusive `from`/`to`, `sort` (`createdAt`/`action`/`id`), `direction`, `limit` 1–200, `offset`. Every event carries a resolved `actor {userId, username, kind}`. **AV-1:** legacy needed only a signed-in user — `events()` makes no `requirePermission` call — so every operator could read every operator's trail; Node requires `identity.users.view`. **AV-2:** `from`/`to` must be canonical ISO-8601 **UTC**; a `+01:00` offset is a 400, because `created_at` is `DATETIME(3)` with no timezone and the two adapters would otherwise disagree about the same window. **AV-3:** an over-large `limit` is a 400, not a silent `min($limit, 500)` clamp. Read-only by construction — no route on either adapter can edit, redact or delete an audit event |
 
 ### 14.5 Public site (1)
 
@@ -318,8 +319,8 @@ no `DELETE` verb at all.
 
 At the Phase-5 cutoff, 5 + 7 + 11 + 6 + 1 + 3 + 5 = **38** API routes. Phase 6 added 11,
 Phase 7 added 19 paper/risk routes and one strategy sign-off route, and Phase 8A adds
-six paper-proposal routes; Phase 9 adds three notification routes, for **78 current Node
-API routes**. This is an implementation inventory, not a legacy-parity claim.
+six paper-proposal routes; Phase 9 adds three notification routes and Phase 10 adds the audit browser, for
+**79 current Node API routes**. This is an implementation inventory, not a legacy-parity claim.
 
 ### 14.9 Paper trading and persisted portfolio risk controls (19) — Phase 7
 
@@ -435,7 +436,7 @@ carrying `Accept: text/html` receives the built SPA shell (200); without that he
 The Phase-6 routes are session-only with no permission gate, matching their legacy
 `Api_controller` surface; unsafe cookie mutations are CSRF-gated and bearer callers
 are exempt. Phase 7 adds the separately permissioned human sign-off route (shown
-below). Route count: **38 at Phase 5 → 49 at Phase 6 → 69 after Phase 7 → 75 after Phase 8A → 78 after Phase 9**.
+below). Route count: **38 at Phase 5 → 49 at Phase 6 → 69 after Phase 7 → 75 after Phase 8A → 78 after Phase 9 → 79 after Phase 10**.
 
 | Method/path | Auth | Legacy relationship |
 |---|---|---|

@@ -1005,18 +1005,24 @@ test("F-02 the status surface is honest about unported modules, and F-03 the rou
   assert.equal(body.modules.find((module) => module.key === "identity").state, "ported");
   assert.equal(body.modules.find((module) => module.key === "marketData").state, "ported", "market data was ported in Phase 4");
   assert.equal(body.modules.find((module) => module.key === "analysis").state, "ported", "the analysis engines were ported in Phase 5");
-  assert.equal(body.modules.filter((module) => module.state === "ported").length, 7, "identity, market data, analysis, strategies, paper trading, risk and notifications have tested Node surfaces");
+  assert.equal(body.modules.filter((module) => module.state === "ported").length, 8, "identity, market data, analysis, strategies, paper trading, risk, notifications and the audit browser have tested Node surfaces");
   // Notifications are stored and read in-product only; the module says so itself
   // rather than implying an alert reached a device or an email inbox.
   assert.equal(body.modules.find((module) => module.key === "notifications").state, "ported");
   assert.equal(body.notifications.emailDeliveryAvailable, false, "no outbound delivery channel is ported");
   assert.deepEqual(body.notifications.deliveryChannels, []);
-  assert.equal(body.modules.find((module) => module.key === "audit").state, "partial");
+  // Phase 10 ports the audit browser API: attribution, filtering and pagination
+  // over the whole trail, permissioned and read-only. The console SCREEN is
+  // app-shell work (row 3) and retention is still undecided, so the label says
+  // both rather than letting `ported` imply a finished workstream.
+  assert.equal(body.modules.find((module) => module.key === "audit").state, "ported");
+  assert.match(body.modules.find((module) => module.key === "audit").label, /no console screen/i);
+  assert.match(body.modules.find((module) => module.key === "audit").label, /no retention policy/i);
   // Phase 7 adds persisted governance and account-scoped paper risk. Phase 8A
   // adds human-reviewed paper proposals, not the full supervisor or a live route.
   assert.equal(body.modules.find((module) => module.key === "paperTrading").state, "ported");
   assert.equal(body.modules.find((module) => module.key === "risk").state, "ported");
-  assert.equal(body.modules.filter((module) => module.state === "partial").length, 3, "public site, audit and execution remain partial");
+  assert.equal(body.modules.filter((module) => module.state === "partial").length, 2, "the public site (chat widget) and execution (no full supervisor, no live route) remain partial");
   assert.equal(body.modules.filter((module) => module.state === "not-ported").length, 5, "brokers, sports, lottery, language learning and lead discovery remain legacy-only");
   assert.equal(body.modules.length, 15, "the ledger keeps listing every module, ported or not");
   // The public status surface carries a market-data snapshot that must not have
@@ -1040,7 +1046,7 @@ test("F-02 the status surface is honest about unported modules, and F-03 the rou
   const routes = await app.app.inject({ method: "GET", url: "/api/v1/system/routes" });
   const inventory = routes.json().routes;
   const adminRoutes = inventory.filter((entry) => entry.path.startsWith("/api/v1/admin/"));
-  assert.equal(adminRoutes.length, 6, "account-admin routes, the inquiry listing, the deprecated identity listing — and no admin route is unguarded");
+  assert.equal(adminRoutes.length, 7, "account-admin routes, the audit browser, the inquiry listing, the deprecated identity listing — and no admin route is unguarded");
   for (const route of adminRoutes) {
     assert.ok(["identity.users.view", "identity.users.manage", "system.super_admin"].includes(route.permission), `${route.method} ${route.path} must report its permission in the ledger, got ${route.permission}`);
   }
