@@ -89,6 +89,9 @@ export const REPOSITORY_METHODS = Object.freeze([
   "findPaperDeployment",
   "listPaperDeployments",
   "listAllActivePaperDeployments",
+  // paper-only human-reviewed execution proposals (Phase 8A)
+  "findExecutionProposal",
+  "listExecutionProposals",
   "withPaperTransaction",
   // operational
   "readiness",

@@ -37,6 +37,8 @@ import { strategyRoutes } from "./modules/strategies/routes.js";
 import { createStrategiesService } from "./modules/strategies/service.js";
 import { paperRoutes } from "./modules/paper/routes.js";
 import { createPaperService } from "./modules/paper/service.js";
+import { executionRoutes } from "./modules/execution/routes.js";
+import { createExecutionService } from "./modules/execution/service.js";
 
 const JSON_TYPE = "application/json; charset=utf-8";
 
@@ -167,6 +169,8 @@ export async function buildApp({ config, store, logger = true, publicDir = path.
   await app.register(strategyRoutes, { prefix: "/api/v1", store, config, service: strategies, marketData, concurrency });
   const paper = createPaperService({ store, marketData, strategies, log: app.log });
   await app.register(paperRoutes, { prefix: "/api/v1", store, config, service: paper, marketData, strategies, log: app.log });
+  const execution = createExecutionService({ store, paper, strategies });
+  await app.register(executionRoutes, { prefix: "/api/v1", store, config, service: execution, paper, strategies, log: app.log });
   const siteDocuments = createSiteDocuments({ config, store, log: app.log, rateLimiter, publicDir });
   for (const extra of config.modules || []) await app.register(extra, { prefix: "/api/v1", store, config, loginGuard });
 

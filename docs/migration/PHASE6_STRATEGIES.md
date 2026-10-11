@@ -1,6 +1,6 @@
 # Phase 6 — Strategy Lab, backtesting, lifecycle gates and confidence calibration (2026-10-10)
 
-> **Historical boundary:** This report records Phase 6. Phase 7 added paper trading and persisted risk controls, and closed the AI sign-off gap described below; consult [`PHASE7_PAPER_TRADING.md`](PHASE7_PAPER_TRADING.md) and the current [`UNFINISHED_MODULES.md`](UNFINISHED_MODULES.md) roadmap for present status. The Phase 7 SQL has not been executed on real MySQL/MariaDB and no cPanel validation or parity sign-off has occurred.
+> **Historical boundary:** This report records Phase 6. Phase 7 added paper trading/persisted risk controls and closed the AI sign-off gap; Phase 8A added the partial, human-reviewed paper proposal workflow only. Consult [`PHASE7_PAPER_TRADING.md`](PHASE7_PAPER_TRADING.md), [`PHASE8_EXECUTION_PROPOSALS.md`](PHASE8_EXECUTION_PROPOSALS.md) and the current [`UNFINISHED_MODULES.md`](UNFINISHED_MODULES.md) roadmap for present status. Migrations 007–008 have not been executed on real MySQL/MariaDB; no cPanel validation or parity sign-off has occurred.
 
 Row 8 of [`UNFINISHED_MODULES.md`](UNFINISHED_MODULES.md): *"Strategy Lab,
 lifecycle, backtesting and model/decision analytics."* Item 3 in the master plan's
@@ -358,18 +358,18 @@ still closed: F-27 (DV-10 in Phase 5), R-26, R-27, F-28.
 
 ## 11. cPanel notes for this phase
 
-1. **The Phase-6 deployment required migration 006; the current Phase-7 build
-   additionally requires migration 007.** Current readiness requires all seven
-   ordered migrations and reports `schema: false` until they are present. Apply
-   both on the target database before enabling normal traffic; this is an
-   operational requirement, not proof of cPanel validation. Seeding the four
-   builtins remains idempotent.
+1. **Phase 6 required migration 006; Phase 7 added 007 and Phase 8A added 008.**
+   Current readiness requires all eight ordered migrations and reports `schema: false`
+   until they are present. Apply all three newer migrations on the target database
+   before enabling normal traffic; this is an operational requirement, not proof of
+   cPanel validation. Seeding the four builtins remains idempotent.
 2. **Add the five environment variables** (§7). `verify-install` fails the install
    if any `env.*` the config reads is undocumented, and now reports 64.
-3. **Phase 6 increased backup coverage to 15 tables; Phase 7 adds six, for 21
-   tables in the current migrations.** `tablesFromMigrations()` derives this list
-   from the migration files. A restore taken before Phase 7 will not contain the
-   new paper-trading and governance tables.
+3. **Phase 6 increased backup coverage to 15 tables; Phase 7 added six and
+   Phase 8A adds one, for 22 tables in the current migrations.**
+   `tablesFromMigrations()` derives this list from the migration files. A restore
+   taken before Phase 7/8A will not contain the newer paper-trading, governance or
+   proposal table.
 4. **`verify-data` runs two more integrity checks per adapter** (§6). Both are
    failures, not warnings: an orphaned journal row or backtest means evidence whose
    provenance cannot be inspected.
@@ -386,12 +386,12 @@ still closed: F-27 (DV-10 in Phase 5), R-26, R-27, F-28.
 
 ---
 
-## 12. Follow-up acceptance criteria after Phase 7
+## 12. Follow-up acceptance criteria (updated after Phase 8A)
 
-1. **Real MySQL/MariaDB execution (F-15).** Run migrations 001–007 and repository
-   tests on a supported server, including the paper-account/governance row locks,
-   transaction commit/rollback and backup/restore. Static migration checks and
-   recording fake pools do not discharge this requirement.
+1. **Real MySQL/MariaDB execution (F-15).** Run migrations 001–008 and repository
+   tests on a supported server, including paper-account/governance/proposal
+   transaction behavior, commit/rollback and backup/restore. Static migration checks
+   and recording fake pools do not discharge this requirement.
 2. **cPanel/Passenger rehearsal.** Validate deployment, health/readiness, quotas,
    DB version, cron policy, backups and rollback on the actual target host; none
    has been exercised in this environment.
@@ -403,6 +403,8 @@ still closed: F-27 (DV-10 in Phase 5), R-26, R-27, F-28.
    also remains open: the legacy strategy document routes and workspace console
    are not ported. **R-28** remains open pending a decision on retention for
    evidence-bearing `wf_backtests`.
-5. **Live execution is out of scope.** The Node Execution Supervisor and broker
-   routing are not ported; keep live orders unavailable and preserve the safe
-   defaults until that work has separate negative bypass tests and human approval.
+5. **Live execution is unavailable.** Phase 8A adds only owner-scoped paper proposals
+   with a human decision and submission through Paper Trading. The broader Node
+   Execution Supervisor, broker routing, automation envelope and host validation
+   remain incomplete; preserve safe defaults and add separate bypass/recovery tests
+   before considering any expansion.

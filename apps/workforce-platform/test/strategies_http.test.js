@@ -268,7 +268,9 @@ test("GET /strategies/:id?version= selects an exact version, and empty means lat
   const instance = await harness();
   try {
     const session = await signIn(instance.app);
-    // Register a second version so "latest" and "exact" can differ.
+    // Register a second version with a deterministic later timestamp so "latest"
+    // and "exact" still differ when the test is run on a later calendar date.
+    const variantAt = new Date(Date.now() + 60_000).toISOString();
     await instance.store.saveStrategy({
       strategy_id: "trend-following",
       version: "1.0.1",
@@ -279,9 +281,9 @@ test("GET /strategies/:id?version= selects an exact version, and empty means lat
       params: { fast: 10 },
       source: "ai",
       lifecycle: "DRAFT",
-      created_at: "2026-10-11T00:00:00.000Z",
-      updated_at: "2026-10-11T00:00:00.000Z",
-      lifecycle_history: [{ from: null, to: "DRAFT", at: "2026-10-11T00:00:00.000Z", reason: "registered" }],
+      created_at: variantAt,
+      updated_at: variantAt,
+      lifecycle_history: [{ from: null, to: "DRAFT", at: variantAt, reason: "registered" }],
     });
 
     const exact = await instance.app.inject({

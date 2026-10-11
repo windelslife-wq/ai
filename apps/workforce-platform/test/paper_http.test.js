@@ -69,7 +69,8 @@ test("paper routes expose owner-scoped simulation with read, execute and control
     assert.equal(route.auth, true, `${method} ${path} requires a session`);
     assert.equal(route.permission, permission, `${method} ${path} requires ${permission}`);
   }
-  assert.ok(!inventory.some((route) => /\/api\/v1\/(?:live|execution)(?:\/|$)/.test(route.path)), "Node exposes no live-order or execution route");
+  assert.ok(!inventory.some((route) => /\/api\/v1\/(?:live|broker)(?:\/|$)/.test(route.path)), "Node exposes no live-order or broker route");
+  assert.ok(!inventory.some((route) => route.method === "POST" && route.path === "/api/v1/execution"), "there is no generic execution supervisor route");
 
   const status = await instance.app.inject({ method: "GET", url: "/api/v1/system/status" });
   assert.equal(status.statusCode, 200);

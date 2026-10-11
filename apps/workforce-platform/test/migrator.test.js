@@ -93,7 +93,23 @@ test("Phase 7 migration is ordered, parseable and starts with simulation blocked
   assert.equal(state.killSwitch.active, true);
   assert.equal(state.allowSyntheticPaperData, false);
   assert.equal(state.riskLimits.requireStopLoss, true);
-  assert.equal((await listMigrationFiles(new URL("../src/db/migrations/", import.meta.url))).at(-1), "007_paper_trading.sql");
+  assert.ok((await listMigrationFiles(new URL("../src/db/migrations/", import.meta.url))).includes("007_paper_trading.sql"));
+});
+
+test("Phase 8A migration creates only the paper-proposal record, with owner and paper-order integrity", async () => {
+  const migrationPath = new URL("../src/db/migrations/008_execution_supervisor.sql", import.meta.url);
+  const sql = await readFile(migrationPath, "utf8");
+  const statements = splitSqlStatements(sql);
+  assert.equal(statements.length, 1);
+  assert.match(statements[0], /CREATE TABLE IF NOT EXISTS wf_execution_proposals/);
+  assert.match(sql, /owner_user_id BIGINT UNSIGNED NOT NULL/);
+  assert.match(sql, /account_id BIGINT UNSIGNED NOT NULL/);
+  assert.match(sql, /FOREIGN KEY \(account_id\) REFERENCES wf_paper_accounts\(id\)/);
+  assert.match(sql, /FOREIGN KEY \(paper_order_id\) REFERENCES wf_paper_orders\(id\)/);
+  assert.match(sql, /intent_json LONGTEXT NOT NULL/);
+  assert.match(sql, /decision_by_user_id BIGINT UNSIGNED NULL/);
+  assert.doesNotMatch(sql, /CREATE TABLE IF NOT EXISTS wf_(?:live|broker)_/i);
+  assert.equal((await listMigrationFiles(new URL("../src/db/migrations/", import.meta.url))).at(-1), "008_execution_supervisor.sql");
 });
 
 test("migration status reports pending, applied and drifted without writing", async (t) => {

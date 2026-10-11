@@ -3,32 +3,37 @@
 **Updated:** 2026-10-11 · **Branch:** `arena/b175c3e9-ai`
 
 
-## Current Phase 7 status (2026-10-11)
+## Current Phase 8A status (2026-10-11)
 
-Paper trading, persisted trading governance and the owner-scoped portfolio-risk
-scan are now implemented in Node as **simulation-only** features. The Phase 7
-schema is migration `007`; the full Phase 1–7 Node schema contains 21 tables.
-The kill switch defaults on, mode defaults to `ANALYSIS_ONLY`, synthetic paper
-input defaults off, DV-10 remains an equity veto, and there is no live-order
-routing endpoint. Every paper account operation is owner-scoped in the service
-and repository—not authorized from an account ID alone.
+The Execution Supervisor workstream has a **partial, paper-only proposal workflow**:
+owner-scoped proposals, explicit human approve/decline, four-hour approval expiry,
+audited state transitions, and one-time submission through the existing Paper
+Trading service. Migration `008_execution_supervisor` adds one table; the Node
+schema contains 22 tables. `execution` reports `partial`, not `ported`. This is a
+bounded start, not a port of the broader legacy supervisor, and it does not assume
+a fixed number of supervisor steps.
 
-- Verification after the final changes: workforce-platform `npm test` **472/472**;
-  `npm run verify:install` **29/29** (98 source files syntax-checked; generated
-  client-bundle check skipped because the bundle is absent).
-- Phase record: [`PHASE7_PAPER_TRADING.md`](PHASE7_PAPER_TRADING.md).
-- Current backlog and host-validation gates: [`UNFINISHED_MODULES.md`](UNFINISHED_MODULES.md).
-- Strategy AI human sign-off is now persisted and separately permissioned; the
-  `source: "ai"` label is preserved, and synthetic paper trades are excluded
-  from live-approval evidence.
-- Static migration checks and SQL-text tests do not establish real MySQL/MariaDB
-  execution. No cPanel/Passenger rehearsal, PHP↔Node parity sign-off, live-feed
-  validation or cutover has occurred. Keep PHP authoritative and live trading
-  disabled.
+- Phase record: [`PHASE8_EXECUTION_PROPOSALS.md`](PHASE8_EXECUTION_PROPOSALS.md).
+- Phase 7 remains in force: persisted risk/governance, owner-scoped paper accounts,
+  simulation-only fills, synthetic provenance, DV-10 equity veto, and exclusion of
+  synthetic paper trades from live-approval evidence.
+- Node has no generic route, broker connector, live order path or automated mode.
+  Proposal submission calls only Paper Trading, which reruns its risk and governance
+  checks. `liveTradingEnabled` remains `false`.
+- MySQL/MariaDB SQL is covered by static parsing and a recording fake only. No real
+  MySQL/MariaDB or cPanel/Passenger validation, multi-worker rehearsal, PHP↔Node
+  parity sign-off, live-feed validation or cutover has occurred. Keep PHP
+  authoritative and live trading disabled.
+- Final Phase 8A verification: workforce-platform `npm test` **482/482** and
+  `npm run verify:install` **29/29** (102 source files syntax-checked; 64 config
+  variables documented). The generated client-bundle check was skipped because
+  `public/app/index.html` is absent. These checks do not substitute for real DB or
+  host validation.
 
-The Phase 1–6 detail below is a dated implementation history. Where a historical
-section says a module was not yet ported or names an earlier "next phase", use
-the current Phase 7 record and backlog above for today's state.
+The Phase 1–7 detail below is dated implementation history. For today's state,
+use this Phase 8A record, the phase report and current backlog; historical statements
+about earlier migration counts or which module was next are not current deployment
+evidence.
 
 ## Decision and safety boundary
 
@@ -379,9 +384,9 @@ Every backtest in every test ran on synthetic candles and asserts that it did.
 
 ## Next phases and acceptance gates
 
-1. **Validate the current Node database work on real MySQL/MariaDB.** Execute migrations 001–007 and test repository locking/transactions, backup/restore and integrity checks against the supported server version. Static SQL parsing and recording fake pools are not substitutes.
+1. **Validate the current Node database work on real MySQL/MariaDB.** Execute migrations 001–008 and test repository locking/transactions, backup/restore and integrity checks against the supported server version. Static SQL parsing and recording fake pools are not substitutes.
 2. **Rehearse cPanel/Passenger deployment and rollback.** Confirm Node version, proxy behavior, quotas, cron policy, DB settings, clean packaging, health/readiness, backups, logs and rollback on the actual target host. No cPanel rehearsal has occurred.
-3. **Keep live execution separate.** Row 12's ordered Execution Supervisor and row 13's Broker Center remain unported. Add explicit negative bypass tests and demo-terminal validation before any live-routing capability; Node paper trading has no broker route.
+3. **Keep live execution separate.** Phase 8A adds only owner-scoped, human-reviewed paper proposals; the broader Execution Supervisor and Broker Center remain incomplete. Reconcile the PHP flow instead of assuming a fixed step count. Add bypass/recovery tests and demo-terminal validation before considering live capability; Node has no broker route.
 4. **Finish shared UI and other product modules** as ordered in [`UNFINISHED_MODULES.md`](UNFINISHED_MODULES.md): notifications/audit/settings, domain consoles, public chat, password-reset delivery, outbound mail, portfolio optimization and the remaining product surfaces.
 5. **Compare behavior to PHP before any parity claim.** Produce value-for-value fixtures for critical numeric and lifecycle behavior; record DV-10 (Node refuses non-positive/non-finite equity while legacy PHP approves) as an intentional difference, not a parity defect to erase.
 6. Consolidate Scout, Football Predictions and the MT5 bridge only after their separate storage/runtime assumptions are mapped and tested.

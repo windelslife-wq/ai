@@ -4,10 +4,10 @@
 Complete inventory of every database schema in the repository (per master plan §6: "read-only inventory of every MySQL, SQLite, and PostgreSQL schema used by the current applications, plus all migration/seed scripts").
 
 > **Current Node schema addendum (2026-10-11):** The Node workforce platform now
-> has migrations 001–007 and 21 tables. Phase 7's six additional tables and three
-> additive ALTER TABLE changes are summarized in §9 and [`PHASE7_PAPER_TRADING.md`](PHASE7_PAPER_TRADING.md).
-> SQL has not been executed against a real MySQL/MariaDB server; this remains a
-> schema inventory, not a deployment-validation report.
+> has migrations 001–008 and 22 tables. Phase 7's paper-trading tables and Phase 8A's
+> proposal table are summarized in §§9–10 and their phase records. No migration has
+> been executed against a real MySQL/MariaDB server; this remains a schema inventory,
+> not a deployment-validation report.
 
 ---
 
@@ -317,3 +317,35 @@ Migration 007 is statically parsed and its repository SQL is tested with a
 recording fake pool only. It has **not** been executed on a real MySQL/MariaDB
 server, and no cPanel validation is claimed. Full details and safety constraints:
 [`PHASE7_PAPER_TRADING.md`](PHASE7_PAPER_TRADING.md).
+
+---
+
+## 10. Node platform schema — Execution proposal workflow (Phase 8A; `008_execution_supervisor.sql`)
+
+Migration 008 adds one table to the current Node schema (21 → 22 tables). It stores
+paper-proposal state only; it defines no broker account, broker ticket, live order,
+execution bridge or automation record. The table exists to preserve the owner-scoped,
+human-reviewed lifecycle and its paper-order reference.
+
+| Table | Key / ownership | Purpose and important fields |
+|---|---|---|
+| `wf_execution_proposals` | `proposal_id CHAR(36)`; owner FK; paper-account FK; nullable decision-user and paper-order FKs | Intent/check/result JSON; status; explicit decision actor/reason/time; optional Paper Trading order ID; created/updated timestamps. Indexes serve owner/status and paper-account/status listings. |
+
+Repository reads and all transition writes bind both `owner_user_id` and the
+paper account's owner. The SQL adapter uses compare-and-set status updates for
+approval, expiry, one-time paper submission claim and finalization. The file adapter
+uses the existing serialized WAL transaction for local development. The service
+calls the Phase-7 Paper Trading method after approval, so that service repeats its
+current mode/kill-switch, market-data, account and RiskEngine checks; the proposal
+record cannot bypass those gates.
+
+The stored result preserves synthetic provenance. This is not a source of live-
+approval evidence, and no proposal method can create a live/broker order. An
+interrupted `PAPER_SUBMITTING` attempt is not automatically retried: at-most-once
+claiming intentionally favors avoiding duplicate paper submissions over automatic
+recovery. Broader execution-supervisor steps and host validation are still
+incomplete. See [`PHASE8_EXECUTION_PROPOSALS.md`](PHASE8_EXECUTION_PROPOSALS.md).
+
+Migration 008 and repository SQL are currently covered by static migration checks
+and recording-fake SQL assertions. Real MySQL/MariaDB and cPanel/Passenger execution
+have not been performed.

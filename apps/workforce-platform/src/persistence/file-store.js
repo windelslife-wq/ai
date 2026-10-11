@@ -21,8 +21,8 @@ import { assertIsoCutoff } from "./contract.js";
 import { createHash } from "node:crypto";
 import path from "node:path";
 
-const ENTITIES = ["users", "profiles", "sessions", "roles", "permissions", "userRoles", "rolePermissions", "audit", "inquiries", "analysisRuns", "strategies", "backtests", "journalEntries", "tradingState", "paperAccounts", "paperOrders", "paperPositions", "paperTrades", "paperDeployments"];
-const PAPER_TX_ENTITIES = Object.freeze(["tradingState", "paperAccounts", "paperOrders", "paperPositions", "paperTrades", "paperDeployments", "strategies", "journalEntries", "audit"]);
+const ENTITIES = ["users", "profiles", "sessions", "roles", "permissions", "userRoles", "rolePermissions", "audit", "inquiries", "analysisRuns", "strategies", "backtests", "journalEntries", "tradingState", "paperAccounts", "paperOrders", "paperPositions", "paperTrades", "paperDeployments", "executionProposals"];
+const PAPER_TX_ENTITIES = Object.freeze(["tradingState", "paperAccounts", "paperOrders", "paperPositions", "paperTrades", "paperDeployments", "executionProposals", "strategies", "journalEntries", "audit"]);
 const COMPACTION_ENTRIES = 2_000;
 /**
  * `wf_journal_entries` columns that are DECIMAL in MySQL.
@@ -370,6 +370,64 @@ export async function createFileStore({ dir, logger = console, idFactory = () =>
           const bounded = Math.min(Math.max(Number.parseInt(limit, 10) || 2_000, 1), 5_000);
           return txRows("paperDeployments").filter((row) => Boolean(row.active))
             .sort((a, b) => Number(a.id) - Number(b.id)).slice(0, bounded).map((row) => structuredClone(row));
+        },
+        async createExecutionProposal(record) {
+          if (!accountOwned(record.account_id, record.owner_user_id)) return null;
+          if (txGet("executionProposals", record.id)) throw new Error("Execution proposal already exists");
+          return txPut("executionProposals", structuredClone(record));
+        },
+        async findExecutionProposal(id, ownerUserId) {
+          const row = txGet("executionProposals", id);
+          return row && String(row.owner_user_id) === String(ownerUserId)
+            && accountOwned(row.account_id, ownerUserId)
+            ? structuredClone(row)
+            : null;
+        },
+        async listExecutionProposals(ownerUserId, { status = null, limit = 100 } = {}) {
+          const bounded = Math.min(Math.max(Number.parseInt(limit, 10) || 100, 1), 500);
+          return txRows("executionProposals")
+            .filter((row) => String(row.owner_user_id) === String(ownerUserId)
+              && accountOwned(row.account_id, ownerUserId)
+              && (!status || row.status === String(status)))
+            .sort((a, b) => String(b.created_at).localeCompare(String(a.created_at)) || String(b.id).localeCompare(String(a.id)))
+            .slice(0, bounded)
+            .map((row) => structuredClone(row));
+        },
+        async expireExecutionProposal(id, ownerUserId, updatedAt) {
+          const row = await this.findExecutionProposal(id, ownerUserId);
+          if (!row || row.status !== "PENDING_APPROVAL") return false;
+          txPut("executionProposals", { ...row, status: "EXPIRED", updated_at: String(updatedAt) });
+          return true;
+        },
+        async decideExecutionProposal(id, ownerUserId, { status, decisionByUserId, reason, decidedAt, updatedAt }) {
+          const row = await this.findExecutionProposal(id, ownerUserId);
+          if (!row || row.status !== "PENDING_APPROVAL") return false;
+          txPut("executionProposals", {
+            ...row,
+            status: String(status),
+            decision_by_user_id: Number(decisionByUserId),
+            decision_reason: String(reason),
+            decided_at: String(decidedAt),
+            updated_at: String(updatedAt),
+          });
+          return true;
+        },
+        async claimExecutionProposal(id, ownerUserId, updatedAt) {
+          const row = await this.findExecutionProposal(id, ownerUserId);
+          if (!row || row.status !== "APPROVED") return false;
+          txPut("executionProposals", { ...row, status: "PAPER_SUBMITTING", updated_at: String(updatedAt) });
+          return true;
+        },
+        async completeExecutionProposal(id, ownerUserId, { status, paperOrderId = null, result = null, updatedAt }) {
+          const row = await this.findExecutionProposal(id, ownerUserId);
+          if (!row || row.status !== "PAPER_SUBMITTING") return null;
+          return txPut("executionProposals", {
+            ...row,
+            status: String(status),
+            paper_order_id: paperOrderId === null ? null : Number(paperOrderId),
+            result: result === null ? null : structuredClone(result),
+            updated_at: String(updatedAt),
+          });
         },
         async findStrategy(strategyId, version) {
           const row = txGet("strategies", `${String(strategyId)}:${String(version)}`);
@@ -1083,6 +1141,28 @@ export async function createFileStore({ dir, logger = console, idFactory = () =>
     },
 
     // ---- paper trading + persisted governance (Phase 7) -----------------
+    // Execution proposal reads are always owner-bound and independently verify
+    // the current paper-account owner, matching the MySQL join predicates.
+    async findExecutionProposal(id, ownerUserId) {
+      const row = tables.get("executionProposals").get(String(id));
+      const account = row ? tables.get("paperAccounts").get(String(row.account_id)) : null;
+      if (!row || !account || String(row.owner_user_id) !== String(ownerUserId)
+        || String(account.owner_user_id) !== String(ownerUserId)) return null;
+      return structuredClone(row);
+    },
+    async listExecutionProposals(ownerUserId, { status = null, limit = 100 } = {}) {
+      const bounded = Math.min(Math.max(Number.parseInt(limit, 10) || 100, 1), 500);
+      return [...tables.get("executionProposals").values()]
+        .filter((row) => {
+          const account = tables.get("paperAccounts").get(String(row.account_id));
+          return String(row.owner_user_id) === String(ownerUserId)
+            && account && String(account.owner_user_id) === String(ownerUserId)
+            && (!status || row.status === String(status));
+        })
+        .sort((a, b) => String(b.created_at).localeCompare(String(a.created_at)) || String(b.id).localeCompare(String(a.id)))
+        .slice(0, bounded)
+        .map((row) => structuredClone(row));
+    },
     async withPaperTransaction(work) {
       return withPaperTransaction(work);
     },

@@ -35,7 +35,7 @@ export const MODULE_STATUS = Object.freeze([
   { key: "strategies", label: "Strategy lab, lifecycle, backtesting and durable AI review", state: "ported", tests: "unit + http + persistence" },
   { key: "paperTrading", label: "Owner-scoped simulation accounts, orders, fills and deployments", state: "ported", tests: "unit + http + persistence" },
   { key: "risk", label: "Risk engine, persisted limits, kill switch and paper-portfolio monitor", state: "ported", tests: "unit + http + persistence" },
-  { key: "execution", label: "Execution supervisor (15-step pipeline)", state: "not-ported", tests: null },
+  { key: "execution", label: "Human-reviewed paper proposals; full execution supervisor and live route unavailable", state: "partial", tests: "unit + http + persistence" },
   { key: "brokers", label: "Broker connectors", state: "not-ported", tests: null },
   { key: "sports", label: "Sports intelligence", state: "not-ported", tests: null },
   { key: "lottery", label: "Lottery intelligence", state: "not-ported", tests: null },
@@ -130,8 +130,10 @@ export async function healthRoutes(app, { store, config, adapter, router, market
         enabled: true,
         simulationOnly: true,
         paperTradingAvailable: true,
+        paperProposalWorkflowAvailable: true,
         liveTradingEnabled: false,
-        reason: "Paper accounts and fills are simulation-only. The Node edition has no broker or live-order route; live execution remains unavailable.",
+        brokerConnectorAvailable: false,
+        reason: "Paper accounts, proposal submissions and fills are simulation-only. Human approval and the existing paper risk/governance checks are required. The broader execution supervisor and every live broker/order route remain unavailable.",
       },
     };
   });

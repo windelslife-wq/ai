@@ -5,10 +5,12 @@ Source of truth: `application/config/routes.php` (285 explicit rules) + CodeIgni
 
 
 > **Current Node route note (2026-10-11):** Sections 1–13 remain the Phase-0
-> legacy inventory. Sections 14.7–14.9 describe the Node API through Phase 7;
-> current route counts and safety limits are not a claim of PHP parity. Paper
-> trading is simulation-only, owner-scoped, and live-order routing is absent.
-> See [`PHASE7_PAPER_TRADING.md`](PHASE7_PAPER_TRADING.md) for verification limits.
+> legacy inventory. Sections 14.7–14.10 describe the Node API through Phase 8A;
+> 75 API routes are implementation inventory, not a PHP-parity claim. Paper
+> trading and approved proposal submission remain simulation-only and owner-scoped.
+> The full supervisor and all live broker/order routes remain unavailable. See
+> [`PHASE8_EXECUTION_PROPOSALS.md`](PHASE8_EXECUTION_PROPOSALS.md) for scope and
+> verification limits.
 
 ---
 
@@ -315,8 +317,9 @@ wait for the run you already started. These are per **process**, so N Passenger 
 no `DELETE` verb at all.
 
 At the Phase-5 cutoff, 5 + 7 + 11 + 6 + 1 + 3 + 5 = **38** API routes. Phase 6 added 11,
-then Phase 7 added 19 paper/risk routes and one strategy sign-off route, for **69 current Node API routes**.
-This is an implementation inventory, not a legacy-parity claim.
+Phase 7 added 19 paper/risk routes and one strategy sign-off route, and Phase 8A adds
+six paper-proposal routes, for **75 current Node API routes**. This is an implementation
+inventory, not a legacy-parity claim.
 
 ### 14.9 Paper trading and persisted portfolio risk controls (19) — Phase 7
 
@@ -354,6 +357,33 @@ this surface is a simulation—no live broker route is present. SQL-repository t
 use recording fake pools, and migration assertions are static; neither proves that
 the SQL has executed on MySQL/MariaDB.
 
+### 14.10 Human-reviewed paper execution proposals (6) — Phase 8A
+
+The bounded Phase-8A workflow is not a port of the full legacy supervisor. Proposal
+creation, decisions and reads are scoped to the authenticated owner and that owner's
+paper account. `trading.control` is required for the explicit human decision; actual
+submission requires `trading.execute` and goes only through the existing Paper Trading
+service, which reruns market-data, risk, account-equity and governance checks. Every
+route requires authenticated credentials (cookie or bearer); cookie mutations also
+require the session-bound CSRF token.
+
+| Method/path | Permission | Scope |
+|---|---|---|
+| `GET /api/v1/execution/status` | `trading.view` | Reports paper-only scope, approval requirement and unavailable live/broker capabilities |
+| `POST /api/v1/execution/proposals` | `trading.execute` | Normalize, preflight and persist an owner/account-scoped proposal; eligible proposals await approval |
+| `GET /api/v1/execution/proposals` | `trading.view` | List only the caller's proposals; optional status/limit filters |
+| `GET /api/v1/execution/proposals/:proposalId` | `trading.view` | Owner-bound detail (foreign IDs are indistinguishable from missing records) |
+| `POST /api/v1/execution/proposals/:proposalId/decision` | `trading.control` | One-time approve/decline with a required reason; pending approvals expire after four hours |
+| `POST /api/v1/execution/proposals/:proposalId/paper-submit` | `trading.execute` | One-time claimed submission to Paper Trading only; no generic `/route`, broker, or live-order handler exists |
+
+Proposal and decision events are audited. Submission outcomes preserve synthetic
+provenance, and use of the existing paper service ensures synthetic fills do not become
+live-approval evidence. The 4-hour approval and at-most-once claim are not an automated
+recovery queue: an interrupted `PAPER_SUBMITTING` attempt is not retried to avoid a
+possible duplicate. The wider ordered supervisor, its automation envelope, broker/demo
+gates, real MySQL/MariaDB execution and cPanel/Passenger rehearsal all remain
+incomplete. See [`PHASE8_EXECUTION_PROPOSALS.md`](PHASE8_EXECUTION_PROPOSALS.md).
+
 ## 15. Node rendered document routes (22)
 
 Documents are rendered per request by `src/modules/site/`; **no static copy of any of them is
@@ -379,7 +409,7 @@ carrying `Accept: text/html` receives the built SPA shell (200); without that he
 The Phase-6 routes are session-only with no permission gate, matching their legacy
 `Api_controller` surface; unsafe cookie mutations are CSRF-gated and bearer callers
 are exempt. Phase 7 adds the separately permissioned human sign-off route (shown
-below). Route count: **38 at Phase 5 → 49 at Phase 6 → 69 after Phase 7**.
+below). Route count: **38 at Phase 5 → 49 at Phase 6 → 69 after Phase 7 → 75 after Phase 8A**.
 
 | Method/path | Auth | Legacy relationship |
 |---|---|---|

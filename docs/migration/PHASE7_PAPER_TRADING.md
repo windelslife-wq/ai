@@ -85,7 +85,7 @@ and bind behavior through a recording fake pool, transaction commit/rollback
 wiring, and static parsing/checks of migration 007. Final verification for this
 revision: `npm test` reports **472/472 passing** across the workforce-platform
 suite; `npm run verify:install` reports **29/29 checks passing**, including syntax
-checks for 98 source files, Node 22.22.3, seven required migrations and 64
+checks for 98 source files, Node 22.22.3, seven required migrations at the Phase-7 cutoff, and 64
 documented environment variables. The install check skipped the generated client
 bundle because it is absent in this checkout. These are **local automated tests**;
 they are not a PHP-versus-Node numeric diff or proof of production readiness.
