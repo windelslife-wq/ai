@@ -532,7 +532,7 @@ process stopped mid-run, leaves the row `RUNNING`. The claim is an insert on a u
 that day and version reports `DUPLICATE_SKIPPED`, and nothing in the API clears the row.
 
 **Mitigation / owner.** None yet. Before any scheduled run (`SportsCronService`, still unported), add a recovery
-route or an operator procedure that finishes an abandoned run as `FAILED` and records who did it. Related: DV-23.
+route or an operator procedure that finishes an abandoned run and records who did it and why. The status it writes is decided with that route. Related: DV-23.
 
 ### R-30 — The file adapter writes a ticket and its legs in separate appends (open)
 
@@ -552,15 +552,15 @@ execution path could take it as instruction to place a bet.
 route, table or column reaches a paper, order or broker path. Owner: the slice that adds any execution connector
 must revisit this before it lands.
 
-### R-32 — F-39: the port's ticket composition differs from legacy's production behaviour (open, pending confirmation)
+### R-32 — F-39: the port's ticket composition differs from legacy's production behaviour (open, decided)
 
 **Risk.** Legacy's team and competition correlation checks never fire, so two selections that share a team are LOW
 and can share a ticket. The port runs the checks as documented, so it refuses some pairs legacy would place. The
 ticket a person sees is therefore not the one legacy would have produced for the same day.
 
 **Mitigation.** The difference is pinned by `sports_tickets_parity.test.js` (the pipeline-shaped pair is LOW, the
-port-shaped twin HIGH), so it is visible rather than silent. **Residual risk:** the user has not yet confirmed which
-behaviour is wanted (PHASE18 §9, item 2).
+port-shaped twin HIGH), so it is visible rather than silent. **Decided:** the user chose the documented checks (PHASE18 §9, decision 2). The residual risk is
+that tickets differ from legacy's production output, which is the reason for the decision.
 
 Related: F-39, F-40, DV-20, DV-21, DV-22, DV-23, R-29.
 

@@ -12,7 +12,8 @@
  *  - A decision moves a ticket once, is audited, and is refused for a second decision.
  *  - Reading is `sports.view`; running and decisions are `sports.manage` and
  *    `sports.approve`. A read-only analyst can read and cannot act.
- *  - A run that breaks is FAILED, not reported as "no candidate qualified" (DV-23).
+ *  - A run that breaks is stored as NO_QUALIFIED_TICKET, as legacy stores it, with the error in
+ *    its message and in `errors` (DV-23, user-chosen).
  *
  * They do NOT establish that the numbers are right. That is `sports_tickets_parity.test.js`,
  * which holds correlation, classification and the optimizer to legacy's output.
@@ -301,7 +302,7 @@ test("a disabled module runs nothing, and the run says why", async (t) => {
   assert.equal(run.ticketId, null);
 });
 
-test("a run that breaks is recorded FAILED, not as no-qualified-ticket (DV-23)", async (t) => {
+test("a run that breaks is stored as legacy stores it, NO_QUALIFIED_TICKET, with the error kept in the message and in errors (DV-23)", async (t) => {
   const instance = await createFileStoreApp({});
   t.after(() => instance.cleanup());
   const root = await signIn(instance.app);
@@ -314,12 +315,14 @@ test("a run that breaks is recorded FAILED, not as no-qualified-ticket (DV-23)",
   t.after(() => { instance.store.saveSportsTicket = original; });
 
   const run = await runDaily(instance, root.headers);
-  assert.equal(run.status, "FAILED", JSON.stringify(run));
-  assert.match(run.message, /unexpected failure: disk full/);
+  assert.equal(run.status, "NO_QUALIFIED_TICKET", JSON.stringify(run));
+  assert.match(run.message, /unexpected failure: disk full/, "the failure is in the message");
+  assert.ok(run.errors.some((error) => /disk full/.test(error)), "and in the errors list, so it is not lost");
   assert.equal(run.ticketId, null);
 
   const runs = (await instance.app.inject({ method: "GET", url: "/api/v1/sports/daily-tickets", headers: root.headers })).json();
-  assert.equal(runs.runs[0].status, "FAILED", "the stored run says so, so a later reader is not misled");
+  assert.equal(runs.runs[0].status, "NO_QUALIFIED_TICKET", "the stored run matches the response");
+  assert.ok(runs.runs[0].errors.some((error) => /disk full/.test(error)), "the stored run keeps the error");
 });
 
 test("input is validated: a malformed date is refused, a malformed or unknown ticket id is 404, a non-boolean decision is 400", async (t) => {

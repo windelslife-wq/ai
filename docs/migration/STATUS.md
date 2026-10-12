@@ -13,8 +13,9 @@ routes are added, and the sports surface reaches **25**. The total route count i
 
 A daily run over stored fixtures records one ticket per day and configuration version, as
 `PENDING_USER_APPROVAL`. A person approves or rejects it. Nothing is executed, and a simulated candidate never
-reaches a ticket (DV-20, user-chosen). Two findings: **F-39**, legacy's team and competition correlation checks
-never fire, and the port follows the documented intent, pending your confirmation. **F-40**, the file adapter gave
+reaches a ticket (DV-20, user-chosen). A run that throws is stored as `NO_QUALIFIED_TICKET` with the error kept
+(DV-23, as legacy). Two findings: **F-39**, legacy's team and competition correlation checks never fire, and the
+port follows the documented intent (user-confirmed). **F-40**, the file adapter gave
 concurrent inserts the same id, is fixed.
 
 Gates on this branch: `npm test` **875 / 875** across **51** files, `npm run check` exit 0 (`verify:install` 29/29,

@@ -43,7 +43,7 @@ The port keeps `assessCorrelation` as written. `candidateFor` in `ticket-service
 up from `match`, so the documented checks run. The golden test records both behaviours: the pipeline-shaped
 pair is LOW, and the port-shaped twin is HIGH. The difference is therefore evidence, not a silent change.
 
-This changes ticket composition relative to legacy's production behaviour. **Pending your confirmation (§9).**
+This changes ticket composition relative to legacy's production behaviour. **The user confirmed the documented checks (§9, decision 2).**
 
 ### F-40 — concurrent inserts shared an id (file adapter), fixed
 
@@ -118,8 +118,8 @@ Numbering continues from Phase 17, whose last entry is DV-19.
 | **DV-20** | A simulated candidate is recorded as a prediction, but never enters the ticket pool | Deliberate (user-chosen) | Legacy's gate ignores the `simulated` flag, so a sandbox fixture with a fresh price can be placed on a ticket. The user chose refusal. Real-data tickets are unchanged. The run reports `simulatedRefused` and says so in its message. |
 | **DV-21** | The daily run reads stored fixtures and stored odds. It calls no provider | Deliberate, **pending approval** | Legacy fetches the day's fixtures and odds inside the run. The port reads what the sync already stored. A run therefore cannot reach a provider, and a stored fixture with no odds rejects on `ODDS_UNAVAILABLE`. |
 | **DV-22** | The automated branch of `TicketGovernance` is not ported. A ticket is never `APPROVED` by the engine | Deliberate, **pending confirmation** | Legacy marks a ticket `APPROVED_NOT_EXECUTED` directly when its mode is automated. The configuration refuses `AUTOMATED_EXECUTION` (DV-14), so that branch cannot be reached through this API. |
-| **DV-23** | A run that throws is stored as `FAILED`, not as `NO_QUALIFIED_TICKET` | Deliberate, **pending confirmation** | Legacy stores such a run as `NO_QUALIFIED_TICKET` with the error in its message, which reads as "no candidate qualified" when the system broke. |
-| **F-39** | Legacy's team and competition correlation checks never fire. The port runs them | Divergence, **pending confirmation** | See §3. |
+| **DV-23** | A run that throws is stored as `NO_QUALIFIED_TICKET`, with the error in its message and in `errors`. Not `FAILED` | Preserved (user-chosen) | Legacy stores such a run as `NO_QUALIFIED_TICKET` with the error in its message. The port first stored it as `FAILED`, which is the more honest status. The user chose legacy's status, so the status matches legacy. The error is kept in `errors` as well, so a reader can still see that the system broke. |
+| **F-39** | Legacy's team and competition correlation checks never fire. The port runs them | Divergence, user-confirmed | See §3. |
 | **F-40** | Concurrent inserts shared an id on the file adapter. Fixed | Defect fix | See §3. Predates slice 4. |
 
 Two behaviours that are not divergences from legacy, but that a reader must know:
@@ -172,22 +172,23 @@ reconciled here. It is listed in §9.
 
 **Decided by the user (2026-10-12):**
 
-1. **Simulated candidates are refused for tickets** (DV-20). The user chose this as a deliberate departure from
-   legacy. Real-data tickets are unchanged.
-
-**Pending, to confirm before this phase is accepted:**
-
-2. **F-39.** Should the port run the team and competition correlation checks, as legacy's documented intent
-   says, or match legacy's production behaviour, where only `SAME_MATCH` fires? The port runs them. This
+1. **Simulated candidates are refused for tickets** (DV-20). A deliberate departure from legacy, which ignores the
+   flag. Real-data tickets are unchanged.
+2. **F-39 keeps the documented checks.** The port runs the team and competition correlation checks, as legacy's
+   documented intent says. Legacy's production behaviour, where only `SAME_MATCH` fires, is not reproduced. This
    refuses some pairs that legacy would place on one ticket.
-3. **DV-21.** Is it acceptable that the daily run reads stored data and never fetches from a provider?
-4. **DV-22.** Is it acceptable that the engine never marks a ticket approved, and that the automated branch is
+3. **DV-23 matches legacy's status.** A run that throws is `NO_QUALIFIED_TICKET`, with the error in its message and
+   in `errors`. The port had first stored `FAILED`, which the user did not want. The `FAILED` status is removed
+   from the daily-run statuses.
+4. **`ticketEngine` reports `ON_REQUEST`.** The engine exists and runs only when an operator asks. The synchronous
+   status surface cannot read configuration, so `GET /api/v1/sports/status` and the system status report
+   `ON_REQUEST`, not `NOT_PORTED`. Enablement is read from `GET /api/v1/sports/configuration`.
+
+**Still open, and not part of this slice's acceptance:**
+
+5. **DV-21.** Is it acceptable that the daily run reads stored data and never fetches from a provider?
+6. **DV-22.** Is it acceptable that the engine never marks a ticket approved, and that the automated branch is
    absent?
-5. **DV-23.** Should a run that throws be `FAILED`, which the port does, or `NO_QUALIFIED_TICKET`, as legacy does?
-6. **`ticketEngine` status value.** The engine exists and runs only when an operator asks. The synchronous status
-   surface cannot read configuration, so `GET /api/v1/sports/status` and the system status report it as
-   `ON_REQUEST`, not `NOT_PORTED`. Enablement is read from `GET /api/v1/sports/configuration`. This value
-   was chosen in this session and has not been approved.
 7. **Sandbox qualification, globally.** PHASE17 §9 asked whether a sandbox `QUALIFIED` decision should be refused
    everywhere, not only for tickets. The answer so far covers tickets only.
 8. **Calibration approval before slice 5** (carried from PHASE17 §9). Approval is still reachable only through a

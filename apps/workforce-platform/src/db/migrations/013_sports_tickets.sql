@@ -78,8 +78,9 @@ CREATE TABLE IF NOT EXISTS wf_sports_daily_tickets (
   -- The UTC calendar day the run covers, YYYY-MM-DD.
   run_date VARCHAR(10) NOT NULL,
   configuration_version INT UNSIGNED NOT NULL,
-  -- RUNNING while work is in progress, then one of NO_QUALIFIED_TICKET,
-  -- PENDING_USER_APPROVAL or FAILED. DUPLICATE_SKIPPED is never stored: a second request
+  -- RUNNING while work is in progress, then NO_QUALIFIED_TICKET or
+  -- PENDING_USER_APPROVAL. A run that throws is NO_QUALIFIED_TICKET, with the error in the
+  -- message (DV-23, as legacy). DUPLICATE_SKIPPED is never stored: a second request
   -- for the same day and version finds this row and reports the skip.
   status VARCHAR(32) NOT NULL,
   ticket_id VARCHAR(40) NULL,

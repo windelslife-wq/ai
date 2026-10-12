@@ -519,7 +519,7 @@ export function calibrationRow(row) {
 export const TICKET_STATUSES = Object.freeze(["PENDING", "APPROVED", "CANCELLED"]);
 export const TICKET_APPROVALS = Object.freeze(["PENDING_USER_APPROVAL", "APPROVED_NOT_EXECUTED", "REJECTED"]);
 export const TICKET_RISK_LEVELS = Object.freeze(["LOW", "MEDIUM", "HIGH"]);
-export const DAILY_RUN_STATUSES = Object.freeze(["RUNNING", "NO_QUALIFIED_TICKET", "PENDING_USER_APPROVAL", "FAILED"]);
+export const DAILY_RUN_STATUSES = Object.freeze(["RUNNING", "NO_QUALIFIED_TICKET", "PENDING_USER_APPROVAL"]);
 
 /** A ticket id is `tkt_` and sixteen lowercase hex characters, as legacy generates. */
 export function assertTicketId(value) {

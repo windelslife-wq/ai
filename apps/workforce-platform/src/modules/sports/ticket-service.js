@@ -16,9 +16,10 @@
  *    fixture is simulated is still recorded as a prediction, but it never enters the
  *    ticket pool. Legacy ignores the flag. Real-data tickets are unchanged.
  *  - **DV-22: no automated approval.** See `ticket-governance.js`.
- *  - **DV-23: a run that throws is FAILED.** Legacy stored such a run as
- *    NO_QUALIFIED_TICKET with the error in its message, which reads as "no candidate
- *    qualified" when the system actually broke.
+ *  - **DV-23 (preserved): a run that throws is NO_QUALIFIED_TICKET, as legacy stores it,**
+ *    with the error in its message and in `errors`. The user chose legacy's status over a
+ *    FAILED status. A reader can therefore see "no candidate qualified" for a run that broke,
+ *    which is why the error is kept in two places.
  *
  * Idempotency: the run is claimed for (day, configuration version) before any work, so a
  * second request for the same pair is DUPLICATE_SKIPPED, as legacy's `startJobRun` does.
@@ -211,8 +212,8 @@ export function createTicketService({ store = null, intelligence = null, now = (
         await generate(runDate, config, outcome);
       }
     } catch (error) {
-      // DV-23: a broken run is FAILED, not reported as "no candidate qualified".
-      outcome.status = "FAILED";
+      // DV-23: stored as legacy stores it. The error is in the message and in `errors`.
+      outcome.status = "NO_QUALIFIED_TICKET";
       outcome.message = `unexpected failure: ${error.message}`;
       outcome.errors.push(outcome.message);
     }
