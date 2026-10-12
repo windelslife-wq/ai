@@ -1050,6 +1050,28 @@ test("F-02 the status surface is honest about unported modules, and F-03 the rou
   assert.match(body.modules.find((module) => module.key === "brokers").label, /no order routing/i);
   assert.match(body.modules.find((module) => module.key === "brokers").label, /no adapter verified against its provider/i);
   assert.match(body.modules.find((module) => module.key === "brokers").label, /one read-only route/i);
+  // Phase 15 moves `sports` from not-ported to partial — and this is the label that
+  // has to work hardest in the whole ledger. "Sports intelligence: partial" reads as
+  // "half a betting engine". What was actually ported is a tenth of a data layer:
+  // the normalized contracts, two conservative gates and the provider boundary, with
+  // no persistence at all behind it. The label must say what is missing, not what is
+  // present, because the risk here is a reader inferring capability.
+  assert.equal(body.modules.find((module) => module.key === "sports").state, "partial");
+  const sportsLabel = body.modules.find((module) => module.key === "sports").label;
+  for (const pattern of [
+    // The absence is stated as one list, so the list is pinned as a list rather than
+    // as six separate "no X" phrases that the label does not and should not repeat.
+    /no persistence/i,
+    /no ingestion, prediction, ticket, settlement, calibration, backtest or monitoring/i,
+    /never verified against a vendor/i,
+    /one read-only status route/i,
+    // The one positive claim the label makes, and the only one this slice can
+    // support with evidence rather than assertion.
+    /PHP-parity proven by differential test/i,
+    /sandbox simulation double-gated and labelled/i,
+  ]) {
+    assert.match(sportsLabel, pattern);
+  }
   // Phase 12 ports `Tools::cron()` as a scheduled-jobs module. It is `partial` and
   // the label must carry the gap: legacy alerted at 80/70/60% of a limit as a
   // `warning` and at the limit as `critical`, while this port alerts only on the
@@ -1062,8 +1084,8 @@ test("F-02 the status surface is honest about unported modules, and F-03 the rou
   // Phase 14 moves `brokers` from not-ported to partial: the connector boundary, the
   // normalized data contracts and the demo-only order gates are ported and tested,
   // while no adapter is verified against its provider and no order can be routed.
-  assert.equal(body.modules.filter((module) => module.state === "partial").length, 4, "the public site (chat widget), execution (the remaining supervisor steps are broker-bound, no live route, no automated mode), scheduled jobs (no early-warning tiers, no sports/lottery cron) and brokers (no verified adapter, no order routing) remain partial");
-  assert.equal(body.modules.filter((module) => module.state === "not-ported").length, 4, "sports, lottery, language learning and lead discovery remain legacy-only");
+  assert.equal(body.modules.filter((module) => module.state === "partial").length, 5, "the public site (chat widget), execution (the remaining supervisor steps are broker-bound, no live route, no automated mode), scheduled jobs (no early-warning tiers, no sports/lottery cron), brokers (no verified adapter, no order routing) and sports (data foundation only, no persistence) remain partial");
+  assert.equal(body.modules.filter((module) => module.state === "not-ported").length, 3, "lottery, language learning and lead discovery remain legacy-only");
   assert.equal(body.modules.length, 17, "the ledger keeps listing every module, ported or not");
   // The public status surface carries a market-data snapshot that must not have
   // probed an external host to produce it.

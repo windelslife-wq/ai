@@ -2,9 +2,73 @@
 
 **Updated:** 2026-10-12 · **Branch:** `arena/8de8de2e-ai`
 
-## Current Phase 14 status (2026-10-12)
+## Current Phase 15 status (2026-10-12)
 
-**The broker connector boundary and its gates are ported** (row 13). App version is now
+**The sports data foundation is ported** (row 14, slice 1 of 5). App version is now
+**0.14.0**. `sports` moves from `not-ported` to `partial`, taking the ledger to
+**9 ported / 5 partial / 3 not-ported** across **17** modules. Full record:
+[`PHASE15_SPORTS_FOUNDATION.md`](PHASE15_SPORTS_FOUNDATION.md).
+
+Row 14 is the largest row in the backlog — **3 056 lines** of library code behind a
+**65-method** repository interface spanning **18 tables**, with ~24 controller
+endpoints and 16 oracle files. It is being landed in five slices along its
+dependency order, and this one takes the layer everything else reads from:
+`providers → normalizer → matches/odds/results → quality gates`.
+
+**What is ported.** The fixture and odds normalizers, the data-quality and
+odds-freshness engines, the typed provider failure, the fallback chain (which
+returns a *structured failure* rather than an empty success — an empty list would be
+indistinguishable from a day with no fixtures), the deterministic double-gated
+sandbox provider, the generic REST provider with classified failures, and a health
+monitor that derives status from observations and **invents none**: with nothing
+witnessed it reports `UNKNOWN`, not `OFFLINE` and not `ONLINE`. One read-only route,
+`GET /api/v1/sports/status`, gated on `sports.view`.
+
+**The headline is F-26, closed.** This phase built the platform's first PHP↔Node
+differential harness: a generator runs the real legacy classes in WASM PHP 8.2 and
+emits their output, and **62 captured cases** are recomputed by the Node port and
+compared to the last double and the last character of every refusal message. It was
+only possible because these four classes are *pure* — every earlier candidate either
+touched the database or diverged numerically on purpose.
+
+**It found F-34 on its first run.** PHP exposes two different CRC-32 algorithms
+under near-identical names, and legacy's sandbox provider uses **both in one class**.
+The Node port had implemented one and used it for both, producing stable, plausible,
+self-consistent fixture ids that belonged to an entirely different fixture universe
+than legacy's. No test written against the Node implementation alone could have
+caught it, and nothing downstream would have failed until **row 22** — the cutover —
+which is the most expensive possible moment to discover it. Five defects (D-22 …
+D-26) were found and fixed in total; two of them, D-24 and D-26, are the same lesson
+twice: *read the platform's existing convention before writing a parallel one.*
+
+**What is deliberately absent.** No persistence — seven tables were drafted and then
+**removed from this change**, because tables nothing reads are dead schema that costs
+four pinned counts and buys a host nothing. Therefore no sync, no prediction, no
+value or staking calculation, no ticket, no settlement, no calibration, no backtest,
+no model metric and no dashboard: **ten `notPorted` entries say so in the API
+response**, because no ported module has a console screen (**F-29**) and the
+distinction has to travel in the payload or it is lost (**BC-10**).
+`SPORTS_MODEL_DRIFT` is still unpublished, so **NV-6 is unchanged**. Legacy's ~24
+`Api_sports` endpoints are absent rather than approximated. No provider is verified
+against a real vendor.
+
+**One positive finding worth recording.** `Api_sports` is the **best-gated controller
+in the legacy application** — `sports.view` for every read, `sports.manage` for
+writes, and separate `sports.approve` and `sports.settle`. The Node route requires
+`sports.view` because legacy did, not because a finding forced it. Set that beside
+**F-32**, where `Api_system` left `brokers()` and `mt5_account()` ungated entirely:
+the same codebase got one module's authorization right and another's wrong, so
+"legacy did it this way" is evidence about a *controller*, never about the
+application.
+
+Gates: **752** Node assertions (was 689, **+63**), **367** PHP oracle passes,
+**1 119** executed in total, **29/29** install checks with **76** documented
+variables, **82** routes / **7** admin, storage contract **86** methods and **24**
+tables both unchanged.
+
+## Phase 14 status (2026-10-12)
+
+**The broker connector boundary and its gates are ported** (row 13). App version was
 **0.13.0**. `brokers` moves from `not-ported` to `partial`, taking the ledger to **9 ported /
 4 partial / 4 not-ported** across **17** modules. Full record:
 [`PHASE14_BROKER_CENTER.md`](PHASE14_BROKER_CENTER.md).

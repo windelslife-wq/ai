@@ -45,6 +45,8 @@ import { createNotificationService } from "./modules/notifications/service.js";
 import { portfolioRoutes } from "./modules/portfolio/routes.js";
 import { createPortfolioService } from "./modules/portfolio/service.js";
 import { brokerRoutes } from "./modules/brokers/routes.js";
+import { sportsRoutes } from "./modules/sports/routes.js";
+import { createSportsService } from "./modules/sports/service.js";
 import { createBrokerRegistry } from "./modules/brokers/registry.js";
 
 const JSON_TYPE = "application/json; charset=utf-8";
@@ -156,6 +158,14 @@ export async function buildApp({ config, store, logger = true, publicDir = path.
   // directly — the execution supervisor asks the manager, exactly as legacy did.
   const brokers = createBrokerRegistry({ brokers: config.brokers });
 
+  // One sports service per app (row 14, slice 1). Providers come from the
+  // environment only, and a default host registers none at all: the sandbox
+  // provider needs WINDELS_SPORTS_MODE=SANDBOX *and* WINDELS_SPORTS_SANDBOX=1, and
+  // the HTTP provider needs a valid base URL. Unlike the broker registry this
+  // service holds no repository, so it can read a provider but cannot store what it
+  // read — which is why its one route reports status rather than fixtures.
+  const sports = createSportsService({ config });
+
   // One notification service per app. It is built before the paper service
   // because governance transitions publish through it, and it is handed to that
   // service as an *optional* collaborator: a host whose migration 009 has not
@@ -166,7 +176,7 @@ export async function buildApp({ config, store, logger = true, publicDir = path.
   // The status surface reports the notification module alongside market data and
   // analysis, so an operator can see that alerts are stored-and-read only and that
   // no outbound delivery channel exists.
-  await app.register(healthRoutes, { prefix: "/api/v1", store, config, adapter, router, marketData, analysis, notifications, brokers });
+  await app.register(healthRoutes, { prefix: "/api/v1", store, config, adapter, router, marketData, analysis, notifications, brokers, sports });
   if (config.auth !== false) {
     await app.register(identityRoutes, { prefix: "/api/v1", store, config, loginGuard });
   }
@@ -211,6 +221,11 @@ export async function buildApp({ config, store, logger = true, publicDir = path.
   // Broker Center (row 13): one read-only route. There is no order endpoint and no
   // connector-enable endpoint here — routing stays in the execution supervisor.
   await app.register(brokerRoutes, { prefix: "/api/v1", store, config, brokers });
+  // Sports Intelligence (row 14, slice 1): one read-only status route. Legacy's
+  // twenty-odd sports endpoints all read the eleven tables this slice does not
+  // create, so none of them is ported; a matches endpoint that answered from a live
+  // provider call would return a different thing under a familiar name.
+  await app.register(sportsRoutes, { prefix: "/api/v1", store, config, sports });
 
   /**
    * Scheduled operations (row 19): the portfolio risk sweep and the cross-owner

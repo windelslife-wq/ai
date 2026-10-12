@@ -80,11 +80,12 @@ export const MODULE_STATUS = Object.freeze([
   //     so an operator hears about a breach when it happens, not as it approaches.
   //     The tiers live in the paper scan's vocabulary (row 11, already accepted),
   //     and adding them here would have meant a second, divergent set of thresholds.
-  //   * no broker transition alerts (`BROKER_CONNECTED`/`BROKER_DISCONNECTED`),
-  //     because the brokers module is not ported — there is no connector to observe.
   //   * no `sports_cron` or `lottery_cron`; those modules are not ported.
+  // (Broker transition alerts were added in Phase 14 — `BROKER_CONNECTED` and
+  // `BROKER_DISCONNECTED` now come from the same sweep, and `DISABLED` is never
+  // counted, so a default host with ten disabled connectors stays silent.)
   // There is deliberately no HTTP route: `runOperations` takes no owner argument.
-  { key: "scheduledJobs", label: "Scheduled operations cron: cross-owner portfolio risk sweep and stale-proposal expiry under a DB-backed lock (CLI only, no HTTP route, no early-warning tiers, no broker/sports/lottery cron)", state: "partial", tests: "unit + both adapters + CLI" },
+  { key: "scheduledJobs", label: "Scheduled operations cron: cross-owner portfolio risk sweep, stale-proposal expiry and broker connect/disconnect transitions under a DB-backed lock (CLI only, no HTTP route, no early-warning tiers, no sports/lottery cron)", state: "partial", tests: "unit + both adapters + CLI" },
   // Phase 14 ports the connector *boundary* and its gates, not a working
   // integration. What exists: the normalized data contracts every adapter must
   // satisfy, the DISABLED -> NOT_CONFIGURED -> DOWN -> READY health ladder, and the
@@ -96,7 +97,21 @@ export const MODULE_STATUS = Object.freeze([
   // false on every host that has not deployed and verified a real bridge, and the
   // label says that instead of letting `partial` imply a half-working broker.
   { key: "brokers", label: "Broker connector boundary, normalized data contracts and demo-only order gates (ten adapters registered, all disabled by default; one read-only route, no order routing, no simulated bridge, no adapter verified against its provider)", state: "partial", tests: "unit + http + gates" },
-  { key: "sports", label: "Sports intelligence", state: "not-ported", tests: null },
+  // Phase 15 ports slice 1 of row 14: the normalized data contracts, the two
+  // conservative engines, and the provider boundary. What exists: the fixture and
+  // odds normalizers, the data-quality and odds-freshness engines, the sandbox
+  // provider (deterministic, double-gated, every record labelled `simulated`), the
+  // generic HTTP provider with classified failures, the fallback chain that returns
+  // a structured failure instead of an empty success, and the health monitor that
+  // derives a status from observations and invents none. All four pure classes are
+  // proven **bit-identical to PHP 8.2** by a differential harness (F-26, closed for
+  // this module). What does not exist: any persistence — the seven tables ingestion
+  // writes are not created — and therefore no sync, no prediction, no value or
+  // staking calculation, no ticket, no settlement, no calibration, no backtest, no
+  // model monitoring and no dashboard. `SPORTS_MODEL_DRIFT` is still unpublished
+  // (NV-6). The label has to say that, because "sports intelligence: partial"
+  // reads as "half a betting engine" and this is a tenth of a data layer.
+  { key: "sports", label: "Sports data foundation: normalized fixture/odds contracts, data-quality and freshness gates, and the provider boundary (sandbox simulation double-gated and labelled, generic REST provider never verified against a vendor); PHP-parity proven by differential test. No persistence, so no ingestion, prediction, ticket, settlement, calibration, backtest or monitoring \u2014 one read-only status route", state: "partial", tests: "unit + php-parity + http" },
   { key: "lottery", label: "Lottery intelligence", state: "not-ported", tests: null },
   { key: "languageLearning", label: "Language learning and AI teacher", state: "not-ported", tests: null },
   { key: "leadDiscovery", label: "Lead discovery", state: "not-ported", tests: null },
@@ -136,7 +151,7 @@ function countConfiguredConnectors(brokers) {
   }
 }
 
-export async function healthRoutes(app, { store, config, adapter, router, marketData = null, analysis = null, notifications = null, brokers = null }) {
+export async function healthRoutes(app, { store, config, adapter, router, marketData = null, analysis = null, notifications = null, brokers = null, sports = null }) {
   app.get("/health/live", async () => ({
     status: "ok",
     uptimeSeconds: Math.round(process.uptime()),
@@ -205,6 +220,13 @@ export async function healthRoutes(app, { store, config, adapter, router, market
       // Same rule as the two snapshots above: this describes the module, it does
       // not read the inbox, so an unauthenticated caller cannot enumerate alerts.
       notifications: notifications ? notifications.statusSnapshot() : null,
+      // Same rule again: this describes the sports module from configuration alone.
+      // It never contacts a provider, so an unauthenticated caller cannot make this
+      // server reach a third-party feed. Derived health is therefore not reported
+      // here at all -- it would be UNKNOWN with nothing behind it, and a field that
+      // can only ever hold one value is a field that invites a reader to think it
+      // was measured.
+      sports: sports ? sports.statusSnapshot() : null,
       trading: {
         enabled: true,
         simulationOnly: true,

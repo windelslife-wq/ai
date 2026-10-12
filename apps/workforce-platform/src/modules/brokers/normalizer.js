@@ -28,6 +28,8 @@
  * needed. The broker routes map the failures to HTTP at the boundary.
  */
 
+import { formatGmdateC } from "../../lib/php-date.js";
+
 /** Symbols legacy accepted: uppercase alphanumerics with dot, underscore, hyphen. */
 const SYMBOL = /^[A-Z0-9._-]{1,32}$/;
 /** ISO-4217-ish: legacy required exactly three uppercase letters and nothing more. */
@@ -125,12 +127,11 @@ function timestamp(value, now) {
 
 /**
  * `gmdate('c')` parity: second precision with an explicit `+00:00` offset.
- * `Date#toISOString()` gives `…T01:02:03.000Z`; this drops the milliseconds and
- * swaps the `Z`, and nothing else.
+ * Shared with the sports normalizer (Phase 15) from `src/lib/php-date.js` so the
+ * two ports cannot drift on a formatting detail that would fail every
+ * differential comparison on text rather than on behaviour.
  */
-function formatUtc(date) {
-  return date.toISOString().replace(/\.\d{3}Z$/, "+00:00");
-}
+const formatUtc = formatGmdateC;
 
 /** Normalized account snapshot (legacy `account()`). */
 export function normalizeAccount(raw, broker, { now } = {}) {

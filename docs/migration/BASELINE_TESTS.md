@@ -884,3 +884,65 @@ phase adds no SQL.
 Reproducibility note for this sandbox: `node_modules` does not persist between sessions, so
 `npm ci --no-audit --no-fund` at the repository root and a separate `npm ci` inside `runtime/`
 were both required before the two runners above would start.
+
+## Re-measured 2026-10-12 — Phase 15 (Sports Intelligence: data foundation, provider boundary, differential harness), branch `arena/8de8de2e-ai`, Node v22.22.3
+
+| Measure | Phase 14 | Phase 15 |
+|---|---|---|
+| Node assertions (`npm test`) | 689 | **752** (+63) |
+| Static checks (`npm run check`) | 0 failures | **0 failures** |
+| Install checks (`npm run verify:install`) | 29/29 | **29/29** |
+| Documented environment variables | 69 | **76** (+7) |
+| Composed names enumerated by F-33 | 71 | **71** (unchanged — all seven sports variables are read literally, so F-14 sees them) |
+| PHP oracle (`node runtime/run-tests.mjs`) | 367 passed / 0 failed | **367 passed / 0 failed** |
+| Total assertions executed | 1 056 | **1 119** |
+| Routes | 81 | **82** |
+| Admin routes | 7 | **7** |
+| Storage contract methods | 86 | **86** (unchanged — no persistence in this slice) |
+| Tables / migrations | 24 / 001–010 | **24 / 001–010** (unchanged) |
+| Module ledger | 9 ported / 4 partial / 4 not-ported | **9 ported / 5 partial / 3 not-ported** |
+| App version | 0.13.0 | **0.14.0** |
+| PHP paths modified | 0 | **0** |
+
+New test files: `test/sports_parity.test.js` (**16** tests, 62 captured cases),
+`test/sports.test.js` (**39**), `test/sports_http.test.js` (**8**).
+
+**A new kind of measurement appears in this phase.** Every previous row in this
+document counts assertions the Node suite makes about the Node implementation. The
+parity file is different: its expectations are **PHP's own output**, captured by
+running the legacy classes in WASM PHP 8.2 and written to
+`test/fixtures/sports-parity-golden.json`. That artifact is a measured quantity in its
+own right, so it is recorded as one:
+
+| Parity group | Cases captured from PHP |
+|---|---|
+| fixture normalization (values and refusal messages) | 23 |
+| odds normalization (values and refusal messages) | 13 |
+| data quality (score, band, both eligibility flags, the checks array) | 14 |
+| odds freshness (verdict, `ageSeconds`, score, reason) | 12 |
+| sandbox provider — health, 12 fixtures, odds, results, refusals | 12 fixtures + 9 internal derivations |
+| **Total** | **62** |
+
+This closes **F-26** for the sports foundation and immediately found **F-34** (PHP's
+two different CRC-32 algorithms, used by legacy in one class) and **D-23** (a clock
+convention mismatch that made the Node port refuse a *valid* fixture as
+unparseable). Both would have survived indefinitely: F-34 because the Node
+implementation agreed with itself perfectly, D-23 because a wrong clock convention
+looks like a provider sending bad data.
+
+**Unchanged, and still owed.** No real MySQL server (**F-15**); no multi-process
+Passenger contention test (**F-24**); no live-provider probe — the sports HTTP
+provider is proven entirely against an injected transport, and there is no configured
+vendor to probe (**F-25**); no console UI (**F-29**); `maxCorrelatedPositions` still
+enforced nowhere (**F-30**); legacy `automation_limits` still ungated (**F-31**);
+legacy `Api_system` reads still ungated (**F-32**). **DV-10** must appear in any future
+numeric diff as an *expected* difference. The parity harness covers four sports
+classes and nothing else — the optimizer, indicators, `MathUtils` and the notification
+rules remain un-diffed, and the sports manager and health monitor are deferred to
+slice 2 because their inputs are repository rows that do not exist yet.
+
+Reproducibility note for this sandbox: `node_modules` does not persist between
+sessions, so `npm ci --no-audit --no-fund` at the repository root and a separate
+`npm ci` inside `runtime/` were both required before the runners would start. The
+parity generator additionally needs `runtime/`'s WASM PHP, and takes materially
+longer to boot than the oracle suite does — budget for it when regenerating.

@@ -538,6 +538,45 @@ Both read a live bridge, and there is no verified adapter to read; a route that 
 answer 503 is a worse surface than no route, and the connector methods behind them exist
 and are tested against an injected transport.
 
+### 14.15 Sports Intelligence (1) — Phase 15
+
+Slice 1 of row 14: the data foundation and provider boundary. **One route, and it is a
+read.**
+
+| Method & path | Auth | Permission | Rate limit | Validated | Notes |
+|---|---|---|---|---|---|
+| `GET /api/v1/sports/status` | session or bearer | `sports.view` | global | `querySchema` | Provider configuration, derived health, the ten-entry `notPorted` matrix and a `notice`. Probe-free unless `?probe=1`; a probed response is stamped `persisted: false` |
+
+**Legacy has ~24 `Api_sports` endpoints and none of the others is ported** — not
+approximated, absent. Every one reads or writes the eleven tables this slice does not
+create, and `test/sports_http.test.js` asserts each absence against the route inventory
+rather than against a count, because a count would also pass if a route were renamed:
+`matches`, `odds`, `predictions`, `tickets`, `daily`, `results`, `providers`, `models`,
+`calibration`, `backtest`, `configuration`, `sync`, `settle`, `verify`. No sports route
+of any method other than `GET` exists.
+
+**`?probe` is a coerced boolean** (`{type: "boolean", default: false}`), matching
+`PROVIDERS_QUERY.refresh` in the market-data module. Declaring it is not decoration:
+`validateRequest` **rebuilds `request.query` from the schema**, so an undeclared
+parameter is dropped rather than passed through — the first version of this route had no
+schema and `?probe=1` silently never reached the handler (**D-24**). An unparseable value
+is a `400 INVALID_REQUEST` naming the field, not a silent "off" (**AV-3**'s reasoning),
+while `?probe=` with an empty value counts as absent and takes the default.
+
+**Authorization is not a divergence here.** `Api_sports` is the best-gated controller in
+the legacy application — `sports.view` for every read, `sports.manage` for writes, and
+separate `sports.approve` and `sports.settle`. The gate is reproduced because legacy had
+it, which is the counter-example that makes **F-32** precise: the same codebase gated one
+module's reads correctly and left another's open. Node's permission baseline already
+declared all four permissions and the `sports_admin`/`sports_viewer` roles, so no catalog
+change was needed; only `sports.view` is enforced yet, because only one route exists.
+
+`GET /api/v1/system/status` additionally carries a synchronous, probe-free
+`sports` snapshot (`enabled`, `mode`, `isDemoData`, `providersConfigured`, `providerIds`,
+`simulatedProviders`, `persistence: false`, `ticketEngine: "NOT_PORTED"`, `reason`). It
+reports **no derived health**, because a field that could only ever hold `UNKNOWN` invites
+a reader to think it was measured. See [`PHASE15_SPORTS_FOUNDATION.md`](PHASE15_SPORTS_FOUNDATION.md).
+
 ### 14.8 Strategies, backtesting and the journal (11) — Phase 6
 
 The Phase-6 routes are session-only with no permission gate, matching their legacy

@@ -1,0 +1,2730 @@
+{
+  "generator": "runtime/parity/sports-golden.php",
+  "php": {
+    "version": "8.2 (normalized)",
+    "sapi": "wasm"
+  },
+  "cases": {
+    "fixture": {
+      "minimal valid": {
+        "input": {
+          "externalId": "FX-1",
+          "homeTeam": "Alpha United",
+          "awayTeam": "Bolt City",
+          "competition": "Premier Simulation League",
+          "kickoff": "2020-01-04T14:00:00Z"
+        },
+        "result": {
+          "ok": true,
+          "value": {
+            "provider": "parity-provider",
+            "externalId": "FX-1",
+            "sport": "football",
+            "homeTeam": "Alpha United",
+            "awayTeam": "Bolt City",
+            "competition": "Premier Simulation League",
+            "kickoff": "2020-01-04T14:00:00+00:00",
+            "status": "SCHEDULED",
+            "sourceTimestamp": "<NOW>",
+            "simulated": false,
+            "context": null,
+            "fieldsPresent": [
+              "externalId",
+              "homeTeam",
+              "awayTeam",
+              "competition",
+              "kickoff"
+            ]
+          }
+        }
+      },
+      "full valid with offset kickoff": {
+        "input": {
+          "externalId": "FX-2",
+          "homeTeam": " Comet Rangers ",
+          "awayTeam": "Delta Athletic",
+          "competition": "  Continental Simulation Cup  ",
+          "kickoff": "2020-01-04T15:00:00+01:00",
+          "status": "live",
+          "sport": "FOOTBALL",
+          "sourceTimestamp": "2020-01-04T10:00:00Z",
+          "simulated": true,
+          "context": {
+            "recentForm": {
+              "homeGoalsPerMatch": 1.5,
+              "awayGoalsPerMatch": "1.25",
+              "homeConcededPerMatch": 0,
+              "awayConcededPerMatch": 2,
+              "source": "parity"
+            },
+            "marketLiquidity": 50000,
+            "restDays": 3
+          }
+        },
+        "result": {
+          "ok": true,
+          "value": {
+            "provider": "parity-provider",
+            "externalId": "FX-2",
+            "sport": "football",
+            "homeTeam": "Comet Rangers",
+            "awayTeam": "Delta Athletic",
+            "competition": "Continental Simulation Cup",
+            "kickoff": "2020-01-04T14:00:00+00:00",
+            "status": "LIVE",
+            "sourceTimestamp": "<NOW>",
+            "simulated": true,
+            "context": {
+              "recentForm": {
+                "homeGoalsPerMatch": 1.5,
+                "awayGoalsPerMatch": 1.25,
+                "homeConcededPerMatch": 0,
+                "awayConcededPerMatch": 2,
+                "source": "parity"
+              },
+              "marketLiquidity": 50000,
+              "restDays": 3
+            },
+            "fieldsPresent": [
+              "externalId",
+              "homeTeam",
+              "awayTeam",
+              "competition",
+              "kickoff",
+              "status",
+              "sport",
+              "sourceTimestamp",
+              "simulated",
+              "context"
+            ]
+          }
+        }
+      },
+      "unknown status is refused": {
+        "input": {
+          "externalId": "FX-3",
+          "homeTeam": "A",
+          "awayTeam": "B",
+          "competition": "C",
+          "kickoff": "2020-01-04T14:00:00Z",
+          "status": "ABANDONED"
+        },
+        "result": {
+          "ok": false,
+          "error": "fixture status is invalid",
+          "class": "InvalidArgumentException"
+        }
+      },
+      "lowercase status is accepted and uppercased": {
+        "input": {
+          "externalId": "FX-4",
+          "homeTeam": "A",
+          "awayTeam": "B",
+          "competition": "C",
+          "kickoff": "2020-01-04T14:00:00Z",
+          "status": "postponed"
+        },
+        "result": {
+          "ok": true,
+          "value": {
+            "provider": "parity-provider",
+            "externalId": "FX-4",
+            "sport": "football",
+            "homeTeam": "A",
+            "awayTeam": "B",
+            "competition": "C",
+            "kickoff": "2020-01-04T14:00:00+00:00",
+            "status": "POSTPONED",
+            "sourceTimestamp": "<NOW>",
+            "simulated": false,
+            "context": null,
+            "fieldsPresent": [
+              "externalId",
+              "homeTeam",
+              "awayTeam",
+              "competition",
+              "kickoff",
+              "status"
+            ]
+          }
+        }
+      },
+      "missing externalId": {
+        "input": {
+          "homeTeam": "A",
+          "awayTeam": "B",
+          "competition": "C",
+          "kickoff": "2020-01-04T14:00:00Z"
+        },
+        "result": {
+          "ok": false,
+          "error": "fixture missing externalId",
+          "class": "InvalidArgumentException"
+        }
+      },
+      "blank homeTeam": {
+        "input": {
+          "externalId": "FX-5",
+          "homeTeam": "   ",
+          "awayTeam": "B",
+          "competition": "C",
+          "kickoff": "2020-01-04T14:00:00Z"
+        },
+        "result": {
+          "ok": false,
+          "error": "fixture missing homeTeam",
+          "class": "InvalidArgumentException"
+        }
+      },
+      "null competition is treated as absent": {
+        "input": {
+          "externalId": "FX-6",
+          "homeTeam": "A",
+          "awayTeam": "B",
+          "competition": null,
+          "kickoff": "2020-01-04T14:00:00Z"
+        },
+        "result": {
+          "ok": false,
+          "error": "fixture missing competition",
+          "class": "InvalidArgumentException"
+        }
+      },
+      "unparseable kickoff": {
+        "input": {
+          "externalId": "FX-7",
+          "homeTeam": "A",
+          "awayTeam": "B",
+          "competition": "C",
+          "kickoff": "not-a-date"
+        },
+        "result": {
+          "ok": false,
+          "error": "fixture kickoff is invalid",
+          "class": "InvalidArgumentException"
+        }
+      },
+      "numeric-string kickoff is not an epoch": {
+        "input": {
+          "externalId": "FX-8",
+          "homeTeam": "A",
+          "awayTeam": "B",
+          "competition": "C",
+          "kickoff": "1700000000"
+        },
+        "result": {
+          "ok": false,
+          "error": "fixture kickoff is invalid",
+          "class": "InvalidArgumentException"
+        }
+      },
+      "bare zero kickoff": {
+        "input": {
+          "externalId": "FX-9",
+          "homeTeam": "A",
+          "awayTeam": "B",
+          "competition": "C",
+          "kickoff": "0"
+        },
+        "result": {
+          "ok": false,
+          "error": "fixture kickoff is invalid",
+          "class": "InvalidArgumentException"
+        }
+      },
+      "bare year-like kickoff": {
+        "input": {
+          "externalId": "FX-10",
+          "homeTeam": "A",
+          "awayTeam": "B",
+          "competition": "C",
+          "kickoff": "12345"
+        },
+        "result": {
+          "ok": false,
+          "error": "fixture kickoff is invalid",
+          "class": "InvalidArgumentException"
+        }
+      },
+      "unparseable sourceTimestamp": {
+        "input": {
+          "externalId": "FX-11",
+          "homeTeam": "A",
+          "awayTeam": "B",
+          "competition": "C",
+          "kickoff": "2020-01-04T14:00:00Z",
+          "sourceTimestamp": "whenever"
+        },
+        "result": {
+          "ok": false,
+          "error": "sourceTimestamp is invalid",
+          "class": "InvalidArgumentException"
+        }
+      },
+      "incomplete recentForm is dropped entirely": {
+        "input": {
+          "externalId": "FX-12",
+          "homeTeam": "A",
+          "awayTeam": "B",
+          "competition": "C",
+          "kickoff": "2020-01-04T14:00:00Z",
+          "context": {
+            "recentForm": {
+              "homeGoalsPerMatch": 1.5,
+              "awayGoalsPerMatch": 1.2,
+              "homeConcededPerMatch": 0.9
+            }
+          }
+        },
+        "result": {
+          "ok": true,
+          "value": {
+            "provider": "parity-provider",
+            "externalId": "FX-12",
+            "sport": "football",
+            "homeTeam": "A",
+            "awayTeam": "B",
+            "competition": "C",
+            "kickoff": "2020-01-04T14:00:00+00:00",
+            "status": "SCHEDULED",
+            "sourceTimestamp": "<NOW>",
+            "simulated": false,
+            "context": null,
+            "fieldsPresent": [
+              "externalId",
+              "homeTeam",
+              "awayTeam",
+              "competition",
+              "kickoff",
+              "context"
+            ]
+          }
+        }
+      },
+      "negative form value drops the whole block": {
+        "input": {
+          "externalId": "FX-13",
+          "homeTeam": "A",
+          "awayTeam": "B",
+          "competition": "C",
+          "kickoff": "2020-01-04T14:00:00Z",
+          "context": {
+            "recentForm": {
+              "homeGoalsPerMatch": 1.5,
+              "awayGoalsPerMatch": 1.2,
+              "homeConcededPerMatch": -0.4,
+              "awayConcededPerMatch": 1.1
+            }
+          }
+        },
+        "result": {
+          "ok": true,
+          "value": {
+            "provider": "parity-provider",
+            "externalId": "FX-13",
+            "sport": "football",
+            "homeTeam": "A",
+            "awayTeam": "B",
+            "competition": "C",
+            "kickoff": "2020-01-04T14:00:00+00:00",
+            "status": "SCHEDULED",
+            "sourceTimestamp": "<NOW>",
+            "simulated": false,
+            "context": null,
+            "fieldsPresent": [
+              "externalId",
+              "homeTeam",
+              "awayTeam",
+              "competition",
+              "kickoff",
+              "context"
+            ]
+          }
+        }
+      },
+      "non-numeric form value drops the whole block": {
+        "input": {
+          "externalId": "FX-14",
+          "homeTeam": "A",
+          "awayTeam": "B",
+          "competition": "C",
+          "kickoff": "2020-01-04T14:00:00Z",
+          "context": {
+            "recentForm": {
+              "homeGoalsPerMatch": true,
+              "awayGoalsPerMatch": 1.2,
+              "homeConcededPerMatch": 0.9,
+              "awayConcededPerMatch": 1.1
+            }
+          }
+        },
+        "result": {
+          "ok": true,
+          "value": {
+            "provider": "parity-provider",
+            "externalId": "FX-14",
+            "sport": "football",
+            "homeTeam": "A",
+            "awayTeam": "B",
+            "competition": "C",
+            "kickoff": "2020-01-04T14:00:00+00:00",
+            "status": "SCHEDULED",
+            "sourceTimestamp": "<NOW>",
+            "simulated": false,
+            "context": null,
+            "fieldsPresent": [
+              "externalId",
+              "homeTeam",
+              "awayTeam",
+              "competition",
+              "kickoff",
+              "context"
+            ]
+          }
+        }
+      },
+      "form source must be a string or becomes null": {
+        "input": {
+          "externalId": "FX-15",
+          "homeTeam": "A",
+          "awayTeam": "B",
+          "competition": "C",
+          "kickoff": "2020-01-04T14:00:00Z",
+          "context": {
+            "recentForm": {
+              "homeGoalsPerMatch": 1.5,
+              "awayGoalsPerMatch": 1.2,
+              "homeConcededPerMatch": 0.9,
+              "awayConcededPerMatch": 1.1,
+              "source": 42
+            }
+          }
+        },
+        "result": {
+          "ok": true,
+          "value": {
+            "provider": "parity-provider",
+            "externalId": "FX-15",
+            "sport": "football",
+            "homeTeam": "A",
+            "awayTeam": "B",
+            "competition": "C",
+            "kickoff": "2020-01-04T14:00:00+00:00",
+            "status": "SCHEDULED",
+            "sourceTimestamp": "<NOW>",
+            "simulated": false,
+            "context": {
+              "recentForm": {
+                "homeGoalsPerMatch": 1.5,
+                "awayGoalsPerMatch": 1.2,
+                "homeConcededPerMatch": 0.9,
+                "awayConcededPerMatch": 1.1,
+                "source": null
+              }
+            },
+            "fieldsPresent": [
+              "externalId",
+              "homeTeam",
+              "awayTeam",
+              "competition",
+              "kickoff",
+              "context"
+            ]
+          }
+        }
+      },
+      "negative marketLiquidity is dropped but restDays survives": {
+        "input": {
+          "externalId": "FX-16",
+          "homeTeam": "A",
+          "awayTeam": "B",
+          "competition": "C",
+          "kickoff": "2020-01-04T14:00:00Z",
+          "context": {
+            "marketLiquidity": -5,
+            "restDays": 2
+          }
+        },
+        "result": {
+          "ok": true,
+          "value": {
+            "provider": "parity-provider",
+            "externalId": "FX-16",
+            "sport": "football",
+            "homeTeam": "A",
+            "awayTeam": "B",
+            "competition": "C",
+            "kickoff": "2020-01-04T14:00:00+00:00",
+            "status": "SCHEDULED",
+            "sourceTimestamp": "<NOW>",
+            "simulated": false,
+            "context": {
+              "restDays": 2
+            },
+            "fieldsPresent": [
+              "externalId",
+              "homeTeam",
+              "awayTeam",
+              "competition",
+              "kickoff",
+              "context"
+            ]
+          }
+        }
+      },
+      "empty context becomes null": {
+        "input": {
+          "externalId": "FX-17",
+          "homeTeam": "A",
+          "awayTeam": "B",
+          "competition": "C",
+          "kickoff": "2020-01-04T14:00:00Z",
+          "context": []
+        },
+        "result": {
+          "ok": true,
+          "value": {
+            "provider": "parity-provider",
+            "externalId": "FX-17",
+            "sport": "football",
+            "homeTeam": "A",
+            "awayTeam": "B",
+            "competition": "C",
+            "kickoff": "2020-01-04T14:00:00+00:00",
+            "status": "SCHEDULED",
+            "sourceTimestamp": "<NOW>",
+            "simulated": false,
+            "context": null,
+            "fieldsPresent": [
+              "externalId",
+              "homeTeam",
+              "awayTeam",
+              "competition",
+              "kickoff",
+              "context"
+            ]
+          }
+        }
+      },
+      "non-array context becomes null": {
+        "input": {
+          "externalId": "FX-18",
+          "homeTeam": "A",
+          "awayTeam": "B",
+          "competition": "C",
+          "kickoff": "2020-01-04T14:00:00Z",
+          "context": "nonsense"
+        },
+        "result": {
+          "ok": true,
+          "value": {
+            "provider": "parity-provider",
+            "externalId": "FX-18",
+            "sport": "football",
+            "homeTeam": "A",
+            "awayTeam": "B",
+            "competition": "C",
+            "kickoff": "2020-01-04T14:00:00+00:00",
+            "status": "SCHEDULED",
+            "sourceTimestamp": "<NOW>",
+            "simulated": false,
+            "context": null,
+            "fieldsPresent": [
+              "externalId",
+              "homeTeam",
+              "awayTeam",
+              "competition",
+              "kickoff",
+              "context"
+            ]
+          }
+        }
+      },
+      "zero restDays is kept": {
+        "input": {
+          "externalId": "FX-19",
+          "homeTeam": "A",
+          "awayTeam": "B",
+          "competition": "C",
+          "kickoff": "2020-01-04T14:00:00Z",
+          "context": {
+            "restDays": 0
+          }
+        },
+        "result": {
+          "ok": true,
+          "value": {
+            "provider": "parity-provider",
+            "externalId": "FX-19",
+            "sport": "football",
+            "homeTeam": "A",
+            "awayTeam": "B",
+            "competition": "C",
+            "kickoff": "2020-01-04T14:00:00+00:00",
+            "status": "SCHEDULED",
+            "sourceTimestamp": "<NOW>",
+            "simulated": false,
+            "context": {
+              "restDays": 0
+            },
+            "fieldsPresent": [
+              "externalId",
+              "homeTeam",
+              "awayTeam",
+              "competition",
+              "kickoff",
+              "context"
+            ]
+          }
+        }
+      },
+      "simulated flag is truthiness not presence": {
+        "input": {
+          "externalId": "FX-20",
+          "homeTeam": "A",
+          "awayTeam": "B",
+          "competition": "C",
+          "kickoff": "2020-01-04T14:00:00Z",
+          "simulated": "0"
+        },
+        "result": {
+          "ok": true,
+          "value": {
+            "provider": "parity-provider",
+            "externalId": "FX-20",
+            "sport": "football",
+            "homeTeam": "A",
+            "awayTeam": "B",
+            "competition": "C",
+            "kickoff": "2020-01-04T14:00:00+00:00",
+            "status": "SCHEDULED",
+            "sourceTimestamp": "<NOW>",
+            "simulated": false,
+            "context": null,
+            "fieldsPresent": [
+              "externalId",
+              "homeTeam",
+              "awayTeam",
+              "competition",
+              "kickoff",
+              "simulated"
+            ]
+          }
+        }
+      },
+      "simulated flag accepts a non-empty string": {
+        "input": {
+          "externalId": "FX-21",
+          "homeTeam": "A",
+          "awayTeam": "B",
+          "competition": "C",
+          "kickoff": "2020-01-04T14:00:00Z",
+          "simulated": "yes"
+        },
+        "result": {
+          "ok": true,
+          "value": {
+            "provider": "parity-provider",
+            "externalId": "FX-21",
+            "sport": "football",
+            "homeTeam": "A",
+            "awayTeam": "B",
+            "competition": "C",
+            "kickoff": "2020-01-04T14:00:00+00:00",
+            "status": "SCHEDULED",
+            "sourceTimestamp": "<NOW>",
+            "simulated": true,
+            "context": null,
+            "fieldsPresent": [
+              "externalId",
+              "homeTeam",
+              "awayTeam",
+              "competition",
+              "kickoff",
+              "simulated"
+            ]
+          }
+        }
+      },
+      "extra fields are preserved in fieldsPresent only": {
+        "input": {
+          "externalId": "FX-22",
+          "homeTeam": "A",
+          "awayTeam": "B",
+          "competition": "C",
+          "kickoff": "2020-01-04T14:00:00Z",
+          "referee": "Someone",
+          "venue": "Somewhere"
+        },
+        "result": {
+          "ok": true,
+          "value": {
+            "provider": "parity-provider",
+            "externalId": "FX-22",
+            "sport": "football",
+            "homeTeam": "A",
+            "awayTeam": "B",
+            "competition": "C",
+            "kickoff": "2020-01-04T14:00:00+00:00",
+            "status": "SCHEDULED",
+            "sourceTimestamp": "<NOW>",
+            "simulated": false,
+            "context": null,
+            "fieldsPresent": [
+              "externalId",
+              "homeTeam",
+              "awayTeam",
+              "competition",
+              "kickoff",
+              "referee",
+              "venue"
+            ]
+          }
+        }
+      },
+      "date-only kickoff": {
+        "input": {
+          "externalId": "FX-23",
+          "homeTeam": "A",
+          "awayTeam": "B",
+          "competition": "C",
+          "kickoff": "2020-01-04"
+        },
+        "result": {
+          "ok": true,
+          "value": {
+            "provider": "parity-provider",
+            "externalId": "FX-23",
+            "sport": "football",
+            "homeTeam": "A",
+            "awayTeam": "B",
+            "competition": "C",
+            "kickoff": "2020-01-04T00:00:00+00:00",
+            "status": "SCHEDULED",
+            "sourceTimestamp": "<NOW>",
+            "simulated": false,
+            "context": null,
+            "fieldsPresent": [
+              "externalId",
+              "homeTeam",
+              "awayTeam",
+              "competition",
+              "kickoff"
+            ]
+          }
+        }
+      }
+    },
+    "odds": {
+      "valid": {
+        "input": {
+          "market": "TOTAL_GOALS",
+          "selection": "OVER_1_5",
+          "decimalOdds": 2.36,
+          "observedAt": "2020-01-04T12:00:00Z"
+        },
+        "result": {
+          "ok": true,
+          "value": {
+            "provider": "parity-provider",
+            "market": "TOTAL_GOALS",
+            "selection": "OVER_1_5",
+            "decimalOdds": 2.36,
+            "observedAt": "2020-01-04T12:00:00+00:00"
+          }
+        }
+      },
+      "numeric string odds": {
+        "input": {
+          "market": "MATCH_ODDS",
+          "selection": "HOME",
+          "decimalOdds": "1.85",
+          "observedAt": "2020-01-04T12:00:00Z"
+        },
+        "result": {
+          "ok": true,
+          "value": {
+            "provider": "parity-provider",
+            "market": "MATCH_ODDS",
+            "selection": "HOME",
+            "decimalOdds": 1.85,
+            "observedAt": "2020-01-04T12:00:00+00:00"
+          }
+        }
+      },
+      "odds of exactly 1.0 are refused": {
+        "input": {
+          "market": "MATCH_ODDS",
+          "selection": "HOME",
+          "decimalOdds": 1,
+          "observedAt": "2020-01-04T12:00:00Z"
+        },
+        "result": {
+          "ok": false,
+          "error": "decimal odds are invalid",
+          "class": "InvalidArgumentException"
+        }
+      },
+      "odds just above 1.0 are accepted": {
+        "input": {
+          "market": "MATCH_ODDS",
+          "selection": "HOME",
+          "decimalOdds": 1.0000001,
+          "observedAt": "2020-01-04T12:00:00Z"
+        },
+        "result": {
+          "ok": true,
+          "value": {
+            "provider": "parity-provider",
+            "market": "MATCH_ODDS",
+            "selection": "HOME",
+            "decimalOdds": 1.0000001,
+            "observedAt": "2020-01-04T12:00:00+00:00"
+          }
+        }
+      },
+      "zero odds are refused": {
+        "input": {
+          "market": "MATCH_ODDS",
+          "selection": "HOME",
+          "decimalOdds": 0,
+          "observedAt": "2020-01-04T12:00:00Z"
+        },
+        "result": {
+          "ok": false,
+          "error": "decimal odds are invalid",
+          "class": "InvalidArgumentException"
+        }
+      },
+      "negative odds are refused": {
+        "input": {
+          "market": "MATCH_ODDS",
+          "selection": "HOME",
+          "decimalOdds": -2,
+          "observedAt": "2020-01-04T12:00:00Z"
+        },
+        "result": {
+          "ok": false,
+          "error": "decimal odds are invalid",
+          "class": "InvalidArgumentException"
+        }
+      },
+      "non-numeric odds are refused": {
+        "input": {
+          "market": "MATCH_ODDS",
+          "selection": "HOME",
+          "decimalOdds": "evens",
+          "observedAt": "2020-01-04T12:00:00Z"
+        },
+        "result": {
+          "ok": false,
+          "error": "decimal odds are invalid",
+          "class": "InvalidArgumentException"
+        }
+      },
+      "boolean odds are refused because is_numeric(true) is false": {
+        "input": {
+          "market": "MATCH_ODDS",
+          "selection": "HOME",
+          "decimalOdds": true,
+          "observedAt": "2020-01-04T12:00:00Z"
+        },
+        "result": {
+          "ok": false,
+          "error": "decimal odds are invalid",
+          "class": "InvalidArgumentException"
+        }
+      },
+      "missing observedAt": {
+        "input": {
+          "market": "MATCH_ODDS",
+          "selection": "HOME",
+          "decimalOdds": 1.9
+        },
+        "result": {
+          "ok": false,
+          "error": "odds missing observedAt",
+          "class": "InvalidArgumentException"
+        }
+      },
+      "empty market string": {
+        "input": {
+          "market": "",
+          "selection": "HOME",
+          "decimalOdds": 1.9,
+          "observedAt": "2020-01-04T12:00:00Z"
+        },
+        "result": {
+          "ok": false,
+          "error": "odds missing market",
+          "class": "InvalidArgumentException"
+        }
+      },
+      "whitespace market passes presence and is trimmed": {
+        "input": {
+          "market": "  MATCH_ODDS  ",
+          "selection": "HOME",
+          "decimalOdds": 1.9,
+          "observedAt": "2020-01-04T12:00:00Z"
+        },
+        "result": {
+          "ok": true,
+          "value": {
+            "provider": "parity-provider",
+            "market": "MATCH_ODDS",
+            "selection": "HOME",
+            "decimalOdds": 1.9,
+            "observedAt": "2020-01-04T12:00:00+00:00"
+          }
+        }
+      },
+      "unparseable observedAt": {
+        "input": {
+          "market": "MATCH_ODDS",
+          "selection": "HOME",
+          "decimalOdds": 1.9,
+          "observedAt": "later"
+        },
+        "result": {
+          "ok": false,
+          "error": "sourceTimestamp is invalid",
+          "class": "InvalidArgumentException"
+        }
+      },
+      "high precision odds survive": {
+        "input": {
+          "market": "MATCH_ODDS",
+          "selection": "HOME",
+          "decimalOdds": 1.234567891,
+          "observedAt": "2020-01-04T12:00:00Z"
+        },
+        "result": {
+          "ok": true,
+          "value": {
+            "provider": "parity-provider",
+            "market": "MATCH_ODDS",
+            "selection": "HOME",
+            "decimalOdds": 1.234567891,
+            "observedAt": "2020-01-04T12:00:00+00:00"
+          }
+        }
+      }
+    },
+    "quality": {
+      "everything present and fresh": {
+        "fixture": {
+          "externalId": "FX-1",
+          "homeTeam": "A",
+          "awayTeam": "B",
+          "competition": "C",
+          "kickoff": "2020-01-04T14:00:00Z"
+        },
+        "context": {
+          "oddsAvailable": true,
+          "recentFormAvailable": true,
+          "providerReliability": 0.95,
+          "dataAgeSeconds": 30,
+          "maxAgeSeconds": 3600
+        },
+        "result": {
+          "ok": true,
+          "value": {
+            "score": 100,
+            "band": "EXCELLENT",
+            "freshnessScore": 100,
+            "providerReliabilityScore": 95,
+            "eligibleForPrediction": true,
+            "eligibleForTicket": true,
+            "missing": [],
+            "checks": [
+              {
+                "field": "externalId",
+                "ok": true,
+                "weight": 12
+              },
+              {
+                "field": "homeTeam",
+                "ok": true,
+                "weight": 12
+              },
+              {
+                "field": "awayTeam",
+                "ok": true,
+                "weight": 12
+              },
+              {
+                "field": "competition",
+                "ok": true,
+                "weight": 12
+              },
+              {
+                "field": "kickoff",
+                "ok": true,
+                "weight": 12
+              },
+              {
+                "field": "odds",
+                "ok": true,
+                "weight": 18
+              },
+              {
+                "field": "recentForm",
+                "ok": true,
+                "weight": 12
+              },
+              {
+                "field": "providerReliability",
+                "ok": true,
+                "weight": 10
+              },
+              {
+                "field": "freshness",
+                "ok": true,
+                "weight": 8
+              }
+            ]
+          }
+        }
+      },
+      "no context at all": {
+        "fixture": {
+          "externalId": "FX-1",
+          "homeTeam": "A",
+          "awayTeam": "B",
+          "competition": "C",
+          "kickoff": "2020-01-04T14:00:00Z"
+        },
+        "context": [],
+        "result": {
+          "ok": true,
+          "value": {
+            "score": 56,
+            "band": "REJECT",
+            "freshnessScore": 0,
+            "providerReliabilityScore": 0,
+            "eligibleForPrediction": false,
+            "eligibleForTicket": false,
+            "missing": [
+              "odds",
+              "recentForm",
+              "providerReliability",
+              "freshness"
+            ],
+            "checks": [
+              {
+                "field": "externalId",
+                "ok": true,
+                "weight": 12
+              },
+              {
+                "field": "homeTeam",
+                "ok": true,
+                "weight": 12
+              },
+              {
+                "field": "awayTeam",
+                "ok": true,
+                "weight": 12
+              },
+              {
+                "field": "competition",
+                "ok": true,
+                "weight": 12
+              },
+              {
+                "field": "kickoff",
+                "ok": true,
+                "weight": 12
+              },
+              {
+                "field": "odds",
+                "ok": false,
+                "weight": 18
+              },
+              {
+                "field": "recentForm",
+                "ok": false,
+                "weight": 12
+              },
+              {
+                "field": "providerReliability",
+                "ok": false,
+                "weight": 10
+              },
+              {
+                "field": "freshness",
+                "ok": false,
+                "weight": 8
+              }
+            ]
+          }
+        }
+      },
+      "odds missing only": {
+        "fixture": {
+          "externalId": "FX-1",
+          "homeTeam": "A",
+          "awayTeam": "B",
+          "competition": "C",
+          "kickoff": "2020-01-04T14:00:00Z"
+        },
+        "context": {
+          "oddsAvailable": false,
+          "recentFormAvailable": true,
+          "providerReliability": 0.95,
+          "dataAgeSeconds": 30
+        },
+        "result": {
+          "ok": true,
+          "value": {
+            "score": 83,
+            "band": "GOOD",
+            "freshnessScore": 100,
+            "providerReliabilityScore": 95,
+            "eligibleForPrediction": true,
+            "eligibleForTicket": true,
+            "missing": [
+              "odds"
+            ],
+            "checks": [
+              {
+                "field": "externalId",
+                "ok": true,
+                "weight": 12
+              },
+              {
+                "field": "homeTeam",
+                "ok": true,
+                "weight": 12
+              },
+              {
+                "field": "awayTeam",
+                "ok": true,
+                "weight": 12
+              },
+              {
+                "field": "competition",
+                "ok": true,
+                "weight": 12
+              },
+              {
+                "field": "kickoff",
+                "ok": true,
+                "weight": 12
+              },
+              {
+                "field": "odds",
+                "ok": false,
+                "weight": 18
+              },
+              {
+                "field": "recentForm",
+                "ok": true,
+                "weight": 12
+              },
+              {
+                "field": "providerReliability",
+                "ok": true,
+                "weight": 10
+              },
+              {
+                "field": "freshness",
+                "ok": true,
+                "weight": 8
+              }
+            ]
+          }
+        }
+      },
+      "reliability just below the threshold": {
+        "fixture": {
+          "externalId": "FX-1",
+          "homeTeam": "A",
+          "awayTeam": "B",
+          "competition": "C",
+          "kickoff": "2020-01-04T14:00:00Z"
+        },
+        "context": {
+          "oddsAvailable": true,
+          "recentFormAvailable": true,
+          "providerReliability": 0.7499,
+          "dataAgeSeconds": 30
+        },
+        "result": {
+          "ok": true,
+          "value": {
+            "score": 91,
+            "band": "EXCELLENT",
+            "freshnessScore": 100,
+            "providerReliabilityScore": 75,
+            "eligibleForPrediction": true,
+            "eligibleForTicket": true,
+            "missing": [
+              "providerReliability"
+            ],
+            "checks": [
+              {
+                "field": "externalId",
+                "ok": true,
+                "weight": 12
+              },
+              {
+                "field": "homeTeam",
+                "ok": true,
+                "weight": 12
+              },
+              {
+                "field": "awayTeam",
+                "ok": true,
+                "weight": 12
+              },
+              {
+                "field": "competition",
+                "ok": true,
+                "weight": 12
+              },
+              {
+                "field": "kickoff",
+                "ok": true,
+                "weight": 12
+              },
+              {
+                "field": "odds",
+                "ok": true,
+                "weight": 18
+              },
+              {
+                "field": "recentForm",
+                "ok": true,
+                "weight": 12
+              },
+              {
+                "field": "providerReliability",
+                "ok": false,
+                "weight": 10
+              },
+              {
+                "field": "freshness",
+                "ok": true,
+                "weight": 8
+              }
+            ]
+          }
+        }
+      },
+      "reliability exactly at the threshold": {
+        "fixture": {
+          "externalId": "FX-1",
+          "homeTeam": "A",
+          "awayTeam": "B",
+          "competition": "C",
+          "kickoff": "2020-01-04T14:00:00Z"
+        },
+        "context": {
+          "oddsAvailable": true,
+          "recentFormAvailable": true,
+          "providerReliability": 0.75,
+          "dataAgeSeconds": 30
+        },
+        "result": {
+          "ok": true,
+          "value": {
+            "score": 100,
+            "band": "EXCELLENT",
+            "freshnessScore": 100,
+            "providerReliabilityScore": 75,
+            "eligibleForPrediction": true,
+            "eligibleForTicket": true,
+            "missing": [],
+            "checks": [
+              {
+                "field": "externalId",
+                "ok": true,
+                "weight": 12
+              },
+              {
+                "field": "homeTeam",
+                "ok": true,
+                "weight": 12
+              },
+              {
+                "field": "awayTeam",
+                "ok": true,
+                "weight": 12
+              },
+              {
+                "field": "competition",
+                "ok": true,
+                "weight": 12
+              },
+              {
+                "field": "kickoff",
+                "ok": true,
+                "weight": 12
+              },
+              {
+                "field": "odds",
+                "ok": true,
+                "weight": 18
+              },
+              {
+                "field": "recentForm",
+                "ok": true,
+                "weight": 12
+              },
+              {
+                "field": "providerReliability",
+                "ok": true,
+                "weight": 10
+              },
+              {
+                "field": "freshness",
+                "ok": true,
+                "weight": 8
+              }
+            ]
+          }
+        }
+      },
+      "reliability above one is clamped": {
+        "fixture": {
+          "externalId": "FX-1",
+          "homeTeam": "A",
+          "awayTeam": "B",
+          "competition": "C",
+          "kickoff": "2020-01-04T14:00:00Z"
+        },
+        "context": {
+          "oddsAvailable": true,
+          "recentFormAvailable": true,
+          "providerReliability": 1.7,
+          "dataAgeSeconds": 30
+        },
+        "result": {
+          "ok": true,
+          "value": {
+            "score": 100,
+            "band": "EXCELLENT",
+            "freshnessScore": 100,
+            "providerReliabilityScore": 100,
+            "eligibleForPrediction": true,
+            "eligibleForTicket": true,
+            "missing": [],
+            "checks": [
+              {
+                "field": "externalId",
+                "ok": true,
+                "weight": 12
+              },
+              {
+                "field": "homeTeam",
+                "ok": true,
+                "weight": 12
+              },
+              {
+                "field": "awayTeam",
+                "ok": true,
+                "weight": 12
+              },
+              {
+                "field": "competition",
+                "ok": true,
+                "weight": 12
+              },
+              {
+                "field": "kickoff",
+                "ok": true,
+                "weight": 12
+              },
+              {
+                "field": "odds",
+                "ok": true,
+                "weight": 18
+              },
+              {
+                "field": "recentForm",
+                "ok": true,
+                "weight": 12
+              },
+              {
+                "field": "providerReliability",
+                "ok": true,
+                "weight": 10
+              },
+              {
+                "field": "freshness",
+                "ok": true,
+                "weight": 8
+              }
+            ]
+          }
+        }
+      },
+      "negative reliability is clamped": {
+        "fixture": {
+          "externalId": "FX-1",
+          "homeTeam": "A",
+          "awayTeam": "B",
+          "competition": "C",
+          "kickoff": "2020-01-04T14:00:00Z"
+        },
+        "context": {
+          "oddsAvailable": true,
+          "recentFormAvailable": true,
+          "providerReliability": -0.4,
+          "dataAgeSeconds": 30
+        },
+        "result": {
+          "ok": true,
+          "value": {
+            "score": 91,
+            "band": "EXCELLENT",
+            "freshnessScore": 100,
+            "providerReliabilityScore": 0,
+            "eligibleForPrediction": true,
+            "eligibleForTicket": true,
+            "missing": [
+              "providerReliability"
+            ],
+            "checks": [
+              {
+                "field": "externalId",
+                "ok": true,
+                "weight": 12
+              },
+              {
+                "field": "homeTeam",
+                "ok": true,
+                "weight": 12
+              },
+              {
+                "field": "awayTeam",
+                "ok": true,
+                "weight": 12
+              },
+              {
+                "field": "competition",
+                "ok": true,
+                "weight": 12
+              },
+              {
+                "field": "kickoff",
+                "ok": true,
+                "weight": 12
+              },
+              {
+                "field": "odds",
+                "ok": true,
+                "weight": 18
+              },
+              {
+                "field": "recentForm",
+                "ok": true,
+                "weight": 12
+              },
+              {
+                "field": "providerReliability",
+                "ok": false,
+                "weight": 10
+              },
+              {
+                "field": "freshness",
+                "ok": true,
+                "weight": 8
+              }
+            ]
+          }
+        }
+      },
+      "stale beyond maxAge": {
+        "fixture": {
+          "externalId": "FX-1",
+          "homeTeam": "A",
+          "awayTeam": "B",
+          "competition": "C",
+          "kickoff": "2020-01-04T14:00:00Z"
+        },
+        "context": {
+          "oddsAvailable": true,
+          "recentFormAvailable": true,
+          "providerReliability": 0.95,
+          "dataAgeSeconds": 3601,
+          "maxAgeSeconds": 3600
+        },
+        "result": {
+          "ok": true,
+          "value": {
+            "score": 93,
+            "band": "EXCELLENT",
+            "freshnessScore": 0,
+            "providerReliabilityScore": 95,
+            "eligibleForPrediction": true,
+            "eligibleForTicket": false,
+            "missing": [
+              "freshness"
+            ],
+            "checks": [
+              {
+                "field": "externalId",
+                "ok": true,
+                "weight": 12
+              },
+              {
+                "field": "homeTeam",
+                "ok": true,
+                "weight": 12
+              },
+              {
+                "field": "awayTeam",
+                "ok": true,
+                "weight": 12
+              },
+              {
+                "field": "competition",
+                "ok": true,
+                "weight": 12
+              },
+              {
+                "field": "kickoff",
+                "ok": true,
+                "weight": 12
+              },
+              {
+                "field": "odds",
+                "ok": true,
+                "weight": 18
+              },
+              {
+                "field": "recentForm",
+                "ok": true,
+                "weight": 12
+              },
+              {
+                "field": "providerReliability",
+                "ok": true,
+                "weight": 10
+              },
+              {
+                "field": "freshness",
+                "ok": false,
+                "weight": 8
+              }
+            ]
+          }
+        }
+      },
+      "exactly at maxAge is still fresh": {
+        "fixture": {
+          "externalId": "FX-1",
+          "homeTeam": "A",
+          "awayTeam": "B",
+          "competition": "C",
+          "kickoff": "2020-01-04T14:00:00Z"
+        },
+        "context": {
+          "oddsAvailable": true,
+          "recentFormAvailable": true,
+          "providerReliability": 0.95,
+          "dataAgeSeconds": 3600,
+          "maxAgeSeconds": 3600
+        },
+        "result": {
+          "ok": true,
+          "value": {
+            "score": 100,
+            "band": "EXCELLENT",
+            "freshnessScore": 100,
+            "providerReliabilityScore": 95,
+            "eligibleForPrediction": true,
+            "eligibleForTicket": true,
+            "missing": [],
+            "checks": [
+              {
+                "field": "externalId",
+                "ok": true,
+                "weight": 12
+              },
+              {
+                "field": "homeTeam",
+                "ok": true,
+                "weight": 12
+              },
+              {
+                "field": "awayTeam",
+                "ok": true,
+                "weight": 12
+              },
+              {
+                "field": "competition",
+                "ok": true,
+                "weight": 12
+              },
+              {
+                "field": "kickoff",
+                "ok": true,
+                "weight": 12
+              },
+              {
+                "field": "odds",
+                "ok": true,
+                "weight": 18
+              },
+              {
+                "field": "recentForm",
+                "ok": true,
+                "weight": 12
+              },
+              {
+                "field": "providerReliability",
+                "ok": true,
+                "weight": 10
+              },
+              {
+                "field": "freshness",
+                "ok": true,
+                "weight": 8
+              }
+            ]
+          }
+        }
+      },
+      "a required field of the string zero counts as missing": {
+        "fixture": {
+          "externalId": "0",
+          "homeTeam": "A",
+          "awayTeam": "B",
+          "competition": "C",
+          "kickoff": "2020-01-04T14:00:00Z"
+        },
+        "context": [],
+        "result": {
+          "ok": true,
+          "value": {
+            "score": 44,
+            "band": "REJECT",
+            "freshnessScore": 0,
+            "providerReliabilityScore": 0,
+            "eligibleForPrediction": false,
+            "eligibleForTicket": false,
+            "missing": [
+              "externalId",
+              "odds",
+              "recentForm",
+              "providerReliability",
+              "freshness"
+            ],
+            "checks": [
+              {
+                "field": "externalId",
+                "ok": false,
+                "weight": 12
+              },
+              {
+                "field": "homeTeam",
+                "ok": true,
+                "weight": 12
+              },
+              {
+                "field": "awayTeam",
+                "ok": true,
+                "weight": 12
+              },
+              {
+                "field": "competition",
+                "ok": true,
+                "weight": 12
+              },
+              {
+                "field": "kickoff",
+                "ok": true,
+                "weight": 12
+              },
+              {
+                "field": "odds",
+                "ok": false,
+                "weight": 18
+              },
+              {
+                "field": "recentForm",
+                "ok": false,
+                "weight": 12
+              },
+              {
+                "field": "providerReliability",
+                "ok": false,
+                "weight": 10
+              },
+              {
+                "field": "freshness",
+                "ok": false,
+                "weight": 8
+              }
+            ]
+          }
+        }
+      },
+      "a required field of integer zero counts as missing": {
+        "fixture": {
+          "externalId": 0,
+          "homeTeam": "A",
+          "awayTeam": "B",
+          "competition": "C",
+          "kickoff": "2020-01-04T14:00:00Z"
+        },
+        "context": [],
+        "result": {
+          "ok": true,
+          "value": {
+            "score": 44,
+            "band": "REJECT",
+            "freshnessScore": 0,
+            "providerReliabilityScore": 0,
+            "eligibleForPrediction": false,
+            "eligibleForTicket": false,
+            "missing": [
+              "externalId",
+              "odds",
+              "recentForm",
+              "providerReliability",
+              "freshness"
+            ],
+            "checks": [
+              {
+                "field": "externalId",
+                "ok": false,
+                "weight": 12
+              },
+              {
+                "field": "homeTeam",
+                "ok": true,
+                "weight": 12
+              },
+              {
+                "field": "awayTeam",
+                "ok": true,
+                "weight": 12
+              },
+              {
+                "field": "competition",
+                "ok": true,
+                "weight": 12
+              },
+              {
+                "field": "kickoff",
+                "ok": true,
+                "weight": 12
+              },
+              {
+                "field": "odds",
+                "ok": false,
+                "weight": 18
+              },
+              {
+                "field": "recentForm",
+                "ok": false,
+                "weight": 12
+              },
+              {
+                "field": "providerReliability",
+                "ok": false,
+                "weight": 10
+              },
+              {
+                "field": "freshness",
+                "ok": false,
+                "weight": 8
+              }
+            ]
+          }
+        }
+      },
+      "a required empty array counts as missing": {
+        "fixture": {
+          "externalId": [],
+          "homeTeam": "A",
+          "awayTeam": "B",
+          "competition": "C",
+          "kickoff": "2020-01-04T14:00:00Z"
+        },
+        "context": [],
+        "result": {
+          "ok": true,
+          "value": {
+            "score": 44,
+            "band": "REJECT",
+            "freshnessScore": 0,
+            "providerReliabilityScore": 0,
+            "eligibleForPrediction": false,
+            "eligibleForTicket": false,
+            "missing": [
+              "externalId",
+              "odds",
+              "recentForm",
+              "providerReliability",
+              "freshness"
+            ],
+            "checks": [
+              {
+                "field": "externalId",
+                "ok": false,
+                "weight": 12
+              },
+              {
+                "field": "homeTeam",
+                "ok": true,
+                "weight": 12
+              },
+              {
+                "field": "awayTeam",
+                "ok": true,
+                "weight": 12
+              },
+              {
+                "field": "competition",
+                "ok": true,
+                "weight": 12
+              },
+              {
+                "field": "kickoff",
+                "ok": true,
+                "weight": 12
+              },
+              {
+                "field": "odds",
+                "ok": false,
+                "weight": 18
+              },
+              {
+                "field": "recentForm",
+                "ok": false,
+                "weight": 12
+              },
+              {
+                "field": "providerReliability",
+                "ok": false,
+                "weight": 10
+              },
+              {
+                "field": "freshness",
+                "ok": false,
+                "weight": 8
+              }
+            ]
+          }
+        }
+      },
+      "ticket eligibility needs score and freshness together": {
+        "fixture": {
+          "externalId": "FX-1",
+          "homeTeam": "A",
+          "awayTeam": "B",
+          "competition": "C",
+          "kickoff": "2020-01-04T14:00:00Z"
+        },
+        "context": {
+          "oddsAvailable": true,
+          "recentFormAvailable": true,
+          "providerReliability": 0.95,
+          "dataAgeSeconds": 99999
+        },
+        "result": {
+          "ok": true,
+          "value": {
+            "score": 93,
+            "band": "EXCELLENT",
+            "freshnessScore": 0,
+            "providerReliabilityScore": 95,
+            "eligibleForPrediction": true,
+            "eligibleForTicket": false,
+            "missing": [
+              "freshness"
+            ],
+            "checks": [
+              {
+                "field": "externalId",
+                "ok": true,
+                "weight": 12
+              },
+              {
+                "field": "homeTeam",
+                "ok": true,
+                "weight": 12
+              },
+              {
+                "field": "awayTeam",
+                "ok": true,
+                "weight": 12
+              },
+              {
+                "field": "competition",
+                "ok": true,
+                "weight": 12
+              },
+              {
+                "field": "kickoff",
+                "ok": true,
+                "weight": 12
+              },
+              {
+                "field": "odds",
+                "ok": true,
+                "weight": 18
+              },
+              {
+                "field": "recentForm",
+                "ok": true,
+                "weight": 12
+              },
+              {
+                "field": "providerReliability",
+                "ok": true,
+                "weight": 10
+              },
+              {
+                "field": "freshness",
+                "ok": false,
+                "weight": 8
+              }
+            ]
+          }
+        }
+      },
+      "prediction eligibility is looser than ticket eligibility": {
+        "fixture": {
+          "externalId": "FX-1",
+          "homeTeam": "A",
+          "awayTeam": "B",
+          "competition": "C",
+          "kickoff": "2020-01-04T14:00:00Z"
+        },
+        "context": {
+          "oddsAvailable": false,
+          "recentFormAvailable": false,
+          "providerReliability": 0.95,
+          "dataAgeSeconds": 30
+        },
+        "result": {
+          "ok": true,
+          "value": {
+            "score": 72,
+            "band": "LIMITED",
+            "freshnessScore": 100,
+            "providerReliabilityScore": 95,
+            "eligibleForPrediction": true,
+            "eligibleForTicket": false,
+            "missing": [
+              "odds",
+              "recentForm"
+            ],
+            "checks": [
+              {
+                "field": "externalId",
+                "ok": true,
+                "weight": 12
+              },
+              {
+                "field": "homeTeam",
+                "ok": true,
+                "weight": 12
+              },
+              {
+                "field": "awayTeam",
+                "ok": true,
+                "weight": 12
+              },
+              {
+                "field": "competition",
+                "ok": true,
+                "weight": 12
+              },
+              {
+                "field": "kickoff",
+                "ok": true,
+                "weight": 12
+              },
+              {
+                "field": "odds",
+                "ok": false,
+                "weight": 18
+              },
+              {
+                "field": "recentForm",
+                "ok": false,
+                "weight": 12
+              },
+              {
+                "field": "providerReliability",
+                "ok": true,
+                "weight": 10
+              },
+              {
+                "field": "freshness",
+                "ok": true,
+                "weight": 8
+              }
+            ]
+          }
+        }
+      }
+    },
+    "freshness": {
+      "no odds at all": {
+        "odds": null,
+        "maxAgeSeconds": 900,
+        "now": 1577880000,
+        "result": {
+          "ok": true,
+          "value": {
+            "available": false,
+            "fresh": false,
+            "ageSeconds": null,
+            "score": 0,
+            "reason": "ODDS_UNAVAILABLE"
+          }
+        }
+      },
+      "fresh odds": {
+        "odds": {
+          "observedAt": "2020-01-01T11:55:00Z"
+        },
+        "maxAgeSeconds": 900,
+        "now": 1577880000,
+        "result": {
+          "ok": true,
+          "value": {
+            "available": true,
+            "fresh": true,
+            "ageSeconds": 300,
+            "score": 67,
+            "reason": null
+          }
+        }
+      },
+      "exactly at the limit is fresh": {
+        "odds": {
+          "observedAt": "2020-01-01T11:45:00Z"
+        },
+        "maxAgeSeconds": 900,
+        "now": 1577880000,
+        "result": {
+          "ok": true,
+          "value": {
+            "available": true,
+            "fresh": true,
+            "ageSeconds": 900,
+            "score": 0,
+            "reason": null
+          }
+        }
+      },
+      "one second past the limit is stale": {
+        "odds": {
+          "observedAt": "2020-01-01T11:44:59Z"
+        },
+        "maxAgeSeconds": 900,
+        "now": 1577880000,
+        "result": {
+          "ok": true,
+          "value": {
+            "available": true,
+            "fresh": false,
+            "ageSeconds": 901,
+            "score": 0,
+            "reason": "STALE_ODDS"
+          }
+        }
+      },
+      "snake_case repository row": {
+        "odds": {
+          "observed_at": "2020-01-01T11:55:00Z"
+        },
+        "maxAgeSeconds": 900,
+        "now": 1577880000,
+        "result": {
+          "ok": true,
+          "value": {
+            "available": true,
+            "fresh": true,
+            "ageSeconds": 300,
+            "score": 67,
+            "reason": null
+          }
+        }
+      },
+      "empty timestamp is available but never fresh": {
+        "odds": {
+          "observedAt": ""
+        },
+        "maxAgeSeconds": 900,
+        "now": 1577880000,
+        "result": {
+          "ok": true,
+          "value": {
+            "available": true,
+            "fresh": false,
+            "ageSeconds": null,
+            "score": 0,
+            "reason": "ODDS_TIMESTAMP_INVALID"
+          }
+        }
+      },
+      "unparseable timestamp": {
+        "odds": {
+          "observedAt": "recently"
+        },
+        "maxAgeSeconds": 900,
+        "now": 1577880000,
+        "result": {
+          "ok": true,
+          "value": {
+            "available": true,
+            "fresh": false,
+            "ageSeconds": null,
+            "score": 0,
+            "reason": "ODDS_TIMESTAMP_INVALID"
+          }
+        }
+      },
+      "numeric timestamp": {
+        "odds": {
+          "observedAt": 1577879700
+        },
+        "maxAgeSeconds": 900,
+        "now": 1577880000,
+        "result": {
+          "ok": true,
+          "value": {
+            "available": true,
+            "fresh": false,
+            "ageSeconds": null,
+            "score": 0,
+            "reason": "ODDS_TIMESTAMP_INVALID"
+          }
+        }
+      },
+      "observation in the future clamps age to zero": {
+        "odds": {
+          "observedAt": "2020-01-01T13:00:00Z"
+        },
+        "maxAgeSeconds": 900,
+        "now": 1577880000,
+        "result": {
+          "ok": true,
+          "value": {
+            "available": true,
+            "fresh": true,
+            "ageSeconds": 0,
+            "score": 100,
+            "reason": null
+          }
+        }
+      },
+      "a tighter window": {
+        "odds": {
+          "observedAt": "2020-01-01T11:55:00Z"
+        },
+        "maxAgeSeconds": 60,
+        "now": 1577880000,
+        "result": {
+          "ok": true,
+          "value": {
+            "available": true,
+            "fresh": false,
+            "ageSeconds": 300,
+            "score": 0,
+            "reason": "STALE_ODDS"
+          }
+        }
+      },
+      "a looser window": {
+        "odds": {
+          "observedAt": "2020-01-01T09:00:00Z"
+        },
+        "maxAgeSeconds": 14400,
+        "now": 1577880000,
+        "result": {
+          "ok": true,
+          "value": {
+            "available": true,
+            "fresh": true,
+            "ageSeconds": 10800,
+            "score": 25,
+            "reason": null
+          }
+        }
+      },
+      "legacy-shaped offset timestamp": {
+        "odds": {
+          "observedAt": "2020-01-01T11:55:00+00:00"
+        },
+        "maxAgeSeconds": 900,
+        "now": 1577880000,
+        "result": {
+          "ok": true,
+          "value": {
+            "available": true,
+            "fresh": true,
+            "ageSeconds": 300,
+            "score": 67,
+            "reason": null
+          }
+        }
+      }
+    },
+    "sandbox": {
+      "health": {
+        "status": "ONLINE",
+        "reliability": 0.9,
+        "responseMs": 2,
+        "lastSuccessAt": "<NOW>",
+        "lastFailureAt": null,
+        "errorRate": 0
+      },
+      "fixtureCount": 12,
+      "fixtures": [
+        {
+          "externalId": "sim-f3ff5d-2020-01-04-0",
+          "homeTeam": "Delta Athletic",
+          "awayTeam": "Ember Rovers",
+          "competition": "Premier Simulation League",
+          "kickoff": "2020-01-04T14:00:00+00:00",
+          "status": "FINISHED",
+          "sport": "football",
+          "sourceTimestamp": "<NOW>",
+          "provider": "sandbox-sim",
+          "simulated": true,
+          "context": {
+            "recentForm": {
+              "homeGoalsPerMatch": 1.343,
+              "awayGoalsPerMatch": 1.429,
+              "homeConcededPerMatch": 1.347,
+              "awayConcededPerMatch": 1.125,
+              "source": "sandbox-sim:simulated-form",
+              "timestamp": "<NOW>"
+            },
+            "marketLiquidity": 49516,
+            "restDays": 4
+          }
+        },
+        {
+          "externalId": "sim-f3ff5d-2020-01-04-1",
+          "homeTeam": "Ember Rovers",
+          "awayTeam": "Falcon SC",
+          "competition": "Premier Simulation League",
+          "kickoff": "2020-01-04T16:00:00+00:00",
+          "status": "FINISHED",
+          "sport": "football",
+          "sourceTimestamp": "<NOW>",
+          "provider": "sandbox-sim",
+          "simulated": true,
+          "context": {
+            "recentForm": {
+              "homeGoalsPerMatch": 1.634,
+              "awayGoalsPerMatch": 1.222,
+              "homeConcededPerMatch": 0.978,
+              "awayConcededPerMatch": 1.113,
+              "source": "sandbox-sim:simulated-form",
+              "timestamp": "<NOW>"
+            },
+            "marketLiquidity": 26528,
+            "restDays": 4
+          }
+        },
+        {
+          "externalId": "sim-f3ff5d-2020-01-04-2",
+          "homeTeam": "Falcon SC",
+          "awayTeam": "Granite Town",
+          "competition": "Premier Simulation League",
+          "kickoff": "2020-01-04T19:00:00+00:00",
+          "status": "FINISHED",
+          "sport": "football",
+          "sourceTimestamp": "<NOW>",
+          "provider": "sandbox-sim",
+          "simulated": true,
+          "context": {
+            "recentForm": {
+              "homeGoalsPerMatch": 1.436,
+              "awayGoalsPerMatch": 1.284,
+              "homeConcededPerMatch": 1.109,
+              "awayConcededPerMatch": 1.21,
+              "source": "sandbox-sim:simulated-form",
+              "timestamp": "<NOW>"
+            },
+            "marketLiquidity": 64214,
+            "restDays": 4
+          }
+        },
+        {
+          "externalId": "sim-990a5d-2020-01-04-0",
+          "homeTeam": "Eagle Grove",
+          "awayTeam": "Foxes Athletic",
+          "competition": "Continental Simulation Cup",
+          "kickoff": "2020-01-04T14:00:00+00:00",
+          "status": "FINISHED",
+          "sport": "football",
+          "sourceTimestamp": "<NOW>",
+          "provider": "sandbox-sim",
+          "simulated": true,
+          "context": {
+            "recentForm": {
+              "homeGoalsPerMatch": 1.325,
+              "awayGoalsPerMatch": 1.075,
+              "homeConcededPerMatch": 1.06,
+              "awayConcededPerMatch": 1.354,
+              "source": "sandbox-sim:simulated-form",
+              "timestamp": "<NOW>"
+            },
+            "marketLiquidity": 48669,
+            "restDays": 4
+          }
+        },
+        {
+          "externalId": "sim-990a5d-2020-01-04-1",
+          "homeTeam": "Foxes Athletic",
+          "awayTeam": "Glacier Town",
+          "competition": "Continental Simulation Cup",
+          "kickoff": "2020-01-04T16:00:00+00:00",
+          "status": "FINISHED",
+          "sport": "football",
+          "sourceTimestamp": "<NOW>",
+          "provider": "sandbox-sim",
+          "simulated": true,
+          "context": {
+            "recentForm": {
+              "homeGoalsPerMatch": 1.215,
+              "awayGoalsPerMatch": 1.441,
+              "homeConcededPerMatch": 1.275,
+              "awayConcededPerMatch": 1.104,
+              "source": "sandbox-sim:simulated-form",
+              "timestamp": "<NOW>"
+            },
+            "marketLiquidity": 29746,
+            "restDays": 4
+          }
+        },
+        {
+          "externalId": "sim-990a5d-2020-01-04-2",
+          "homeTeam": "Glacier Town",
+          "awayTeam": "Horizon FC",
+          "competition": "Continental Simulation Cup",
+          "kickoff": "2020-01-04T19:00:00+00:00",
+          "status": "FINISHED",
+          "sport": "football",
+          "sourceTimestamp": "<NOW>",
+          "provider": "sandbox-sim",
+          "simulated": true,
+          "context": {
+            "recentForm": {
+              "homeGoalsPerMatch": 1.49,
+              "awayGoalsPerMatch": 1.396,
+              "homeConcededPerMatch": 0.951,
+              "awayConcededPerMatch": 1.174,
+              "source": "sandbox-sim:simulated-form",
+              "timestamp": "<NOW>"
+            },
+            "marketLiquidity": 48441,
+            "restDays": 4
+          }
+        },
+        {
+          "externalId": "sim-f3ff5d-2020-01-05-0",
+          "homeTeam": "Delta Athletic",
+          "awayTeam": "Ember Rovers",
+          "competition": "Premier Simulation League",
+          "kickoff": "2020-01-05T14:00:00+00:00",
+          "status": "FINISHED",
+          "sport": "football",
+          "sourceTimestamp": "<NOW>",
+          "provider": "sandbox-sim",
+          "simulated": true,
+          "context": {
+            "recentForm": {
+              "homeGoalsPerMatch": 1.343,
+              "awayGoalsPerMatch": 1.429,
+              "homeConcededPerMatch": 1.347,
+              "awayConcededPerMatch": 1.125,
+              "source": "sandbox-sim:simulated-form",
+              "timestamp": "<NOW>"
+            },
+            "marketLiquidity": 87682,
+            "restDays": 2
+          }
+        },
+        {
+          "externalId": "sim-f3ff5d-2020-01-05-1",
+          "homeTeam": "Ember Rovers",
+          "awayTeam": "Falcon SC",
+          "competition": "Premier Simulation League",
+          "kickoff": "2020-01-05T16:00:00+00:00",
+          "status": "FINISHED",
+          "sport": "football",
+          "sourceTimestamp": "<NOW>",
+          "provider": "sandbox-sim",
+          "simulated": true,
+          "context": {
+            "recentForm": {
+              "homeGoalsPerMatch": 1.634,
+              "awayGoalsPerMatch": 1.222,
+              "homeConcededPerMatch": 0.978,
+              "awayConcededPerMatch": 1.113,
+              "source": "sandbox-sim:simulated-form",
+              "timestamp": "<NOW>"
+            },
+            "marketLiquidity": 95533,
+            "restDays": 4
+          }
+        },
+        {
+          "externalId": "sim-f3ff5d-2020-01-05-2",
+          "homeTeam": "Falcon SC",
+          "awayTeam": "Granite Town",
+          "competition": "Premier Simulation League",
+          "kickoff": "2020-01-05T19:00:00+00:00",
+          "status": "FINISHED",
+          "sport": "football",
+          "sourceTimestamp": "<NOW>",
+          "provider": "sandbox-sim",
+          "simulated": true,
+          "context": {
+            "recentForm": {
+              "homeGoalsPerMatch": 1.436,
+              "awayGoalsPerMatch": 1.284,
+              "homeConcededPerMatch": 1.109,
+              "awayConcededPerMatch": 1.21,
+              "source": "sandbox-sim:simulated-form",
+              "timestamp": "<NOW>"
+            },
+            "marketLiquidity": 30427,
+            "restDays": 2
+          }
+        },
+        {
+          "externalId": "sim-990a5d-2020-01-05-0",
+          "homeTeam": "Eagle Grove",
+          "awayTeam": "Foxes Athletic",
+          "competition": "Continental Simulation Cup",
+          "kickoff": "2020-01-05T14:00:00+00:00",
+          "status": "FINISHED",
+          "sport": "football",
+          "sourceTimestamp": "<NOW>",
+          "provider": "sandbox-sim",
+          "simulated": true,
+          "context": {
+            "recentForm": {
+              "homeGoalsPerMatch": 1.325,
+              "awayGoalsPerMatch": 1.075,
+              "homeConcededPerMatch": 1.06,
+              "awayConcededPerMatch": 1.354,
+              "source": "sandbox-sim:simulated-form",
+              "timestamp": "<NOW>"
+            },
+            "marketLiquidity": 92869,
+            "restDays": 4
+          }
+        },
+        {
+          "externalId": "sim-990a5d-2020-01-05-1",
+          "homeTeam": "Foxes Athletic",
+          "awayTeam": "Glacier Town",
+          "competition": "Continental Simulation Cup",
+          "kickoff": "2020-01-05T16:00:00+00:00",
+          "status": "FINISHED",
+          "sport": "football",
+          "sourceTimestamp": "<NOW>",
+          "provider": "sandbox-sim",
+          "simulated": true,
+          "context": {
+            "recentForm": {
+              "homeGoalsPerMatch": 1.215,
+              "awayGoalsPerMatch": 1.441,
+              "homeConcededPerMatch": 1.275,
+              "awayConcededPerMatch": 1.104,
+              "source": "sandbox-sim:simulated-form",
+              "timestamp": "<NOW>"
+            },
+            "marketLiquidity": 76633,
+            "restDays": 4
+          }
+        },
+        {
+          "externalId": "sim-990a5d-2020-01-05-2",
+          "homeTeam": "Glacier Town",
+          "awayTeam": "Horizon FC",
+          "competition": "Continental Simulation Cup",
+          "kickoff": "2020-01-05T19:00:00+00:00",
+          "status": "FINISHED",
+          "sport": "football",
+          "sourceTimestamp": "<NOW>",
+          "provider": "sandbox-sim",
+          "simulated": true,
+          "context": {
+            "recentForm": {
+              "homeGoalsPerMatch": 1.49,
+              "awayGoalsPerMatch": 1.396,
+              "homeConcededPerMatch": 0.951,
+              "awayConcededPerMatch": 1.174,
+              "source": "sandbox-sim:simulated-form",
+              "timestamp": "<NOW>"
+            },
+            "marketLiquidity": 69762,
+            "restDays": 3
+          }
+        }
+      ],
+      "sampleIds": [
+        "sim-f3ff5d-2020-01-04-0",
+        "sim-f3ff5d-2020-01-04-1",
+        "sim-f3ff5d-2020-01-04-2",
+        "sim-990a5d-2020-01-04-0"
+      ],
+      "odds": {
+        "sim-f3ff5d-2020-01-04-0": {
+          "ok": true,
+          "value": [
+            {
+              "market": "TOTAL_GOALS",
+              "selection": "OVER_1_5",
+              "decimalOdds": 2,
+              "observedAt": "2020-01-04T12:00:00+00:00",
+              "provider": "sandbox-sim",
+              "simulated": true
+            }
+          ]
+        },
+        "sim-f3ff5d-2020-01-04-1": {
+          "ok": true,
+          "value": [
+            {
+              "market": "TOTAL_GOALS",
+              "selection": "OVER_1_5",
+              "decimalOdds": 2.04,
+              "observedAt": "2020-01-04T14:00:00+00:00",
+              "provider": "sandbox-sim",
+              "simulated": true
+            }
+          ]
+        },
+        "sim-f3ff5d-2020-01-04-2": {
+          "ok": true,
+          "value": [
+            {
+              "market": "TOTAL_GOALS",
+              "selection": "OVER_1_5",
+              "decimalOdds": 2.07,
+              "observedAt": "2020-01-04T17:00:00+00:00",
+              "provider": "sandbox-sim",
+              "simulated": true
+            }
+          ]
+        },
+        "sim-990a5d-2020-01-04-0": {
+          "ok": true,
+          "value": [
+            {
+              "market": "TOTAL_GOALS",
+              "selection": "OVER_1_5",
+              "decimalOdds": 2.25,
+              "observedAt": "2020-01-04T12:00:00+00:00",
+              "provider": "sandbox-sim",
+              "simulated": true
+            }
+          ]
+        }
+      },
+      "results": {
+        "sim-f3ff5d-2020-01-04-0": {
+          "ok": true,
+          "value": [
+            {
+              "externalId": "sim-f3ff5d-2020-01-04-0",
+              "status": "FINISHED",
+              "homeScore": 1,
+              "awayScore": 1,
+              "sourceTimestamp": "<NOW>",
+              "provider": "sandbox-sim",
+              "simulated": true
+            }
+          ]
+        },
+        "sim-f3ff5d-2020-01-04-1": {
+          "ok": true,
+          "value": [
+            {
+              "externalId": "sim-f3ff5d-2020-01-04-1",
+              "status": "FINISHED",
+              "homeScore": 0,
+              "awayScore": 0,
+              "sourceTimestamp": "<NOW>",
+              "provider": "sandbox-sim",
+              "simulated": true
+            }
+          ]
+        },
+        "sim-f3ff5d-2020-01-04-2": {
+          "ok": true,
+          "value": [
+            {
+              "externalId": "sim-f3ff5d-2020-01-04-2",
+              "status": "FINISHED",
+              "homeScore": 0,
+              "awayScore": 0,
+              "sourceTimestamp": "<NOW>",
+              "provider": "sandbox-sim",
+              "simulated": true
+            }
+          ]
+        },
+        "sim-990a5d-2020-01-04-0": {
+          "ok": true,
+          "value": [
+            {
+              "externalId": "sim-990a5d-2020-01-04-0",
+              "status": "FINISHED",
+              "homeScore": 1,
+              "awayScore": 2,
+              "sourceTimestamp": "<NOW>",
+              "provider": "sandbox-sim",
+              "simulated": true
+            }
+          ]
+        }
+      },
+      "unknownExternalId": {
+        "odds": {
+          "ok": true,
+          "value": []
+        },
+        "results": {
+          "ok": true,
+          "value": []
+        }
+      },
+      "disabled": {
+        "health": {
+          "status": "OFFLINE",
+          "reliability": 0,
+          "detail": "SANDBOX_NOT_ENABLED — set WINDELS_SPORTS_MODE=SANDBOX and WINDELS_SPORTS_SANDBOX=1"
+        },
+        "fixtures": {
+          "ok": false,
+          "error": "sandbox provider is not enabled in this mode",
+          "status": "OFFLINE"
+        },
+        "odds": {
+          "ok": false,
+          "error": "sandbox provider is not enabled in this mode",
+          "status": "OFFLINE"
+        },
+        "results": {
+          "ok": false,
+          "error": "sandbox provider is not enabled in this mode",
+          "status": "OFFLINE"
+        }
+      },
+      "internals": {
+        "strength": {
+          "Alpha United": 0.8583634699015793,
+          "Bolt City": 1.0280590524147402,
+          "Apex FC": 0.8381208514534219,
+          "Horizon FC": 1.129986266880293,
+          "Zzz Unknown": 0.9139734493018997
+        },
+        "form": {
+          "Alpha United": {
+            "homeGoalsPerMatch": 1.113,
+            "awayGoalsPerMatch": 1.282,
+            "homeConcededPerMatch": 1.23,
+            "awayConcededPerMatch": 1.098
+          },
+          "Bolt City": {
+            "homeGoalsPerMatch": 1.362,
+            "awayGoalsPerMatch": 1.282,
+            "homeConcededPerMatch": 1.094,
+            "awayConcededPerMatch": 1.098
+          },
+          "Apex FC": {
+            "homeGoalsPerMatch": 1.209,
+            "awayGoalsPerMatch": 1.282,
+            "homeConcededPerMatch": 1.207,
+            "awayConcededPerMatch": 1.098
+          },
+          "Horizon FC": {
+            "homeGoalsPerMatch": 1.343,
+            "awayGoalsPerMatch": 1.282,
+            "homeConcededPerMatch": 1.217,
+            "awayConcededPerMatch": 1.098
+          },
+          "Zzz Unknown": {
+            "homeGoalsPerMatch": 1.32,
+            "awayGoalsPerMatch": 1.282,
+            "homeConcededPerMatch": 1.203,
+            "awayConcededPerMatch": 1.098
+          }
+        },
+        "externalId": {
+          "Premier Simulation League/0": "sim-f3ff5d-2020-01-04-0",
+          "Premier Simulation League/1": "sim-f3ff5d-2020-01-04-1",
+          "Premier Simulation League/2": "sim-f3ff5d-2020-01-04-2",
+          "Continental Simulation Cup/0": "sim-990a5d-2020-01-04-0",
+          "Continental Simulation Cup/1": "sim-990a5d-2020-01-04-1",
+          "Continental Simulation Cup/2": "sim-990a5d-2020-01-04-2"
+        },
+        "pairing": {
+          "2020-01-04/0": [
+            "Delta Athletic",
+            "Ember Rovers"
+          ],
+          "2020-01-04/1": [
+            "Ember Rovers",
+            "Falcon SC"
+          ],
+          "2020-01-04/2": [
+            "Falcon SC",
+            "Granite Town"
+          ],
+          "2020-01-04/3": [
+            "Granite Town",
+            "Harbor Wanderers"
+          ],
+          "2020-01-04/7": [
+            "Comet Rangers",
+            "Ember Rovers"
+          ]
+        },
+        "kickoffTs": [
+          1578146400,
+          1578153600,
+          1578164400,
+          1578146400,
+          1578153600
+        ],
+        "randValue": {
+          "a": 0.10459163780736029,
+          "b": 0.3271943753961087,
+          "off:Premier Simulation League:2020-01-04": 0.4156545460010414,
+          "liq:sim-x": 0.38011721233496365
+        },
+        "randInt": {
+          "off:x/0/7": 5,
+          "liq:y/0/80000": 36585,
+          "rest:z/0/2": 2
+        },
+        "poisson": {
+          "0": 0,
+          "1": 0,
+          "0.5": 0,
+          "1.282": 1,
+          "2.5": 5,
+          "-1": 0
+        },
+        "parseExternalId": {
+          "sim-bc27c7-2020-01-04-0": null,
+          "sim-000000-2020-01-04-0": null,
+          "sim-bc27c7-2020-13-04-0": null,
+          "nonsense": null,
+          "(empty)": null
+        }
+      }
+    }
+  }
+}

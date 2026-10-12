@@ -462,6 +462,95 @@ function loadBrokerConfig(env, { production }) {
   });
 }
 
+/**
+ * Resolve a sports feed base URL.
+ *
+ * **Not `brokerBaseUrl`, and the difference is the point.** That helper keeps only
+ * `parsed.origin`, which is right for the MT5 bridge — a separate service on the
+ * same host, addressed at its root — and wrong here: a vendor hosted at
+ * `https://feed.example.com/v1` would have its `/v1` silently dropped, and every
+ * request would then 404 against a path that looks correct in the configuration.
+ * Legacy keeps the whole URL (`rtrim($baseUrl, '/')`), so this does too.
+ *
+ * Still refused: embedded credentials (they would be logged and re-sent on every
+ * redirect), a query string or fragment (the provider builds its own query, and a
+ * base that already carries one produces `?a=1?from=…`), and plain http outside
+ * loopback in production.
+ *
+ * @param {unknown} value
+ * @param {string} name
+ * @param {{production: boolean}} options
+ * @returns {string|null} the base URL with no trailing slash, or `null` when unset
+ */
+function sportsBaseUrl(value, name, { production }) {
+  const raw = String(value || "").trim();
+  if (!raw) return null;
+  let parsed;
+  try {
+    parsed = new URL(raw);
+  } catch {
+    throw new Error(`${name} must be an absolute URL`);
+  }
+  if (parsed.username || parsed.password) throw new Error(`${name} must not contain credentials`);
+  if (parsed.search || parsed.hash) throw new Error(`${name} must not contain a query string or fragment`);
+  const loopback = LOOPBACK_HOSTS.has(parsed.hostname);
+  if (parsed.protocol !== "https:" && !(parsed.protocol === "http:" && (!production || loopback))) {
+    throw new Error(`${name} must use https:// in production (http:// is allowed only for a loopback feed)`);
+  }
+  // Everything but the credentials, query and fragment, with no trailing slash so
+  // `${base}/fixtures` cannot produce a double slash.
+  const path = parsed.pathname.replace(/\/+$/, "");
+  return `${parsed.protocol}//${parsed.host}${path}`;
+}
+
+/**
+ * The three platform modes legacy's `ConfigurationService::PLATFORM_MODES`
+ * declares. Anything else falls back to `SANDBOX`, exactly as legacy's
+ * `SportsIntelligence::mode()` does — so a typo cannot silently select a mode that
+ * behaves differently from the one an operator believes they set.
+ */
+export const SPORTS_PLATFORM_MODES = Object.freeze(["SANDBOX", "PAPER", "PRODUCTION"]);
+
+/**
+ * Sports Intelligence configuration (module: sports, row 14).
+ *
+ * Read literally rather than composed from a prefix, so the F-14 documentation
+ * gate can see every one of them. Finding **F-33** is the record of what happens
+ * when a gate cannot see a name: 21 licensed-feed variables shipped undocumented
+ * while it reported green. There is no prefix table here to hide behind.
+ *
+ * **SP-8 — the sandbox opt-in is two variables, and both default to off.**
+ * `WINDELS_SPORTS_MODE` defaults to `SANDBOX`, so mode alone would enable the
+ * labelled simulation provider on a host that configured nothing at all. Requiring
+ * `WINDELS_SPORTS_SANDBOX=1` as well means a default install has **no** provider,
+ * which is the honest state for a platform with no verified sports data source.
+ * Legacy has the same two-variable rule; what is stated here is why it is not
+ * redundant, because it reads like one.
+ */
+function loadSportsConfig(env, { production }) {
+  const rawMode = String(env.WINDELS_SPORTS_MODE || "").trim();
+  const mode = SPORTS_PLATFORM_MODES.includes(rawMode) ? rawMode : "SANDBOX";
+  // Legacy's base-URL check is `filter_var(…, FILTER_VALIDATE_URL)`, which accepts
+  // plain http anywhere. A sports feed token sent over http is a credential in
+  // transit, so this uses the platform's own rule instead: https in production,
+  // with loopback http allowed for a locally hosted feed. Divergence SP-9.
+  const baseUrl = sportsBaseUrl(env.WINDELS_SPORTS_HTTP_BASE_URL, "WINDELS_SPORTS_HTTP_BASE_URL", { production });
+
+  return Object.freeze({
+    enabled: boolean(env.WINDELS_SPORTS_ENABLED, "WINDELS_SPORTS_ENABLED", false),
+    mode,
+    sandboxEnabled: env.WINDELS_SPORTS_SANDBOX === "1",
+    http: Object.freeze({
+      id: String(env.WINDELS_SPORTS_HTTP_ID || "").trim() || "http-provider",
+      baseUrl,
+      token: String(env.WINDELS_SPORTS_HTTP_TOKEN || "").trim(),
+      // Seconds, because that is the unit legacy's variable uses. Converting here
+      // rather than at the call site keeps one unit in the configuration object.
+      timeoutSeconds: integer(env.WINDELS_SPORTS_HTTP_TIMEOUT, "WINDELS_SPORTS_HTTP_TIMEOUT", { fallback: 10, min: 1, max: 120 }),
+    }),
+  });
+}
+
 function loadMarketDataConfig(env, { production }) {
   const licensed = LICENSED_ASSET_CLASSES.map((entry) => Object.freeze({
     ...entry,
@@ -583,6 +672,7 @@ export function loadConfig(env = process.env) {
     site: loadSiteConfig(env, { production, publicBaseUrl }),
     marketData: loadMarketDataConfig(env, { production }),
     brokers: loadBrokerConfig(env, { production }),
+    sports: loadSportsConfig(env, { production }),
     analysis: loadAnalysisConfig(env),
     uploads: loadUploadConfig(env, { production }),
     rateLimit: loadRateLimitConfig(env),

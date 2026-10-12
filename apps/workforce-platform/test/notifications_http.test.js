@@ -399,9 +399,11 @@ test("the status surface reports notifications as ported and denies a delivery c
 
   const features = await instance.app.inject({ method: "GET", url: "/api/v1/system/features" });
   assert.equal(features.json().features.notifications, "ported");
-  // `sports` rather than `brokers`: this assertion's point is that the notification
-  // port did not move any other module's state, and Phase 14 has since moved
-  // `brokers` to `partial` for its own reasons. Pinning a module no later phase
-  // touches keeps the intent intact instead of silently re-asserting a stale fact.
-  assert.equal(features.json().features.sports, "not-ported", "the other modules are unaffected by this port");
+  // `lottery`, and the third module this pin has pointed at. Its point is that the
+  // notification port did not move any *other* module's state — but `brokers` moved
+  // in Phase 14 and `sports` in Phase 15, each for its own reasons. Re-pointing at a
+  // module no phase has touched keeps the intent intact instead of silently
+  // re-asserting a stale fact, and the churn is itself the evidence that the ledger
+  // is being updated rather than left alone.
+  assert.equal(features.json().features.lottery, "not-ported", "the other modules are unaffected by this port");
 });

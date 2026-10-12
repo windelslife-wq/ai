@@ -313,4 +313,102 @@ route-inventory count and the persistence-contract length — and both enumerate
 structure rather than scanning source text, which is why neither has a comparable blind spot.
 **F-14 was the only one scanning text.** Related: F-14, F-30, F-31.
 
+### F-26 — no PHP↔Node differential harness (closed in Phase 15 for the sports foundation; coverage still owed elsewhere)
+
+Open since Phase 4 and restated at every phase since: both suites were green and
+**nothing compared the two implementations against each other**, so a port could be
+internally consistent and externally wrong. Every earlier phase preserved legacy's
+error messages, rounding behaviour or timestamp shape *in case* such a harness ever
+existed; none could use them.
+
+**It now exists.** `runtime/parity/sports-golden.php` `require`s six legacy class
+files by path and emits their real output; `runtime/sports-parity.mjs` runs it in
+WASM PHP 8.2 and writes
+`apps/workforce-platform/test/fixtures/sports-parity-golden.json`;
+`test/sports_parity.test.js` recomputes all **62 cases** with the Node port and
+asserts agreement to the last double and the last character of every refusal
+message. The golden file is PHP's own output, not a transcription of what PHP was
+believed to do. Regenerating it is a normal workflow step, and the generator lives
+under `runtime/` so producing parity evidence never touches the authoritative PHP
+tree.
+
+**It paid for itself immediately** — see **F-34**, found on its first run, and
+**D-23**, a clock-convention mismatch that made the Node port refuse a *valid*
+fixture as unparseable.
+
+**Why the sports foundation and not something earlier.** The harness needs pure
+functions: no I/O, no global state, no database, no clock reads beyond an
+injectable `now`. The normalizer, the two engines and the sandbox provider are
+exactly that. Every earlier candidate either touched the database (the risk engine,
+the supervisor) or diverged numerically on purpose — **PO-1** keeps legacy's
+bisection projection precisely so the numbers stay aligned, but nothing had ever
+verified that they were.
+
+**What this closure does *not* cover, stated so the finding is not read as retired:**
+
+- The optimizer, indicators, `MathUtils`, regime/setup/scenario generation and the
+  notification rules are still un-diffed. Each of those references to F-26 in
+  `INVENTORY.md`, `STATUS.md` and `BASELINE_TESTS.md` **stands**.
+- **DV-10** must appear in any future numeric diff as an *expected* difference:
+  Node's `RiskEngine` vetoes zero, negative and non-finite equity where legacy PHP
+  approves it.
+- The sports provider **manager** and **health monitor** are pure enough to capture
+  but are not captured yet: their inputs are repository rows, and the repository
+  does not exist in this slice. Synthesising rows on the PHP side to compare
+  against would test a fiction. Slice 2 captures them against the real thing.
+
+Related: F-34, D-22, D-23, PO-1, DV-10.
+
+### F-34 — PHP exposes two different CRC-32 algorithms under near-identical names, and legacy uses both in one class (found and fixed in Phase 15)
+
+**Severity: high, and silent.** Not a risk that *might* materialise — one that did,
+in the Phase 15 port, and would have survived every test written against the Node
+implementation alone.
+
+| PHP call | Algorithm | `hash("123456789")` |
+| --- | --- | --- |
+| `crc32($s)` ≡ `hash('crc32b', $s)` | reflected CRC-32/ISO-HDLC (`zlib`'s) | `cbf43926` |
+| `hash('crc32', $s)` | non-reflected CRC-32/BZIP2, **rendered little-endian** | `181989fc` |
+
+The two differ in the polynomial direction *and* in byte order, so they agree on
+nothing. `Aegis\Sports\Providers\SandboxSportsProvider` uses **both in the same
+class**: `crc32()` for per-team strength and `hash('crc32', …)` for the league
+component of every generated external id.
+
+**What happened.** The Node port implemented the reflected algorithm once, exported
+it as `crc32()`, and used it for both call sites. The result was stable, plausible,
+self-consistent and wrong: `sim-bc27c7-2026-10-10-0` where PHP produces
+`sim-f3ff5d-…`. Every fixture id belonged to a **different fixture universe** from
+legacy's. Determinism tests passed. Golden-value tests written against the Node
+output passed. The sandbox generated 12 fixtures per day and they all looked right.
+
+**Why it is a finding and not just a fixed bug.** Three reasons:
+
+1. **Nothing downstream would have failed until row 22.** The mismatch only becomes
+   visible when legacy data meets Node data — the cutover — which is the most
+   expensive possible moment to discover that two implementations disagree about
+   the identity of every record.
+2. **The name is the trap.** `crc32` and `crc32b` differ by one character, and the
+   *function* `crc32()` maps to `crc32b` rather than to `hash('crc32')`. A porter
+   reading `hash('crc32', $league)` reasonably concludes it is the same CRC-32
+   everyone means. It is not.
+3. **Any future port that touches a PHP hash name will hit the same wall.** PHP's
+   hash extension has this shape for other algorithms too. The rule to carry
+   forward: *never assume two PHP hash spellings are the same function — capture
+   the digest from PHP and compare.*
+
+**How it was caught.** By the differential harness built in the same phase
+(**F-26**, closed below): `runtime/parity/sports-golden.php` ran the real legacy
+class in WASM PHP 8.2 and emitted its external ids; the Node test compared and
+failed on the first one. This is the finding that justifies the harness existing —
+it paid for itself on its first run.
+
+**Fix.** Two separately-exported, separately-pinned implementations:
+`crc32()` (reflected, verified against the published check value `0xCBF43926`) and
+`crc32HashHex()` (CRC-32/BZIP2 byte-swapped via `Buffer#swap32()`, so the intent is
+stated rather than buried in four shift masks). `test/sports.test.js` asserts
+`crc32BigEndian("123456789") === 0xfc891918` next to
+`crc32HashHex("123456789") === "181989fc"`, because the byte swap is exactly the
+kind of step a later reader would "simplify" away. Related: F-26, D-22.
+
 — End of Phase 0 risk register.
