@@ -1040,17 +1040,41 @@ indicators, `MathUtils`, regime generation and the notification rules remain un-
 provider-health monitor it never called). See
 [`PHASE16_SPORTS_PERSISTENCE.md`](PHASE16_SPORTS_PERSISTENCE.md) §3.
 
-**A CI failure that was not a test failure.** The first push of this phase failed the
-`javascript` job at step 7 (`npm run check`) in **30 s**. The same command passed **812/812**
-locally in a pristine clone of that exact commit with root-only `npm ci`, at concurrency 2,
-4 and 8, under `LC_ALL=C`, across seven complete runs — so the failure was not reproducible
-and not a wrong assertion. Comparing step timings against the next, green run gives the
-answer: a complete step 7 takes **42 s**, so the failing run was **aborted ~12 s short of
-finishing**. The step streams 812 TAP results plus the app's pino request logs, and the
-runner's own annotation said *"This step has been truncated due to its large size."*
-Redirecting that output to a file before it reaches the log collector fixed it, and the job
-now passes all 17 steps. Recorded here because the tempting misreading — "CI is red, a test
-must be failing" — would have sent the next person hunting for a defect that does not
-exist, and because the suite will only get larger, so the bound belongs in the workflow
-rather than in someone's memory.
+**A flaky test, and a wrong first diagnosis that is recorded here because it was
+committed.** The first push of this phase failed the `javascript` job at step 7
+(`npm run check`). The same command passed **812/812** locally in a pristine clone of
+that exact commit with root-only `npm ci`, at concurrency 2, 4 and 8, under `LC_ALL=C`,
+across seven complete runs. Concluding from that evidence that the failure was *not a
+test failure* — attributing it to the runner truncating an oversized log stream, because
+the failing step ended 30 s in where a complete step takes 42 s — was **wrong**. The
+reasoning is worth keeping visible: an unreproducible failure plus a shorter step
+duration is consistent with an abort, and "this step has been truncated due to its large
+size" was even printed by the runner as an annotation. It was still a guess dressed as a
+diagnosis, and the guess was committed to this file as though it were a finding.
+
+The real cause was found by making CI legible rather than by guessing at it: step 7 now
+writes its output to a file and, on failure, re-emits the failing test names, their
+failure detail and the suite totals as **check annotations**, which are readable through
+the API without signing in to the Actions UI. The next red run named the test directly —
+`saveSportsMatch upserts by (provider, external id) and distinguishes created from
+updated`, `test/sports_store.test.js:243`, **811 pass / 1 fail** — while the parallel
+`pull_request` run of the *same commit* passed 812/812. Intermittent, and therefore a
+race.
+
+The race was in the test, not in the code. `saveSportsMatch` distinguishes a creation from
+an update by comparing `created_at` with `updated_at` — legacy's heuristic, deliberately
+kept (divergence SP-13). An update landing in the **same millisecond** as the insert is
+therefore counted as a creation, and `assert.notEqual(updated.updated_at,
+updated.created_at)` fails. On a 2-core sandbox the two writes were always at least a
+millisecond apart; on a 4-core runner they were not. The same hazard sat unnoticed in
+`sports_sync.test.js`, where a re-sync would have reported `created: 3` instead of
+`updated: 3`. Both now await `afterInstant(...)`, which spins until the clock has moved
+strictly past the first write — deterministic by construction rather than by margin, at a
+cost of about a millisecond.
+
+Two lessons, both about evidence. **A green local run is not evidence of a passing CI
+run**, and seven of them were not enough: the difference was core count, the one variable
+this sandbox cannot reproduce. And **an unreproducible failure should be made
+reproducible or made legible before it is explained** — the explanation committed first
+was plausible, self-consistent, and false.
 

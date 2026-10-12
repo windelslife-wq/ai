@@ -16,15 +16,15 @@ jobs:
       - run: npm ci
       - run: npm run typecheck
       - run: npm run test:contracts
-      # The suite's TAP output plus the app's pino request logs is large enough that
-      # streaming it directly to the runner's log collector truncated and aborted the
-      # step: a run that fails at 30s when a complete run takes 42s, with every test
-      # passing locally. Writing to a file first keeps the step's output bounded.
+      # On a failure, re-emit the failing test names, their failure detail, the suite
+      # totals and the log tail as check ANNOTATIONS, which are readable through the API
+      # without signing in to the Actions UI. Runner logs are not reachable from every
+      # environment that has to debug them, and an intermittent failure with no readable
+      # log invites a confident wrong diagnosis — which is what happened here before this
+      # step existed (see BASELINE_TESTS.md, Phase 16).
       #
-      # On a genuine failure the test names, their failure detail, the suite totals and
-      # the log tail are re-emitted as check annotations, which are readable through the
-      # API without signing in to the Actions UI. The exit code is preserved exactly, so
-      # a failure still fails the job.
+      # Writing to a file first is what makes the grep possible; it fixes nothing by
+      # itself. The exit code is preserved exactly, so a failure still fails the job.
       - name: Run npm run check --workspace=@windels/workforce-platform
         run: |
           set +e

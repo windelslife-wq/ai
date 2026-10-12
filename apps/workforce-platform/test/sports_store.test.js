@@ -52,6 +52,26 @@ async function tempFileStore(t) {
   return createFileStore({ dir: path.join(directory, "store"), logger: { warn() {} }, syncWrites: false });
 }
 
+/**
+ * Wait until the wall clock has moved strictly past `instant`.
+ *
+ * `saveSportsMatch` distinguishes a creation from an update by comparing `created_at`
+ * with `updated_at` — the heuristic legacy used and this port deliberately kept
+ * (divergence SP-13, which fixed the row the comparison reads, not the comparison). So
+ * an update that lands in the SAME MILLISECOND as the insert is indistinguishable from a
+ * creation, and gets counted as one.
+ *
+ * That is a property of the code, not an artifact of the test, and asserting `notEqual`
+ * without first guaranteeing the clock moved produced exactly the failure it deserves:
+ * green on every run in a 2-core sandbox, intermittent on a 4-core runner where two
+ * writes really can land inside one millisecond. Waiting for the clock costs about a
+ * millisecond and makes the assertion mean what it says.
+ */
+async function afterInstant(instant) {
+  const at = Date.parse(instant);
+  while (Date.now() <= at) await new Promise((resolve) => setTimeout(resolve, 1));
+}
+
 function fixture(overrides = {}) {
   return {
     provider: "sandbox-sim",
@@ -256,6 +276,7 @@ test("saveSportsMatch upserts by (provider, external id) and distinguishes creat
   // new fixture was counted as an update: a first sync of twelve fixtures reported
   // `created: 0, updated: 12`. These counters are operator evidence, and false
   // evidence is worse than divergent evidence.
+  await afterInstant(created.created_at);
   const updated = await store.saveSportsMatch(provider.id, fixture({ status: "LIVE" }));
   assert.equal(updated.id, created.id, "one row per provider per external fixture");
   assert.equal(updated.status, "LIVE");
@@ -653,6 +674,10 @@ test("a full ingestion round trip stores fixtures, odds, results, quality and th
   assert.equal(first.created, 2);
   assert.equal(first.updated, 0);
 
+  // The re-sync must land in a strictly later millisecond, or it is counted as two more
+  // creations rather than two updates — see afterInstant() for why that is a property of
+  // the code and not of the test.
+  await afterInstant((await wrapped.listSportsMatches())[0].updated_at);
   const second = await sync.syncFixtures(provider, {}, "fixtures:2026-03-07b");
   assert.equal(second.created, 0);
   assert.equal(second.updated, 2, "a re-sync of the same fixtures updates them");

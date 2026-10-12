@@ -114,7 +114,12 @@ test("a fixture sync stores the fixtures, scores them, and counts creations corr
   assert.equal(row.display_name, "sandbox-sim");
   assert.equal(row.enabled, false, "a sync naming a vendor is not an operator approving it");
 
-  // A re-sync of the same window updates rather than duplicates.
+  // A re-sync of the same window updates rather than duplicates. The clock is advanced
+  // past the first write first: created-vs-updated is decided by comparing `created_at`
+  // with `updated_at`, so a re-sync landing in the same millisecond would be counted as
+  // three more creations and this assertion would be testing nothing.
+  const [storedRow] = await store.listSportsMatches();
+  await afterInstant(storedRow.updated_at);
   const again = await sync.syncFixtures(provider, {}, "fixtures:2026-03-07:2");
   assert.equal(again.created, 0);
   assert.equal(again.updated, 3);
@@ -140,6 +145,26 @@ test("every fixture is scored as it lands, and none of them becomes ticket-eligi
   assert.equal(quality.provider_reliability_score, 90, "derived from the health reading the same run took");
   assert.ok(quality.checks_payload.length >= 9, "all nine weighted checks are stored, because a score with no breakdown is an assertion");
 });
+
+/**
+ * Wait until the wall clock has moved strictly past `instant`.
+ *
+ * `saveSportsMatch` distinguishes a creation from an update by comparing `created_at`
+ * with `updated_at` — the heuristic legacy used and this port deliberately kept
+ * (divergence SP-13, which fixed the row the comparison reads, not the comparison). So
+ * an update that lands in the SAME MILLISECOND as the insert is indistinguishable from a
+ * creation, and gets counted as one.
+ *
+ * That is a property of the code, not an artifact of the test, and asserting `notEqual`
+ * without first guaranteeing the clock moved produced exactly the failure it deserves:
+ * green on every run in a 2-core sandbox, intermittent on a 4-core runner where two
+ * writes really can land inside one millisecond. Waiting for the clock costs about a
+ * millisecond and makes the assertion mean what it says.
+ */
+async function afterInstant(instant) {
+  const at = Date.parse(instant);
+  while (Date.now() <= at) await new Promise((resolve) => setTimeout(resolve, 1));
+}
 
 // ── idempotency ──────────────────────────────────────────────────────────────
 
