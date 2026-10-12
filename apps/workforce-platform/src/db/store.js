@@ -78,8 +78,9 @@ export function createStore(pool, { requiredMigrations = REQUIRED_MIGRATIONS } =
     // implied: these 22 methods read and write ONLY the seven `wf_sports_*` foundation tables.
     // None of them can reach a proposal, order, position, account or broker row, and
     // none of them places a bet — this is observed sporting data and the evidence of
-    // how it was obtained. `verifySportsResult` is deliberately absent: ingestion
-    // reports a result, it does not get to attest to one.
+    // how it was obtained. (`verifySportsResult` used to be deliberately absent here;
+    // since slice 5 it exists, but it lives in the attestation block below — the
+    // ingest writes and the attesting write stay distinct names on one repository.)
     ensureSportsProvider: sports.ensureSportsProvider,
     listSportsProviders: sports.listSportsProviders,
     setSportsProviderEnabled: sports.setSportsProviderEnabled,
@@ -131,6 +132,27 @@ export function createStore(pool, { requiredMigrations = REQUIRED_MIGRATIONS } =
     finishSportsDailyTicketRun: sports.finishSportsDailyTicketRun,
     findSportsDailyTicketRun: sports.findSportsDailyTicketRun,
     listSportsDailyTicketRuns: sports.listSportsDailyTicketRuns,
+    // Slice 5 completes the ticket write surface: leg and ticket outcome updates are
+    // what settlement applies, and run recovery is the R-29 stuck-run release. Still
+    // ticket tables only, and still nothing that places or prices a bet.
+    updateSportsTicket: sports.updateSportsTicket,
+    updateSportsTicketSelection: sports.updateSportsTicketSelection,
+    recordSportsTicketOutcome: sports.recordSportsTicketOutcome,
+    recoverSportsDailyTicketRuns: sports.recoverSportsDailyTicketRuns,
+    // Settlement and the measured half (migration 014, slice 5). Result attestation
+    // sits here deliberately next to the ingest block it refines: `saveSportsResult`
+    // records what a provider said, `verifySportsResult` records that a person
+    // attested to it, and nothing in the ingest block can call the attesting one.
+    // The analytics reads feed settlement, measurement and reporting only.
+    verifySportsResult: sports.verifySportsResult,
+    findSportsResultByMatch: sports.findSportsResultByMatch,
+    listSportsPredictionOutcomes: sports.listSportsPredictionOutcomes,
+    listSportsSettledSelections: sports.listSportsSettledSelections,
+    saveSportsModelMetrics: sports.saveSportsModelMetrics,
+    listSportsModelMetrics: sports.listSportsModelMetrics,
+    saveSportsBacktest: sports.saveSportsBacktest,
+    findSportsBacktest: sports.findSportsBacktest,
+    listSportsBacktests: sports.listSportsBacktests,
     saveJobState: jobs.saveJobState,
     // Notifications are written outside any paper transaction: they are evidence
     // about a change that already committed, and a failed notification must never

@@ -115,12 +115,13 @@ test("R-27 the retention cutoff must be a canonical ISO-8601 UTC instant", () =>
   assert.ok(REPOSITORY_METHODS.includes("pruneAnalysisRuns"), "retention is part of the contract, not an adapter extra");
   // Phase 12 adds one cross-owner execution read, the five job-lock methods and
   // the two job-state methods.
-  // 129 = the 86 asserted in `platform_findings.test.js` plus the 22 sports
-  // foundation methods (migration 011), the 12 decision-chain methods (migration 012) and
-  // the 9 ticket methods (migration 013). Pinned here too, because
+  // 142 = the 86 asserted in `platform_findings.test.js` plus the 22 sports
+  // foundation methods (migration 011), the 12 decision-chain methods (migration 012),
+  // the 9 ticket methods (migration 013) and the 13 settlement-and-measurement methods
+  // (slice 5, migration 014). Pinned here too, because
   // retention is a contract obligation and a method added to one adapter but not the
   // other is the failure mode this test exists to catch.
-  assert.equal(REPOSITORY_METHODS.length, 129);
+  assert.equal(REPOSITORY_METHODS.length, 142);
 });
 
 test("R-27 the cutoff arithmetic keeps everything when retention is off, and 0 never means 'delete all'", () => {

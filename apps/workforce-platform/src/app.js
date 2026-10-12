@@ -158,6 +158,13 @@ export async function buildApp({ config, store, logger = true, publicDir = path.
   // directly — the execution supervisor asks the manager, exactly as legacy did.
   const brokers = createBrokerRegistry({ brokers: config.brokers });
 
+  // One notification service per app. It is built before the sports and paper
+  // services because governance transitions publish through it, and it is handed to
+  // each as an *optional* collaborator: a host whose migration 009 has not
+  // been applied must still be able to move the kill switch, so the publisher
+  // degrades to a logged no-op instead of failing the governance action.
+  const notifications = createNotificationService({ store, log: app.log });
+
   // One sports service per app (row 14). Providers come from the environment only,
   // and a default host registers none at all: the sandbox provider needs
   // WINDELS_SPORTS_MODE=SANDBOX *and* WINDELS_SPORTS_SANDBOX=1, and the HTTP
@@ -171,14 +178,11 @@ export async function buildApp({ config, store, logger = true, publicDir = path.
   // refuses with 503 rather than returning an empty list that would look like an
   // empty database, and `/api/v1/sports/status` still answers, because configuration
   // is not something a missing table can make unknown.
-  const sports = createSportsService({ config, store });
-
-  // One notification service per app. It is built before the paper service
-  // because governance transitions publish through it, and it is handed to that
-  // service as an *optional* collaborator: a host whose migration 009 has not
-  // been applied must still be able to move the kill switch, so the publisher
-  // degrades to a logged no-op instead of failing the governance action.
-  const notifications = createNotificationService({ store, log: app.log });
+  //
+  // Slice 5 also hands it the notification service, because the drift monitor is the
+  // publisher `SPORTS_MODEL_DRIFT` has been declared-and-unwired for since Phase 9
+  // (NV-6): a drift warning now reaches the operator inbox, deduped per model per day.
+  const sports = createSportsService({ config, store, notifications });
 
   // The status surface reports the notification module alongside market data and
   // analysis, so an operator can see that alerts are stored-and-read only and that

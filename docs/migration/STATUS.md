@@ -1,30 +1,53 @@
 # JavaScript / Node.js / cPanel migration status
 
-**Updated:** 2026-10-12 · **Branch:** `arena/8de8de2e-ai`
+**Updated:** 2026-10-12 · **Branch:** `arena/653d6218-ai`
 
-## Current Phase 18 status (2026-10-12)
+## Current Phase 19 status (2026-10-12)
 
-**The ticket engine is ported** (row 14, slice 4 of 5). App version is still **0.15.0**; no release was
-cut, and nothing is deployed. The branch `arena/7577d922-ai` is not merged. The ledger stays at **9 ported /
-5 partial / 3 not-ported** across **17** modules, and `sports` remains `partial`. Migration **013** adds three
-`wf_sports_*` tables, taking the schema to **38**. The repository grows from 120 to **129** methods. Five
-routes are added, and the sports surface reaches **25**. The total route count is **106**. Full record:
+**The measured half is ported** (row 14, slice 5 of 5 — **all five slices of the sports module have
+landed**). App version is now **0.16.0**; no release was cut, and nothing is deployed. The ledger stays at
+**9 ported / 5 partial / 3 not-ported** across **17** modules, and `sports` remains `partial` — its label now
+carries the slice-5 boundary: nothing executed, no stake sized, no stored result trusted before a person
+attests to it. Migration **014** adds two `wf_sports_*` tables (backtests, model metrics), taking the schema
+to **40**. The repository grows from 129 to **142** methods (56 sports). Nine routes are added: the sports
+surface reaches **34**, the total **115**. **NV-6 is closed** — the drift monitor publishes
+`SPORTS_MODEL_DRIFT`, so every declared notification type has a publisher — and **R-29 is closed** by the
+stuck-run recovery route. `SPORTS_NOT_PORTED` shrinks to **3** (stake sizing, the sports cron, console
+screens). Full record: [`PHASE19_SPORTS_MEASURED_HALF.md`](PHASE19_SPORTS_MEASURED_HALF.md).
+
+A stored result is verified under `sports.settle` by a person; settlement settles tickets **only** from
+verified results (`RESTITUTE_ODDS` by default); calibration fitting now runs on the platform's settled
+outcomes and stores `PENDING` for an administrator; the backtester replays stored history point-in-time with
+`simulation: true` inside the report; the drift monitor compares a 14-day window against its 28-day baseline;
+performance analytics measure tickets, selections and predictions from stored records. Slice 5 also brought a
+new differential harness (`cases.slice5`): the repository-bound legacy engines are driven over a scripted fake
+`SportsRepository` in WASM PHP and the port over an equally scripted store, including one **full identity-replay
+backtest** compared whole. It found **F-42** (the port's drift reason string had dropped legacy's parentheses —
+fixed) and evidences **F-36** (PHP's Brier is always 0.0) four times. **F-41** (the MySQL `createStore` method
+list had gone stale) was caught by the boot test before commit and fixed.
+
+Gates on this branch: `npm test` **885 / 885** across **52** files, `npm run check` exit 0 (`verify:install` 29/29,
+76 documented variables), PHP oracle **367 / 367**, and the legacy tree (`application/`, `system/`, `tests/`)
+unmodified. The golden regenerates additively (`cases.slice5` added: 4,757 insertions, zero deletions) and
+deterministically (two consecutive runs hash identically). **Not run:** a real MySQL server, and migration 014
+against any database.
+
+**Still not ported:** stake sizing, the sports cron (`SportsCronService`, row 19) and the console screens (F-29).
+
+## Phase 18 status (2026-10-12) — superseded by Phase 19
+
+**The ticket engine was ported** (row 14, slice 4 of 5). App version was **0.15.0**. The ledger stayed at
+**9 ported / 5 partial / 3 not-ported** across **17** modules, and `sports` remained `partial`. Migration **013** added three
+`wf_sports_*` tables, taking the schema to **38**. The repository grew from 120 to **129** methods. Five
+routes were added, and the sports surface reached **25**. The total route count was **106**. Full record:
 [`PHASE18_SPORTS_TICKETS.md`](PHASE18_SPORTS_TICKETS.md).
 
-A daily run over stored fixtures records one ticket per day and configuration version, as
+A daily run over stored fixtures recorded one ticket per day and configuration version, as
 `PENDING_USER_APPROVAL`. A person approves or rejects it. Nothing is executed, and a simulated candidate never
 reaches a ticket (DV-20, user-chosen). A run that throws is stored as `NO_QUALIFIED_TICKET` with the error kept
 (DV-23, as legacy). Two findings: **F-39**, legacy's team and competition correlation checks never fire, and the
 port follows the documented intent (user-confirmed). **F-40**, the file adapter gave
 concurrent inserts the same id, is fixed.
-
-Gates on this branch: `npm test` **875 / 875** across **51** files, `npm run check` exit 0 (`verify:install` 29/29,
-76 documented variables), PHP oracle **367 / 367**, and the legacy tree (`application/`, `system/`, `tests/`)
-unmodified. The golden regenerator now exits on its own, and re-running it reproduced the golden byte for byte.
-**Not run:** a real MySQL server, and migration 013 against any database.
-
-**Still not ported:** stake sizing, settlement, verification, the backtester, drift and analytics (slice 5);
-calibration fitting; and cron.
 
 ## Phase 17 status (2026-10-12) — superseded by Phase 18
 

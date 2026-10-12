@@ -1,5 +1,5 @@
 /**
- * The Sports Intelligence decision service (row 14, slice 3).
+ * The Sports Intelligence decision service (row 14, slices 3 and 5).
  *
  * This is the orchestration layer over the pure ports in this directory. It loads the
  * inputs a decision needs, runs the chain, stores the result, and audits it. It never
@@ -7,18 +7,15 @@
  * `calibration.js` and `configuration.js`, and the parity test holds them to legacy's
  * output value for value.
  *
- * What this service does NOT do, and why each refusal is explicit rather than silent:
+ * Slice 5 completes the measured half: `fitCalibration` fits on the platform's own
+ * settled outcomes and stores the result as PENDING, and `modelPerformance` measures
+ * accuracy, Brier, ECE and the ticket aggregates from the same outcomes. What this
+ * service still does NOT do:
  *
- *  - **It cannot fit a calibration.** A fit needs settled outcomes, and settlement is
- *    slice 5. `fitCalibration` refuses with 422 and stores nothing, rather than fitting
- *    on an empty or invented sample.
- *  - **It cannot verify an outcome or measure one.** Model performance reports the number
- *    of decisions and `samples: 0`, with every metric null. A decision with no settled
- *    result has no accuracy to report, and `null` says so where `0` would lie.
- *  - **It cannot size a stake or build a ticket.** Correlation is stored as `UNKNOWN`
- *    until the correlation engine runs (slice 4).
- *  - **It cannot place a bet.** A decision is a record of what the chain concluded and
- *    why. Nothing here reaches a paper, execution or broker path.
+ *  - **It cannot size a stake.** The configured fixed stake is recorded on each
+ *    ticket; sizing from bankroll or edge has no ported implementation.
+ *  - **It cannot place a bet or execute anything.** A decision, a settlement and a
+ *    fit are records. Nothing here reaches a paper, execution or broker path.
  *
  * Predictions are immutable: this service inserts them and reads them, and there is no
  * method to change one.
@@ -30,6 +27,8 @@ import { phpEmpty } from "../../lib/php.js";
 import { FEATURE_VERSION, MODEL_NAME, MODEL_VERSION, evaluatePrediction } from "./intelligence.js";
 import { assessProviderHealth } from "./health-monitor.js";
 import { assessQuality } from "./quality.js";
+import { calibrationVersion, fitCalibration as fitFromOutcomes } from "./calibration.js";
+import { metricsFromOutcomes } from "./model-performance.js";
 import {
   CONFIGURATION_FIELDS,
   changedConfigurationFields,
@@ -39,9 +38,7 @@ import {
 import {
   DEFAULT_WINDOW_DAYS,
   MAX_WINDOW_DAYS,
-  TICKET_METRICS_STATUS,
   inWindow,
-  metricsFromOutcomes,
   windowStartSeconds,
 } from "./model-performance.js";
 
@@ -54,6 +51,13 @@ export const CORRELATION_PENDING = "UNKNOWN";
 
 /** Reads are bounded: a single response never grows with the number of decisions. */
 const LIST_LIMIT = 500;
+
+/**
+ * The most settled outcomes one measurement read may load. Legacy's
+ * `predictionOutcomes()` has no bound; this one does, and reports when it bites, so a
+ * fit on a very large history knows its sample was cut rather than complete.
+ */
+const OUTCOME_LIMIT = 5000;
 
 /** A new prediction id, `prd_` + 24 lower-case hex, as legacy's `bin2hex(random_bytes(12))`. */
 export function newPredictionId() {
@@ -385,30 +389,138 @@ export function createSportsIntelligenceService({ store = null, now = () => Date
   }
 
   /**
-   * Model performance over a window.
+   * Model performance over a window — measured, as of slice 5.
    *
-   * Honest about what slice 3 can know: there are no settled outcomes yet, so `samples` is
-   * 0 and every metric is null. `predictions` counts the decisions recorded in the window,
-   * and `outcomesAvailable` says why the metrics are empty. Ticket metrics are reported as
-   * NOT_PORTED, not as zero: no ticket exists to measure.
+   * Every metric below is computed from stored settled outcomes and settled tickets.
+   * `samples: 0` with null metrics is still the honest shape when nothing has settled
+   * yet — but it is now a measurement of an empty history, not a statement that
+   * measurement is impossible. `outcomesAvailable` says which of the two a reader is
+   * looking at, and `comparison` is legacy's per-model side-by-side
+   * (`ModelPerformanceService::compare`), each model's metrics measured in the same
+   * window. Ticket metrics are measured per model in `comparison`; the top-level
+   * `tickets` block is the same measurement across every model.
    */
   async function modelPerformance({ windowDays = DEFAULT_WINDOW_DAYS } = {}) {
+    const repository = requireStore();
     const days = Math.min(MAX_WINDOW_DAYS, Math.max(1, Math.trunc(Number(windowDays) || DEFAULT_WINDOW_DAYS)));
     const since = windowStartSeconds(nowSeconds(), days);
-    const recent = (await requireStore().listSportsPredictions({}, LIST_LIMIT))
+    const sinceIso = new Date(since * 1000).toISOString();
+    const recent = (await repository.listSportsPredictions({}, LIST_LIMIT))
       .filter((row) => inWindow(row.created_at, since));
+    const outcomes = (await repository.listSportsPredictionOutcomes(null, OUTCOME_LIMIT))
+      .filter((row) => inWindow(row.created_at, since));
+    const windowSelections = await repository.listSportsSettledSelections({ from: sinceIso }, OUTCOME_LIMIT);
+    const settledSelections = windowSelections.filter((row) => row._settled === 1);
     return Object.freeze({
       window: { days, since: new Date(since * 1000).toISOString() },
       predictions: recent.length,
       readyPredictions: recent.filter((row) => row.decision === "PREDICTION_READY").length,
       // `truncated` is stated, not hidden: the count is exact only below the read bound.
-      truncated: recent.length >= LIST_LIMIT,
-      outcomesAvailable: false,
-      outcomesReason: "Settlement is not ported (row 14 slice 5), so no prediction has a recorded result",
-      samples: 0,
-      metrics: metricsFromOutcomes([]),
-      tickets: TICKET_METRICS_STATUS,
+      truncated: recent.length >= LIST_LIMIT || outcomes.length >= OUTCOME_LIMIT,
+      outcomesAvailable: true,
+      samples: outcomes.length,
+      metrics: metricsFromOutcomes(outcomes),
+      tickets: ticketsFromSelections(settledSelections, windowSelections),
+      // Legacy's `compare($window)`: every model version side by side, measured.
+      // Each entry also snapshots one `live` metrics row, as legacy's metricsFor does.
+      comparison: await modelComparison(days),
     });
+  }
+
+  /** All model versions with measured metrics for one window (legacy's `compare`). */
+  async function modelComparison(windowDays) {
+    const repository = requireStore();
+    const models = await repository.listSportsModelVersions();
+    const sinceIso = new Date(windowStartSeconds(nowSeconds(), windowDays) * 1000).toISOString();
+    const out = [];
+    for (const model of models) {
+      const outcomes = (await repository.listSportsPredictionOutcomes(model.id, OUTCOME_LIMIT))
+        .filter((row) => inWindow(row.created_at, windowStartSeconds(nowSeconds(), windowDays)));
+      const windowSelections = await repository.listSportsSettledSelections({
+        from: sinceIso,
+        modelVersionId: model.id,
+      }, OUTCOME_LIMIT);
+      out.push({
+        id: Number(model.id),
+        modelName: model.model_name,
+        modelVersion: model.model_version,
+        featureVersion: model.feature_version,
+        calibrationVersion: model.calibration_version ?? null,
+        status: model.status,
+        createdAt: model.created_at,
+        metrics: {
+          ...metricsFromOutcomes(outcomes),
+          ...ticketsFromSelections(windowSelections.filter((row) => row._settled === 1), windowSelections),
+        },
+      });
+    }
+    return out;
+  }
+
+  /**
+   * The ticket-level metrics for a set of settled selections, with legacy's allocation:
+   * one ticket's stake and P/L are shared equally across ALL its legs — settled or not —
+   * which is the denominator legacy divides by. `allSelections` (the window's legs,
+   * settled or not) supplies that count; when it is omitted the settled rows stand in
+   * for it. An empty history measures nothing: every metric stays null.
+   */
+  function ticketsFromSelections(settledSelections, allSelections = null) {
+    const settledTickets = new Set(settledSelections.map((s) => String(s.ticket_id)));
+    const metrics = {
+      status: "MEASURED",
+      settledTickets: settledTickets.size,
+      winRate: null,
+      roi: null,
+      maxDrawdown: null,
+      byMarket: {},
+      byLeague: {},
+    };
+    if (settledSelections.length === 0) return metrics;
+    const legCounts = new Map();
+    for (const s of allSelections ?? settledSelections) {
+      const ticketId = String(s.ticket_id);
+      legCounts.set(ticketId, (legCounts.get(ticketId) ?? 0) + 1);
+    }
+    let stakeSum = 0;
+    let pnlSum = 0;
+    let hasStake = false;
+    let cum = 0;
+    let peak = 0;
+    let maxDd = 0;
+    const byMarket = new Map();
+    const byLeague = new Map();
+    for (const s of settledSelections) {
+      const n = Math.max(1, legCounts.get(String(s.ticket_id)) ?? 1);
+      const stake = s.ticket_stake !== null && s.ticket_stake !== undefined ? Number(s.ticket_stake) / n : null;
+      const pnl = s.ticket_pnl !== null && s.ticket_pnl !== undefined ? Number(s.ticket_pnl) : null;
+      if (pnl !== null && stake !== null) {
+        const pnlSel = pnl / n;
+        hasStake = true;
+        pnlSum += pnlSel;
+        stakeSum += stake;
+        cum += pnlSel;
+        peak = Math.max(peak, cum);
+        maxDd = Math.max(maxDd, peak - cum);
+      }
+      for (const [group, label] of [["byMarket", s.market ?? "UNKNOWN"], ["byLeague", s.competition ?? "UNKNOWN"]]) {
+        const bucket = group === "byMarket" ? byMarket : byLeague;
+        if (!bucket.has(label)) bucket.set(label, { n: 0, won: 0 });
+        const entry = bucket.get(label);
+        entry.n += 1;
+        if (String(s.status) === "WON") entry.won += 1;
+      }
+    }
+    const toOut = (bucket) => Object.fromEntries(
+      [...bucket.entries()].map(([label, b]) => [label, { ...b, winRate: Math.round((b.won / b.n) * 10 ** 4) / 10 ** 4 }]),
+    );
+    const decisive = settledSelections.filter((s) => s.status === "WON" || s.status === "LOST").length;
+    const won = settledSelections.filter((s) => s.status === "WON").length;
+    metrics.winRate = decisive ? Math.round((won / decisive) * 10 ** 5) / 10 ** 5 : null;
+    metrics.roi = (hasStake && stakeSum > 0) ? Math.round((pnlSum / stakeSum) * 10 ** 5) / 10 ** 5 : null;
+    metrics.maxDrawdown = hasStake ? Math.round(maxDd * 10 ** 4) / 10 ** 4 : null;
+    metrics.byMarket = toOut(byMarket);
+    metrics.byLeague = toOut(byLeague);
+    return metrics;
   }
 
   async function listCalibrations(filter = {}, limit = 50) {
@@ -416,14 +528,57 @@ export function createSportsIntelligenceService({ store = null, now = () => Date
   }
 
   /**
-   * Fitting is refused in this slice, deliberately and in writing. The pure fit exists and
-   * is parity-tested, but a fit needs settled outcomes, which do not exist until slice 5.
-   * Nothing is computed and nothing is stored.
+   * Fit a calibration from stored settled outcomes.
+   *
+   * Slice 5 makes this real. The outcomes are the platform's own — predictions joined
+   * to VERIFIED finished results, which is why no fit was possible before settlement.
+   * The pure fit (parity-tested since slice 3) runs on them; a refusal from the fit
+   * (not enough samples, or no class coverage) is a 422 with the fit's own reason and
+   * nothing is stored. A fit that succeeds is stored as PENDING: it is not usable until
+   * an administrator approves it, which is the gate the whole design rests on.
    */
-  async function fitCalibration() {
-    throw new AppError(422, "SETTLED_OUTCOMES_UNAVAILABLE",
-      "A calibration fit needs settled outcomes, and settlement is not ported yet (row 14 slice 5). "
-      + "No fit was attempted and nothing was stored.");
+  async function fitCalibration({ actorId = null } = {}) {
+    const repository = requireStore();
+    const outcomes = await repository.listSportsPredictionOutcomes(null, OUTCOME_LIMIT);
+    const fit = fitFromOutcomes(outcomes);
+    if (!fit.ok) {
+      throw new AppError(422, "CALIBRATION_CANNOT_BE_FITTED",
+        `calibration cannot be fitted: ${fit.reason} (samples: ${fit.samples ?? 0})`);
+    }
+    const model = await repository.ensureSportsModelVersion({
+      modelName: MODEL_NAME,
+      modelVersion: MODEL_VERSION,
+      featureVersion: FEATURE_VERSION,
+      createdAt: nowIso(),
+    });
+    const saved = await repository.saveSportsCalibration({
+      fit: {
+        ...fit.fit,
+        ece: fit.metrics.ece,
+        brier: fit.metrics.brier,
+        identityBrier: fit.metrics.identityBrier,
+        bins: fit.bins,
+      },
+      modelVersionId: model.id,
+      calibrationVersion: calibrationVersion(fit.fit),
+      createdBy: actorId ?? "system",
+      createdAt: nowIso(),
+    });
+    await repository.recordAudit({
+      actorId,
+      action: "sports.calibration.fitted",
+      entityType: "sports_calibration",
+      entityId: String(saved.id),
+      details: {
+        calibrationId: saved.id,
+        samples: fit.fit.samples,
+        ece: fit.metrics.ece,
+        brier: fit.metrics.brier,
+        identityBrier: fit.metrics.identityBrier,
+        message: "New calibration version fitted (pending approval)",
+      },
+    });
+    return Object.freeze({ calibration: saved });
   }
 
   /**

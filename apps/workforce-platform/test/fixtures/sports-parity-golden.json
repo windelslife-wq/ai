@@ -17557,6 +17557,4763 @@
         }
       }
     },
+    "slice5": {
+      "verify": {
+        "an unverified row is refused with RESULT_UNVERIFIED": {
+          "input": {
+            "verified": false,
+            "status": "FINISHED",
+            "homeScore": 2,
+            "awayScore": 1
+          },
+          "result": {
+            "ok": true,
+            "value": {
+              "verified": false,
+              "reason": "RESULT_UNVERIFIED"
+            }
+          }
+        },
+        "a missing verified flag is refused like a false one": {
+          "input": {
+            "status": "FINISHED",
+            "homeScore": 2,
+            "awayScore": 1
+          },
+          "result": {
+            "ok": true,
+            "value": {
+              "verified": false,
+              "reason": "RESULT_UNVERIFIED"
+            }
+          }
+        },
+        "a VOID status verifies to a terminal void": {
+          "input": {
+            "verified": true,
+            "status": "VOID",
+            "homeScore": null,
+            "awayScore": null
+          },
+          "result": {
+            "ok": true,
+            "value": {
+              "verified": true,
+              "terminalStatus": "VOID"
+            }
+          }
+        },
+        "a CANCELLED status verifies to a terminal cancellation": {
+          "input": {
+            "verified": true,
+            "status": "CANCELLED",
+            "homeScore": null,
+            "awayScore": null
+          },
+          "result": {
+            "ok": true,
+            "value": {
+              "verified": true,
+              "terminalStatus": "CANCELLED"
+            }
+          }
+        },
+        "a lower-case void status is upper-cased first": {
+          "input": {
+            "verified": true,
+            "status": "void",
+            "homeScore": null,
+            "awayScore": null
+          },
+          "result": {
+            "ok": true,
+            "value": {
+              "verified": true,
+              "terminalStatus": "VOID"
+            }
+          }
+        },
+        "a live match is refused with MATCH_NOT_FINISHED": {
+          "input": {
+            "verified": true,
+            "status": "LIVE",
+            "homeScore": 1,
+            "awayScore": 0
+          },
+          "result": {
+            "ok": true,
+            "value": {
+              "verified": false,
+              "reason": "MATCH_NOT_FINISHED"
+            }
+          }
+        },
+        "a missing status is refused with MATCH_NOT_FINISHED": {
+          "input": {
+            "verified": true,
+            "homeScore": 1,
+            "awayScore": 0
+          },
+          "result": {
+            "ok": true,
+            "value": {
+              "verified": false,
+              "reason": "MATCH_NOT_FINISHED"
+            }
+          }
+        },
+        "a negative home score is refused with RESULT_INVALID": {
+          "input": {
+            "verified": true,
+            "status": "FINISHED",
+            "homeScore": -1,
+            "awayScore": 0
+          },
+          "result": {
+            "ok": true,
+            "value": {
+              "verified": false,
+              "reason": "RESULT_INVALID"
+            }
+          }
+        },
+        "a negative away score is refused with RESULT_INVALID": {
+          "input": {
+            "verified": true,
+            "status": "FINISHED",
+            "homeScore": 2,
+            "awayScore": -2
+          },
+          "result": {
+            "ok": true,
+            "value": {
+              "verified": false,
+              "reason": "RESULT_INVALID"
+            }
+          }
+        },
+        "a missing away score is refused with RESULT_INVALID": {
+          "input": {
+            "verified": true,
+            "status": "FINISHED",
+            "homeScore": 2
+          },
+          "result": {
+            "ok": true,
+            "value": {
+              "verified": false,
+              "reason": "RESULT_INVALID"
+            }
+          }
+        },
+        "a string score is refused because is_int fails": {
+          "input": {
+            "verified": true,
+            "status": "FINISHED",
+            "homeScore": "2",
+            "awayScore": 1
+          },
+          "result": {
+            "ok": true,
+            "value": {
+              "verified": false,
+              "reason": "RESULT_INVALID"
+            }
+          }
+        },
+        "a float score is refused because is_int fails": {
+          "input": {
+            "verified": true,
+            "status": "FINISHED",
+            "homeScore": 2,
+            "awayScore": 1
+          },
+          "result": {
+            "ok": true,
+            "value": {
+              "verified": false,
+              "reason": "RESULT_INVALID"
+            }
+          }
+        },
+        "a valid finished score verifies with its scores carried through": {
+          "input": {
+            "verified": true,
+            "status": "FINISHED",
+            "homeScore": 3,
+            "awayScore": 0
+          },
+          "result": {
+            "ok": true,
+            "value": {
+              "verified": true,
+              "terminalStatus": "FINISHED",
+              "homeScore": 3,
+              "awayScore": 0
+            }
+          }
+        },
+        "a valid nil-nil verifies": {
+          "input": {
+            "verified": true,
+            "status": "FINISHED",
+            "homeScore": 0,
+            "awayScore": 0
+          },
+          "result": {
+            "ok": true,
+            "value": {
+              "verified": true,
+              "terminalStatus": "FINISHED",
+              "homeScore": 0,
+              "awayScore": 0
+            }
+          }
+        }
+      },
+      "settleSelection": {
+        "an unverified verdict keeps the leg pending with the verdict reason": {
+          "input": {
+            "selection": {
+              "market": "TOTAL_GOALS",
+              "selection": "OVER_1_5"
+            },
+            "verified": {
+              "verified": false,
+              "reason": "RESULT_UNVERIFIED"
+            }
+          },
+          "result": {
+            "ok": true,
+            "value": {
+              "status": "PENDING",
+              "reason": "RESULT_UNVERIFIED"
+            }
+          }
+        },
+        "an unverified verdict with no reason defaults the reason": {
+          "input": {
+            "selection": {
+              "market": "TOTAL_GOALS",
+              "selection": "OVER_1_5"
+            },
+            "verified": {
+              "verified": false
+            }
+          },
+          "result": {
+            "ok": true,
+            "value": {
+              "status": "PENDING",
+              "reason": "RESULT_UNVERIFIED"
+            }
+          }
+        },
+        "a verified void voids the leg": {
+          "input": {
+            "selection": {
+              "market": "TOTAL_GOALS",
+              "selection": "OVER_1_5"
+            },
+            "verified": {
+              "verified": true,
+              "terminalStatus": "VOID"
+            }
+          },
+          "result": {
+            "ok": true,
+            "value": {
+              "status": "VOID",
+              "reason": "VERIFIED_VOID"
+            }
+          }
+        },
+        "a verified cancellation cancels the leg": {
+          "input": {
+            "selection": {
+              "market": "TOTAL_GOALS",
+              "selection": "OVER_1_5"
+            },
+            "verified": {
+              "verified": true,
+              "terminalStatus": "CANCELLED"
+            }
+          },
+          "result": {
+            "ok": true,
+            "value": {
+              "status": "CANCELLED",
+              "reason": "VERIFIED_CANCELLATION"
+            }
+          }
+        },
+        "two goals win OVER_1_5": {
+          "input": {
+            "selection": {
+              "market": "TOTAL_GOALS",
+              "selection": "OVER_1_5"
+            },
+            "verified": {
+              "verified": true,
+              "terminalStatus": "FINISHED",
+              "homeScore": 1,
+              "awayScore": 1
+            }
+          },
+          "result": {
+            "ok": true,
+            "value": {
+              "status": "WON",
+              "reason": "VERIFIED_RESULT"
+            }
+          }
+        },
+        "one goal exactly loses OVER_1_5": {
+          "input": {
+            "selection": {
+              "market": "TOTAL_GOALS",
+              "selection": "OVER_1_5"
+            },
+            "verified": {
+              "verified": true,
+              "terminalStatus": "FINISHED",
+              "homeScore": 1,
+              "awayScore": 0
+            }
+          },
+          "result": {
+            "ok": true,
+            "value": {
+              "status": "LOST",
+              "reason": "VERIFIED_RESULT"
+            }
+          }
+        },
+        "five goals win OVER_1_5": {
+          "input": {
+            "selection": {
+              "market": "TOTAL_GOALS",
+              "selection": "OVER_1_5"
+            },
+            "verified": {
+              "verified": true,
+              "terminalStatus": "FINISHED",
+              "homeScore": 4,
+              "awayScore": 1
+            }
+          },
+          "result": {
+            "ok": true,
+            "value": {
+              "status": "WON",
+              "reason": "VERIFIED_RESULT"
+            }
+          }
+        },
+        "a market the engine does not know stays pending with a reason": {
+          "input": {
+            "selection": {
+              "market": "MATCH_ODDS",
+              "selection": "HOME"
+            },
+            "verified": {
+              "verified": true,
+              "terminalStatus": "FINISHED",
+              "homeScore": 2,
+              "awayScore": 0
+            }
+          },
+          "result": {
+            "ok": true,
+            "value": {
+              "status": "PENDING",
+              "reason": "MARKET_SETTLEMENT_RULE_UNAVAILABLE"
+            }
+          }
+        },
+        "a missing market stays pending": {
+          "input": {
+            "selection": {
+              "selection": "OVER_1_5"
+            },
+            "verified": {
+              "verified": true,
+              "terminalStatus": "FINISHED",
+              "homeScore": 2,
+              "awayScore": 0
+            }
+          },
+          "result": {
+            "ok": true,
+            "value": {
+              "status": "PENDING",
+              "reason": "MARKET_SETTLEMENT_RULE_UNAVAILABLE"
+            }
+          }
+        },
+        "a missing selection stays pending": {
+          "input": {
+            "selection": {
+              "market": "TOTAL_GOALS"
+            },
+            "verified": {
+              "verified": true,
+              "terminalStatus": "FINISHED",
+              "homeScore": 2,
+              "awayScore": 0
+            }
+          },
+          "result": {
+            "ok": true,
+            "value": {
+              "status": "PENDING",
+              "reason": "MARKET_SETTLEMENT_RULE_UNAVAILABLE"
+            }
+          }
+        },
+        "an empty selection stays pending": {
+          "input": {
+            "selection": [],
+            "verified": {
+              "verified": true,
+              "terminalStatus": "FINISHED",
+              "homeScore": 2,
+              "awayScore": 0
+            }
+          },
+          "result": {
+            "ok": true,
+            "value": {
+              "status": "PENDING",
+              "reason": "MARKET_SETTLEMENT_RULE_UNAVAILABLE"
+            }
+          }
+        }
+      },
+      "settlement": {
+        "a won double pays stake times (effective odds minus one)": {
+          "input": {
+            "repo": {
+              "tickets": {
+                "tkt_0000000000000001": {
+                  "id": "tkt_0000000000000001",
+                  "stake": 10,
+                  "total_odds": 3.8,
+                  "settlement_status": "PENDING",
+                  "status": "PENDING"
+                }
+              },
+              "selections": {
+                "tkt_0000000000000001": [
+                  {
+                    "id": 1,
+                    "ticket_id": "tkt_0000000000000001",
+                    "match_id": 5,
+                    "market": "TOTAL_GOALS",
+                    "selection": "OVER_1_5",
+                    "odds": 1.9,
+                    "status": "WON"
+                  },
+                  {
+                    "id": 2,
+                    "ticket_id": "tkt_0000000000000001",
+                    "match_id": 6,
+                    "market": "TOTAL_GOALS",
+                    "selection": "OVER_1_5",
+                    "odds": 2,
+                    "status": "WON"
+                  }
+                ]
+              },
+              "configuration": null,
+              "results": [],
+              "resultByMatch": [],
+              "oddsBefore": [],
+              "matches": [],
+              "outcomes": [],
+              "settledSelections": [],
+              "models": [],
+              "calibration": null,
+              "modelId": 7
+            },
+            "calls": [
+              [
+                "settlePending",
+                "tkt_0000000000000001"
+              ]
+            ]
+          },
+          "returns": [
+            {
+              "ok": true,
+              "value": {
+                "ticketId": "tkt_0000000000000001",
+                "status": "WON",
+                "effectiveOdds": 3.8,
+                "pnl": 28,
+                "selections": {
+                  "WON": 2
+                }
+              }
+            }
+          ],
+          "ticketPatches": [
+            {
+              "id": "tkt_0000000000000001",
+              "patch": {
+                "settlement_status": "WON",
+                "status": "WON",
+                "total_odds": 3.8,
+                "reason": null
+              }
+            }
+          ],
+          "selectionPatches": [],
+          "recordedOutcomes": [
+            {
+              "ticketId": "tkt_0000000000000001",
+              "pnl": 28
+            }
+          ]
+        },
+        "a void leg is refunded under the default RESTITUTE_ODDS policy": {
+          "input": {
+            "repo": {
+              "tickets": {
+                "tkt_0000000000000001": {
+                  "id": "tkt_0000000000000001",
+                  "stake": 10,
+                  "total_odds": 3.8,
+                  "settlement_status": "PENDING",
+                  "status": "PENDING"
+                }
+              },
+              "selections": {
+                "tkt_0000000000000001": [
+                  {
+                    "id": 1,
+                    "ticket_id": "tkt_0000000000000001",
+                    "match_id": 5,
+                    "market": "TOTAL_GOALS",
+                    "selection": "OVER_1_5",
+                    "odds": 1.9,
+                    "status": "WON"
+                  },
+                  {
+                    "id": 2,
+                    "ticket_id": "tkt_0000000000000001",
+                    "match_id": 6,
+                    "market": "TOTAL_GOALS",
+                    "selection": "OVER_1_5",
+                    "odds": 2.5,
+                    "status": "VOID"
+                  }
+                ]
+              },
+              "configuration": null,
+              "results": [],
+              "resultByMatch": [],
+              "oddsBefore": [],
+              "matches": [],
+              "outcomes": [],
+              "settledSelections": [],
+              "models": [],
+              "calibration": null,
+              "modelId": 7
+            },
+            "calls": [
+              [
+                "settlePending",
+                "tkt_0000000000000001"
+              ]
+            ]
+          },
+          "returns": [
+            {
+              "ok": true,
+              "value": {
+                "ticketId": "tkt_0000000000000001",
+                "status": "WON",
+                "effectiveOdds": 1.9,
+                "pnl": 9,
+                "selections": {
+                  "WON": 1,
+                  "VOID": 1
+                }
+              }
+            }
+          ],
+          "ticketPatches": [
+            {
+              "id": "tkt_0000000000000001",
+              "patch": {
+                "settlement_status": "WON",
+                "status": "WON",
+                "total_odds": 1.9,
+                "reason": null
+              }
+            }
+          ],
+          "selectionPatches": [],
+          "recordedOutcomes": [
+            {
+              "ticketId": "tkt_0000000000000001",
+              "pnl": 9
+            }
+          ]
+        },
+        "the same void leg counts its odds under ALL_VOID_ONLY": {
+          "input": {
+            "repo": {
+              "tickets": {
+                "tkt_0000000000000001": {
+                  "id": "tkt_0000000000000001",
+                  "stake": 10,
+                  "total_odds": 3.8,
+                  "settlement_status": "PENDING",
+                  "status": "PENDING"
+                }
+              },
+              "selections": {
+                "tkt_0000000000000001": [
+                  {
+                    "id": 1,
+                    "ticket_id": "tkt_0000000000000001",
+                    "match_id": 5,
+                    "market": "TOTAL_GOALS",
+                    "selection": "OVER_1_5",
+                    "odds": 1.9,
+                    "status": "WON"
+                  },
+                  {
+                    "id": 2,
+                    "ticket_id": "tkt_0000000000000001",
+                    "match_id": 6,
+                    "market": "TOTAL_GOALS",
+                    "selection": "OVER_1_5",
+                    "odds": 2.5,
+                    "status": "VOID"
+                  }
+                ]
+              },
+              "configuration": {
+                "void_policy": "ALL_VOID_ONLY"
+              },
+              "results": [],
+              "resultByMatch": [],
+              "oddsBefore": [],
+              "matches": [],
+              "outcomes": [],
+              "settledSelections": [],
+              "models": [],
+              "calibration": null,
+              "modelId": 7
+            },
+            "calls": [
+              [
+                "settlePending",
+                "tkt_0000000000000001"
+              ]
+            ]
+          },
+          "returns": [
+            {
+              "ok": true,
+              "value": {
+                "ticketId": "tkt_0000000000000001",
+                "status": "WON",
+                "effectiveOdds": 4.75,
+                "pnl": 37.5,
+                "selections": {
+                  "WON": 1,
+                  "VOID": 1
+                }
+              }
+            }
+          ],
+          "ticketPatches": [
+            {
+              "id": "tkt_0000000000000001",
+              "patch": {
+                "settlement_status": "WON",
+                "status": "WON",
+                "total_odds": 4.75,
+                "reason": null
+              }
+            }
+          ],
+          "selectionPatches": [],
+          "recordedOutcomes": [
+            {
+              "ticketId": "tkt_0000000000000001",
+              "pnl": 37.5
+            }
+          ]
+        },
+        "a cancelled leg behaves like a void one under the default policy": {
+          "input": {
+            "repo": {
+              "tickets": {
+                "tkt_0000000000000001": {
+                  "id": "tkt_0000000000000001",
+                  "stake": 10,
+                  "total_odds": 3.8,
+                  "settlement_status": "PENDING",
+                  "status": "PENDING"
+                }
+              },
+              "selections": {
+                "tkt_0000000000000001": [
+                  {
+                    "id": 1,
+                    "ticket_id": "tkt_0000000000000001",
+                    "match_id": 5,
+                    "market": "TOTAL_GOALS",
+                    "selection": "OVER_1_5",
+                    "odds": 1.9,
+                    "status": "WON"
+                  },
+                  {
+                    "id": 2,
+                    "ticket_id": "tkt_0000000000000001",
+                    "match_id": 6,
+                    "market": "TOTAL_GOALS",
+                    "selection": "OVER_1_5",
+                    "odds": 2.5,
+                    "status": "CANCELLED"
+                  }
+                ]
+              },
+              "configuration": null,
+              "results": [],
+              "resultByMatch": [],
+              "oddsBefore": [],
+              "matches": [],
+              "outcomes": [],
+              "settledSelections": [],
+              "models": [],
+              "calibration": null,
+              "modelId": 7
+            },
+            "calls": [
+              [
+                "settlePending",
+                "tkt_0000000000000001"
+              ]
+            ]
+          },
+          "returns": [
+            {
+              "ok": true,
+              "value": {
+                "ticketId": "tkt_0000000000000001",
+                "status": "WON",
+                "effectiveOdds": 1.9,
+                "pnl": 9,
+                "selections": {
+                  "WON": 1,
+                  "CANCELLED": 1
+                }
+              }
+            }
+          ],
+          "ticketPatches": [
+            {
+              "id": "tkt_0000000000000001",
+              "patch": {
+                "settlement_status": "WON",
+                "status": "WON",
+                "total_odds": 1.9,
+                "reason": null
+              }
+            }
+          ],
+          "selectionPatches": [],
+          "recordedOutcomes": [
+            {
+              "ticketId": "tkt_0000000000000001",
+              "pnl": 9
+            }
+          ]
+        },
+        "an all-void ticket is VOID with no profit and no loss": {
+          "input": {
+            "repo": {
+              "tickets": {
+                "tkt_0000000000000001": {
+                  "id": "tkt_0000000000000001",
+                  "stake": 10,
+                  "total_odds": 3.8,
+                  "settlement_status": "PENDING",
+                  "status": "PENDING"
+                }
+              },
+              "selections": {
+                "tkt_0000000000000001": [
+                  {
+                    "id": 1,
+                    "ticket_id": "tkt_0000000000000001",
+                    "match_id": 5,
+                    "market": "TOTAL_GOALS",
+                    "selection": "OVER_1_5",
+                    "odds": 2.5,
+                    "status": "VOID"
+                  },
+                  {
+                    "id": 2,
+                    "ticket_id": "tkt_0000000000000001",
+                    "match_id": 6,
+                    "market": "TOTAL_GOALS",
+                    "selection": "OVER_1_5",
+                    "odds": 1.8,
+                    "status": "CANCELLED"
+                  }
+                ]
+              },
+              "configuration": null,
+              "results": [],
+              "resultByMatch": [],
+              "oddsBefore": [],
+              "matches": [],
+              "outcomes": [],
+              "settledSelections": [],
+              "models": [],
+              "calibration": null,
+              "modelId": 7
+            },
+            "calls": [
+              [
+                "settlePending",
+                "tkt_0000000000000001"
+              ]
+            ]
+          },
+          "returns": [
+            {
+              "ok": true,
+              "value": {
+                "ticketId": "tkt_0000000000000001",
+                "status": "VOID",
+                "effectiveOdds": 1,
+                "pnl": 0,
+                "selections": {
+                  "VOID": 1,
+                  "CANCELLED": 1
+                }
+              }
+            }
+          ],
+          "ticketPatches": [
+            {
+              "id": "tkt_0000000000000001",
+              "patch": {
+                "settlement_status": "VOID",
+                "status": "VOID",
+                "total_odds": 1,
+                "reason": null
+              }
+            }
+          ],
+          "selectionPatches": [],
+          "recordedOutcomes": [
+            {
+              "ticketId": "tkt_0000000000000001",
+              "pnl": 0
+            }
+          ]
+        },
+        "a lost leg loses the whole stake regardless of the other legs": {
+          "input": {
+            "repo": {
+              "tickets": {
+                "tkt_0000000000000001": {
+                  "id": "tkt_0000000000000001",
+                  "stake": 10,
+                  "total_odds": 3.8,
+                  "settlement_status": "PENDING",
+                  "status": "PENDING"
+                }
+              },
+              "selections": {
+                "tkt_0000000000000001": [
+                  {
+                    "id": 1,
+                    "ticket_id": "tkt_0000000000000001",
+                    "match_id": 5,
+                    "market": "TOTAL_GOALS",
+                    "selection": "OVER_1_5",
+                    "odds": 1.9,
+                    "status": "WON"
+                  },
+                  {
+                    "id": 2,
+                    "ticket_id": "tkt_0000000000000001",
+                    "match_id": 6,
+                    "market": "TOTAL_GOALS",
+                    "selection": "OVER_1_5",
+                    "odds": 2,
+                    "status": "LOST"
+                  }
+                ]
+              },
+              "configuration": null,
+              "results": [],
+              "resultByMatch": [],
+              "oddsBefore": [],
+              "matches": [],
+              "outcomes": [],
+              "settledSelections": [],
+              "models": [],
+              "calibration": null,
+              "modelId": 7
+            },
+            "calls": [
+              [
+                "settlePending",
+                "tkt_0000000000000001"
+              ]
+            ]
+          },
+          "returns": [
+            {
+              "ok": true,
+              "value": {
+                "ticketId": "tkt_0000000000000001",
+                "status": "LOST",
+                "effectiveOdds": 3.8,
+                "pnl": -10,
+                "selections": {
+                  "WON": 1,
+                  "LOST": 1
+                }
+              }
+            }
+          ],
+          "ticketPatches": [
+            {
+              "id": "tkt_0000000000000001",
+              "patch": {
+                "settlement_status": "LOST",
+                "status": "LOST",
+                "total_odds": 3.8,
+                "reason": null
+              }
+            }
+          ],
+          "selectionPatches": [],
+          "recordedOutcomes": [
+            {
+              "ticketId": "tkt_0000000000000001",
+              "pnl": -10
+            }
+          ]
+        },
+        "a pending leg keeps the ticket pending and the stored total odds untouched": {
+          "input": {
+            "repo": {
+              "tickets": {
+                "tkt_0000000000000001": {
+                  "id": "tkt_0000000000000001",
+                  "stake": 10,
+                  "total_odds": 12.34,
+                  "settlement_status": "PENDING",
+                  "status": "PENDING"
+                }
+              },
+              "selections": {
+                "tkt_0000000000000001": [
+                  {
+                    "id": 1,
+                    "ticket_id": "tkt_0000000000000001",
+                    "match_id": 5,
+                    "market": "TOTAL_GOALS",
+                    "selection": "OVER_1_5",
+                    "odds": 1.9,
+                    "status": "WON"
+                  },
+                  {
+                    "id": 2,
+                    "ticket_id": "tkt_0000000000000001",
+                    "match_id": 6,
+                    "market": "TOTAL_GOALS",
+                    "selection": "OVER_1_5",
+                    "odds": 2,
+                    "status": "PENDING"
+                  }
+                ]
+              },
+              "configuration": null,
+              "results": [],
+              "resultByMatch": [],
+              "oddsBefore": [],
+              "matches": [],
+              "outcomes": [],
+              "settledSelections": [],
+              "models": [],
+              "calibration": null,
+              "modelId": 7
+            },
+            "calls": [
+              [
+                "settlePending",
+                "tkt_0000000000000001"
+              ]
+            ]
+          },
+          "returns": [
+            {
+              "ok": true,
+              "value": {
+                "ticketId": "tkt_0000000000000001",
+                "status": "PENDING",
+                "effectiveOdds": 3.8,
+                "pnl": 0,
+                "selections": {
+                  "WON": 1,
+                  "PENDING": 1
+                }
+              }
+            }
+          ],
+          "ticketPatches": [
+            {
+              "id": "tkt_0000000000000001",
+              "patch": {
+                "settlement_status": "PENDING",
+                "status": "PENDING",
+                "total_odds": 12.34,
+                "reason": "waiting on unverified results"
+              }
+            }
+          ],
+          "selectionPatches": [],
+          "recordedOutcomes": [
+            {
+              "ticketId": "tkt_0000000000000001",
+              "pnl": 0
+            }
+          ]
+        },
+        "a ticket with no stake records no P/L": {
+          "input": {
+            "repo": {
+              "tickets": {
+                "tkt_0000000000000001": {
+                  "id": "tkt_0000000000000001",
+                  "stake": null,
+                  "total_odds": 3.8,
+                  "settlement_status": "PENDING",
+                  "status": "PENDING"
+                }
+              },
+              "selections": {
+                "tkt_0000000000000001": [
+                  {
+                    "id": 1,
+                    "ticket_id": "tkt_0000000000000001",
+                    "match_id": 5,
+                    "market": "TOTAL_GOALS",
+                    "selection": "OVER_1_5",
+                    "odds": 1.9,
+                    "status": "WON"
+                  },
+                  {
+                    "id": 2,
+                    "ticket_id": "tkt_0000000000000001",
+                    "match_id": 6,
+                    "market": "TOTAL_GOALS",
+                    "selection": "OVER_1_5",
+                    "odds": 2,
+                    "status": "WON"
+                  }
+                ]
+              },
+              "configuration": null,
+              "results": [],
+              "resultByMatch": [],
+              "oddsBefore": [],
+              "matches": [],
+              "outcomes": [],
+              "settledSelections": [],
+              "models": [],
+              "calibration": null,
+              "modelId": 7
+            },
+            "calls": [
+              [
+                "settlePending",
+                "tkt_0000000000000001"
+              ]
+            ]
+          },
+          "returns": [
+            {
+              "ok": true,
+              "value": {
+                "ticketId": "tkt_0000000000000001",
+                "status": "WON",
+                "effectiveOdds": 3.8,
+                "pnl": null,
+                "selections": {
+                  "WON": 2
+                }
+              }
+            }
+          ],
+          "ticketPatches": [
+            {
+              "id": "tkt_0000000000000001",
+              "patch": {
+                "settlement_status": "WON",
+                "status": "WON",
+                "total_odds": 3.8,
+                "reason": null
+              }
+            }
+          ],
+          "selectionPatches": [],
+          "recordedOutcomes": []
+        },
+        "applyVerifiedResult settles the matching pending leg and finalizes": {
+          "input": {
+            "repo": {
+              "tickets": {
+                "tkt_0000000000000001": {
+                  "id": "tkt_0000000000000001",
+                  "stake": 10,
+                  "total_odds": 3.8,
+                  "settlement_status": "PENDING",
+                  "status": "PENDING"
+                }
+              },
+              "selections": {
+                "tkt_0000000000000001": [
+                  {
+                    "id": 1,
+                    "ticket_id": "tkt_0000000000000001",
+                    "match_id": 5,
+                    "market": "TOTAL_GOALS",
+                    "selection": "OVER_1_5",
+                    "odds": 1.9,
+                    "status": "PENDING"
+                  },
+                  {
+                    "id": 2,
+                    "ticket_id": "tkt_0000000000000001",
+                    "match_id": 6,
+                    "market": "TOTAL_GOALS",
+                    "selection": "OVER_1_5",
+                    "odds": 2,
+                    "status": "WON"
+                  }
+                ]
+              },
+              "configuration": null,
+              "results": [],
+              "resultByMatch": [],
+              "oddsBefore": [],
+              "matches": [],
+              "outcomes": [],
+              "settledSelections": [],
+              "models": [],
+              "calibration": null,
+              "modelId": 7
+            },
+            "calls": [
+              [
+                "applyVerifiedResult",
+                "tkt_0000000000000001",
+                5,
+                {
+                  "verified": true,
+                  "status": "FINISHED",
+                  "homeScore": 3,
+                  "awayScore": 0
+                }
+              ]
+            ]
+          },
+          "returns": [
+            {
+              "ok": true,
+              "value": {
+                "ticketId": "tkt_0000000000000001",
+                "status": "PENDING",
+                "effectiveOdds": 3.8,
+                "pnl": 0,
+                "selections": {
+                  "PENDING": 1,
+                  "WON": 1
+                }
+              }
+            }
+          ],
+          "ticketPatches": [
+            {
+              "id": "tkt_0000000000000001",
+              "patch": {
+                "settlement_status": "PENDING",
+                "status": "PENDING",
+                "total_odds": 3.8,
+                "reason": "waiting on unverified results"
+              }
+            }
+          ],
+          "selectionPatches": [
+            {
+              "id": 1,
+              "patch": {
+                "status": "WON",
+                "result": "WON"
+              }
+            }
+          ],
+          "recordedOutcomes": [
+            {
+              "ticketId": "tkt_0000000000000001",
+              "pnl": 0
+            }
+          ]
+        },
+        "a void verdict voids the matching leg": {
+          "input": {
+            "repo": {
+              "tickets": {
+                "tkt_0000000000000001": {
+                  "id": "tkt_0000000000000001",
+                  "stake": 10,
+                  "total_odds": 3.8,
+                  "settlement_status": "PENDING",
+                  "status": "PENDING"
+                }
+              },
+              "selections": {
+                "tkt_0000000000000001": [
+                  {
+                    "id": 1,
+                    "ticket_id": "tkt_0000000000000001",
+                    "match_id": 5,
+                    "market": "TOTAL_GOALS",
+                    "selection": "OVER_1_5",
+                    "odds": 1.9,
+                    "status": "PENDING"
+                  },
+                  {
+                    "id": 2,
+                    "ticket_id": "tkt_0000000000000001",
+                    "match_id": 6,
+                    "market": "TOTAL_GOALS",
+                    "selection": "OVER_1_5",
+                    "odds": 2,
+                    "status": "WON"
+                  }
+                ]
+              },
+              "configuration": null,
+              "results": [],
+              "resultByMatch": [],
+              "oddsBefore": [],
+              "matches": [],
+              "outcomes": [],
+              "settledSelections": [],
+              "models": [],
+              "calibration": null,
+              "modelId": 7
+            },
+            "calls": [
+              [
+                "applyVerifiedResult",
+                "tkt_0000000000000001",
+                5,
+                {
+                  "verified": true,
+                  "status": "VOID",
+                  "homeScore": null,
+                  "awayScore": null
+                }
+              ]
+            ]
+          },
+          "returns": [
+            {
+              "ok": true,
+              "value": {
+                "ticketId": "tkt_0000000000000001",
+                "status": "PENDING",
+                "effectiveOdds": 3.8,
+                "pnl": 0,
+                "selections": {
+                  "PENDING": 1,
+                  "WON": 1
+                }
+              }
+            }
+          ],
+          "ticketPatches": [
+            {
+              "id": "tkt_0000000000000001",
+              "patch": {
+                "settlement_status": "PENDING",
+                "status": "PENDING",
+                "total_odds": 3.8,
+                "reason": "waiting on unverified results"
+              }
+            }
+          ],
+          "selectionPatches": [
+            {
+              "id": 1,
+              "patch": {
+                "status": "VOID",
+                "result": "VOID"
+              }
+            }
+          ],
+          "recordedOutcomes": [
+            {
+              "ticketId": "tkt_0000000000000001",
+              "pnl": 0
+            }
+          ]
+        },
+        "an unverified result is refused and nothing is written": {
+          "input": {
+            "repo": {
+              "tickets": {
+                "tkt_0000000000000001": {
+                  "id": "tkt_0000000000000001",
+                  "stake": 10,
+                  "total_odds": 3.8,
+                  "settlement_status": "PENDING",
+                  "status": "PENDING"
+                }
+              },
+              "selections": {
+                "tkt_0000000000000001": [
+                  {
+                    "id": 1,
+                    "ticket_id": "tkt_0000000000000001",
+                    "match_id": 5,
+                    "market": "TOTAL_GOALS",
+                    "selection": "OVER_1_5",
+                    "odds": 1.9,
+                    "status": "PENDING"
+                  }
+                ]
+              },
+              "configuration": null,
+              "results": [],
+              "resultByMatch": [],
+              "oddsBefore": [],
+              "matches": [],
+              "outcomes": [],
+              "settledSelections": [],
+              "models": [],
+              "calibration": null,
+              "modelId": 7
+            },
+            "calls": [
+              [
+                "applyVerifiedResult",
+                "tkt_0000000000000001",
+                5,
+                {
+                  "verified": false,
+                  "status": "FINISHED",
+                  "homeScore": 3,
+                  "awayScore": 0
+                }
+              ]
+            ]
+          },
+          "returns": [
+            {
+              "ok": true,
+              "value": {
+                "status": "PENDING",
+                "reason": "RESULT_UNVERIFIED"
+              }
+            }
+          ],
+          "ticketPatches": [],
+          "selectionPatches": [],
+          "recordedOutcomes": []
+        },
+        "a market the engine cannot settle leaves the leg and the ticket pending": {
+          "input": {
+            "repo": {
+              "tickets": {
+                "tkt_0000000000000001": {
+                  "id": "tkt_0000000000000001",
+                  "stake": 10,
+                  "total_odds": 3.8,
+                  "settlement_status": "PENDING",
+                  "status": "PENDING"
+                }
+              },
+              "selections": {
+                "tkt_0000000000000001": [
+                  {
+                    "id": 1,
+                    "ticket_id": "tkt_0000000000000001",
+                    "match_id": 5,
+                    "market": "MATCH_ODDS",
+                    "selection": "HOME",
+                    "odds": 1.9,
+                    "status": "PENDING"
+                  }
+                ]
+              },
+              "configuration": null,
+              "results": [],
+              "resultByMatch": [],
+              "oddsBefore": [],
+              "matches": [],
+              "outcomes": [],
+              "settledSelections": [],
+              "models": [],
+              "calibration": null,
+              "modelId": 7
+            },
+            "calls": [
+              [
+                "applyVerifiedResult",
+                "tkt_0000000000000001",
+                5,
+                {
+                  "verified": true,
+                  "status": "FINISHED",
+                  "homeScore": 3,
+                  "awayScore": 0
+                }
+              ]
+            ]
+          },
+          "returns": [
+            {
+              "ok": true,
+              "value": {
+                "ticketId": "tkt_0000000000000001",
+                "status": "PENDING",
+                "effectiveOdds": 1.9,
+                "pnl": 0,
+                "selections": {
+                  "PENDING": 1
+                }
+              }
+            }
+          ],
+          "ticketPatches": [
+            {
+              "id": "tkt_0000000000000001",
+              "patch": {
+                "settlement_status": "PENDING",
+                "status": "PENDING",
+                "total_odds": 3.8,
+                "reason": "waiting on unverified results"
+              }
+            }
+          ],
+          "selectionPatches": [],
+          "recordedOutcomes": [
+            {
+              "ticketId": "tkt_0000000000000001",
+              "pnl": 0
+            }
+          ]
+        },
+        "settlePending sweeps every leg a stored verified result exists for": {
+          "input": {
+            "repo": {
+              "tickets": {
+                "tkt_0000000000000001": {
+                  "id": "tkt_0000000000000001",
+                  "stake": 10,
+                  "total_odds": 3.8,
+                  "settlement_status": "PENDING",
+                  "status": "PENDING"
+                }
+              },
+              "selections": {
+                "tkt_0000000000000001": [
+                  {
+                    "id": 1,
+                    "ticket_id": "tkt_0000000000000001",
+                    "match_id": 5,
+                    "market": "TOTAL_GOALS",
+                    "selection": "OVER_1_5",
+                    "odds": 1.9,
+                    "status": "PENDING"
+                  },
+                  {
+                    "id": 2,
+                    "ticket_id": "tkt_0000000000000001",
+                    "match_id": 6,
+                    "market": "TOTAL_GOALS",
+                    "selection": "OVER_1_5",
+                    "odds": 2,
+                    "status": "PENDING"
+                  },
+                  {
+                    "id": 3,
+                    "ticket_id": "tkt_0000000000000001",
+                    "match_id": 7,
+                    "market": "TOTAL_GOALS",
+                    "selection": "OVER_1_5",
+                    "odds": 1.5,
+                    "status": "PENDING"
+                  }
+                ]
+              },
+              "configuration": null,
+              "results": [],
+              "resultByMatch": {
+                "5": {
+                  "verified": 1,
+                  "status": "FINISHED",
+                  "home_score": "2",
+                  "away_score": "1"
+                },
+                "7": {
+                  "verified": 0,
+                  "status": "FINISHED",
+                  "home_score": "1",
+                  "away_score": "0"
+                }
+              },
+              "oddsBefore": [],
+              "matches": [],
+              "outcomes": [],
+              "settledSelections": [],
+              "models": [],
+              "calibration": null,
+              "modelId": 7
+            },
+            "calls": [
+              [
+                "settlePending",
+                "tkt_0000000000000001"
+              ]
+            ]
+          },
+          "returns": [
+            {
+              "ok": true,
+              "value": {
+                "ticketId": "tkt_0000000000000001",
+                "status": "PENDING",
+                "effectiveOdds": 5.7,
+                "pnl": 0,
+                "selections": {
+                  "PENDING": 3
+                }
+              }
+            }
+          ],
+          "ticketPatches": [
+            {
+              "id": "tkt_0000000000000001",
+              "patch": {
+                "settlement_status": "PENDING",
+                "status": "PENDING",
+                "total_odds": 3.8,
+                "reason": "waiting on unverified results"
+              }
+            },
+            {
+              "id": "tkt_0000000000000001",
+              "patch": {
+                "settlement_status": "PENDING",
+                "status": "PENDING",
+                "total_odds": 3.8,
+                "reason": "waiting on unverified results"
+              }
+            }
+          ],
+          "selectionPatches": [
+            {
+              "id": 1,
+              "patch": {
+                "status": "WON",
+                "result": "WON"
+              }
+            }
+          ],
+          "recordedOutcomes": [
+            {
+              "ticketId": "tkt_0000000000000001",
+              "pnl": 0
+            },
+            {
+              "ticketId": "tkt_0000000000000001",
+              "pnl": 0
+            }
+          ]
+        },
+        "settlePending is idempotent on an already-final ticket": {
+          "input": {
+            "repo": {
+              "tickets": {
+                "tkt_0000000000000001": {
+                  "id": "tkt_0000000000000001",
+                  "stake": 10,
+                  "total_odds": 3.8,
+                  "settlement_status": "WON",
+                  "status": "WON"
+                }
+              },
+              "selections": {
+                "tkt_0000000000000001": [
+                  {
+                    "id": 1,
+                    "ticket_id": "tkt_0000000000000001",
+                    "match_id": 5,
+                    "market": "TOTAL_GOALS",
+                    "selection": "OVER_1_5",
+                    "odds": 1.9,
+                    "status": "WON"
+                  },
+                  {
+                    "id": 2,
+                    "ticket_id": "tkt_0000000000000001",
+                    "match_id": 6,
+                    "market": "TOTAL_GOALS",
+                    "selection": "OVER_1_5",
+                    "odds": 2,
+                    "status": "WON"
+                  }
+                ]
+              },
+              "configuration": null,
+              "results": [],
+              "resultByMatch": [],
+              "oddsBefore": [],
+              "matches": [],
+              "outcomes": [],
+              "settledSelections": [],
+              "models": [],
+              "calibration": null,
+              "modelId": 7
+            },
+            "calls": [
+              [
+                "settlePending",
+                "tkt_0000000000000001"
+              ]
+            ]
+          },
+          "returns": [
+            {
+              "ok": true,
+              "value": {
+                "ticketId": "tkt_0000000000000001",
+                "status": "WON",
+                "unchanged": true
+              }
+            }
+          ],
+          "ticketPatches": [],
+          "selectionPatches": [],
+          "recordedOutcomes": []
+        },
+        "applyStoredResult applies the stored attestation, which may be false": {
+          "input": {
+            "repo": {
+              "tickets": {
+                "tkt_0000000000000001": {
+                  "id": "tkt_0000000000000001",
+                  "stake": 10,
+                  "total_odds": 3.8,
+                  "settlement_status": "PENDING",
+                  "status": "PENDING"
+                }
+              },
+              "selections": {
+                "tkt_0000000000000001": [
+                  {
+                    "id": 1,
+                    "ticket_id": "tkt_0000000000000001",
+                    "match_id": 5,
+                    "market": "TOTAL_GOALS",
+                    "selection": "OVER_1_5",
+                    "odds": 1.9,
+                    "status": "PENDING"
+                  }
+                ]
+              },
+              "configuration": null,
+              "results": {
+                "5:2": {
+                  "id": 41,
+                  "verified": 0,
+                  "status": "FINISHED",
+                  "home_score": "3",
+                  "away_score": "0"
+                }
+              },
+              "resultByMatch": [],
+              "oddsBefore": [],
+              "matches": [],
+              "outcomes": [],
+              "settledSelections": [],
+              "models": [],
+              "calibration": null,
+              "modelId": 7
+            },
+            "calls": [
+              [
+                "applyStoredResult",
+                "tkt_0000000000000001",
+                5,
+                2
+              ]
+            ]
+          },
+          "returns": [
+            {
+              "ok": true,
+              "value": {
+                "status": "PENDING",
+                "reason": "RESULT_UNVERIFIED"
+              }
+            }
+          ],
+          "ticketPatches": [],
+          "selectionPatches": [],
+          "recordedOutcomes": []
+        },
+        "applyStoredResult settles from a verified stored row": {
+          "input": {
+            "repo": {
+              "tickets": {
+                "tkt_0000000000000001": {
+                  "id": "tkt_0000000000000001",
+                  "stake": 10,
+                  "total_odds": 3.8,
+                  "settlement_status": "PENDING",
+                  "status": "PENDING"
+                }
+              },
+              "selections": {
+                "tkt_0000000000000001": [
+                  {
+                    "id": 1,
+                    "ticket_id": "tkt_0000000000000001",
+                    "match_id": 5,
+                    "market": "TOTAL_GOALS",
+                    "selection": "OVER_1_5",
+                    "odds": 1.9,
+                    "status": "PENDING"
+                  }
+                ]
+              },
+              "configuration": null,
+              "results": {
+                "5:2": {
+                  "id": 41,
+                  "verified": 1,
+                  "status": "FINISHED",
+                  "home_score": "3",
+                  "away_score": "0"
+                }
+              },
+              "resultByMatch": [],
+              "oddsBefore": [],
+              "matches": [],
+              "outcomes": [],
+              "settledSelections": [],
+              "models": [],
+              "calibration": null,
+              "modelId": 7
+            },
+            "calls": [
+              [
+                "applyStoredResult",
+                "tkt_0000000000000001",
+                5,
+                2
+              ]
+            ]
+          },
+          "returns": [
+            {
+              "ok": true,
+              "value": {
+                "ticketId": "tkt_0000000000000001",
+                "status": "PENDING",
+                "effectiveOdds": 1.9,
+                "pnl": 0,
+                "selections": {
+                  "PENDING": 1
+                }
+              }
+            }
+          ],
+          "ticketPatches": [
+            {
+              "id": "tkt_0000000000000001",
+              "patch": {
+                "settlement_status": "PENDING",
+                "status": "PENDING",
+                "total_odds": 3.8,
+                "reason": "waiting on unverified results"
+              }
+            }
+          ],
+          "selectionPatches": [
+            {
+              "id": 1,
+              "patch": {
+                "status": "WON",
+                "result": "WON"
+              }
+            }
+          ],
+          "recordedOutcomes": [
+            {
+              "ticketId": "tkt_0000000000000001",
+              "pnl": 0
+            }
+          ]
+        },
+        "a missing stored result is refused": {
+          "input": {
+            "repo": {
+              "tickets": {
+                "tkt_0000000000000001": {
+                  "id": "tkt_0000000000000001",
+                  "stake": 10,
+                  "total_odds": 3.8,
+                  "settlement_status": "PENDING",
+                  "status": "PENDING"
+                }
+              },
+              "selections": {
+                "tkt_0000000000000001": [
+                  {
+                    "id": 1,
+                    "ticket_id": "tkt_0000000000000001",
+                    "match_id": 5,
+                    "market": "TOTAL_GOALS",
+                    "selection": "OVER_1_5",
+                    "odds": 1.9,
+                    "status": "WON"
+                  },
+                  {
+                    "id": 2,
+                    "ticket_id": "tkt_0000000000000001",
+                    "match_id": 6,
+                    "market": "TOTAL_GOALS",
+                    "selection": "OVER_1_5",
+                    "odds": 2,
+                    "status": "WON"
+                  }
+                ]
+              },
+              "configuration": null,
+              "results": [],
+              "resultByMatch": [],
+              "oddsBefore": [],
+              "matches": [],
+              "outcomes": [],
+              "settledSelections": [],
+              "models": [],
+              "calibration": null,
+              "modelId": 7
+            },
+            "calls": [
+              [
+                "applyStoredResult",
+                "tkt_0000000000000001",
+                99,
+                2
+              ]
+            ]
+          },
+          "returns": [
+            {
+              "ok": false,
+              "error": "verified provider result not found",
+              "class": "InvalidArgumentException"
+            }
+          ],
+          "ticketPatches": [],
+          "selectionPatches": [],
+          "recordedOutcomes": []
+        },
+        "an unknown ticket is refused": {
+          "input": {
+            "repo": {
+              "tickets": [],
+              "selections": [],
+              "configuration": null,
+              "results": [],
+              "resultByMatch": [],
+              "oddsBefore": [],
+              "matches": [],
+              "outcomes": [],
+              "settledSelections": [],
+              "models": [],
+              "calibration": null,
+              "modelId": 7
+            },
+            "calls": [
+              [
+                "settlePending",
+                "tkt_9999999999999999"
+              ]
+            ]
+          },
+          "returns": [
+            {
+              "ok": false,
+              "error": "ticket not found",
+              "class": "InvalidArgumentException"
+            }
+          ],
+          "ticketPatches": [],
+          "selectionPatches": [],
+          "recordedOutcomes": []
+        }
+      },
+      "performance": {
+        "a mixed history measures tickets, selections, calibration and breakdowns": {
+          "input": {
+            "tickets": [
+              {
+                "settlement_status": "WON",
+                "total_odds": 3.8,
+                "stake": 10,
+                "pnl": 28,
+                "created_at": "2026-02-10T18:00:00+00:00",
+                "confidence": 78.5,
+                "combined_probability": 0.61
+              },
+              {
+                "settlement_status": "LOST",
+                "total_odds": 2.4,
+                "stake": 10,
+                "pnl": -10,
+                "created_at": "2026-02-11T18:00:00+00:00",
+                "confidence": 78.5,
+                "combined_probability": 0.61
+              },
+              {
+                "settlement_status": "WON",
+                "total_odds": 1.9,
+                "stake": 5,
+                "pnl": 4.5,
+                "created_at": "2026-02-11T20:00:00+00:00",
+                "confidence": 78.5,
+                "combined_probability": 0.61
+              },
+              {
+                "settlement_status": "VOID",
+                "total_odds": 3.8,
+                "stake": 10,
+                "pnl": 0,
+                "created_at": "2026-02-12T18:00:00+00:00",
+                "confidence": 78.5,
+                "combined_probability": 0.61
+              },
+              {
+                "settlement_status": "PENDING",
+                "total_odds": 2,
+                "stake": 10,
+                "pnl": null,
+                "created_at": "2026-02-12T19:00:00+00:00",
+                "confidence": 78.5,
+                "combined_probability": 0.61
+              }
+            ],
+            "selections": [
+              {
+                "status": "WON",
+                "odds": 1.9,
+                "market": "TOTAL_GOALS",
+                "competition": "League One",
+                "model_name": "WINDELS Sports Baseline",
+                "model_version": "1.0.0",
+                "expected_value": 0.12
+              },
+              {
+                "status": "LOST",
+                "odds": 2.1,
+                "market": "TOTAL_GOALS",
+                "competition": "League One",
+                "model_name": "WINDELS Sports Baseline",
+                "model_version": "1.0.0",
+                "expected_value": 0.05
+              },
+              {
+                "status": "WON",
+                "odds": 2.4,
+                "market": "TOTAL_GOALS",
+                "competition": "League Two",
+                "model_name": "WINDELS Sports Baseline",
+                "model_version": "1.0.0",
+                "expected_value": 0
+              },
+              {
+                "status": "VOID",
+                "odds": 1.8,
+                "market": "MATCH_ODDS",
+                "competition": "League Two",
+                "model_name": "WINDELS Sports Baseline",
+                "model_version": "1.0.0",
+                "expected_value": null
+              },
+              {
+                "status": "WON",
+                "odds": 2,
+                "market": "TOTAL_GOALS",
+                "competition": "League One",
+                "model_name": "WINDELS Sports Baseline",
+                "model_version": "1.1.0",
+                "expected_value": 0.3
+              }
+            ],
+            "outcomes": [
+              {
+                "raw_probability": 0.7,
+                "calibrated_probability": 0.7,
+                "outcome": 1
+              },
+              {
+                "raw_probability": 0.65,
+                "calibrated_probability": 0.65,
+                "outcome": 1
+              },
+              {
+                "raw_probability": 0.8,
+                "calibrated_probability": 0.8,
+                "outcome": 0
+              },
+              {
+                "raw_probability": 0.55,
+                "calibrated_probability": 0.55,
+                "outcome": 1
+              },
+              {
+                "raw_probability": 0.4,
+                "calibrated_probability": 0.4,
+                "outcome": 0
+              },
+              {
+                "raw_probability": 0.3,
+                "calibrated_probability": 0.3,
+                "outcome": 0
+              }
+            ],
+            "context": {
+              "mode": "SANDBOX",
+              "totalPredictions": 12
+            }
+          },
+          "report": {
+            "ok": true,
+            "value": {
+              "dataAvailable": true,
+              "mode": "SANDBOX",
+              "isDemoData": true,
+              "demoBanner": "DEMO / SANDBOX DATA — simulated statistics, not real-world performance",
+              "totalPredictions": 12,
+              "totalTickets": 5,
+              "settledTickets": 4,
+              "won": 2,
+              "lost": 1,
+              "void": 1,
+              "cancelled": 0,
+              "winRate": 0.66667,
+              "selections": {
+                "settled": 5,
+                "won": 3,
+                "lost": 1,
+                "void": 1,
+                "cancelled": 0,
+                "winRate": 0.75,
+                "averageOdds": 2.04
+              },
+              "averageOdds": 2.975,
+              "averageConfidence": 78.5,
+              "averageProbability": 0.61,
+              "profitLoss": 22.5,
+              "roi": 0.64286,
+              "maxDrawdown": 10,
+              "expectedValue": 0.15667,
+              "calibration": {
+                "samples": 6,
+                "accuracy": 0.83333,
+                "brier": 0,
+                "ece": 0.433333,
+                "bins": [
+                  {
+                    "bin": 3,
+                    "label": "30-39",
+                    "n": 1,
+                    "meanCalibrated": 0.3,
+                    "observedFrequency": 0,
+                    "gap": 0.3
+                  },
+                  {
+                    "bin": 4,
+                    "label": "40-49",
+                    "n": 1,
+                    "meanCalibrated": 0.4,
+                    "observedFrequency": 0,
+                    "gap": 0.4
+                  },
+                  {
+                    "bin": 5,
+                    "label": "50-59",
+                    "n": 1,
+                    "meanCalibrated": 0.55,
+                    "observedFrequency": 1,
+                    "gap": -0.45
+                  },
+                  {
+                    "bin": 6,
+                    "label": "60-69",
+                    "n": 1,
+                    "meanCalibrated": 0.65,
+                    "observedFrequency": 1,
+                    "gap": -0.35
+                  },
+                  {
+                    "bin": 7,
+                    "label": "70-79",
+                    "n": 1,
+                    "meanCalibrated": 0.7,
+                    "observedFrequency": 1,
+                    "gap": -0.3
+                  },
+                  {
+                    "bin": 8,
+                    "label": "80-89",
+                    "n": 1,
+                    "meanCalibrated": 0.8,
+                    "observedFrequency": 0,
+                    "gap": 0.8
+                  }
+                ]
+              },
+              "modelAccuracy": 0.83333,
+              "byMarket": {
+                "TOTAL_GOALS": {
+                  "n": 4,
+                  "won": 3,
+                  "winRate": 0.75
+                },
+                "MATCH_ODDS": {
+                  "n": 1,
+                  "won": 0,
+                  "winRate": 0
+                }
+              },
+              "byLeague": {
+                "League One": {
+                  "n": 3,
+                  "won": 2,
+                  "winRate": 0.6667
+                },
+                "League Two": {
+                  "n": 2,
+                  "won": 1,
+                  "winRate": 0.5
+                }
+              },
+              "byModel": {
+                "WINDELS Sports Baseline v1.0.0": {
+                  "n": 4,
+                  "won": 2,
+                  "winRate": 0.5
+                },
+                "WINDELS Sports Baseline v1.1.0": {
+                  "n": 1,
+                  "won": 1,
+                  "winRate": 1
+                }
+              },
+              "byDate": {
+                "2026-02-10": {
+                  "n": 1,
+                  "won": 1,
+                  "pnl": 28
+                },
+                "2026-02-11": {
+                  "n": 2,
+                  "won": 1,
+                  "pnl": -5.5
+                },
+                "2026-02-12": {
+                  "n": 1,
+                  "won": 0,
+                  "pnl": 0
+                }
+              }
+            }
+          },
+          "summarize": {
+            "ok": true,
+            "value": {
+              "dataAvailable": true,
+              "totalTickets": 5,
+              "settledTickets": 4,
+              "won": 2,
+              "lost": 1,
+              "void": 1,
+              "cancelled": 0,
+              "winRate": 0.6667,
+              "averageOdds": 2.975,
+              "roi": null,
+              "profitLoss": null,
+              "notes": [
+                "ROI and profit/loss require stored stake/accounting inputs and are intentionally unavailable"
+              ]
+            }
+          }
+        },
+        "a production mode drops the demo banner": {
+          "input": {
+            "tickets": [
+              {
+                "settlement_status": "WON",
+                "total_odds": 3.8,
+                "stake": 10,
+                "pnl": 28,
+                "created_at": "2026-02-10T18:00:00+00:00",
+                "confidence": 78.5,
+                "combined_probability": 0.61
+              },
+              {
+                "settlement_status": "LOST",
+                "total_odds": 2.4,
+                "stake": 10,
+                "pnl": -10,
+                "created_at": "2026-02-11T18:00:00+00:00",
+                "confidence": 78.5,
+                "combined_probability": 0.61
+              },
+              {
+                "settlement_status": "WON",
+                "total_odds": 1.9,
+                "stake": 5,
+                "pnl": 4.5,
+                "created_at": "2026-02-11T20:00:00+00:00",
+                "confidence": 78.5,
+                "combined_probability": 0.61
+              },
+              {
+                "settlement_status": "VOID",
+                "total_odds": 3.8,
+                "stake": 10,
+                "pnl": 0,
+                "created_at": "2026-02-12T18:00:00+00:00",
+                "confidence": 78.5,
+                "combined_probability": 0.61
+              },
+              {
+                "settlement_status": "PENDING",
+                "total_odds": 2,
+                "stake": 10,
+                "pnl": null,
+                "created_at": "2026-02-12T19:00:00+00:00",
+                "confidence": 78.5,
+                "combined_probability": 0.61
+              }
+            ],
+            "selections": [
+              {
+                "status": "WON",
+                "odds": 1.9,
+                "market": "TOTAL_GOALS",
+                "competition": "League One",
+                "model_name": "WINDELS Sports Baseline",
+                "model_version": "1.0.0",
+                "expected_value": 0.12
+              },
+              {
+                "status": "LOST",
+                "odds": 2.1,
+                "market": "TOTAL_GOALS",
+                "competition": "League One",
+                "model_name": "WINDELS Sports Baseline",
+                "model_version": "1.0.0",
+                "expected_value": 0.05
+              },
+              {
+                "status": "WON",
+                "odds": 2.4,
+                "market": "TOTAL_GOALS",
+                "competition": "League Two",
+                "model_name": "WINDELS Sports Baseline",
+                "model_version": "1.0.0",
+                "expected_value": 0
+              },
+              {
+                "status": "VOID",
+                "odds": 1.8,
+                "market": "MATCH_ODDS",
+                "competition": "League Two",
+                "model_name": "WINDELS Sports Baseline",
+                "model_version": "1.0.0",
+                "expected_value": null
+              },
+              {
+                "status": "WON",
+                "odds": 2,
+                "market": "TOTAL_GOALS",
+                "competition": "League One",
+                "model_name": "WINDELS Sports Baseline",
+                "model_version": "1.1.0",
+                "expected_value": 0.3
+              }
+            ],
+            "outcomes": [
+              {
+                "raw_probability": 0.7,
+                "calibrated_probability": 0.7,
+                "outcome": 1
+              },
+              {
+                "raw_probability": 0.65,
+                "calibrated_probability": 0.65,
+                "outcome": 1
+              },
+              {
+                "raw_probability": 0.8,
+                "calibrated_probability": 0.8,
+                "outcome": 0
+              },
+              {
+                "raw_probability": 0.55,
+                "calibrated_probability": 0.55,
+                "outcome": 1
+              },
+              {
+                "raw_probability": 0.4,
+                "calibrated_probability": 0.4,
+                "outcome": 0
+              },
+              {
+                "raw_probability": 0.3,
+                "calibrated_probability": 0.3,
+                "outcome": 0
+              }
+            ],
+            "context": {
+              "mode": "PRODUCTION",
+              "totalPredictions": 12
+            }
+          },
+          "report": {
+            "ok": true,
+            "value": {
+              "dataAvailable": true,
+              "mode": "PRODUCTION",
+              "isDemoData": false,
+              "demoBanner": null,
+              "totalPredictions": 12,
+              "totalTickets": 5,
+              "settledTickets": 4,
+              "won": 2,
+              "lost": 1,
+              "void": 1,
+              "cancelled": 0,
+              "winRate": 0.66667,
+              "selections": {
+                "settled": 5,
+                "won": 3,
+                "lost": 1,
+                "void": 1,
+                "cancelled": 0,
+                "winRate": 0.75,
+                "averageOdds": 2.04
+              },
+              "averageOdds": 2.975,
+              "averageConfidence": 78.5,
+              "averageProbability": 0.61,
+              "profitLoss": 22.5,
+              "roi": 0.64286,
+              "maxDrawdown": 10,
+              "expectedValue": 0.15667,
+              "calibration": {
+                "samples": 6,
+                "accuracy": 0.83333,
+                "brier": 0,
+                "ece": 0.433333,
+                "bins": [
+                  {
+                    "bin": 3,
+                    "label": "30-39",
+                    "n": 1,
+                    "meanCalibrated": 0.3,
+                    "observedFrequency": 0,
+                    "gap": 0.3
+                  },
+                  {
+                    "bin": 4,
+                    "label": "40-49",
+                    "n": 1,
+                    "meanCalibrated": 0.4,
+                    "observedFrequency": 0,
+                    "gap": 0.4
+                  },
+                  {
+                    "bin": 5,
+                    "label": "50-59",
+                    "n": 1,
+                    "meanCalibrated": 0.55,
+                    "observedFrequency": 1,
+                    "gap": -0.45
+                  },
+                  {
+                    "bin": 6,
+                    "label": "60-69",
+                    "n": 1,
+                    "meanCalibrated": 0.65,
+                    "observedFrequency": 1,
+                    "gap": -0.35
+                  },
+                  {
+                    "bin": 7,
+                    "label": "70-79",
+                    "n": 1,
+                    "meanCalibrated": 0.7,
+                    "observedFrequency": 1,
+                    "gap": -0.3
+                  },
+                  {
+                    "bin": 8,
+                    "label": "80-89",
+                    "n": 1,
+                    "meanCalibrated": 0.8,
+                    "observedFrequency": 0,
+                    "gap": 0.8
+                  }
+                ]
+              },
+              "modelAccuracy": 0.83333,
+              "byMarket": {
+                "TOTAL_GOALS": {
+                  "n": 4,
+                  "won": 3,
+                  "winRate": 0.75
+                },
+                "MATCH_ODDS": {
+                  "n": 1,
+                  "won": 0,
+                  "winRate": 0
+                }
+              },
+              "byLeague": {
+                "League One": {
+                  "n": 3,
+                  "won": 2,
+                  "winRate": 0.6667
+                },
+                "League Two": {
+                  "n": 2,
+                  "won": 1,
+                  "winRate": 0.5
+                }
+              },
+              "byModel": {
+                "WINDELS Sports Baseline v1.0.0": {
+                  "n": 4,
+                  "won": 2,
+                  "winRate": 0.5
+                },
+                "WINDELS Sports Baseline v1.1.0": {
+                  "n": 1,
+                  "won": 1,
+                  "winRate": 1
+                }
+              },
+              "byDate": {
+                "2026-02-10": {
+                  "n": 1,
+                  "won": 1,
+                  "pnl": 28
+                },
+                "2026-02-11": {
+                  "n": 2,
+                  "won": 1,
+                  "pnl": -5.5
+                },
+                "2026-02-12": {
+                  "n": 1,
+                  "won": 0,
+                  "pnl": 0
+                }
+              }
+            }
+          },
+          "summarize": {
+            "ok": true,
+            "value": {
+              "dataAvailable": true,
+              "totalTickets": 5,
+              "settledTickets": 4,
+              "won": 2,
+              "lost": 1,
+              "void": 1,
+              "cancelled": 0,
+              "winRate": 0.6667,
+              "averageOdds": 2.975,
+              "roi": null,
+              "profitLoss": null,
+              "notes": [
+                "ROI and profit/loss require stored stake/accounting inputs and are intentionally unavailable"
+              ]
+            }
+          }
+        },
+        "an empty history is an honest null-metric report": {
+          "input": {
+            "tickets": [],
+            "selections": [],
+            "outcomes": [],
+            "context": {
+              "mode": "SANDBOX",
+              "totalPredictions": 0
+            }
+          },
+          "report": {
+            "ok": true,
+            "value": {
+              "dataAvailable": false,
+              "mode": "SANDBOX",
+              "isDemoData": true,
+              "demoBanner": "DEMO / SANDBOX DATA — simulated statistics, not real-world performance",
+              "totalPredictions": 0,
+              "totalTickets": 0,
+              "settledTickets": 0,
+              "won": 0,
+              "lost": 0,
+              "void": 0,
+              "cancelled": 0,
+              "winRate": null,
+              "selections": {
+                "settled": 0,
+                "won": 0,
+                "lost": 0,
+                "void": 0,
+                "cancelled": 0,
+                "winRate": null,
+                "averageOdds": null
+              },
+              "averageOdds": null,
+              "averageConfidence": null,
+              "averageProbability": null,
+              "profitLoss": null,
+              "roi": null,
+              "maxDrawdown": null,
+              "expectedValue": null,
+              "calibration": null,
+              "modelAccuracy": null,
+              "byMarket": [],
+              "byLeague": [],
+              "byModel": [],
+              "byDate": []
+            }
+          },
+          "summarize": {
+            "ok": true,
+            "value": {
+              "dataAvailable": false,
+              "totalTickets": 0,
+              "settledTickets": 0,
+              "won": 0,
+              "lost": 0,
+              "void": 0,
+              "cancelled": 0,
+              "winRate": null,
+              "averageOdds": null,
+              "roi": null,
+              "profitLoss": null,
+              "notes": [
+                "ROI and profit/loss require stored stake/accounting inputs and are intentionally unavailable"
+              ]
+            }
+          }
+        },
+        "tickets without stakes measure win rates but no money": {
+          "input": {
+            "tickets": [
+              {
+                "settlement_status": "WON",
+                "total_odds": 1.9,
+                "stake": null,
+                "pnl": null,
+                "created_at": "2026-02-10T18:00:00+00:00",
+                "confidence": 78.5,
+                "combined_probability": 0.61
+              },
+              {
+                "settlement_status": "LOST",
+                "total_odds": 2.4,
+                "stake": null,
+                "pnl": null,
+                "created_at": "2026-02-11T18:00:00+00:00",
+                "confidence": 78.5,
+                "combined_probability": 0.61
+              }
+            ],
+            "selections": [],
+            "outcomes": [],
+            "context": {
+              "mode": "PRODUCTION",
+              "totalPredictions": 2
+            }
+          },
+          "report": {
+            "ok": true,
+            "value": {
+              "dataAvailable": true,
+              "mode": "PRODUCTION",
+              "isDemoData": false,
+              "demoBanner": null,
+              "totalPredictions": 2,
+              "totalTickets": 2,
+              "settledTickets": 2,
+              "won": 1,
+              "lost": 1,
+              "void": 0,
+              "cancelled": 0,
+              "winRate": 0.5,
+              "selections": {
+                "settled": 0,
+                "won": 0,
+                "lost": 0,
+                "void": 0,
+                "cancelled": 0,
+                "winRate": null,
+                "averageOdds": null
+              },
+              "averageOdds": 2.15,
+              "averageConfidence": 78.5,
+              "averageProbability": 0.61,
+              "profitLoss": null,
+              "roi": null,
+              "maxDrawdown": null,
+              "expectedValue": null,
+              "calibration": null,
+              "modelAccuracy": null,
+              "byMarket": [],
+              "byLeague": [],
+              "byModel": [],
+              "byDate": {
+                "2026-02-10": {
+                  "n": 1,
+                  "won": 1,
+                  "pnl": 0
+                },
+                "2026-02-11": {
+                  "n": 1,
+                  "won": 0,
+                  "pnl": 0
+                }
+              }
+            }
+          },
+          "summarize": {
+            "ok": true,
+            "value": {
+              "dataAvailable": true,
+              "totalTickets": 2,
+              "settledTickets": 2,
+              "won": 1,
+              "lost": 1,
+              "void": 0,
+              "cancelled": 0,
+              "winRate": 0.5,
+              "averageOdds": 2.15,
+              "roi": null,
+              "profitLoss": null,
+              "notes": [
+                "ROI and profit/loss require stored stake/accounting inputs and are intentionally unavailable"
+              ]
+            }
+          }
+        },
+        "an expected value of exactly zero is dropped from the mean, as array_filter drops it": {
+          "input": {
+            "tickets": [],
+            "selections": [
+              {
+                "status": "WON",
+                "odds": 1.9,
+                "market": "TOTAL_GOALS",
+                "competition": "L",
+                "model_name": "M",
+                "model_version": "1",
+                "expected_value": 0
+              },
+              {
+                "status": "LOST",
+                "odds": 2,
+                "market": "TOTAL_GOALS",
+                "competition": "L",
+                "model_name": "M",
+                "model_version": "1",
+                "expected_value": 0.1
+              }
+            ],
+            "outcomes": [],
+            "context": {
+              "mode": "PRODUCTION",
+              "totalPredictions": 2
+            }
+          },
+          "report": {
+            "ok": true,
+            "value": {
+              "dataAvailable": true,
+              "mode": "PRODUCTION",
+              "isDemoData": false,
+              "demoBanner": null,
+              "totalPredictions": 2,
+              "totalTickets": 0,
+              "settledTickets": 0,
+              "won": 0,
+              "lost": 0,
+              "void": 0,
+              "cancelled": 0,
+              "winRate": null,
+              "selections": {
+                "settled": 2,
+                "won": 1,
+                "lost": 1,
+                "void": 0,
+                "cancelled": 0,
+                "winRate": 0.5,
+                "averageOdds": 1.95
+              },
+              "averageOdds": null,
+              "averageConfidence": null,
+              "averageProbability": null,
+              "profitLoss": null,
+              "roi": null,
+              "maxDrawdown": null,
+              "expectedValue": 0.1,
+              "calibration": null,
+              "modelAccuracy": null,
+              "byMarket": {
+                "TOTAL_GOALS": {
+                  "n": 2,
+                  "won": 1,
+                  "winRate": 0.5
+                }
+              },
+              "byLeague": {
+                "L": {
+                  "n": 2,
+                  "won": 1,
+                  "winRate": 0.5
+                }
+              },
+              "byModel": {
+                "M v1": {
+                  "n": 2,
+                  "won": 1,
+                  "winRate": 0.5
+                }
+              },
+              "byDate": []
+            }
+          },
+          "summarize": {
+            "ok": true,
+            "value": {
+              "dataAvailable": false,
+              "totalTickets": 0,
+              "settledTickets": 0,
+              "won": 0,
+              "lost": 0,
+              "void": 0,
+              "cancelled": 0,
+              "winRate": null,
+              "averageOdds": null,
+              "roi": null,
+              "profitLoss": null,
+              "notes": [
+                "ROI and profit/loss require stored stake/accounting inputs and are intentionally unavailable"
+              ]
+            }
+          }
+        },
+        "drawdown is measured over the cumulative settled P/L in ticket order": {
+          "input": {
+            "tickets": [
+              {
+                "settlement_status": "WON",
+                "total_odds": 2,
+                "stake": 10,
+                "pnl": 10,
+                "created_at": "2026-02-01T12:00:00+00:00",
+                "confidence": 78.5,
+                "combined_probability": 0.61
+              },
+              {
+                "settlement_status": "LOST",
+                "total_odds": 2,
+                "stake": 10,
+                "pnl": -10,
+                "created_at": "2026-02-02T12:00:00+00:00",
+                "confidence": 78.5,
+                "combined_probability": 0.61
+              },
+              {
+                "settlement_status": "LOST",
+                "total_odds": 2,
+                "stake": 10,
+                "pnl": -10,
+                "created_at": "2026-02-03T12:00:00+00:00",
+                "confidence": 78.5,
+                "combined_probability": 0.61
+              },
+              {
+                "settlement_status": "WON",
+                "total_odds": 3,
+                "stake": 10,
+                "pnl": 20,
+                "created_at": "2026-02-04T12:00:00+00:00",
+                "confidence": 78.5,
+                "combined_probability": 0.61
+              }
+            ],
+            "selections": [],
+            "outcomes": [],
+            "context": {
+              "mode": "PRODUCTION",
+              "totalPredictions": 4
+            }
+          },
+          "report": {
+            "ok": true,
+            "value": {
+              "dataAvailable": true,
+              "mode": "PRODUCTION",
+              "isDemoData": false,
+              "demoBanner": null,
+              "totalPredictions": 4,
+              "totalTickets": 4,
+              "settledTickets": 4,
+              "won": 2,
+              "lost": 2,
+              "void": 0,
+              "cancelled": 0,
+              "winRate": 0.5,
+              "selections": {
+                "settled": 0,
+                "won": 0,
+                "lost": 0,
+                "void": 0,
+                "cancelled": 0,
+                "winRate": null,
+                "averageOdds": null
+              },
+              "averageOdds": 2.25,
+              "averageConfidence": 78.5,
+              "averageProbability": 0.61,
+              "profitLoss": 10,
+              "roi": 0.25,
+              "maxDrawdown": 20,
+              "expectedValue": null,
+              "calibration": null,
+              "modelAccuracy": null,
+              "byMarket": [],
+              "byLeague": [],
+              "byModel": [],
+              "byDate": {
+                "2026-02-01": {
+                  "n": 1,
+                  "won": 1,
+                  "pnl": 10
+                },
+                "2026-02-02": {
+                  "n": 1,
+                  "won": 0,
+                  "pnl": -10
+                },
+                "2026-02-03": {
+                  "n": 1,
+                  "won": 0,
+                  "pnl": -10
+                },
+                "2026-02-04": {
+                  "n": 1,
+                  "won": 1,
+                  "pnl": 20
+                }
+              }
+            }
+          },
+          "summarize": {
+            "ok": true,
+            "value": {
+              "dataAvailable": true,
+              "totalTickets": 4,
+              "settledTickets": 4,
+              "won": 2,
+              "lost": 2,
+              "void": 0,
+              "cancelled": 0,
+              "winRate": 0.5,
+              "averageOdds": 2.25,
+              "roi": null,
+              "profitLoss": null,
+              "notes": [
+                "ROI and profit/loss require stored stake/accounting inputs and are intentionally unavailable"
+              ]
+            }
+          }
+        }
+      },
+      "drift": {
+        "now": 1772366400,
+        "scenarios": {
+          "a healthy model with calibrated probabilities is STABLE": {
+            "input": {
+              "models": [
+                {
+                  "id": 7,
+                  "model_name": "WINDELS Sports Baseline",
+                  "model_version": "1.0.0",
+                  "feature_version": "sports-features-v1",
+                  "calibration_version": null,
+                  "status": "ACTIVE",
+                  "created_at": "2026-01-01T00:00:00.000Z"
+                }
+              ],
+              "outcomes": [
+                {
+                  "created_at": "2026-01-20T12:00:00.000Z",
+                  "raw_probability": 0.7,
+                  "calibrated_probability": 0.7,
+                  "outcome": 0
+                },
+                {
+                  "created_at": "2026-01-21T11:00:00.000Z",
+                  "raw_probability": 0.7,
+                  "calibrated_probability": 0.7,
+                  "outcome": 0
+                },
+                {
+                  "created_at": "2026-01-22T10:00:00.000Z",
+                  "raw_probability": 0.7,
+                  "calibrated_probability": 0.7,
+                  "outcome": 0
+                },
+                {
+                  "created_at": "2026-01-23T09:00:00.000Z",
+                  "raw_probability": 0.7,
+                  "calibrated_probability": 0.7,
+                  "outcome": 1
+                },
+                {
+                  "created_at": "2026-01-25T08:00:00.000Z",
+                  "raw_probability": 0.7,
+                  "calibrated_probability": 0.7,
+                  "outcome": 1
+                },
+                {
+                  "created_at": "2026-01-26T12:00:00.000Z",
+                  "raw_probability": 0.7,
+                  "calibrated_probability": 0.7,
+                  "outcome": 1
+                },
+                {
+                  "created_at": "2026-01-27T11:00:00.000Z",
+                  "raw_probability": 0.7,
+                  "calibrated_probability": 0.7,
+                  "outcome": 1
+                },
+                {
+                  "created_at": "2026-01-28T10:00:00.000Z",
+                  "raw_probability": 0.7,
+                  "calibrated_probability": 0.7,
+                  "outcome": 1
+                },
+                {
+                  "created_at": "2026-01-30T09:00:00.000Z",
+                  "raw_probability": 0.7,
+                  "calibrated_probability": 0.7,
+                  "outcome": 1
+                },
+                {
+                  "created_at": "2026-01-31T08:00:00.000Z",
+                  "raw_probability": 0.7,
+                  "calibrated_probability": 0.7,
+                  "outcome": 1
+                },
+                {
+                  "created_at": "2026-02-01T12:00:00.000Z",
+                  "raw_probability": 0.7,
+                  "calibrated_probability": 0.7,
+                  "outcome": 0
+                },
+                {
+                  "created_at": "2026-02-02T11:00:00.000Z",
+                  "raw_probability": 0.7,
+                  "calibrated_probability": 0.7,
+                  "outcome": 0
+                },
+                {
+                  "created_at": "2026-02-04T10:00:00.000Z",
+                  "raw_probability": 0.7,
+                  "calibrated_probability": 0.7,
+                  "outcome": 0
+                },
+                {
+                  "created_at": "2026-02-05T09:00:00.000Z",
+                  "raw_probability": 0.7,
+                  "calibrated_probability": 0.7,
+                  "outcome": 1
+                },
+                {
+                  "created_at": "2026-02-06T08:00:00.000Z",
+                  "raw_probability": 0.7,
+                  "calibrated_probability": 0.7,
+                  "outcome": 1
+                },
+                {
+                  "created_at": "2026-02-07T12:00:00.000Z",
+                  "raw_probability": 0.7,
+                  "calibrated_probability": 0.7,
+                  "outcome": 1
+                },
+                {
+                  "created_at": "2026-02-09T11:00:00.000Z",
+                  "raw_probability": 0.7,
+                  "calibrated_probability": 0.7,
+                  "outcome": 1
+                },
+                {
+                  "created_at": "2026-02-10T10:00:00.000Z",
+                  "raw_probability": 0.7,
+                  "calibrated_probability": 0.7,
+                  "outcome": 1
+                },
+                {
+                  "created_at": "2026-02-11T09:00:00.000Z",
+                  "raw_probability": 0.7,
+                  "calibrated_probability": 0.7,
+                  "outcome": 1
+                },
+                {
+                  "created_at": "2026-02-13T08:00:00.000Z",
+                  "raw_probability": 0.7,
+                  "calibrated_probability": 0.7,
+                  "outcome": 1
+                },
+                {
+                  "created_at": "2026-02-16T12:00:00.000Z",
+                  "raw_probability": 0.7,
+                  "calibrated_probability": 0.7,
+                  "outcome": 0
+                },
+                {
+                  "created_at": "2026-02-16T11:00:00.000Z",
+                  "raw_probability": 0.7,
+                  "calibrated_probability": 0.7,
+                  "outcome": 0
+                },
+                {
+                  "created_at": "2026-02-17T10:00:00.000Z",
+                  "raw_probability": 0.7,
+                  "calibrated_probability": 0.7,
+                  "outcome": 0
+                },
+                {
+                  "created_at": "2026-02-17T09:00:00.000Z",
+                  "raw_probability": 0.7,
+                  "calibrated_probability": 0.7,
+                  "outcome": 1
+                },
+                {
+                  "created_at": "2026-02-18T08:00:00.000Z",
+                  "raw_probability": 0.7,
+                  "calibrated_probability": 0.7,
+                  "outcome": 1
+                },
+                {
+                  "created_at": "2026-02-19T12:00:00.000Z",
+                  "raw_probability": 0.7,
+                  "calibrated_probability": 0.7,
+                  "outcome": 1
+                },
+                {
+                  "created_at": "2026-02-19T11:00:00.000Z",
+                  "raw_probability": 0.7,
+                  "calibrated_probability": 0.7,
+                  "outcome": 1
+                },
+                {
+                  "created_at": "2026-02-20T10:00:00.000Z",
+                  "raw_probability": 0.7,
+                  "calibrated_probability": 0.7,
+                  "outcome": 1
+                },
+                {
+                  "created_at": "2026-02-21T09:00:00.000Z",
+                  "raw_probability": 0.7,
+                  "calibrated_probability": 0.7,
+                  "outcome": 1
+                },
+                {
+                  "created_at": "2026-02-21T08:00:00.000Z",
+                  "raw_probability": 0.7,
+                  "calibrated_probability": 0.7,
+                  "outcome": 1
+                },
+                {
+                  "created_at": "2026-02-22T12:00:00.000Z",
+                  "raw_probability": 0.7,
+                  "calibrated_probability": 0.7,
+                  "outcome": 0
+                },
+                {
+                  "created_at": "2026-02-22T11:00:00.000Z",
+                  "raw_probability": 0.7,
+                  "calibrated_probability": 0.7,
+                  "outcome": 0
+                },
+                {
+                  "created_at": "2026-02-23T10:00:00.000Z",
+                  "raw_probability": 0.7,
+                  "calibrated_probability": 0.7,
+                  "outcome": 0
+                },
+                {
+                  "created_at": "2026-02-24T09:00:00.000Z",
+                  "raw_probability": 0.7,
+                  "calibrated_probability": 0.7,
+                  "outcome": 1
+                },
+                {
+                  "created_at": "2026-02-24T08:00:00.000Z",
+                  "raw_probability": 0.7,
+                  "calibrated_probability": 0.7,
+                  "outcome": 1
+                },
+                {
+                  "created_at": "2026-02-25T12:00:00.000Z",
+                  "raw_probability": 0.7,
+                  "calibrated_probability": 0.7,
+                  "outcome": 1
+                },
+                {
+                  "created_at": "2026-02-26T11:00:00.000Z",
+                  "raw_probability": 0.7,
+                  "calibrated_probability": 0.7,
+                  "outcome": 1
+                },
+                {
+                  "created_at": "2026-02-26T10:00:00.000Z",
+                  "raw_probability": 0.7,
+                  "calibrated_probability": 0.7,
+                  "outcome": 1
+                },
+                {
+                  "created_at": "2026-02-27T09:00:00.000Z",
+                  "raw_probability": 0.7,
+                  "calibrated_probability": 0.7,
+                  "outcome": 1
+                },
+                {
+                  "created_at": "2026-02-28T08:00:00.000Z",
+                  "raw_probability": 0.7,
+                  "calibrated_probability": 0.7,
+                  "outcome": 1
+                }
+              ]
+            },
+            "result": {
+              "ok": true,
+              "value": {
+                "models": [
+                  {
+                    "model": {
+                      "id": 7,
+                      "model_name": "WINDELS Sports Baseline",
+                      "model_version": "1.0.0",
+                      "feature_version": "sports-features-v1",
+                      "calibration_version": null,
+                      "status": "ACTIVE",
+                      "created_at": "2026-01-01T00:00:00.000Z"
+                    },
+                    "status": "STABLE",
+                    "recent": {
+                      "samples": 20,
+                      "accuracy": 0.7,
+                      "brier": 0,
+                      "ece": 0
+                    },
+                    "baseline": {
+                      "samples": 20,
+                      "accuracy": 0.7,
+                      "brier": 0,
+                      "ece": 0
+                    },
+                    "reasons": []
+                  }
+                ],
+                "warnings": 0
+              }
+            }
+          },
+          "fewer than twenty recent samples is INSUFFICIENT_RECENT_DATA": {
+            "input": {
+              "models": [
+                {
+                  "id": 7,
+                  "model_name": "WINDELS Sports Baseline",
+                  "model_version": "1.0.0",
+                  "feature_version": "sports-features-v1",
+                  "calibration_version": null,
+                  "status": "ACTIVE",
+                  "created_at": "2026-01-01T00:00:00.000Z"
+                }
+              ],
+              "outcomes": [
+                {
+                  "created_at": "2026-01-20T12:00:00.000Z",
+                  "raw_probability": 0.7,
+                  "calibrated_probability": 0.7,
+                  "outcome": 0
+                },
+                {
+                  "created_at": "2026-01-21T11:00:00.000Z",
+                  "raw_probability": 0.7,
+                  "calibrated_probability": 0.7,
+                  "outcome": 1
+                },
+                {
+                  "created_at": "2026-01-22T10:00:00.000Z",
+                  "raw_probability": 0.7,
+                  "calibrated_probability": 0.7,
+                  "outcome": 0
+                },
+                {
+                  "created_at": "2026-01-23T09:00:00.000Z",
+                  "raw_probability": 0.7,
+                  "calibrated_probability": 0.7,
+                  "outcome": 1
+                },
+                {
+                  "created_at": "2026-01-24T08:00:00.000Z",
+                  "raw_probability": 0.7,
+                  "calibrated_probability": 0.7,
+                  "outcome": 0
+                },
+                {
+                  "created_at": "2026-01-25T12:00:00.000Z",
+                  "raw_probability": 0.7,
+                  "calibrated_probability": 0.7,
+                  "outcome": 1
+                },
+                {
+                  "created_at": "2026-01-26T11:00:00.000Z",
+                  "raw_probability": 0.7,
+                  "calibrated_probability": 0.7,
+                  "outcome": 0
+                },
+                {
+                  "created_at": "2026-01-27T10:00:00.000Z",
+                  "raw_probability": 0.7,
+                  "calibrated_probability": 0.7,
+                  "outcome": 1
+                },
+                {
+                  "created_at": "2026-01-28T09:00:00.000Z",
+                  "raw_probability": 0.7,
+                  "calibrated_probability": 0.7,
+                  "outcome": 0
+                },
+                {
+                  "created_at": "2026-01-29T08:00:00.000Z",
+                  "raw_probability": 0.7,
+                  "calibrated_probability": 0.7,
+                  "outcome": 1
+                },
+                {
+                  "created_at": "2026-01-30T12:00:00.000Z",
+                  "raw_probability": 0.7,
+                  "calibrated_probability": 0.7,
+                  "outcome": 0
+                },
+                {
+                  "created_at": "2026-01-31T11:00:00.000Z",
+                  "raw_probability": 0.7,
+                  "calibrated_probability": 0.7,
+                  "outcome": 1
+                },
+                {
+                  "created_at": "2026-02-01T10:00:00.000Z",
+                  "raw_probability": 0.7,
+                  "calibrated_probability": 0.7,
+                  "outcome": 0
+                },
+                {
+                  "created_at": "2026-02-02T09:00:00.000Z",
+                  "raw_probability": 0.7,
+                  "calibrated_probability": 0.7,
+                  "outcome": 1
+                },
+                {
+                  "created_at": "2026-02-03T08:00:00.000Z",
+                  "raw_probability": 0.7,
+                  "calibrated_probability": 0.7,
+                  "outcome": 0
+                },
+                {
+                  "created_at": "2026-02-04T12:00:00.000Z",
+                  "raw_probability": 0.7,
+                  "calibrated_probability": 0.7,
+                  "outcome": 1
+                },
+                {
+                  "created_at": "2026-02-05T11:00:00.000Z",
+                  "raw_probability": 0.7,
+                  "calibrated_probability": 0.7,
+                  "outcome": 0
+                },
+                {
+                  "created_at": "2026-02-06T10:00:00.000Z",
+                  "raw_probability": 0.7,
+                  "calibrated_probability": 0.7,
+                  "outcome": 1
+                },
+                {
+                  "created_at": "2026-02-07T09:00:00.000Z",
+                  "raw_probability": 0.7,
+                  "calibrated_probability": 0.7,
+                  "outcome": 0
+                },
+                {
+                  "created_at": "2026-02-08T08:00:00.000Z",
+                  "raw_probability": 0.7,
+                  "calibrated_probability": 0.7,
+                  "outcome": 1
+                },
+                {
+                  "created_at": "2026-02-09T12:00:00.000Z",
+                  "raw_probability": 0.7,
+                  "calibrated_probability": 0.7,
+                  "outcome": 0
+                },
+                {
+                  "created_at": "2026-02-10T11:00:00.000Z",
+                  "raw_probability": 0.7,
+                  "calibrated_probability": 0.7,
+                  "outcome": 1
+                },
+                {
+                  "created_at": "2026-02-11T10:00:00.000Z",
+                  "raw_probability": 0.7,
+                  "calibrated_probability": 0.7,
+                  "outcome": 0
+                },
+                {
+                  "created_at": "2026-02-13T09:00:00.000Z",
+                  "raw_probability": 0.7,
+                  "calibrated_probability": 0.7,
+                  "outcome": 1
+                },
+                {
+                  "created_at": "2026-02-16T12:00:00.000Z",
+                  "raw_probability": 0.7,
+                  "calibrated_probability": 0.7,
+                  "outcome": 0
+                },
+                {
+                  "created_at": "2026-02-17T11:00:00.000Z",
+                  "raw_probability": 0.7,
+                  "calibrated_probability": 0.7,
+                  "outcome": 1
+                },
+                {
+                  "created_at": "2026-02-18T10:00:00.000Z",
+                  "raw_probability": 0.7,
+                  "calibrated_probability": 0.7,
+                  "outcome": 0
+                },
+                {
+                  "created_at": "2026-02-20T09:00:00.000Z",
+                  "raw_probability": 0.7,
+                  "calibrated_probability": 0.7,
+                  "outcome": 1
+                },
+                {
+                  "created_at": "2026-02-21T08:00:00.000Z",
+                  "raw_probability": 0.7,
+                  "calibrated_probability": 0.7,
+                  "outcome": 0
+                },
+                {
+                  "created_at": "2026-02-22T12:00:00.000Z",
+                  "raw_probability": 0.7,
+                  "calibrated_probability": 0.7,
+                  "outcome": 1
+                },
+                {
+                  "created_at": "2026-02-24T11:00:00.000Z",
+                  "raw_probability": 0.7,
+                  "calibrated_probability": 0.7,
+                  "outcome": 0
+                },
+                {
+                  "created_at": "2026-02-25T10:00:00.000Z",
+                  "raw_probability": 0.7,
+                  "calibrated_probability": 0.7,
+                  "outcome": 1
+                },
+                {
+                  "created_at": "2026-02-26T09:00:00.000Z",
+                  "raw_probability": 0.7,
+                  "calibrated_probability": 0.7,
+                  "outcome": 0
+                },
+                {
+                  "created_at": "2026-02-28T08:00:00.000Z",
+                  "raw_probability": 0.7,
+                  "calibrated_probability": 0.7,
+                  "outcome": 1
+                }
+              ]
+            },
+            "result": {
+              "ok": true,
+              "value": {
+                "models": [
+                  {
+                    "model": {
+                      "id": 7,
+                      "model_name": "WINDELS Sports Baseline",
+                      "model_version": "1.0.0",
+                      "feature_version": "sports-features-v1",
+                      "calibration_version": null,
+                      "status": "ACTIVE",
+                      "created_at": "2026-01-01T00:00:00.000Z"
+                    },
+                    "status": "INSUFFICIENT_RECENT_DATA",
+                    "recent": {
+                      "samples": 10,
+                      "accuracy": 0.5,
+                      "brier": 0,
+                      "ece": 0.2
+                    },
+                    "baseline": null,
+                    "reasons": []
+                  }
+                ],
+                "warnings": 0
+              }
+            }
+          },
+          "no outcomes at all is INSUFFICIENT_RECENT_DATA with an empty window": {
+            "input": {
+              "models": [
+                {
+                  "id": 7,
+                  "model_name": "WINDELS Sports Baseline",
+                  "model_version": "1.0.0",
+                  "feature_version": "sports-features-v1",
+                  "calibration_version": null,
+                  "status": "ACTIVE",
+                  "created_at": "2026-01-01T00:00:00.000Z"
+                }
+              ],
+              "outcomes": []
+            },
+            "result": {
+              "ok": true,
+              "value": {
+                "models": [
+                  {
+                    "model": {
+                      "id": 7,
+                      "model_name": "WINDELS Sports Baseline",
+                      "model_version": "1.0.0",
+                      "feature_version": "sports-features-v1",
+                      "calibration_version": null,
+                      "status": "ACTIVE",
+                      "created_at": "2026-01-01T00:00:00.000Z"
+                    },
+                    "status": "INSUFFICIENT_RECENT_DATA",
+                    "recent": {
+                      "samples": 0,
+                      "accuracy": null,
+                      "brier": null,
+                      "ece": null
+                    },
+                    "baseline": null,
+                    "reasons": []
+                  }
+                ],
+                "warnings": 0
+              }
+            }
+          },
+          "an accuracy drop at or beyond eight points raises the warning": {
+            "input": {
+              "models": [
+                {
+                  "id": 7,
+                  "model_name": "WINDELS Sports Baseline",
+                  "model_version": "1.0.0",
+                  "feature_version": "sports-features-v1",
+                  "calibration_version": null,
+                  "status": "ACTIVE",
+                  "created_at": "2026-01-01T00:00:00.000Z"
+                }
+              ],
+              "outcomes": [
+                {
+                  "created_at": "2026-01-20T12:00:00.000Z",
+                  "raw_probability": 0.7,
+                  "calibrated_probability": 0.7,
+                  "outcome": 1
+                },
+                {
+                  "created_at": "2026-01-21T11:00:00.000Z",
+                  "raw_probability": 0.7,
+                  "calibrated_probability": 0.7,
+                  "outcome": 1
+                },
+                {
+                  "created_at": "2026-01-22T10:00:00.000Z",
+                  "raw_probability": 0.7,
+                  "calibrated_probability": 0.7,
+                  "outcome": 1
+                },
+                {
+                  "created_at": "2026-01-23T09:00:00.000Z",
+                  "raw_probability": 0.7,
+                  "calibrated_probability": 0.7,
+                  "outcome": 1
+                },
+                {
+                  "created_at": "2026-01-25T08:00:00.000Z",
+                  "raw_probability": 0.7,
+                  "calibrated_probability": 0.7,
+                  "outcome": 1
+                },
+                {
+                  "created_at": "2026-01-26T12:00:00.000Z",
+                  "raw_probability": 0.7,
+                  "calibrated_probability": 0.7,
+                  "outcome": 1
+                },
+                {
+                  "created_at": "2026-01-27T11:00:00.000Z",
+                  "raw_probability": 0.7,
+                  "calibrated_probability": 0.7,
+                  "outcome": 1
+                },
+                {
+                  "created_at": "2026-01-28T10:00:00.000Z",
+                  "raw_probability": 0.7,
+                  "calibrated_probability": 0.7,
+                  "outcome": 1
+                },
+                {
+                  "created_at": "2026-01-30T09:00:00.000Z",
+                  "raw_probability": 0.7,
+                  "calibrated_probability": 0.7,
+                  "outcome": 1
+                },
+                {
+                  "created_at": "2026-01-31T08:00:00.000Z",
+                  "raw_probability": 0.7,
+                  "calibrated_probability": 0.7,
+                  "outcome": 0
+                },
+                {
+                  "created_at": "2026-02-01T12:00:00.000Z",
+                  "raw_probability": 0.7,
+                  "calibrated_probability": 0.7,
+                  "outcome": 1
+                },
+                {
+                  "created_at": "2026-02-02T11:00:00.000Z",
+                  "raw_probability": 0.7,
+                  "calibrated_probability": 0.7,
+                  "outcome": 1
+                },
+                {
+                  "created_at": "2026-02-04T10:00:00.000Z",
+                  "raw_probability": 0.7,
+                  "calibrated_probability": 0.7,
+                  "outcome": 1
+                },
+                {
+                  "created_at": "2026-02-05T09:00:00.000Z",
+                  "raw_probability": 0.7,
+                  "calibrated_probability": 0.7,
+                  "outcome": 1
+                },
+                {
+                  "created_at": "2026-02-06T08:00:00.000Z",
+                  "raw_probability": 0.7,
+                  "calibrated_probability": 0.7,
+                  "outcome": 1
+                },
+                {
+                  "created_at": "2026-02-07T12:00:00.000Z",
+                  "raw_probability": 0.7,
+                  "calibrated_probability": 0.7,
+                  "outcome": 1
+                },
+                {
+                  "created_at": "2026-02-09T11:00:00.000Z",
+                  "raw_probability": 0.7,
+                  "calibrated_probability": 0.7,
+                  "outcome": 1
+                },
+                {
+                  "created_at": "2026-02-10T10:00:00.000Z",
+                  "raw_probability": 0.7,
+                  "calibrated_probability": 0.7,
+                  "outcome": 1
+                },
+                {
+                  "created_at": "2026-02-11T09:00:00.000Z",
+                  "raw_probability": 0.7,
+                  "calibrated_probability": 0.7,
+                  "outcome": 1
+                },
+                {
+                  "created_at": "2026-02-13T08:00:00.000Z",
+                  "raw_probability": 0.7,
+                  "calibrated_probability": 0.7,
+                  "outcome": 0
+                },
+                {
+                  "created_at": "2026-02-16T12:00:00.000Z",
+                  "raw_probability": 0.7,
+                  "calibrated_probability": 0.7,
+                  "outcome": 1
+                },
+                {
+                  "created_at": "2026-02-16T11:00:00.000Z",
+                  "raw_probability": 0.7,
+                  "calibrated_probability": 0.7,
+                  "outcome": 1
+                },
+                {
+                  "created_at": "2026-02-17T10:00:00.000Z",
+                  "raw_probability": 0.7,
+                  "calibrated_probability": 0.7,
+                  "outcome": 1
+                },
+                {
+                  "created_at": "2026-02-17T09:00:00.000Z",
+                  "raw_probability": 0.7,
+                  "calibrated_probability": 0.7,
+                  "outcome": 1
+                },
+                {
+                  "created_at": "2026-02-18T08:00:00.000Z",
+                  "raw_probability": 0.7,
+                  "calibrated_probability": 0.7,
+                  "outcome": 1
+                },
+                {
+                  "created_at": "2026-02-19T12:00:00.000Z",
+                  "raw_probability": 0.7,
+                  "calibrated_probability": 0.7,
+                  "outcome": 1
+                },
+                {
+                  "created_at": "2026-02-19T11:00:00.000Z",
+                  "raw_probability": 0.7,
+                  "calibrated_probability": 0.7,
+                  "outcome": 1
+                },
+                {
+                  "created_at": "2026-02-20T10:00:00.000Z",
+                  "raw_probability": 0.7,
+                  "calibrated_probability": 0.7,
+                  "outcome": 1
+                },
+                {
+                  "created_at": "2026-02-21T09:00:00.000Z",
+                  "raw_probability": 0.7,
+                  "calibrated_probability": 0.7,
+                  "outcome": 0
+                },
+                {
+                  "created_at": "2026-02-21T08:00:00.000Z",
+                  "raw_probability": 0.7,
+                  "calibrated_probability": 0.7,
+                  "outcome": 0
+                },
+                {
+                  "created_at": "2026-02-22T12:00:00.000Z",
+                  "raw_probability": 0.7,
+                  "calibrated_probability": 0.7,
+                  "outcome": 1
+                },
+                {
+                  "created_at": "2026-02-22T11:00:00.000Z",
+                  "raw_probability": 0.7,
+                  "calibrated_probability": 0.7,
+                  "outcome": 1
+                },
+                {
+                  "created_at": "2026-02-23T10:00:00.000Z",
+                  "raw_probability": 0.7,
+                  "calibrated_probability": 0.7,
+                  "outcome": 1
+                },
+                {
+                  "created_at": "2026-02-24T09:00:00.000Z",
+                  "raw_probability": 0.7,
+                  "calibrated_probability": 0.7,
+                  "outcome": 1
+                },
+                {
+                  "created_at": "2026-02-24T08:00:00.000Z",
+                  "raw_probability": 0.7,
+                  "calibrated_probability": 0.7,
+                  "outcome": 1
+                },
+                {
+                  "created_at": "2026-02-25T12:00:00.000Z",
+                  "raw_probability": 0.7,
+                  "calibrated_probability": 0.7,
+                  "outcome": 1
+                },
+                {
+                  "created_at": "2026-02-26T11:00:00.000Z",
+                  "raw_probability": 0.7,
+                  "calibrated_probability": 0.7,
+                  "outcome": 1
+                },
+                {
+                  "created_at": "2026-02-26T10:00:00.000Z",
+                  "raw_probability": 0.7,
+                  "calibrated_probability": 0.7,
+                  "outcome": 1
+                },
+                {
+                  "created_at": "2026-02-27T09:00:00.000Z",
+                  "raw_probability": 0.7,
+                  "calibrated_probability": 0.7,
+                  "outcome": 0
+                },
+                {
+                  "created_at": "2026-02-28T08:00:00.000Z",
+                  "raw_probability": 0.7,
+                  "calibrated_probability": 0.7,
+                  "outcome": 0
+                }
+              ]
+            },
+            "result": {
+              "ok": true,
+              "value": {
+                "models": [
+                  {
+                    "model": {
+                      "id": 7,
+                      "model_name": "WINDELS Sports Baseline",
+                      "model_version": "1.0.0",
+                      "feature_version": "sports-features-v1",
+                      "calibration_version": null,
+                      "status": "ACTIVE",
+                      "created_at": "2026-01-01T00:00:00.000Z"
+                    },
+                    "status": "DRIFT_WARNING",
+                    "recent": {
+                      "samples": 20,
+                      "accuracy": 0.8,
+                      "brier": 0,
+                      "ece": 0.1
+                    },
+                    "baseline": {
+                      "samples": 20,
+                      "accuracy": 0.9,
+                      "brier": 0,
+                      "ece": 0.2
+                    },
+                    "reasons": [
+                      "accuracy dropped 10.0pp (90.0% → 80.0%)",
+                      "calibration degraded (ECE 0.100 ≥ 0.08)"
+                    ]
+                  }
+                ],
+                "warnings": 1
+              }
+            }
+          },
+          "a degraded ECE raises the warning without an accuracy drop": {
+            "input": {
+              "models": [
+                {
+                  "id": 7,
+                  "model_name": "WINDELS Sports Baseline",
+                  "model_version": "1.0.0",
+                  "feature_version": "sports-features-v1",
+                  "calibration_version": null,
+                  "status": "ACTIVE",
+                  "created_at": "2026-01-01T00:00:00.000Z"
+                }
+              ],
+              "outcomes": [
+                {
+                  "created_at": "2026-01-20T12:00:00.000Z",
+                  "raw_probability": 0.8,
+                  "calibrated_probability": 0.8,
+                  "outcome": 1
+                },
+                {
+                  "created_at": "2026-01-21T11:00:00.000Z",
+                  "raw_probability": 0.8,
+                  "calibrated_probability": 0.8,
+                  "outcome": 1
+                },
+                {
+                  "created_at": "2026-01-22T10:00:00.000Z",
+                  "raw_probability": 0.8,
+                  "calibrated_probability": 0.8,
+                  "outcome": 1
+                },
+                {
+                  "created_at": "2026-01-23T09:00:00.000Z",
+                  "raw_probability": 0.8,
+                  "calibrated_probability": 0.8,
+                  "outcome": 1
+                },
+                {
+                  "created_at": "2026-01-24T08:00:00.000Z",
+                  "raw_probability": 0.8,
+                  "calibrated_probability": 0.8,
+                  "outcome": 1
+                },
+                {
+                  "created_at": "2026-01-25T12:00:00.000Z",
+                  "raw_probability": 0.8,
+                  "calibrated_probability": 0.8,
+                  "outcome": 1
+                },
+                {
+                  "created_at": "2026-01-26T11:00:00.000Z",
+                  "raw_probability": 0.8,
+                  "calibrated_probability": 0.8,
+                  "outcome": 0
+                },
+                {
+                  "created_at": "2026-01-27T10:00:00.000Z",
+                  "raw_probability": 0.8,
+                  "calibrated_probability": 0.8,
+                  "outcome": 0
+                },
+                {
+                  "created_at": "2026-01-28T09:00:00.000Z",
+                  "raw_probability": 0.8,
+                  "calibrated_probability": 0.8,
+                  "outcome": 0
+                },
+                {
+                  "created_at": "2026-01-29T08:00:00.000Z",
+                  "raw_probability": 0.8,
+                  "calibrated_probability": 0.8,
+                  "outcome": 0
+                },
+                {
+                  "created_at": "2026-01-30T12:00:00.000Z",
+                  "raw_probability": 0.8,
+                  "calibrated_probability": 0.8,
+                  "outcome": 1
+                },
+                {
+                  "created_at": "2026-01-31T11:00:00.000Z",
+                  "raw_probability": 0.8,
+                  "calibrated_probability": 0.8,
+                  "outcome": 1
+                },
+                {
+                  "created_at": "2026-02-01T10:00:00.000Z",
+                  "raw_probability": 0.8,
+                  "calibrated_probability": 0.8,
+                  "outcome": 1
+                },
+                {
+                  "created_at": "2026-02-02T09:00:00.000Z",
+                  "raw_probability": 0.8,
+                  "calibrated_probability": 0.8,
+                  "outcome": 1
+                },
+                {
+                  "created_at": "2026-02-03T08:00:00.000Z",
+                  "raw_probability": 0.8,
+                  "calibrated_probability": 0.8,
+                  "outcome": 1
+                },
+                {
+                  "created_at": "2026-02-04T12:00:00.000Z",
+                  "raw_probability": 0.8,
+                  "calibrated_probability": 0.8,
+                  "outcome": 1
+                },
+                {
+                  "created_at": "2026-02-05T11:00:00.000Z",
+                  "raw_probability": 0.8,
+                  "calibrated_probability": 0.8,
+                  "outcome": 0
+                },
+                {
+                  "created_at": "2026-02-06T10:00:00.000Z",
+                  "raw_probability": 0.8,
+                  "calibrated_probability": 0.8,
+                  "outcome": 0
+                },
+                {
+                  "created_at": "2026-02-07T09:00:00.000Z",
+                  "raw_probability": 0.8,
+                  "calibrated_probability": 0.8,
+                  "outcome": 0
+                },
+                {
+                  "created_at": "2026-02-08T08:00:00.000Z",
+                  "raw_probability": 0.8,
+                  "calibrated_probability": 0.8,
+                  "outcome": 0
+                },
+                {
+                  "created_at": "2026-02-09T12:00:00.000Z",
+                  "raw_probability": 0.8,
+                  "calibrated_probability": 0.8,
+                  "outcome": 1
+                },
+                {
+                  "created_at": "2026-02-10T11:00:00.000Z",
+                  "raw_probability": 0.8,
+                  "calibrated_probability": 0.8,
+                  "outcome": 1
+                },
+                {
+                  "created_at": "2026-02-11T10:00:00.000Z",
+                  "raw_probability": 0.8,
+                  "calibrated_probability": 0.8,
+                  "outcome": 1
+                },
+                {
+                  "created_at": "2026-02-12T09:00:00.000Z",
+                  "raw_probability": 0.8,
+                  "calibrated_probability": 0.8,
+                  "outcome": 1
+                },
+                {
+                  "created_at": "2026-02-13T08:00:00.000Z",
+                  "raw_probability": 0.8,
+                  "calibrated_probability": 0.8,
+                  "outcome": 1
+                },
+                {
+                  "created_at": "2026-02-16T12:00:00.000Z",
+                  "raw_probability": 0.8,
+                  "calibrated_probability": 0.8,
+                  "outcome": 1
+                },
+                {
+                  "created_at": "2026-02-16T11:00:00.000Z",
+                  "raw_probability": 0.8,
+                  "calibrated_probability": 0.8,
+                  "outcome": 1
+                },
+                {
+                  "created_at": "2026-02-17T10:00:00.000Z",
+                  "raw_probability": 0.8,
+                  "calibrated_probability": 0.8,
+                  "outcome": 1
+                },
+                {
+                  "created_at": "2026-02-17T09:00:00.000Z",
+                  "raw_probability": 0.8,
+                  "calibrated_probability": 0.8,
+                  "outcome": 1
+                },
+                {
+                  "created_at": "2026-02-18T08:00:00.000Z",
+                  "raw_probability": 0.8,
+                  "calibrated_probability": 0.8,
+                  "outcome": 1
+                },
+                {
+                  "created_at": "2026-02-18T12:00:00.000Z",
+                  "raw_probability": 0.8,
+                  "calibrated_probability": 0.8,
+                  "outcome": 1
+                },
+                {
+                  "created_at": "2026-02-19T11:00:00.000Z",
+                  "raw_probability": 0.8,
+                  "calibrated_probability": 0.8,
+                  "outcome": 0
+                },
+                {
+                  "created_at": "2026-02-20T10:00:00.000Z",
+                  "raw_probability": 0.8,
+                  "calibrated_probability": 0.8,
+                  "outcome": 0
+                },
+                {
+                  "created_at": "2026-02-20T09:00:00.000Z",
+                  "raw_probability": 0.8,
+                  "calibrated_probability": 0.8,
+                  "outcome": 0
+                },
+                {
+                  "created_at": "2026-02-21T08:00:00.000Z",
+                  "raw_probability": 0.8,
+                  "calibrated_probability": 0.8,
+                  "outcome": 0
+                },
+                {
+                  "created_at": "2026-02-21T12:00:00.000Z",
+                  "raw_probability": 0.8,
+                  "calibrated_probability": 0.8,
+                  "outcome": 1
+                },
+                {
+                  "created_at": "2026-02-22T11:00:00.000Z",
+                  "raw_probability": 0.8,
+                  "calibrated_probability": 0.8,
+                  "outcome": 1
+                },
+                {
+                  "created_at": "2026-02-22T10:00:00.000Z",
+                  "raw_probability": 0.8,
+                  "calibrated_probability": 0.8,
+                  "outcome": 1
+                },
+                {
+                  "created_at": "2026-02-23T09:00:00.000Z",
+                  "raw_probability": 0.8,
+                  "calibrated_probability": 0.8,
+                  "outcome": 1
+                },
+                {
+                  "created_at": "2026-02-24T08:00:00.000Z",
+                  "raw_probability": 0.8,
+                  "calibrated_probability": 0.8,
+                  "outcome": 1
+                },
+                {
+                  "created_at": "2026-02-24T12:00:00.000Z",
+                  "raw_probability": 0.8,
+                  "calibrated_probability": 0.8,
+                  "outcome": 1
+                },
+                {
+                  "created_at": "2026-02-25T11:00:00.000Z",
+                  "raw_probability": 0.8,
+                  "calibrated_probability": 0.8,
+                  "outcome": 0
+                },
+                {
+                  "created_at": "2026-02-25T10:00:00.000Z",
+                  "raw_probability": 0.8,
+                  "calibrated_probability": 0.8,
+                  "outcome": 0
+                },
+                {
+                  "created_at": "2026-02-26T09:00:00.000Z",
+                  "raw_probability": 0.8,
+                  "calibrated_probability": 0.8,
+                  "outcome": 0
+                },
+                {
+                  "created_at": "2026-02-26T08:00:00.000Z",
+                  "raw_probability": 0.8,
+                  "calibrated_probability": 0.8,
+                  "outcome": 0
+                },
+                {
+                  "created_at": "2026-02-27T12:00:00.000Z",
+                  "raw_probability": 0.8,
+                  "calibrated_probability": 0.8,
+                  "outcome": 1
+                },
+                {
+                  "created_at": "2026-02-28T11:00:00.000Z",
+                  "raw_probability": 0.8,
+                  "calibrated_probability": 0.8,
+                  "outcome": 1
+                }
+              ]
+            },
+            "result": {
+              "ok": true,
+              "value": {
+                "models": [
+                  {
+                    "model": {
+                      "id": 7,
+                      "model_name": "WINDELS Sports Baseline",
+                      "model_version": "1.0.0",
+                      "feature_version": "sports-features-v1",
+                      "calibration_version": null,
+                      "status": "ACTIVE",
+                      "created_at": "2026-01-01T00:00:00.000Z"
+                    },
+                    "status": "DRIFT_WARNING",
+                    "recent": {
+                      "samples": 22,
+                      "accuracy": 0.63636,
+                      "brier": 0,
+                      "ece": 0.163636
+                    },
+                    "baseline": {
+                      "samples": 25,
+                      "accuracy": 0.68,
+                      "brier": 0,
+                      "ece": 0.12
+                    },
+                    "reasons": [
+                      "calibration degraded (ECE 0.164 ≥ 0.08)"
+                    ]
+                  }
+                ],
+                "warnings": 1
+              }
+            }
+          }
+        },
+        "constants": {
+          "RECENT_DAYS": 14,
+          "BASELINE_DAYS": 28,
+          "MIN_RECENT_SAMPLES": 20,
+          "ACCURACY_DROP_THRESHOLD": 0.08,
+          "BRIER_RISE_THRESHOLD": 0.03,
+          "ECE_THRESHOLD": 0.08
+        }
+      },
+      "metricsFor": {
+        "input": {
+          "windowDays": 30,
+          "outcomes": [
+            {
+              "created_at": "2026-02-27T12:00:00.000Z",
+              "raw_probability": 0.7,
+              "calibrated_probability": 0.7,
+              "outcome": 0
+            },
+            {
+              "created_at": "2026-02-26T12:00:00.000Z",
+              "raw_probability": 0.55,
+              "calibrated_probability": 0.55,
+              "outcome": 1
+            },
+            {
+              "created_at": "2026-02-25T12:00:00.000Z",
+              "raw_probability": 0.8,
+              "calibrated_probability": 0.8,
+              "outcome": 1
+            },
+            {
+              "created_at": "2026-02-24T12:00:00.000Z",
+              "raw_probability": 0.35,
+              "calibrated_probability": 0.35,
+              "outcome": 0
+            },
+            {
+              "created_at": "2026-02-23T12:00:00.000Z",
+              "raw_probability": 0.6,
+              "calibrated_probability": 0.6,
+              "outcome": 1
+            },
+            {
+              "created_at": "2026-02-22T12:00:00.000Z",
+              "raw_probability": 0.7,
+              "calibrated_probability": 0.7,
+              "outcome": 1
+            },
+            {
+              "created_at": "2026-02-21T12:00:00.000Z",
+              "raw_probability": 0.55,
+              "calibrated_probability": 0.55,
+              "outcome": 0
+            },
+            {
+              "created_at": "2026-02-20T12:00:00.000Z",
+              "raw_probability": 0.8,
+              "calibrated_probability": 0.8,
+              "outcome": 1
+            },
+            {
+              "created_at": "2026-02-19T12:00:00.000Z",
+              "raw_probability": 0.35,
+              "calibrated_probability": 0.35,
+              "outcome": 1
+            },
+            {
+              "created_at": "2026-02-18T12:00:00.000Z",
+              "raw_probability": 0.6,
+              "calibrated_probability": 0.6,
+              "outcome": 0
+            },
+            {
+              "created_at": "2026-02-17T12:00:00.000Z",
+              "raw_probability": 0.7,
+              "calibrated_probability": 0.7,
+              "outcome": 1
+            },
+            {
+              "created_at": "2026-02-16T12:00:00.000Z",
+              "raw_probability": 0.55,
+              "calibrated_probability": 0.55,
+              "outcome": 1
+            }
+          ],
+          "selections": [
+            {
+              "ticket_id": "tkt_aaaaaaaaaaaaaaaa",
+              "match_id": 100,
+              "market": "TOTAL_GOALS",
+              "selection": "OVER_1_5",
+              "status": "WON",
+              "_settled": 1,
+              "ticket_stake": 30,
+              "ticket_pnl": 28,
+              "ticket_odds": 3.8,
+              "ticket_status": "WON",
+              "competition": "League One",
+              "kickoff_at": "1969-12-30T00:00:00.000Z",
+              "model_name": "WINDELS Sports Baseline",
+              "model_version": "1.0.0",
+              "legCount": 3
+            },
+            {
+              "ticket_id": "tkt_aaaaaaaaaaaaaaaa",
+              "match_id": 101,
+              "market": "MATCH_ODDS",
+              "selection": "OVER_1_5",
+              "status": "LOST",
+              "_settled": 1,
+              "ticket_stake": 30,
+              "ticket_pnl": 28,
+              "ticket_odds": 3.8,
+              "ticket_status": "WON",
+              "competition": "League Two",
+              "kickoff_at": "1969-12-29T00:00:00.000Z",
+              "model_name": "WINDELS Sports Baseline",
+              "model_version": "1.0.0",
+              "legCount": 3
+            },
+            {
+              "ticket_id": "tkt_bbbbbbbbbbbbbbbb",
+              "match_id": 102,
+              "market": "TOTAL_GOALS",
+              "selection": "OVER_1_5",
+              "status": "WON",
+              "_settled": 1,
+              "ticket_stake": 20,
+              "ticket_pnl": -20,
+              "ticket_odds": 3.8,
+              "ticket_status": "WON",
+              "competition": "League One",
+              "kickoff_at": "1969-12-28T00:00:00.000Z",
+              "model_name": "WINDELS Sports Baseline",
+              "model_version": "1.0.0",
+              "legCount": 2
+            },
+            {
+              "ticket_id": "tkt_bbbbbbbbbbbbbbbb",
+              "match_id": 103,
+              "market": "MATCH_ODDS",
+              "selection": "OVER_1_5",
+              "status": "LOST",
+              "_settled": 1,
+              "ticket_stake": 20,
+              "ticket_pnl": -20,
+              "ticket_odds": 3.8,
+              "ticket_status": "WON",
+              "competition": "League Two",
+              "kickoff_at": "1969-12-27T00:00:00.000Z",
+              "model_name": "WINDELS Sports Baseline",
+              "model_version": "1.0.0",
+              "legCount": 2
+            },
+            {
+              "ticket_id": "tkt_aaaaaaaaaaaaaaaa",
+              "match_id": 109,
+              "market": "MATCH_ODDS",
+              "selection": "OVER_1_5",
+              "status": "PENDING",
+              "_settled": 0,
+              "ticket_stake": 30,
+              "ticket_pnl": 28,
+              "ticket_odds": 3.8,
+              "ticket_status": "WON",
+              "competition": "League Two",
+              "kickoff_at": "1969-12-21T00:00:00.000Z",
+              "model_name": "WINDELS Sports Baseline",
+              "model_version": "1.0.0",
+              "legCount": 3
+            }
+          ],
+          "tickets": {
+            "tkt_aaaaaaaaaaaaaaaa": {
+              "id": "tkt_aaaaaaaaaaaaaaaa",
+              "pnl": 28
+            },
+            "tkt_bbbbbbbbbbbbbbbb": {
+              "id": "tkt_bbbbbbbbbbbbbbbb",
+              "pnl": -20
+            }
+          },
+          "legCounts": {
+            "tkt_aaaaaaaaaaaaaaaa": 3,
+            "tkt_bbbbbbbbbbbbbbbb": 2
+          },
+          "models": [
+            {
+              "id": 7,
+              "model_name": "WINDELS Sports Baseline",
+              "model_version": "1.0.0",
+              "feature_version": "sports-features-v1",
+              "calibration_version": null,
+              "status": "ACTIVE",
+              "created_at": "2026-01-01T00:00:00.000Z"
+            }
+          ]
+        },
+        "result": {
+          "ok": true,
+          "value": {
+            "samples": 12,
+            "settledTickets": 2,
+            "accuracy": 0.66667,
+            "brier": 0,
+            "ece": 0.1125,
+            "byMarket": {
+              "TOTAL_GOALS": {
+                "n": 2,
+                "won": 2,
+                "winRate": 1
+              },
+              "MATCH_ODDS": {
+                "n": 2,
+                "won": 0,
+                "winRate": 0
+              }
+            },
+            "byLeague": {
+              "League One": {
+                "n": 2,
+                "won": 2,
+                "winRate": 1
+              },
+              "League Two": {
+                "n": 2,
+                "won": 0,
+                "winRate": 0
+              }
+            },
+            "winRate": 0.5,
+            "roi": -0.03333,
+            "maxDrawdown": 20
+          }
+        },
+        "snapshot": [
+          {
+            "model_version_id": 7,
+            "window_days": 30,
+            "sample_type": "live",
+            "predictions": 12,
+            "settled": 2,
+            "accuracy": 0.66667,
+            "brier": 0,
+            "ece": 0.1125,
+            "win_rate": 0.5,
+            "roi": -0.03333,
+            "max_drawdown": 20,
+            "computed_at": "<NOW>"
+          }
+        ]
+      },
+      "backtestRefusals": {
+        "a missing from is refused": {
+          "input": {
+            "to": "2026-02-12"
+          },
+          "result": {
+            "ok": false,
+            "error": "from/to must be YYYY-MM-DD",
+            "class": "InvalidArgumentException"
+          }
+        },
+        "a missing to is refused": {
+          "input": {
+            "from": "2026-02-09"
+          },
+          "result": {
+            "ok": false,
+            "error": "from/to must be YYYY-MM-DD",
+            "class": "InvalidArgumentException"
+          }
+        },
+        "a malformed date is refused": {
+          "input": {
+            "from": "09-02-2026",
+            "to": "2026-02-12"
+          },
+          "result": {
+            "ok": false,
+            "error": "from/to must be YYYY-MM-DD",
+            "class": "InvalidArgumentException"
+          }
+        },
+        "a calendar-impossible date is refused": {
+          "input": {
+            "from": "2026-02-30",
+            "to": "2026-02-28"
+          },
+          "result": {
+            "ok": false,
+            "error": "from must be before to",
+            "class": "InvalidArgumentException"
+          }
+        },
+        "an inverted range is refused": {
+          "input": {
+            "from": "2026-02-12",
+            "to": "2026-02-09"
+          },
+          "result": {
+            "ok": false,
+            "error": "from must be before to",
+            "class": "InvalidArgumentException"
+          }
+        },
+        "a range beyond ninety days is refused": {
+          "input": {
+            "from": "2025-12-01",
+            "to": "2026-03-15"
+          },
+          "result": {
+            "ok": false,
+            "error": "range must not exceed 90 days",
+            "class": "InvalidArgumentException"
+          }
+        }
+      },
+      "backtestRun": {
+        "input": {
+          "params": {
+            "from": "2026-02-09",
+            "to": "2026-02-12",
+            "modelVersionId": 999,
+            "minConfidence": 60,
+            "oddsMin": 1.2,
+            "oddsMax": 10,
+            "minDataQuality": 60,
+            "stake": 10
+          },
+          "matches": [
+            {
+              "id": 1,
+              "external_id": "BT-1",
+              "home_team": "Alpha United",
+              "away_team": "Bolt City",
+              "competition": "Parity League",
+              "status": "FINISHED",
+              "kickoff_at": "2026-02-10T18:00:00+00:00",
+              "source_timestamp": null,
+              "payload": {
+                "context": {
+                  "recentForm": {
+                    "homeGoalsPerMatch": 1.6,
+                    "awayGoalsPerMatch": 1.1,
+                    "homeConcededPerMatch": 1,
+                    "awayConcededPerMatch": 1.4,
+                    "source": "feed"
+                  },
+                  "marketLiquidity": 500
+                }
+              }
+            },
+            {
+              "id": 2,
+              "external_id": "BT-2",
+              "home_team": "Comet Rangers",
+              "away_team": "Delta Athletic",
+              "competition": "Parity League",
+              "status": "FINISHED",
+              "kickoff_at": "2026-02-11T18:00:00+00:00",
+              "source_timestamp": null,
+              "payload": {
+                "context": {
+                  "recentForm": {
+                    "homeGoalsPerMatch": 1.6,
+                    "awayGoalsPerMatch": 1.1,
+                    "homeConcededPerMatch": 1,
+                    "awayConcededPerMatch": 1.4,
+                    "source": "feed"
+                  },
+                  "marketLiquidity": 500
+                }
+              }
+            },
+            {
+              "id": 3,
+              "external_id": "BT-3",
+              "home_team": "Echo FC",
+              "away_team": "Foxtrot SC",
+              "competition": "Parity League",
+              "status": "FINISHED",
+              "kickoff_at": "2026-02-11T19:00:00+00:00",
+              "source_timestamp": null,
+              "payload": {
+                "context": {
+                  "recentForm": {
+                    "homeGoalsPerMatch": 1.6,
+                    "awayGoalsPerMatch": 1.1,
+                    "homeConcededPerMatch": 1,
+                    "awayConcededPerMatch": 1.4,
+                    "source": "feed"
+                  },
+                  "marketLiquidity": 500
+                }
+              }
+            },
+            {
+              "id": 4,
+              "external_id": "BT-4",
+              "home_team": "Golf XI",
+              "away_team": "Hotel United",
+              "competition": "Parity League",
+              "status": "FINISHED",
+              "kickoff_at": "2026-02-11T20:00:00+00:00",
+              "source_timestamp": null,
+              "payload": {
+                "context": {
+                  "recentForm": {
+                    "homeGoalsPerMatch": 1.6,
+                    "awayGoalsPerMatch": 1.1,
+                    "homeConcededPerMatch": 1,
+                    "awayConcededPerMatch": 1.4,
+                    "source": "feed"
+                  },
+                  "marketLiquidity": 500
+                }
+              }
+            },
+            {
+              "id": 5,
+              "external_id": "BT-5",
+              "home_team": "India FC",
+              "away_team": "Juliet SC",
+              "competition": "Parity League",
+              "status": "FINISHED",
+              "kickoff_at": "2026-02-11T20:30:00+00:00",
+              "source_timestamp": null,
+              "payload": {
+                "context": {
+                  "recentForm": null,
+                  "marketLiquidity": 0.5
+                }
+              }
+            }
+          ],
+          "results": {
+            "1": {
+              "verified": 1,
+              "status": "FINISHED",
+              "home_score": "2",
+              "away_score": "1"
+            },
+            "2": {
+              "verified": 1,
+              "status": "FINISHED",
+              "home_score": "0",
+              "away_score": "0"
+            },
+            "3": {
+              "verified": 0,
+              "status": "FINISHED",
+              "home_score": "4",
+              "away_score": "0"
+            },
+            "4": {
+              "verified": 1,
+              "status": "FINISHED",
+              "home_score": "2",
+              "away_score": "2"
+            }
+          },
+          "oddsBefore": {
+            "1": {
+              "market": "TOTAL_GOALS",
+              "selection": "OVER_1_5",
+              "decimal_odds": "1.90",
+              "observed_at": "2026-02-10T17:00:00+00:00"
+            },
+            "2": {
+              "market": "TOTAL_GOALS",
+              "selection": "OVER_1_5",
+              "decimal_odds": "2.10",
+              "observed_at": "2026-02-11T17:00:00+00:00"
+            },
+            "3": {
+              "market": "TOTAL_GOALS",
+              "selection": "OVER_1_5",
+              "decimal_odds": "1.95",
+              "observed_at": "2026-02-11T18:00:00+00:00"
+            },
+            "4": {
+              "market": "TOTAL_GOALS",
+              "selection": "OVER_1_5",
+              "decimal_odds": "1.05",
+              "observed_at": "2026-02-11T19:00:00+00:00"
+            },
+            "5": {
+              "market": "TOTAL_GOALS",
+              "selection": "OVER_1_5",
+              "decimal_odds": "1.90",
+              "observed_at": "2026-02-11T19:30:00+00:00"
+            }
+          },
+          "modelId": 7
+        },
+        "result": {
+          "ok": true,
+          "value": {
+            "simulation": true,
+            "warning": "BACKTEST SIMULATION — historical replay of stored data; NOT live results. Never mix with live performance.",
+            "params": {
+              "from": "2026-02-09",
+              "to": "2026-02-12",
+              "modelVersionId": 999,
+              "minConfidence": 60,
+              "oddsMin": 1.2,
+              "oddsMax": 10,
+              "minDataQuality": 60,
+              "stake": 10
+            },
+            "matchesFinished": 5,
+            "evaluated": 2,
+            "skipped": 3,
+            "skippedReasons": [
+              "unverified result",
+              "no pre-kickoff odds",
+              "odds outside range",
+              "data quality below threshold"
+            ],
+            "qualifiedSelections": 2,
+            "won": 1,
+            "lost": 1,
+            "winRate": 0.5,
+            "accuracy": 0.5,
+            "roi": -0.05,
+            "yield": -0.05,
+            "profitLoss": -1,
+            "maxDrawdown": 10,
+            "evAccuracy": {
+              "meanPredictedEV": 0.48155,
+              "meanRealized": -0.05
+            },
+            "calibration": {
+              "brier": 0,
+              "ece": 0.240775,
+              "bins": [
+                {
+                  "bin": 7,
+                  "label": "70-79",
+                  "n": 2,
+                  "meanCalibrated": 0.7408,
+                  "observedFrequency": 0.5,
+                  "gap": 0.2408
+                }
+              ]
+            },
+            "calibrationUsed": "NONE — identity replay of raw model probabilities",
+            "model": "WINDELS Sports Baseline 1.0.0",
+            "modelNote": "replayed model (baseline 1.0.0) differs from requested modelVersionId=999",
+            "byMarket": {
+              "TOTAL_GOALS": {
+                "n": 2,
+                "won": 1,
+                "pnl": -1
+              }
+            },
+            "byLeague": {
+              "Parity League": {
+                "n": 2,
+                "won": 1,
+                "pnl": -1
+              }
+            },
+            "overTime": {
+              "2026-02-10": {
+                "n": 1,
+                "pnl": 9
+              },
+              "2026-02-11": {
+                "n": 1,
+                "pnl": -10
+              }
+            },
+            "selections": [
+              {
+                "matchId": 1,
+                "match": "Alpha United vs Bolt City",
+                "league": "Parity League",
+                "kickoff": "2026-02-10T18:00:00+00:00",
+                "score": "2-1",
+                "market": "TOTAL_GOALS",
+                "selection": "OVER_1_5",
+                "odds": 1.9,
+                "oddsObservedAt": "2026-02-10T17:00:00+00:00",
+                "calibratedProbability": 0.740775,
+                "confidence": 69.26,
+                "risk": "LOW",
+                "decision": "QUALIFIED",
+                "rejectionReasons": [],
+                "outcome": "WON",
+                "pnl": 9,
+                "model": "WINDELS Sports Baseline 1.0.0",
+                "calibration": "NONE — identity replay of raw model probabilities"
+              },
+              {
+                "matchId": 2,
+                "match": "Comet Rangers vs Delta Athletic",
+                "league": "Parity League",
+                "kickoff": "2026-02-11T18:00:00+00:00",
+                "score": "0-0",
+                "market": "TOTAL_GOALS",
+                "selection": "OVER_1_5",
+                "odds": 2.1,
+                "oddsObservedAt": "2026-02-11T17:00:00+00:00",
+                "calibratedProbability": 0.740775,
+                "confidence": 69.26,
+                "risk": "LOW",
+                "decision": "QUALIFIED",
+                "rejectionReasons": [],
+                "outcome": "LOST",
+                "pnl": -10,
+                "model": "WINDELS Sports Baseline 1.0.0",
+                "calibration": "NONE — identity replay of raw model probabilities"
+              }
+            ]
+          }
+        },
+        "saved": [
+          {
+            "created_by": "parity",
+            "params": "{\"from\":\"2026-02-09\",\"to\":\"2026-02-12\",\"modelVersionId\":999,\"minConfidence\":60,\"oddsMin\":1.2,\"oddsMax\":10,\"minDataQuality\":60,\"stake\":10}",
+            "report": "{\"simulation\":true,\"warning\":\"BACKTEST SIMULATION — historical replay of stored data; NOT live results. Never mix with live performance.\",\"params\":{\"from\":\"2026-02-09\",\"to\":\"2026-02-12\",\"modelVersionId\":999,\"minConfidence\":60,\"oddsMin\":1.2,\"oddsMax\":10,\"minDataQuality\":60,\"stake\":10},\"matchesFinished\":5,\"evaluated\":2,\"skipped\":3,\"skippedReasons\":[\"unverified result\",\"no pre-kickoff odds\",\"odds outside range\",\"data quality below threshold\"],\"qualifiedSelections\":2,\"won\":1,\"lost\":1,\"winRate\":0.5,\"accuracy\":0.5,\"roi\":-0.05,\"yield\":-0.05,\"profitLoss\":-1,\"maxDrawdown\":10,\"evAccuracy\":{\"meanPredictedEV\":0.48155,\"meanRealized\":-0.05},\"calibration\":{\"brier\":0,\"ece\":0.240775,\"bins\":[{\"bin\":7,\"label\":\"70-79\",\"n\":2,\"meanCalibrated\":0.7408,\"observedFrequency\":0.5,\"gap\":0.2408}]},\"calibrationUsed\":\"NONE — identity replay of raw model probabilities\",\"model\":\"WINDELS Sports Baseline 1.0.0\",\"modelNote\":\"replayed model (baseline 1.0.0) differs from requested modelVersionId=999\",\"byMarket\":{\"TOTAL_GOALS\":{\"n\":2,\"won\":1,\"pnl\":-1}},\"byLeague\":{\"Parity League\":{\"n\":2,\"won\":1,\"pnl\":-1}},\"overTime\":{\"2026-02-10\":{\"n\":1,\"pnl\":9},\"2026-02-11\":{\"n\":1,\"pnl\":-10}},\"selections\":[{\"matchId\":1,\"match\":\"Alpha United vs Bolt City\",\"league\":\"Parity League\",\"kickoff\":\"2026-02-10T18:00:00+00:00\",\"score\":\"2-1\",\"market\":\"TOTAL_GOALS\",\"selection\":\"OVER_1_5\",\"odds\":1.9,\"oddsObservedAt\":\"2026-02-10T17:00:00+00:00\",\"calibratedProbability\":0.740775,\"confidence\":69.26,\"risk\":\"LOW\",\"decision\":\"QUALIFIED\",\"rejectionReasons\":[],\"outcome\":\"WON\",\"pnl\":9,\"model\":\"WINDELS Sports Baseline 1.0.0\",\"calibration\":\"NONE — identity replay of raw model probabilities\"},{\"matchId\":2,\"match\":\"Comet Rangers vs Delta Athletic\",\"league\":\"Parity League\",\"kickoff\":\"2026-02-11T18:00:00+00:00\",\"score\":\"0-0\",\"market\":\"TOTAL_GOALS\",\"selection\":\"OVER_1_5\",\"odds\":2.1,\"oddsObservedAt\":\"2026-02-11T17:00:00+00:00\",\"calibratedProbability\":0.740775,\"confidence\":69.26,\"risk\":\"LOW\",\"decision\":\"QUALIFIED\",\"rejectionReasons\":[],\"outcome\":\"LOST\",\"pnl\":-10,\"model\":\"WINDELS Sports Baseline 1.0.0\",\"calibration\":\"NONE — identity replay of raw model probabilities\"}]}",
+            "status": "COMPLETED"
+          }
+        ]
+      }
+    },
     "sandbox": {
       "health": {
         "status": "ONLINE",

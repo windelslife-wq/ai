@@ -145,6 +145,9 @@ test("F-13 the MySQL row counts cover every table the migrations create, and not
   // Phase 16 adds the seven `wf_sports_*` tables (migration 011), taking it to 31.
   // Slice 3 adds the four intelligence tables (migration 012), taking it to 35.
   // Slice 4 adds the three ticket tables (migration 013), taking it to 38.
+  // Slice 5 adds the backtest and model-metrics tables (migration 014), taking it to
+  // 40. `sports_performance_snapshots` is deliberately absent: its only legacy writer
+  // is the unported performance cron, and a table with no writer is dead schema.
   //
   // This count is the assertion that a backup covers the schema: `backup.mjs` derives
   // its table list by parsing `CREATE TABLE` out of the migrations, so a table added
@@ -152,7 +155,7 @@ test("F-13 the MySQL row counts cover every table the migrations create, and not
   // NOT counted here would be backed up without this test ever proving it can be
   // restored. The number moving is the point: it forces whoever adds a table to look
   // at whether the restore path covers it.
-  assert.equal(tables.length, 38, `expected the 38 tables the migrations create, got: ${tables.join(", ")}`);
+  assert.equal(tables.length, 40, `expected the 40 tables the migrations create, got: ${tables.join(", ")}`);
   assert.ok(!tables.includes("wf_user_files"), "the phantom table must stay out — counting it broke MySQL backups");
   for (const expected of [
     "wf_analysis_runs",
@@ -232,6 +235,9 @@ test("F-13 the MySQL row counts cover every table the migrations create, and not
       sportsTickets: "wf_sports_tickets",
       sportsTicketSelections: "wf_sports_ticket_selections",
       sportsDailyTickets: "wf_sports_daily_tickets",
+      // Slice 5 (migration 014): backtests and measured model metrics.
+      sportsBacktests: "wf_sports_backtests",
+      sportsModelMetrics: "wf_sports_model_metrics",
     };
     const stats = await store.stats();
     for (const collection of Object.keys(stats)) {

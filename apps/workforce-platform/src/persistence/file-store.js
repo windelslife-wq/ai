@@ -64,6 +64,14 @@ import {
   prepareTicket,
   ticketRow,
   ticketSelectionRow,
+  backtestRow,
+  modelMetricsRow,
+  prepareBacktest,
+  prepareModelMetrics,
+  prepareSelectionSettlement,
+  prepareTicketSettlement,
+  predictionOutcomeRow,
+  settledSelectionRow,
 } from "./sports-rows.js";
 import { createHash } from "node:crypto";
 import path from "node:path";
@@ -81,7 +89,10 @@ const ENTITIES = ["users", "profiles", "sessions", "roles", "permissions", "user
   "sportsModelVersions", "sportsPredictions", "sportsConfigurations", "sportsCalibrations",
   // Tickets and the daily ticket run (migration 013, slice 4). A ticket's selections are a
   // separate collection, as the table is, and a daily run is keyed by its day and version.
-  "sportsTickets", "sportsTicketSelections", "sportsDailyTickets"];
+  "sportsTickets", "sportsTicketSelections", "sportsDailyTickets",
+  // Settlement, measurement and backtests (migration 014, slice 5). Backtests are keyed
+  // by their `bt_` id; metrics snapshots are append-only and keyed by id.
+  "sportsBacktests", "sportsModelMetrics"];
 const PAPER_TX_ENTITIES = Object.freeze(["tradingState", "paperAccounts", "paperOrders", "paperPositions", "paperTrades", "paperDeployments", "executionProposals", "strategies", "journalEntries", "audit"]);
 const COMPACTION_ENTRIES = 2_000;
 /**
@@ -1134,6 +1145,28 @@ export async function createFileStore({ dir, logger = console, idFactory = () =>
       return resultRow(tables.get("sportsResults").get(key) ?? null);
     },
 
+    /**
+     * Attest to one stored result (slice 5). Only the attestation moves: scores,
+     * status and payload stay as the provider reported them.
+     */
+    async verifySportsResult(resultId, verifiedAt) {
+      const id = assertRowId(resultId, "result id");
+      const current = [...tables.get("sportsResults").values()].find((r) => toInt(r.id, 0) === id);
+      if (!current) return null;
+      const at = optionalInstant(verifiedAt, "verified_at") ?? nowIso();
+      await mutate("sportsResults", "upsert", { ...current, verified: 1, verified_at: at });
+      return resultRow([...tables.get("sportsResults").values()].find((r) => toInt(r.id, 0) === id));
+    },
+
+    /** Verified first, then newest id — the same order the SQL applies. */
+    async findSportsResultByMatch(matchId) {
+      const id = assertRowId(matchId, "match_id");
+      const rows = [...tables.get("sportsResults").values()]
+        .filter((r) => toInt(r.match_id, 0) === id)
+        .sort((a, b) => (toInt(b.verified, 0) - toInt(a.verified, 0)) || (toInt(b.id, 0) - toInt(a.id, 0)));
+      return rows.length ? resultRow(rows[0]) : null;
+    },
+
     async saveSportsQuality(matchId, assessment) {
       const a = assessment && typeof assessment === "object" ? assessment : {};
       const record = {
@@ -1454,6 +1487,179 @@ export async function createFileStore({ dir, logger = console, idFactory = () =>
         .sort((a, b) => String(b.run_date).localeCompare(String(a.run_date)) || toInt(b.id, 0) - toInt(a.id, 0))
         .slice(0, bounded)
         .map(dailyRunRow);
+    },
+
+    // ── settlement (slice 5, migration 014) ──────────────────────────────────
+    // The same four named-field writes the SQL adapter makes. `updateSportsTicket`
+    // accepts the settlement columns only — the same fields `prepareTicketSettlement`
+    // validates — so a settlement sweep cannot overwrite `approval_status` here either.
+
+    async updateSportsTicket(id, patch) {
+      const ticketId = assertTicketId(id);
+      const current = tables.get("sportsTickets").get(ticketId);
+      if (!current) return null;
+      const p = prepareTicketSettlement(patch ?? {});
+      await mutate("sportsTickets", "upsert", {
+        ...current,
+        settlement_status: p.settlement_status,
+        status: p.status,
+        total_odds: p.total_odds,
+        reason: p.reason,
+      });
+      return ticketRow(tables.get("sportsTickets").get(ticketId));
+    },
+
+    async updateSportsTicketSelection(id, patch) {
+      const selectionId = assertRowId(id, "selection id");
+      const current = [...tables.get("sportsTicketSelections").values()].find((r) => toInt(r.id, 0) === selectionId);
+      if (!current) return null;
+      const p = prepareSelectionSettlement(patch ?? {});
+      await mutate("sportsTicketSelections", "upsert", { ...current, status: p.status, result: p.result });
+      return ticketSelectionRow([...tables.get("sportsTicketSelections").values()].find((r) => toInt(r.id, 0) === selectionId));
+    },
+
+    async recordSportsTicketOutcome(id, pnl) {
+      const ticketId = assertTicketId(id);
+      const current = tables.get("sportsTickets").get(ticketId);
+      if (!current) return null;
+      const value = Number(pnl);
+      if (!Number.isFinite(value)) throw new TypeError(`pnl must be a finite number, received ${JSON.stringify(pnl)}`);
+      await mutate("sportsTickets", "upsert", { ...current, pnl: Number(value.toFixed(4)) });
+      return ticketRow(tables.get("sportsTickets").get(ticketId));
+    },
+
+    /** Delete RUNNING claims for a day and report exactly what was removed (R-29). */
+    async recoverSportsDailyTicketRuns(runDate) {
+      const date = assertRunDate(runDate);
+      const stuck = [...tables.get("sportsDailyTickets").values()]
+        .filter((r) => r.run_date === date && r.status === "RUNNING")
+        .sort((a, b) => toInt(a.id, 0) - toInt(b.id, 0));
+      const removed = [];
+      for (const row of stuck) {
+        await mutate("sportsDailyTickets", "delete", row);
+        removed.push(dailyRunRow(row));
+      }
+      return removed;
+    },
+
+    // ── measured performance (slice 5, migration 014) ────────────────────────
+
+    /** Verified-finished-result outcomes, in creation order; unscorable markets excluded. */
+    async listSportsPredictionOutcomes(modelVersionId = null, limit = 5000) {
+      const bounded = Math.min(5000, Math.max(1, toInt(limit, 5000)));
+      const matches = new Map([...tables.get("sportsMatches").values()].map((m) => [String(m.id), m]));
+      const resultsByMatch = new Map();
+      for (const r of tables.get("sportsResults").values()) {
+        const key = String(r.match_id);
+        const current = resultsByMatch.get(key);
+        // Verified first, then newest id — the same order the SQL join's WHERE and the
+        // MySQL adapter's ORDER BY produce.
+        if (!current || toInt(r.verified, 0) > toInt(current.verified, 0) || toInt(r.id, 0) > toInt(current.id, 0)) {
+          resultsByMatch.set(key, r);
+        }
+      }
+      const out = [];
+      const predictions = [...tables.get("sportsPredictions").values()]
+        .sort((a, b) => String(a.created_at).localeCompare(String(b.created_at)) || String(a.id).localeCompare(String(b.id)));
+      for (const p of predictions) {
+        if (out.length >= bounded) break;
+        if (modelVersionId !== null && modelVersionId !== undefined && toInt(p.model_version_id, 0) !== toInt(modelVersionId)) continue;
+        const match = matches.get(String(p.match_id));
+        if (!match) continue;
+        const result = resultsByMatch.get(String(p.match_id));
+        if (!result || toInt(result.verified, 0) !== 1 || result.status !== "FINISHED") continue;
+        const mapped = predictionOutcomeRow({
+          ...p,
+          league: match.competition ?? null,
+          home_score: result.home_score,
+          away_score: result.away_score,
+        });
+        if (mapped !== null) out.push(mapped);
+      }
+      return out;
+    },
+
+    /** Ticket legs joined to ticket/match/model fields, `_settled` naming terminal legs. */
+    async listSportsSettledSelections(filter = {}, limit = 5000) {
+      const f = filter && typeof filter === "object" ? filter : {};
+      const bounded = Math.min(5000, Math.max(1, toInt(limit, 5000)));
+      const tickets = new Map([...tables.get("sportsTickets").values()].map((t) => [String(t.id), t]));
+      const matches = new Map([...tables.get("sportsMatches").values()].map((m) => [String(m.id), m]));
+      const modelVersions = new Map([...tables.get("sportsModelVersions").values()].map((m) => [String(m.id), m]));
+      const from = f.from === null || f.from === undefined || String(f.from).trim() === "" ? null : assertIsoCutoff(String(f.from).trim());
+      const to = f.to === null || f.to === undefined || String(f.to).trim() === "" ? null : assertIsoCutoff(String(f.to).trim());
+      const market = f.market === null || f.market === undefined || String(f.market).trim() === "" ? null : String(f.market).slice(0, 40);
+      const modelVersionId = f.modelVersionId === null || f.modelVersionId === undefined ? null : toInt(f.modelVersionId);
+      const out = [];
+      const selections = [...tables.get("sportsTicketSelections").values()]
+        .sort((a, b) => toInt(a.id, 0) - toInt(b.id, 0));
+      for (const s of selections) {
+        if (out.length >= bounded) break;
+        const ticket = tickets.get(String(s.ticket_id));
+        if (!ticket) continue;
+        if (from !== null && String(ticket.created_at) < from) continue;
+        if (to !== null && String(ticket.created_at) > to) continue;
+        if (market !== null && s.market !== market) continue;
+        if (modelVersionId !== null && toInt(ticket.model_version_id, 0) !== modelVersionId) continue;
+        const match = matches.get(String(s.match_id));
+        const model = ticket.model_version_id === null ? null : modelVersions.get(String(ticket.model_version_id));
+        out.push(settledSelectionRow({
+          ...s,
+          ticket_odds: ticket.total_odds,
+          ticket_status: ticket.settlement_status,
+          ticket_stake: ticket.stake,
+          ticket_pnl: ticket.pnl,
+          competition: match?.competition ?? null,
+          kickoff_at: match?.kickoff_at ?? null,
+          model_name: model?.model_name ?? null,
+          model_version: model?.model_version ?? null,
+        }));
+      }
+      return out;
+    },
+
+    async saveSportsModelMetrics(input) {
+      const row = prepareModelMetrics(input ?? {});
+      const id = nextRowId("sportsModelMetrics");
+      await mutate("sportsModelMetrics", "upsert", { id, ...row, replace: false });
+      return modelMetricsRow(tables.get("sportsModelMetrics").get(String(id)));
+    },
+
+    async listSportsModelMetrics(filter = {}, limit = 100) {
+      const f = filter && typeof filter === "object" ? filter : {};
+      const bounded = Math.min(500, Math.max(1, toInt(limit, 100)));
+      const modelVersionId = f.modelVersionId === null || f.modelVersionId === undefined ? null : toInt(f.modelVersionId);
+      const windowDays = f.windowDays === null || f.windowDays === undefined ? null : toInt(f.windowDays);
+      const sampleType = f.sampleType === null || f.sampleType === undefined ? null : String(f.sampleType).slice(0, 16);
+      return [...tables.get("sportsModelMetrics").values()]
+        .filter((r) => (modelVersionId === null || toInt(r.model_version_id, 0) === modelVersionId)
+          && (windowDays === null || toInt(r.window_days, 0) === windowDays)
+          && (sampleType === null || r.sample_type === sampleType))
+        .sort((a, b) => String(b.computed_at).localeCompare(String(a.computed_at)) || toInt(b.id, 0) - toInt(a.id, 0))
+        .slice(0, bounded)
+        .map(modelMetricsRow);
+    },
+
+    async saveSportsBacktest(input) {
+      const row = prepareBacktest(input ?? {});
+      await mutate("sportsBacktests", "upsert", { ...row, replace: false });
+      return backtestRow(tables.get("sportsBacktests").get(row.id));
+    },
+
+    async findSportsBacktest(id) {
+      const backtestId = String(id ?? "");
+      if (!/^bt_[0-9a-f]{16}$/.test(backtestId)) {
+        throw new TypeError(`backtest id must be 'bt_' and 16 hex characters, received ${JSON.stringify(backtestId.slice(0, 40))}`);
+      }
+      return backtestRow(tables.get("sportsBacktests").get(backtestId) ?? null);
+    },
+
+    async listSportsBacktests(limit = 20) {
+      const bounded = Math.min(500, Math.max(1, toInt(limit, 20)));
+      return [...tables.get("sportsBacktests").values()]
+        .sort((a, b) => String(b.created_at).localeCompare(String(a.created_at)) || String(b.id).localeCompare(String(a.id)))
+        .slice(0, bounded)
+        .map(backtestRow);
     },
 
     /**

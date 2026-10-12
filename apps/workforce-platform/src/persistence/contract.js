@@ -131,9 +131,11 @@ export const REPOSITORY_METHODS = Object.freeze([
   // SP-18. `pruneSportsHealth` uses the platform's retention verb rather than
   // legacy's `delete`, so "what can be deleted" is findable under one prefix.
   //
-  // Not here, and owed by later slices: `verifySportsResult` and
-  // `findSportsResultByMatch` (settlement, slice 5). Ingestion reports a result; it
-  // does not get to verify one.
+  // Slice 5 (migration 014) adds the two names the comment below reserved —
+  // `verifySportsResult` and `findSportsResultByMatch` — because attesting to a
+  // result is exactly what slice 5 exists to do. Until slice 4, ingestion was the
+  // only writer of `wf_sports_results`, and a writer that reported an outcome must
+  // not also attest to it.
   "ensureSportsProvider",
   "listSportsProviders",
   "setSportsProviderEnabled",
@@ -151,6 +153,8 @@ export const REPOSITORY_METHODS = Object.freeze([
   "findSportsOddsBefore",
   "saveSportsResult",
   "findSportsResult",
+  "verifySportsResult",
+  "findSportsResultByMatch",
   "saveSportsQuality",
   "latestSportsQuality",
   "startSportsSync",
@@ -183,6 +187,31 @@ export const REPOSITORY_METHODS = Object.freeze([
   "finishSportsDailyTicketRun",
   "findSportsDailyTicketRun",
   "listSportsDailyTicketRuns",
+  // ── Settlement and result verification (row 14, slice 5, migration 014) ────
+  // Settlement writes ONLY the settlement columns. `updateSportsTicket` takes four
+  // named fields rather than legacy's arbitrary patch, so it cannot reach
+  // `approval_status` — the column a person's decision owns (slice 4). A selection
+  // status can move once, PENDING → terminal; `result` mirrors it, as legacy writes it.
+  "updateSportsTicket",
+  "updateSportsTicketSelection",
+  "recordSportsTicketOutcome",
+  // A stuck run's claim is released, not edited: the row is deleted and its counters
+  // are reported to the caller and audited, so the day and version can be re-run
+  // (R-29). Only a RUNNING row can be removed; a finished run is evidence.
+  "recoverSportsDailyTicketRuns",
+  // ── Measured performance: outcomes, metrics and backtests (migration 014) ──
+  // `listSportsPredictionOutcomes` is the read every measured number in this module
+  // derives from: a prediction joined to a VERIFIED finished result, with the binary
+  // outcome for its market. No legacy counterpart method exists to read results
+  // without one — this closes it.
+  "listSportsPredictionOutcomes",
+  "listSportsSettledSelections",
+  "saveSportsModelMetrics",
+  "listSportsModelMetrics",
+  // Storage for the point-in-time backtester's reports (legacy `sports_backtests`).
+  "saveSportsBacktest",
+  "findSportsBacktest",
+  "listSportsBacktests",
   // operational
   "readiness",
 ]);

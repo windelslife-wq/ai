@@ -29,7 +29,9 @@ import {
   dailyRunRow,
   prepareDailyRunClaim,
   prepareDailyRunFinish,
+  prepareSelectionSettlement,
   prepareTicket,
+  prepareTicketSettlement,
   ticketRow,
   ticketSelectionRow,
   toInt,
@@ -52,7 +54,7 @@ function isDuplicateKey(error) {
   return code === "ER_DUP_ENTRY" || sqlState === "23000" || sqlState === "23505";
 }
 
-/** The nine methods this module adds to the shared store contract. */
+/** The thirteen methods this module adds to the shared store contract. */
 export const SPORTS_TICKET_METHODS = Object.freeze([
   "saveSportsTicket",
   "findSportsTicket",
@@ -63,6 +65,12 @@ export const SPORTS_TICKET_METHODS = Object.freeze([
   "finishSportsDailyTicketRun",
   "findSportsDailyTicketRun",
   "listSportsDailyTicketRuns",
+  // Settlement (slice 5, migration 014): the only writers of the settlement columns
+  // outside the decision path, plus the R-29 recovery for a stuck run's claim.
+  "updateSportsTicket",
+  "updateSportsTicketSelection",
+  "recordSportsTicketOutcome",
+  "recoverSportsDailyTicketRuns",
 ]);
 
 export function createSportsTicketRepository(executor) {
@@ -234,6 +242,67 @@ export function createSportsTicketRepository(executor) {
         `SELECT * FROM wf_sports_daily_tickets ORDER BY run_date DESC, id DESC LIMIT ${BOUNDED(limit)}`,
       );
       return rows.map(dailyRunRow);
+    },
+
+    // ── settlement (slice 5) ─────────────────────────────────────────────────
+    // Four named-field writes, not arbitrary patches. Settlement is the one second
+    // writer of `wf_sports_tickets`, and a patch shape that could carry
+    // `approval_status` would let a settlement sweep overwrite a person's decision.
+
+    /** Write the settlement columns of one ticket. Returns the stored row. */
+    async updateSportsTicket(id, patch) {
+      const ticketId = assertTicketId(id);
+      const p = prepareTicketSettlement(patch ?? {});
+      await executor.execute(
+        `UPDATE wf_sports_tickets
+            SET settlement_status = ?, status = ?, total_odds = ?, reason = ?
+          WHERE id = ?`,
+        [p.settlement_status, p.status, p.total_odds, p.reason, ticketId],
+      );
+      return repo.findSportsTicket(ticketId);
+    },
+
+    /** Write one leg's terminal status. `result` mirrors it, as legacy writes both. */
+    async updateSportsTicketSelection(id, patch) {
+      const selectionId = assertRowId(id, "selection id");
+      const p = prepareSelectionSettlement(patch ?? {});
+      await executor.execute(
+        `UPDATE wf_sports_ticket_selections SET status = ?, result = ? WHERE id = ?`,
+        [p.status, p.result, selectionId],
+      );
+      const [rows] = await executor.query("SELECT * FROM wf_sports_ticket_selections WHERE id = ?", [selectionId]);
+      return ticketSelectionRow(rows?.[0] ?? null);
+    },
+
+    /** Store the settled P/L on the ticket. Legacy's `recordTicketOutcome`. */
+    async recordSportsTicketOutcome(id, pnl) {
+      const ticketId = assertTicketId(id);
+      const value = Number(pnl);
+      if (!Number.isFinite(value)) throw new TypeError(`pnl must be a finite number, received ${JSON.stringify(pnl)}`);
+      await executor.execute(`UPDATE wf_sports_tickets SET pnl = ? WHERE id = ?`, [Number(value.toFixed(4)), ticketId]);
+      return repo.findSportsTicket(ticketId);
+    },
+
+    /**
+     * Release the stuck-run claim (R-29): delete every RUNNING row for a day, returning
+     * the rows that were actually removed. A finished run is evidence and cannot match;
+     * a run that finishes between the read and the delete is left standing by the CAS.
+     */
+    async recoverSportsDailyTicketRuns(runDate) {
+      const date = assertRunDate(runDate);
+      const [stuck] = await executor.query(
+        "SELECT * FROM wf_sports_daily_tickets WHERE run_date = ? AND status = 'RUNNING' ORDER BY id ASC",
+        [date],
+      );
+      const removed = [];
+      for (const row of stuck ?? []) {
+        const [result] = await executor.execute(
+          "DELETE FROM wf_sports_daily_tickets WHERE id = ? AND status = 'RUNNING'",
+          [assertRowId(row.id, "daily run id")],
+        );
+        if (result && result.affectedRows === 1) removed.push(dailyRunRow(row));
+      }
+      return removed;
     },
   };
   return repo;
