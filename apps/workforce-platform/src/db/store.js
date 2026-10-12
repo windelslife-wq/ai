@@ -31,6 +31,8 @@ export const REQUIRED_MIGRATIONS = Object.freeze([
   "017_lottery_combinations",
   // Slice 3: the ticket record and its number lines.
   "018_lottery_tickets",
+  // Slice 4: backtest reports + model versions (the measured half).
+  "019_lottery_backtests",
 ]);
 
 /** Only driver codes are ever reported; never an SQL statement or credential. */
@@ -213,6 +215,12 @@ export function createStore(pool, { requiredMigrations = REQUIRED_MIGRATIONS } =
     updateLotteryTicket: lottery.updateLotteryTicket,
     listLotteryTicketLines: lottery.listLotteryTicketLines,
     saveLotteryTicketLines: lottery.saveLotteryTicketLines,
+    // Slice 4 (migration 019): backtest reports + model versions (the measured half).
+    ensureLotteryModelVersion: lottery.ensureLotteryModelVersion,
+    listLotteryModelVersions: lottery.listLotteryModelVersions,
+    saveLotteryBacktest: lottery.saveLotteryBacktest,
+    findLotteryBacktest: lottery.findLotteryBacktest,
+    listLotteryBacktests: lottery.listLotteryBacktests,
     saveJobState: jobs.saveJobState,
     // Notifications are written outside any paper transaction: they are evidence
     // about a change that already committed, and a failed notification must never

@@ -34,6 +34,15 @@ import { createCombinationAnalyzer } from "./combinations.js";
 import { createCombinationGenerator } from "./generator.js";
 import { createDiversificationEngine } from "./diversification.js";
 import { createSystemBuilder, SYNC_LINE_LIMIT } from "./system.js";
+import {
+  createLotteryBacktester,
+  BACKTESTER_STRATEGIES,
+  BACKTESTER_MIN_HISTORY,
+  BACKTESTER_MAX_WINDOW,
+  BACKTESTER_MAX_LINES,
+} from "./backtester.js";
+import { ANALYZER_WEIGHTS } from "./combinations.js";
+import { GENERATOR_MODES } from "./generator.js";
 import { createHash, randomUUID } from "node:crypto";
 import { AppError } from "../../http/errors.js";
 
@@ -78,10 +87,10 @@ export function prizeTier(mainMatches, starMatches) {
  * become untrue.
  */
 export const LOTTERY_NOT_PORTED = Object.freeze([
-  // Slices 2–3 removed the combination-intelligence, generation-persistence and
-  // tickets entries: they became untrue, and untrue entries are removed, never
-  // re-labelled. What remains is what no slice has landed yet.
-  Object.freeze({ area: "backtests and model versions", legacy: "LotteryBacktester, lottery_backtests + lottery_model_versions", state: "not ported", detail: "Strategy replay over stored history without look-ahead, persisted as historical simulation reports." }),
+  // Slices 2–4 removed the combination-intelligence, generation-persistence,
+  // tickets and backtest/model-version entries: they became untrue, and untrue
+  // entries are removed, never re-labelled. What remains is what no slice has
+  // landed yet.
   Object.freeze({ area: "scheduled jobs", legacy: "LotteryCronService (sync, health, statistics, systems, tickets, backtests, cleanup)", state: "not ported", detail: "The lottery cron is a later slice, on the same wf_job_locks pattern as the sports cron (row 19). Until then nothing here runs on a schedule — and the queued background system builds have no consumer yet." }),
   Object.freeze({ area: "console screens", legacy: "Lottery::index (views/lottery/*.php)", state: "not ported", detail: "No ported module has a console screen (F-29, platform-wide); the API reads exist under /lottery/*." }),
 ]);
@@ -111,12 +120,17 @@ export function createLotteryService({ store, config, now = () => Date.now(), pr
     if (!combinationEngines) {
       const rules = await resolveRules();
       const lineAnalyzer = createCombinationAnalyzer(rules, statistics);
+      const generator = createCombinationGenerator(rules, lineAnalyzer, statistics, MODEL_VERSION);
       combinationEngines = {
         rules,
         analyzer: lineAnalyzer,
-        generator: createCombinationGenerator(rules, lineAnalyzer, statistics, MODEL_VERSION),
+        generator,
         diversification: createDiversificationEngine(rules),
         systemBuilder: createSystemBuilder(rules),
+        // Slice 4: the Strategy Lab, wired around the SAME generator instance
+        // legacy uses. Its constructor signature is kept — it takes the
+        // analyzer its own methods never call.
+        backtester: createLotteryBacktester(rules, lineAnalyzer, generator, MODEL_VERSION),
       };
     }
     return combinationEngines;
@@ -825,6 +839,178 @@ export function createLotteryService({ store, config, now = () => Date.now(), pr
     return true;
   }
 
+  // ── slice 4: the measured half (spec §23/§24/§25/§30/§33) ──────────────────
+
+  /**
+   * Model versioning (spec §33): the model row records name, version and the
+   * full statistical configuration. It is ensured once and never deleted or
+   * replaced — historical results stay connected to the model that produced
+   * them. Idempotent: repeated calls return the same row.
+   */
+  async function ensureModelVersion() {
+    const store = requireStore();
+    const config = {
+      model: `WINDELS Lottery Model v${MODEL_VERSION}`,
+      scoreWeights: ANALYZER_WEIGHTS,
+      generatorModes: GENERATOR_MODES,
+      backtesterStrategies: BACKTESTER_STRATEGIES,
+      backtester: {
+        minHistory: BACKTESTER_MIN_HISTORY,
+        maxWindow: BACKTESTER_MAX_WINDOW,
+        maxLines: BACKTESTER_MAX_LINES,
+      },
+    };
+    return store.ensureLotteryModelVersion({
+      modelName: "WINDELS Lottery Model",
+      modelVersion: MODEL_VERSION,
+      config,
+      datasetVersion: null,
+      status: "ACTIVE",
+      createdAt: nowIso(),
+    });
+  }
+
+  /** Every known model version, oldest first (ensuring the current one exists first). */
+  async function modelVersions() {
+    await ensureModelVersion();
+    return requireStore().listLotteryModelVersions();
+  }
+
+  /**
+   * spec §23: replay one strategy over the stored draws WITHOUT look-ahead,
+   * persist the HISTORICAL SIMULATION report (audited, model-stamped) and
+   * return it with the saved row id. Unknown strategy or insufficient history
+   * is a TypeError — the route answers 400.
+   */
+  async function backtest(strategy, lines = 1, window = 0) {
+    const store = requireStore();
+    await ensureModelVersion();
+    const active = await engines();
+    const draws = await store.lotteryDrawsForStats(LOTTERY, 100_000);
+    const report = active.backtester.run(draws, String(strategy), lines, window);
+    const saved = await persistBacktest(String(strategy), report, draws);
+    return { ...report, saved: { backtestId: Number(saved.row.id) } };
+  }
+
+  /**
+   * spec §24: strategy comparison on the SAME period, the random baseline
+   * mandatory (spec §25), no strategy declared "better" (spec §34). Persisted
+   * like any other backtest row, under the COMPARISON stamp.
+   */
+  async function backtestCompare(strategies, lines = 1, window = 0) {
+    const store = requireStore();
+    await ensureModelVersion();
+    const active = await engines();
+    const draws = await store.lotteryDrawsForStats(LOTTERY, 100_000);
+    const report = active.backtester.compare(draws, Array.isArray(strategies) ? strategies : [], lines, window);
+    const saved = await persistBacktest("COMPARISON", report, draws);
+    return { ...report, saved: { backtestId: Number(saved.row.id) } };
+  }
+
+  async function persistBacktest(strategy, report, draws) {
+    const store = requireStore();
+    const last = draws.length > 0 ? String(draws[draws.length - 1].drawDate) : "none";
+    const row = await store.saveLotteryBacktest({
+      lotteryCode: LOTTERY,
+      strategy,
+      modelVersion: MODEL_VERSION,
+      linesPerDraw: Number(report.linesPerDraw),
+      drawsTested: Number(report.period.drawsTested),
+      periodFrom: String(report.period.from),
+      periodTo: String(report.period.to),
+      datasetVersion: `n=${draws.length};last=${last}`,
+      report,
+      createdAt: nowIso(),
+    });
+    const id = Number(row.row.id);
+    await recordAudit(
+      null,
+      "lottery.backtest.run",
+      `Backtest ${strategy} over ${report.period.drawsTested} draws saved (id ${id})`,
+      { backtestId: id, strategy, modelVersion: MODEL_VERSION },
+    );
+    return row;
+  }
+
+  /** Persisted backtests, newest first, report decoded. */
+  async function listBacktests(limit = 50) {
+    return requireStore().listLotteryBacktests(limit);
+  }
+
+  async function backtestDetail(id) {
+    const row = await requireStore().findLotteryBacktest(id);
+    if (!row || row.lottery_code !== LOTTERY) return null;
+    return row;
+  }
+
+  /**
+   * Performance overview (spec §30): ACTUAL ticket results, HISTORICAL
+   * backtest results and DEMO/SANDBOX data — three separate sections that
+   * are never mixed. Prize tiers only; official amounts are never stored.
+   */
+  async function performance() {
+    const store = requireStore();
+    const tickets = await store.listAllLotteryTickets(200);
+    const checked = tickets.filter((t) => (t.status ?? "") === TICKET_STATUS_CHECKED);
+    const byTier = {};
+    let linesChecked = 0;
+    for (const t of checked) {
+      const res = t.result && typeof t.result === "object" ? t.result : {};
+      for (const ln of Array.isArray(res.lines) ? res.lines : []) {
+        linesChecked += 1;
+        if (ln?.prizeTier) byTier[ln.prizeTier] = (byTier[ln.prizeTier] ?? 0) + 1;
+      }
+    }
+    const sortedEntries = Object.entries(byTier).sort(([a], [b]) => (a < b ? -1 : a > b ? 1 : 0));
+    const sortedTiers = sortedEntries.length > 0 ? Object.fromEntries(sortedEntries) : [];
+    const backtests = await store.listLotteryBacktests(500);
+    const recentBacktests = backtests.slice(0, 5).map((b) => ({
+      id: Number(b.id),
+      strategy: String(b.strategy),
+      modelVersion: String(b.model_version),
+      drawsTested: Number(b.draws_tested),
+      periodFrom: b.period_from,
+      periodTo: b.period_to,
+      createdAt: String(b.created_at),
+    }));
+    const health = chosenProvider.health();
+    return {
+      lottery: LOTTERY,
+      label: "PERFORMANCE OVERVIEW — sections are separate and never mixed (spec §30)",
+      actualTicketResults: {
+        section: "ACTUAL TICKET RESULTS",
+        ticketsTotal: tickets.length,
+        ticketsChecked: checked.length,
+        linesChecked,
+        byTier: sortedTiers,
+        recent: tickets.slice(0, 5).map((t) => ({
+          id: Number(t.id),
+          name: String(t.name),
+          status: String(t.status),
+          drawDate: t.draw_date ?? null,
+          checkedAt: t.result && typeof t.result === "object" ? (t.result.checkedAt ?? null) : null,
+        })),
+        note: "Outcomes of saved tickets checked against stored VERIFIED draws. Prize tiers only — official amounts are never stored.",
+      },
+      historicalBacktestResults: {
+        section: "HISTORICAL BACKTEST RESULTS",
+        count: backtests.length,
+        recent: recentBacktests,
+        note: "HISTORICAL SIMULATION of strategies over past draws without look-ahead. Descriptive only — the random baseline is always available for comparison.",
+      },
+      demoSandboxData: {
+        section: "DEMO / SANDBOX DATA",
+        provider: chosenProvider.id(),
+        synthetic: Boolean(health?.synthetic ?? false),
+        state: health?.state ?? "UNKNOWN",
+        drawsTracked: await store.countLotteryDraws(LOTTERY),
+        note: "Sandbox simulation draws are clearly labeled synthetic and are never presented as official results.",
+      },
+      separationNote: "ACTUAL ticket results, HISTORICAL backtest results and DEMO/SANDBOX data are reported separately and are never mixed (spec §30).",
+      disclaimer: DISCLAIMER,
+    };
+  }
+
   return Object.freeze({
     status,
     drawCount,
@@ -850,6 +1036,13 @@ export function createLotteryService({ store, config, now = () => Date.now(), pr
     decisionDetail,
     createTicket,
     listMyTickets,
+    ensureModelVersion,
+    modelVersions,
+    backtest,
+    backtestCompare,
+    listBacktests,
+    backtestDetail,
+    performance,
     ticketDetail,
     checkTicket,
     archiveTicket,

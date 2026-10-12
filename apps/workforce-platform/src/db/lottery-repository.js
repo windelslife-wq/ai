@@ -45,6 +45,10 @@ import {
   prepareLotteryAiDecision,
   prepareLotteryTicket,
   prepareLotteryTicketLine,
+  prepareLotteryBacktest,
+  lotteryBacktestRow,
+  prepareLotteryModelVersion,
+  lotteryModelVersionRow,
   prepareLotteryDraw,
 } from "../persistence/lottery-rows.js";
 import {
@@ -87,6 +91,15 @@ export function createLotteryRepository(executor) {
       [id],
     );
     return lotteryCombinationRow(rows?.[0] ?? null);
+  }
+
+  /** One backtest row by id — a closure for the same reason its combination sibling is. */
+  async function findLotteryBacktestById(id) {
+    const [rows] = await executor.query(
+      `SELECT * FROM wf_lottery_backtests WHERE id = ? LIMIT 1`,
+      [id],
+    );
+    return lotteryBacktestRow(rows?.[0] ?? null);
   }
 
   async function findLotteryAiDecisionById(id) {
@@ -693,11 +706,83 @@ export function createLotteryRepository(executor) {
       }
       return lines.length;
     },
+
+    // ---- slice 4 (migration 019): backtests + model versions --------------
+    // A model version is ENSURED, never replaced: an existing (model_name,
+    // model_version) pair returns the existing row decoded, so every backtest
+    // row stays connected to the model that produced it (spec §33). Legacy's
+    // read-then-insert is kept — the UNIQUE KEY is the arbiter under real
+    // MySQL, and a duplicate insert surfaces as that error rather than being
+    // hidden behind a check-then-act race.
+    async ensureLotteryModelVersion(input) {
+      const i = input && typeof input === "object" ? input : {};
+      const modelName = assertText(i.modelName, 64, "model_name");
+      const modelVersion = assertText(i.modelVersion, 16, "model_version");
+      const [existing] = await executor.query(
+        `SELECT * FROM wf_lottery_model_versions WHERE model_name = ? AND model_version = ? LIMIT 1`,
+        [modelName, modelVersion],
+      );
+      if ((existing ?? []).length > 0) return lotteryModelVersionRow(existing[0]);
+      const record = prepareLotteryModelVersion({
+        modelName,
+        modelVersion,
+        config: i.config,
+        datasetVersion: i.datasetVersion ?? null,
+        status: i.status,
+        createdAt: i.createdAt,
+      });
+      await executor.execute(
+        `INSERT INTO wf_lottery_model_versions (model_name, model_version, config, dataset_version, status, created_at) VALUES (?, ?, ?, ?, ?, ?)`,
+        [record.model_name, record.model_version, record.config, record.dataset_version, record.status, record.created_at],
+      );
+      const [rows] = await executor.query(`SELECT * FROM wf_lottery_model_versions WHERE model_name = ? AND model_version = ? LIMIT 1`, [modelName, modelVersion]);
+      return lotteryModelVersionRow((rows ?? [])[0]);
+    },
+
+    async listLotteryModelVersions() {
+      // Oldest first (spec §33: versions accumulate; newest is not "current").
+      const [rows] = await executor.query(`SELECT * FROM wf_lottery_model_versions ORDER BY id ASC`, []);
+      return (rows ?? []).map(lotteryModelVersionRow);
+    },
+
+    async saveLotteryBacktest(input) {
+      const i = input && typeof input === "object" ? input : {};
+      const record = prepareLotteryBacktest({
+        lotteryCode: i.lotteryCode,
+        strategy: i.strategy,
+        modelVersion: i.modelVersion,
+        linesPerDraw: i.linesPerDraw,
+        drawsTested: i.drawsTested,
+        periodFrom: i.periodFrom ?? null,
+        periodTo: i.periodTo ?? null,
+        datasetVersion: i.datasetVersion ?? null,
+        report: i.report,
+        createdAt: i.createdAt,
+      });
+      const [result] = await executor.execute(
+        `INSERT INTO wf_lottery_backtests (lottery_code, strategy, model_version, lines_per_draw, draws_tested, period_from, period_to, dataset_version, report, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+        [record.lottery_code, record.strategy, record.model_version, record.lines_per_draw, record.draws_tested, record.period_from, record.period_to, record.dataset_version, record.report, record.created_at],
+      );
+      return { row: await findLotteryBacktestById(result.insertId), created: true };
+    },
+
+    async findLotteryBacktest(id) {
+      return findLotteryBacktestById(assertRowId(id, "id"));
+    },
+
+    async listLotteryBacktests(limit = 50) {
+      const bounded = Math.min(500, Math.max(1, toInt(limit, 50)));
+      const [rows] = await executor.query(
+        `SELECT * FROM wf_lottery_backtests ORDER BY id DESC LIMIT ${bounded}`,
+        [],
+      );
+      return (rows ?? []).map(lotteryBacktestRow);
+    },
   };
   return repo;
 }
 
-/** The 36 methods this repository adds to the shared store contract (slices 1–3 of row 15). */
+/** The 41 methods this repository adds to the shared store contract (slices 1–4 of row 15). */
 export const LOTTERY_REPOSITORY_METHODS = Object.freeze([
   "ensureLotteryGame",
   "listLotteryGames",
@@ -737,4 +822,10 @@ export const LOTTERY_REPOSITORY_METHODS = Object.freeze([
   "updateLotteryTicket",
   "listLotteryTicketLines",
   "saveLotteryTicketLines",
+  // Slice 4 (migration 019): backtest reports + the model versions they are stamped with.
+  "ensureLotteryModelVersion",
+  "listLotteryModelVersions",
+  "saveLotteryBacktest",
+  "findLotteryBacktest",
+  "listLotteryBacktests",
 ]);

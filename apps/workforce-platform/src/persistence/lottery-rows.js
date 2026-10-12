@@ -437,3 +437,86 @@ export function lotteryTicketLineRow(row) {
     created_at: String(row.created_at),
   };
 }
+
+// ── slice 4 (migration 019): backtest reports + model versions ────────────────
+
+/** Legacy's DATE column for a backtest period bound: `YYYY-MM-DD`, real calendar day, refused rather than normalized. */
+function assertPeriodDate(value, label) {
+  const text = String(value ?? "").trim();
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(text)) {
+    throw new TypeError(`${label} must be YYYY-MM-DD, received ${JSON.stringify(text.slice(0, 40))}`);
+  }
+  const at = new Date(`${text}T00:00:00Z`);
+  if (Number.isNaN(at.getTime()) || at.toISOString().slice(0, 10) !== text) {
+    throw new TypeError(`${label} must be a real calendar day, received ${JSON.stringify(text)}`);
+  }
+  return text;
+}
+
+/**
+ * A HISTORICAL SIMULATION report row: one strategy (or the COMPARISON stamp)
+ * replayed over stored draws without look-ahead. `report` is the full report
+ * JSON, decoded on read; `period_from`/`period_to` are legacy's DATE columns,
+ * read back as strings (or null). No column names money — the report's cost
+ * and winnings fields are nulls with their notes, inside the JSON.
+ */
+export function prepareLotteryBacktest({ lotteryCode, strategy, modelVersion, linesPerDraw, drawsTested, periodFrom, periodTo, datasetVersion, report, createdAt }) {
+  return {
+    lottery_code: assertLotteryCode(lotteryCode),
+    strategy: assertText(strategy, 40, "strategy"),
+    model_version: assertText(modelVersion, 64, "model_version"),
+    lines_per_draw: nonNegativeInt(linesPerDraw, "lines_per_draw"),
+    draws_tested: nonNegativeInt(drawsTested, "draws_tested"),
+    period_from: periodFrom === null || periodFrom === undefined || periodFrom === "" ? null : assertPeriodDate(periodFrom, "period_from"),
+    period_to: periodTo === null || periodTo === undefined || periodTo === "" ? null : assertPeriodDate(periodTo, "period_to"),
+    dataset_version: datasetVersion === null || datasetVersion === undefined ? null : assertText(datasetVersion, 128, "dataset_version"),
+    report: encodeJson(report),
+    created_at: assertInstant(createdAt, "created_at"),
+  };
+}
+
+export function lotteryBacktestRow(row) {
+  if (!row) return null;
+  return {
+    id: Number(row.id),
+    lottery_code: String(row.lottery_code),
+    strategy: String(row.strategy),
+    model_version: String(row.model_version),
+    lines_per_draw: Number(row.lines_per_draw),
+    draws_tested: Number(row.draws_tested),
+    period_from: row.period_from === null || row.period_from === undefined || row.period_from === "" ? null : String(row.period_from),
+    period_to: row.period_to === null || row.period_to === undefined || row.period_to === "" ? null : String(row.period_to),
+    dataset_version: row.dataset_version === null || row.dataset_version === undefined ? null : String(row.dataset_version),
+    report: decodeJson(row.report, null),
+    created_at: String(row.created_at),
+  };
+}
+
+/**
+ * A model version (spec §33): ensured once, never deleted or replaced —
+ * historical results stay connected to the model that produced them. `config`
+ * is the full statistical configuration as JSON, decoded on read.
+ */
+export function prepareLotteryModelVersion({ modelName, modelVersion, config, datasetVersion, status, createdAt }) {
+  return {
+    model_name: assertText(modelName, 64, "model_name"),
+    model_version: assertText(modelVersion, 16, "model_version"),
+    config: encodeJson(config),
+    dataset_version: datasetVersion === null || datasetVersion === undefined ? null : assertText(datasetVersion, 128, "dataset_version"),
+    status: assertText(status, 16, "status"),
+    created_at: assertInstant(createdAt, "created_at"),
+  };
+}
+
+export function lotteryModelVersionRow(row) {
+  if (!row) return null;
+  return {
+    id: Number(row.id),
+    model_name: String(row.model_name),
+    model_version: String(row.model_version),
+    config: decodeJson(row.config, null),
+    dataset_version: row.dataset_version === null || row.dataset_version === undefined ? null : String(row.dataset_version),
+    status: String(row.status),
+    created_at: String(row.created_at),
+  };
+}

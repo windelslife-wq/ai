@@ -2,7 +2,41 @@
 
 **Updated:** 2026-10-13 · **Branch:** `arena/653d6218-ai`
 
-## Current Phase 23 status (2026-10-13)
+## Current Phase 24 status (2026-10-13)
+
+**The lottery's measured half is ported** (row 15, slice 4 — the Strategy Lab on slices 1–3's
+foundation). Four seeded strategies replay stored draws **without look-ahead** (test draw i sees
+only draws 1..i-1): RANDOM_BASELINE (the mandatory baseline, spec §25), BALANCED_PROFILE,
+HISTORICAL_FREQ and ANTI_POPULAR, each line generated through the slice-2 generator with a
+per-test-draw seed mixed from CRC-32 of the strategy name, the draw index and the model version.
+Reports are labelled **HISTORICAL SIMULATION**; simulated cost and winnings stay **NULL** with
+their notes — nothing is fabricated; comparisons run every strategy on the SAME period and
+declare none "better" (spec §34). Migration **019** adds `wf_lottery_backtests` +
+`wf_lottery_model_versions` (schema **54**); the contract reaches **185** methods (41 lottery);
+routes are **146** (31 lottery: 19 `lottery.view` reads, 8 `lottery.view` POSTs, 3
+`lottery.manage` writes, 1 status read); the version is **0.21.0**. Model versions are **ensured
+once and never replaced** (spec §33); the performance overview keeps ACTUAL / HISTORICAL / DEMO
+sections **never mixed** (spec §30). The status matrix's lottery entry shrank **three areas →
+two**; `lottery` stays `partial` with the cron and the console screens remaining.
+
+The differential golden grows to **137 cases** (+15 backtests). The parity record caught two
+shapes and one bug: PHP's sequential-key distributions json_encode as **arrays** (the port
+matches; an empty `ksort`ed map is `[]`, not `{}`); **F-45** — the best-line tracker's rank is
+`substr($tier, 5, 1)`, so TIER_10 reads as rank 1, legacy's own quirk, pinned and kept; and the
+HTTP tests caught a real port bug the golden alone missed (a tier-sort `fromEntries` on keys
+instead of entries — TypeError on any report with a prize hit), fixed before landing. Full
+record: [`PHASE24_LOTTERY_BACKTESTS.md`](PHASE24_LOTTERY_BACKTESTS.md).
+
+Gates on this branch: `npm test` **961 / 961** across **65** files, `npm run check` exit 0
+(`verify:install` 29/29, 84 documented variables), PHP oracle **367 / 367**, and the legacy tree
+(`application/`, `system/`, `tests/`) unmodified. **Not run:** a real MySQL server, migrations
+016–019 against any database, any official feed, and a crontab.
+
+**Still not ported (lottery):** the lottery cron (the queued system builds' consumer) and the
+console screens (F-29). Platform-wide: F-15 (real MySQL), R-30 (file-adapter atomicity), row 22
+(cutover), and the sports remainder (stake sizing, console screens).
+
+## Phase 23 status (2026-10-13) — superseded by Phase 24
 
 **The saved ticket is ported** (row 15, slice 3 — the record layer on slices 1–2's foundation).
 A ticket is a **record of number lines, never a purchase**: create (validated with legacy's own

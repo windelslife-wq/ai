@@ -13,7 +13,7 @@ test("database readiness requires every ordered Node identity migration and repo
   };
   const readiness = await createStore(pool).readiness();
   assert.deepEqual(readiness, { database: true, schema: false, adapter: "mysql", detail: null });
-  assert.match(calls[1].sql, /IN \(\?, \?, \?, \?, \?, \?, \?, \?, \?, \?, \?, \?, \?, \?, \?, \?, \?, \?\)/);
+  assert.match(calls[1].sql, /IN \(\?, \?, \?, \?, \?, \?, \?, \?, \?, \?, \?, \?, \?, \?, \?, \?, \?, \?, \?\)/);
   assert.deepEqual(calls[1].values, [
     "001_platform_foundation",
     "002_identity_import_fields",
@@ -47,6 +47,8 @@ test("database readiness requires every ordered Node identity migration and repo
         "017_lottery_combinations",
     // Slice 3: saved tickets + their number lines (migration 018).
         "018_lottery_tickets",
+    // Slice 4: backtest reports + model versions (migration 019).
+        "019_lottery_backtests",
   ]);
 });
 

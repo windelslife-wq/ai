@@ -90,6 +90,10 @@ import {
   lotteryTicketLineRow,
   prepareLotteryTicket,
   prepareLotteryTicketLine,
+  prepareLotteryBacktest,
+  lotteryBacktestRow,
+  prepareLotteryModelVersion,
+  lotteryModelVersionRow,
   lotteryGameRow,
   lotteryHealthRow,
   lotteryProviderRow,
@@ -131,7 +135,10 @@ const ENTITIES = ["users", "profiles", "sessions", "roles", "permissions", "user
   // decision report (spec §14/§26/§33).
   "lotteryCombinations", "lotteryAiDecisions",
   // Slice 3 (migration 018): the ticket record and its number lines.
-  "lotteryTickets", "lotteryTicketLines"];
+  "lotteryTickets", "lotteryTicketLines",
+  // Slice 4 (migration 019): backtest reports + the model versions they are
+  // stamped with (spec §23–§25/§33; ensured once, never deleted).
+  "lotteryBacktests", "lotteryModelVersions"];
 const PAPER_TX_ENTITIES = Object.freeze(["tradingState", "paperAccounts", "paperOrders", "paperPositions", "paperTrades", "paperDeployments", "executionProposals", "strategies", "journalEntries", "audit"]);
 const COMPACTION_ENTRIES = 2_000;
 /**
@@ -2253,6 +2260,68 @@ export async function createFileStore({ dir, logger = console, idFactory = () =>
         await mutate("lotteryTicketLines", "upsert", row);
       }
       return lines.length;
+    },
+
+    // ---- lottery slice 4: backtests + model versions (migration 019) ------
+    // A model version is ENSURED: an existing (model_name, model_version) pair
+    // returns the existing row decoded, exactly legacy's read-then-insert —
+    // historical results stay connected to the model that produced them. Rows
+    // are never deleted or replaced on either adapter.
+    async ensureLotteryModelVersion(input) {
+      const i = input && typeof input === "object" ? input : {};
+      const modelName = assertText(i.modelName, 64, "model_name");
+      const modelVersion = assertText(i.modelVersion, 16, "model_version");
+      const table = tables.get("lotteryModelVersions");
+      const existing = [...table.values()].find(
+        (row) => row.model_name === modelName && row.model_version === modelVersion,
+      );
+      if (existing) return lotteryModelVersionRow(existing);
+      const record = prepareLotteryModelVersion({
+        modelName,
+        modelVersion,
+        config: i.config,
+        datasetVersion: i.datasetVersion ?? null,
+        status: i.status,
+        createdAt: i.createdAt,
+      });
+      const row = { id: nextRowId("lotteryModelVersions"), ...record };
+      await mutate("lotteryModelVersions", "upsert", row);
+      return lotteryModelVersionRow(table.get(String(row.id)));
+    },
+    async listLotteryModelVersions() {
+      // Oldest first (spec §33: versions accumulate, newest is not "current").
+      return [...tables.get("lotteryModelVersions").values()]
+        .sort((a, b) => Number(a.id) - Number(b.id))
+        .map(lotteryModelVersionRow);
+    },
+    async saveLotteryBacktest(input) {
+      const i = input && typeof input === "object" ? input : {};
+      const record = prepareLotteryBacktest({
+        lotteryCode: i.lotteryCode,
+        strategy: i.strategy,
+        modelVersion: i.modelVersion,
+        linesPerDraw: i.linesPerDraw,
+        drawsTested: i.drawsTested,
+        periodFrom: i.periodFrom ?? null,
+        periodTo: i.periodTo ?? null,
+        datasetVersion: i.datasetVersion ?? null,
+        report: i.report,
+        createdAt: i.createdAt,
+      });
+      const row = { id: nextRowId("lotteryBacktests"), ...record };
+      await mutate("lotteryBacktests", "upsert", row);
+      return { row: lotteryBacktestRow(tables.get("lotteryBacktests").get(String(row.id))), created: true };
+    },
+    async findLotteryBacktest(id) {
+      const row = tables.get("lotteryBacktests").get(String(assertRowId(id, "id")));
+      return lotteryBacktestRow(row);
+    },
+    async listLotteryBacktests(limit = 50) {
+      const bounded = Math.min(500, Math.max(1, toInt(limit, 50)));
+      return [...tables.get("lotteryBacktests").values()]
+        .sort((a, b) => Number(b.id) - Number(a.id))
+        .slice(0, bounded)
+        .map(lotteryBacktestRow);
     },
 
     /**

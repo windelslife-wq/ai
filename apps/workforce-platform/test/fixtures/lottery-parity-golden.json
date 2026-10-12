@@ -4938,6 +4938,1368 @@
         "TIER_10 (2 stars)"
       ],
       "the ladder has no star upper bound: 5 mains is TIER_3 whatever the stars": "TIER_3 (5 mains)"
+    },
+    "backtests": {
+      "constants": {
+        "strategies": [
+          "RANDOM_BASELINE",
+          "BALANCED_PROFILE",
+          "HISTORICAL_FREQ",
+          "ANTI_POPULAR"
+        ],
+        "minHistory": 10,
+        "maxWindow": 100,
+        "maxLines": 10,
+        "descriptions": {
+          "RANDOM_BASELINE": "Uniform random lines (seeded per draw). The mandatory baseline — it shows how often each outcome happens by chance alone.",
+          "BALANCED_PROFILE": "BALANCED-mode lines: profile-filtered against the pre-draw historical distribution.",
+          "HISTORICAL_FREQ": "HISTORICAL-mode lines: frequency-weighted sampling from the pre-draw history.",
+          "ANTI_POPULAR": "ANTI-POPULAR-mode lines: avoids common human selection patterns."
+        },
+        "modelVersion": "1.0"
+      },
+      "seeds": {
+        "RANDOM_BASELINE": {
+          "i10": 897616149,
+          "i11": 1472754532
+        },
+        "BALANCED_PROFILE": {
+          "i10": 1169972986,
+          "i11": 670344331
+        },
+        "HISTORICAL_FREQ": {
+          "i10": 1096950028,
+          "i11": 590011261
+        },
+        "ANTI_POPULAR": {
+          "i10": 748323279,
+          "i11": 1322417086
+        }
+      },
+      "drawsUsed": [
+        {
+          "drawDate": "2026-01-01",
+          "main": [
+            4,
+            7,
+            19,
+            26,
+            38
+          ],
+          "stars": [
+            3,
+            9
+          ]
+        },
+        {
+          "drawDate": "2026-01-02",
+          "main": [
+            4,
+            33,
+            41,
+            46,
+            48
+          ],
+          "stars": [
+            5,
+            9
+          ]
+        },
+        {
+          "drawDate": "2026-01-03",
+          "main": [
+            2,
+            3,
+            4,
+            16,
+            40
+          ],
+          "stars": [
+            4,
+            8
+          ]
+        },
+        {
+          "drawDate": "2026-01-04",
+          "main": [
+            4,
+            6,
+            33,
+            38,
+            47
+          ],
+          "stars": [
+            1,
+            9
+          ]
+        },
+        {
+          "drawDate": "2026-01-05",
+          "main": [
+            3,
+            4,
+            11,
+            14,
+            34
+          ],
+          "stars": [
+            2,
+            3
+          ]
+        },
+        {
+          "drawDate": "2026-01-06",
+          "main": [
+            1,
+            2,
+            4,
+            6,
+            15
+          ],
+          "stars": [
+            1,
+            11
+          ]
+        },
+        {
+          "drawDate": "2026-01-07",
+          "main": [
+            4,
+            12,
+            22,
+            27,
+            36
+          ],
+          "stars": [
+            1,
+            12
+          ]
+        },
+        {
+          "drawDate": "2026-01-08",
+          "main": [
+            4,
+            15,
+            16,
+            27,
+            33
+          ],
+          "stars": [
+            5,
+            10
+          ]
+        },
+        {
+          "drawDate": "2026-01-09",
+          "main": [
+            4,
+            24,
+            32,
+            39,
+            40
+          ],
+          "stars": [
+            3,
+            6
+          ]
+        },
+        {
+          "drawDate": "2026-01-10",
+          "main": [
+            4,
+            9,
+            25,
+            38,
+            39
+          ],
+          "stars": [
+            1,
+            3
+          ]
+        },
+        {
+          "drawDate": "2026-01-11",
+          "main": [
+            4,
+            8,
+            17,
+            31,
+            47
+          ],
+          "stars": [
+            6,
+            12
+          ]
+        },
+        {
+          "drawDate": "2026-01-12",
+          "main": [
+            1,
+            4,
+            28,
+            39,
+            49
+          ],
+          "stars": [
+            1,
+            4
+          ]
+        },
+        {
+          "drawDate": "2026-01-13",
+          "main": [
+            4,
+            5,
+            33,
+            42,
+            50
+          ],
+          "stars": [
+            2,
+            11
+          ]
+        },
+        {
+          "drawDate": "2026-01-14",
+          "main": [
+            4,
+            10,
+            34,
+            38,
+            42
+          ],
+          "stars": [
+            3,
+            9
+          ]
+        },
+        {
+          "drawDate": "2026-01-15",
+          "main": [
+            3,
+            4,
+            9,
+            11,
+            46
+          ],
+          "stars": [
+            5,
+            6
+          ]
+        }
+      ],
+      "RANDOM_BASELINE two lines over the last five draws": {
+        "label": "HISTORICAL SIMULATION",
+        "strategy": "RANDOM_BASELINE",
+        "strategyDescription": "Uniform random lines (seeded per draw). The mandatory baseline — it shows how often each outcome happens by chance alone.",
+        "modelVersion": "1.0",
+        "lottery": "EUROMILLIONS",
+        "period": {
+          "from": "2026-01-11",
+          "to": "2026-01-15",
+          "drawsTested": 5,
+          "minHistoryDraws": 10,
+          "windowCap": 100
+        },
+        "linesPerDraw": 2,
+        "totalLines": 10,
+        "matchDistribution": {
+          "mains": [
+            3,
+            7,
+            0,
+            0,
+            0,
+            0
+          ],
+          "stars": [
+            4,
+            6,
+            0
+          ]
+        },
+        "tierCounts": [],
+        "bestLine": null,
+        "simulatedCost": null,
+        "costNote": "Official line pricing is not available in this environment — no cost is fabricated.",
+        "simulatedWinnings": null,
+        "winningsNote": "Official prize amounts vary per draw and are unavailable — only tier counts are reported; no winnings figure is fabricated.",
+        "perDraw": [
+          {
+            "drawDate": "2026-01-11",
+            "historySize": 10,
+            "lines": [
+              {
+                "mains": [
+                  16,
+                  18,
+                  30,
+                  35,
+                  40
+                ],
+                "stars": [
+                  4,
+                  12
+                ],
+                "mainMatches": 0,
+                "starMatches": 1,
+                "prizeTier": null
+              },
+              {
+                "mains": [
+                  4,
+                  6,
+                  7,
+                  10,
+                  23
+                ],
+                "stars": [
+                  2,
+                  12
+                ],
+                "mainMatches": 1,
+                "starMatches": 1,
+                "prizeTier": null
+              }
+            ]
+          },
+          {
+            "drawDate": "2026-01-12",
+            "historySize": 11,
+            "lines": [
+              {
+                "mains": [
+                  15,
+                  19,
+                  22,
+                  27,
+                  28
+                ],
+                "stars": [
+                  8,
+                  12
+                ],
+                "mainMatches": 1,
+                "starMatches": 0,
+                "prizeTier": null
+              },
+              {
+                "mains": [
+                  17,
+                  23,
+                  24,
+                  42,
+                  44
+                ],
+                "stars": [
+                  8,
+                  11
+                ],
+                "mainMatches": 0,
+                "starMatches": 0,
+                "prizeTier": null
+              }
+            ]
+          },
+          {
+            "drawDate": "2026-01-13",
+            "historySize": 12,
+            "lines": [
+              {
+                "mains": [
+                  31,
+                  42,
+                  44,
+                  46,
+                  48
+                ],
+                "stars": [
+                  2,
+                  7
+                ],
+                "mainMatches": 1,
+                "starMatches": 1,
+                "prizeTier": null
+              },
+              {
+                "mains": [
+                  18,
+                  31,
+                  37,
+                  38,
+                  43
+                ],
+                "stars": [
+                  6,
+                  7
+                ],
+                "mainMatches": 0,
+                "starMatches": 0,
+                "prizeTier": null
+              }
+            ]
+          },
+          {
+            "drawDate": "2026-01-14",
+            "historySize": 13,
+            "lines": [
+              {
+                "mains": [
+                  4,
+                  7,
+                  26,
+                  30,
+                  44
+                ],
+                "stars": [
+                  9,
+                  10
+                ],
+                "mainMatches": 1,
+                "starMatches": 1,
+                "prizeTier": null
+              },
+              {
+                "mains": [
+                  31,
+                  36,
+                  38,
+                  44,
+                  48
+                ],
+                "stars": [
+                  6,
+                  10
+                ],
+                "mainMatches": 1,
+                "starMatches": 0,
+                "prizeTier": null
+              }
+            ]
+          },
+          {
+            "drawDate": "2026-01-15",
+            "historySize": 14,
+            "lines": [
+              {
+                "mains": [
+                  4,
+                  15,
+                  27,
+                  35,
+                  41
+                ],
+                "stars": [
+                  6,
+                  9
+                ],
+                "mainMatches": 1,
+                "starMatches": 1,
+                "prizeTier": null
+              },
+              {
+                "mains": [
+                  4,
+                  14,
+                  17,
+                  33,
+                  37
+                ],
+                "stars": [
+                  5,
+                  7
+                ],
+                "mainMatches": 1,
+                "starMatches": 1,
+                "prizeTier": null
+              }
+            ]
+          }
+        ],
+        "disclaimer": "Lottery draws are independent random events. Historical frequency, gaps and patterns are statistical observations only — they do not change the probability of future draws and are not forecasts of future results.",
+        "note": "Historical simulation: the strategy was replayed against past draws without look-ahead. Past tier counts are descriptive — they do not improve future results. The random baseline exists so ordinary random variation is never mistaken for strategy value (spec §25)."
+      },
+      "BALANCED_PROFILE full window one line": {
+        "label": "HISTORICAL SIMULATION",
+        "strategy": "BALANCED_PROFILE",
+        "strategyDescription": "BALANCED-mode lines: profile-filtered against the pre-draw historical distribution.",
+        "modelVersion": "1.0",
+        "lottery": "EUROMILLIONS",
+        "period": {
+          "from": "2026-01-11",
+          "to": "2026-01-15",
+          "drawsTested": 5,
+          "minHistoryDraws": 10,
+          "windowCap": 100
+        },
+        "linesPerDraw": 1,
+        "totalLines": 5,
+        "matchDistribution": {
+          "mains": [
+            1,
+            3,
+            1,
+            0,
+            0,
+            0
+          ],
+          "stars": [
+            4,
+            1,
+            0
+          ]
+        },
+        "tierCounts": [],
+        "bestLine": null,
+        "simulatedCost": null,
+        "costNote": "Official line pricing is not available in this environment — no cost is fabricated.",
+        "simulatedWinnings": null,
+        "winningsNote": "Official prize amounts vary per draw and are unavailable — only tier counts are reported; no winnings figure is fabricated.",
+        "perDraw": [
+          {
+            "drawDate": "2026-01-11",
+            "historySize": 10,
+            "lines": [
+              {
+                "mains": [
+                  1,
+                  6,
+                  39,
+                  40,
+                  47
+                ],
+                "stars": [
+                  5,
+                  8
+                ],
+                "mainMatches": 1,
+                "starMatches": 0,
+                "prizeTier": null
+              }
+            ]
+          },
+          {
+            "drawDate": "2026-01-12",
+            "historySize": 11,
+            "lines": [
+              {
+                "mains": [
+                  1,
+                  22,
+                  30,
+                  31,
+                  33
+                ],
+                "stars": [
+                  1,
+                  9
+                ],
+                "mainMatches": 1,
+                "starMatches": 1,
+                "prizeTier": null
+              }
+            ]
+          },
+          {
+            "drawDate": "2026-01-13",
+            "historySize": 12,
+            "lines": [
+              {
+                "mains": [
+                  1,
+                  14,
+                  17,
+                  22,
+                  48
+                ],
+                "stars": [
+                  4,
+                  10
+                ],
+                "mainMatches": 0,
+                "starMatches": 0,
+                "prizeTier": null
+              }
+            ]
+          },
+          {
+            "drawDate": "2026-01-14",
+            "historySize": 13,
+            "lines": [
+              {
+                "mains": [
+                  6,
+                  7,
+                  10,
+                  27,
+                  29
+                ],
+                "stars": [
+                  1,
+                  6
+                ],
+                "mainMatches": 1,
+                "starMatches": 0,
+                "prizeTier": null
+              }
+            ]
+          },
+          {
+            "drawDate": "2026-01-15",
+            "historySize": 14,
+            "lines": [
+              {
+                "mains": [
+                  3,
+                  11,
+                  23,
+                  42,
+                  50
+                ],
+                "stars": [
+                  3,
+                  9
+                ],
+                "mainMatches": 2,
+                "starMatches": 0,
+                "prizeTier": null
+              }
+            ]
+          }
+        ],
+        "disclaimer": "Lottery draws are independent random events. Historical frequency, gaps and patterns are statistical observations only — they do not change the probability of future draws and are not forecasts of future results.",
+        "note": "Historical simulation: the strategy was replayed against past draws without look-ahead. Past tier counts are descriptive — they do not improve future results. The random baseline exists so ordinary random variation is never mistaken for strategy value (spec §25)."
+      },
+      "HISTORICAL_FREQ three lines": {
+        "label": "HISTORICAL SIMULATION",
+        "strategy": "HISTORICAL_FREQ",
+        "strategyDescription": "HISTORICAL-mode lines: frequency-weighted sampling from the pre-draw history.",
+        "modelVersion": "1.0",
+        "lottery": "EUROMILLIONS",
+        "period": {
+          "from": "2026-01-11",
+          "to": "2026-01-15",
+          "drawsTested": 5,
+          "minHistoryDraws": 10,
+          "windowCap": 100
+        },
+        "linesPerDraw": 3,
+        "totalLines": 15,
+        "matchDistribution": {
+          "mains": [
+            10,
+            5,
+            0,
+            0,
+            0,
+            0
+          ],
+          "stars": [
+            10,
+            5,
+            0
+          ]
+        },
+        "tierCounts": [],
+        "bestLine": null,
+        "simulatedCost": null,
+        "costNote": "Official line pricing is not available in this environment — no cost is fabricated.",
+        "simulatedWinnings": null,
+        "winningsNote": "Official prize amounts vary per draw and are unavailable — only tier counts are reported; no winnings figure is fabricated.",
+        "perDraw": [
+          {
+            "drawDate": "2026-01-11",
+            "historySize": 10,
+            "lines": [
+              {
+                "mains": [
+                  31,
+                  33,
+                  37,
+                  39,
+                  48
+                ],
+                "stars": [
+                  1,
+                  4
+                ],
+                "mainMatches": 1,
+                "starMatches": 0,
+                "prizeTier": null
+              },
+              {
+                "mains": [
+                  3,
+                  9,
+                  23,
+                  28,
+                  39
+                ],
+                "stars": [
+                  4,
+                  8
+                ],
+                "mainMatches": 0,
+                "starMatches": 0,
+                "prizeTier": null
+              },
+              {
+                "mains": [
+                  2,
+                  12,
+                  16,
+                  18,
+                  41
+                ],
+                "stars": [
+                  1,
+                  11
+                ],
+                "mainMatches": 0,
+                "starMatches": 0,
+                "prizeTier": null
+              }
+            ]
+          },
+          {
+            "drawDate": "2026-01-12",
+            "historySize": 11,
+            "lines": [
+              {
+                "mains": [
+                  15,
+                  16,
+                  17,
+                  18,
+                  48
+                ],
+                "stars": [
+                  5,
+                  10
+                ],
+                "mainMatches": 0,
+                "starMatches": 0,
+                "prizeTier": null
+              },
+              {
+                "mains": [
+                  4,
+                  11,
+                  16,
+                  25,
+                  42
+                ],
+                "stars": [
+                  1,
+                  5
+                ],
+                "mainMatches": 1,
+                "starMatches": 1,
+                "prizeTier": null
+              },
+              {
+                "mains": [
+                  18,
+                  27,
+                  31,
+                  33,
+                  35
+                ],
+                "stars": [
+                  1,
+                  9
+                ],
+                "mainMatches": 0,
+                "starMatches": 1,
+                "prizeTier": null
+              }
+            ]
+          },
+          {
+            "drawDate": "2026-01-13",
+            "historySize": 12,
+            "lines": [
+              {
+                "mains": [
+                  4,
+                  8,
+                  38,
+                  39,
+                  45
+                ],
+                "stars": [
+                  2,
+                  4
+                ],
+                "mainMatches": 1,
+                "starMatches": 1,
+                "prizeTier": null
+              },
+              {
+                "mains": [
+                  11,
+                  12,
+                  22,
+                  25,
+                  39
+                ],
+                "stars": [
+                  2,
+                  12
+                ],
+                "mainMatches": 0,
+                "starMatches": 1,
+                "prizeTier": null
+              },
+              {
+                "mains": [
+                  14,
+                  22,
+                  26,
+                  39,
+                  41
+                ],
+                "stars": [
+                  3,
+                  12
+                ],
+                "mainMatches": 0,
+                "starMatches": 0,
+                "prizeTier": null
+              }
+            ]
+          },
+          {
+            "drawDate": "2026-01-14",
+            "historySize": 13,
+            "lines": [
+              {
+                "mains": [
+                  1,
+                  15,
+                  30,
+                  36,
+                  47
+                ],
+                "stars": [
+                  1,
+                  5
+                ],
+                "mainMatches": 0,
+                "starMatches": 0,
+                "prizeTier": null
+              },
+              {
+                "mains": [
+                  12,
+                  22,
+                  27,
+                  39,
+                  47
+                ],
+                "stars": [
+                  5,
+                  12
+                ],
+                "mainMatches": 0,
+                "starMatches": 0,
+                "prizeTier": null
+              },
+              {
+                "mains": [
+                  4,
+                  7,
+                  40,
+                  41,
+                  47
+                ],
+                "stars": [
+                  3,
+                  6
+                ],
+                "mainMatches": 1,
+                "starMatches": 1,
+                "prizeTier": null
+              }
+            ]
+          },
+          {
+            "drawDate": "2026-01-15",
+            "historySize": 14,
+            "lines": [
+              {
+                "mains": [
+                  10,
+                  11,
+                  18,
+                  34,
+                  42
+                ],
+                "stars": [
+                  3,
+                  4
+                ],
+                "mainMatches": 1,
+                "starMatches": 0,
+                "prizeTier": null
+              },
+              {
+                "mains": [
+                  12,
+                  21,
+                  31,
+                  38,
+                  39
+                ],
+                "stars": [
+                  2,
+                  11
+                ],
+                "mainMatches": 0,
+                "starMatches": 0,
+                "prizeTier": null
+              },
+              {
+                "mains": [
+                  2,
+                  18,
+                  25,
+                  39,
+                  42
+                ],
+                "stars": [
+                  9,
+                  11
+                ],
+                "mainMatches": 0,
+                "starMatches": 0,
+                "prizeTier": null
+              }
+            ]
+          }
+        ],
+        "disclaimer": "Lottery draws are independent random events. Historical frequency, gaps and patterns are statistical observations only — they do not change the probability of future draws and are not forecasts of future results.",
+        "note": "Historical simulation: the strategy was replayed against past draws without look-ahead. Past tier counts are descriptive — they do not improve future results. The random baseline exists so ordinary random variation is never mistaken for strategy value (spec §25)."
+      },
+      "ANTI_POPULAR window clamped above the cap": {
+        "label": "HISTORICAL SIMULATION",
+        "strategy": "ANTI_POPULAR",
+        "strategyDescription": "ANTI-POPULAR-mode lines: avoids common human selection patterns.",
+        "modelVersion": "1.0",
+        "lottery": "EUROMILLIONS",
+        "period": {
+          "from": "2026-01-11",
+          "to": "2026-01-15",
+          "drawsTested": 5,
+          "minHistoryDraws": 10,
+          "windowCap": 100
+        },
+        "linesPerDraw": 1,
+        "totalLines": 5,
+        "matchDistribution": {
+          "mains": [
+            3,
+            2,
+            0,
+            0,
+            0,
+            0
+          ],
+          "stars": [
+            4,
+            1,
+            0
+          ]
+        },
+        "tierCounts": [],
+        "bestLine": null,
+        "simulatedCost": null,
+        "costNote": "Official line pricing is not available in this environment — no cost is fabricated.",
+        "simulatedWinnings": null,
+        "winningsNote": "Official prize amounts vary per draw and are unavailable — only tier counts are reported; no winnings figure is fabricated.",
+        "perDraw": [
+          {
+            "drawDate": "2026-01-11",
+            "historySize": 10,
+            "lines": [
+              {
+                "mains": [
+                  9,
+                  11,
+                  37,
+                  46,
+                  47
+                ],
+                "stars": [
+                  7,
+                  8
+                ],
+                "mainMatches": 1,
+                "starMatches": 0,
+                "prizeTier": null
+              }
+            ]
+          },
+          {
+            "drawDate": "2026-01-12",
+            "historySize": 11,
+            "lines": [
+              {
+                "mains": [
+                  12,
+                  31,
+                  34,
+                  38,
+                  47
+                ],
+                "stars": [
+                  8,
+                  10
+                ],
+                "mainMatches": 0,
+                "starMatches": 0,
+                "prizeTier": null
+              }
+            ]
+          },
+          {
+            "drawDate": "2026-01-13",
+            "historySize": 12,
+            "lines": [
+              {
+                "mains": [
+                  27,
+                  31,
+                  37,
+                  41,
+                  48
+                ],
+                "stars": [
+                  7,
+                  11
+                ],
+                "mainMatches": 0,
+                "starMatches": 1,
+                "prizeTier": null
+              }
+            ]
+          },
+          {
+            "drawDate": "2026-01-14",
+            "historySize": 13,
+            "lines": [
+              {
+                "mains": [
+                  5,
+                  20,
+                  39,
+                  43,
+                  47
+                ],
+                "stars": [
+                  2,
+                  8
+                ],
+                "mainMatches": 0,
+                "starMatches": 0,
+                "prizeTier": null
+              }
+            ]
+          },
+          {
+            "drawDate": "2026-01-15",
+            "historySize": 14,
+            "lines": [
+              {
+                "mains": [
+                  4,
+                  28,
+                  35,
+                  36,
+                  50
+                ],
+                "stars": [
+                  11,
+                  12
+                ],
+                "mainMatches": 1,
+                "starMatches": 0,
+                "prizeTier": null
+              }
+            ]
+          }
+        ],
+        "disclaimer": "Lottery draws are independent random events. Historical frequency, gaps and patterns are statistical observations only — they do not change the probability of future draws and are not forecasts of future results.",
+        "note": "Historical simulation: the strategy was replayed against past draws without look-ahead. Past tier counts are descriptive — they do not improve future results. The random baseline exists so ordinary random variation is never mistaken for strategy value (spec §25)."
+      },
+      "lines clamped: twelve asked, ten answered": {
+        "linesPerDraw": 10,
+        "totalLines": 20,
+        "perDrawLineCount": 10
+      },
+      "an unknown strategy is refused": {
+        "ok": false,
+        "error": "unknown strategy: MARTINGALE (expected RANDOM_BASELINE, BALANCED_PROFILE, HISTORICAL_FREQ, ANTI_POPULAR)"
+      },
+      "insufficient history is refused": {
+        "ok": false,
+        "error": "backtesting needs at least 11 stored draws (got 8)"
+      },
+      "a comparison on the same period": {
+        "label": "HISTORICAL SIMULATION — strategy comparison",
+        "lottery": "EUROMILLIONS",
+        "modelVersion": "1.0",
+        "period": {
+          "from": "2026-01-13",
+          "to": "2026-01-15",
+          "drawsTested": 3,
+          "minHistoryDraws": 12,
+          "windowCap": 100
+        },
+        "linesPerDraw": 1,
+        "strategies": [
+          {
+            "label": "HISTORICAL SIMULATION",
+            "strategy": "RANDOM_BASELINE",
+            "strategyDescription": "Uniform random lines (seeded per draw). The mandatory baseline — it shows how often each outcome happens by chance alone.",
+            "modelVersion": "1.0",
+            "lottery": "EUROMILLIONS",
+            "period": {
+              "from": "2026-01-13",
+              "to": "2026-01-15",
+              "drawsTested": 3,
+              "minHistoryDraws": 12,
+              "windowCap": 100
+            },
+            "linesPerDraw": 1,
+            "totalLines": 3,
+            "matchDistribution": {
+              "mains": [
+                0,
+                3,
+                0,
+                0,
+                0,
+                0
+              ],
+              "stars": [
+                0,
+                3,
+                0
+              ]
+            },
+            "tierCounts": [],
+            "bestLine": null,
+            "simulatedCost": null,
+            "costNote": "Official line pricing is not available in this environment — no cost is fabricated.",
+            "simulatedWinnings": null,
+            "winningsNote": "Official prize amounts vary per draw and are unavailable — only tier counts are reported; no winnings figure is fabricated.",
+            "perDraw": [
+              {
+                "drawDate": "2026-01-13",
+                "historySize": 12,
+                "lines": [
+                  {
+                    "mains": [
+                      31,
+                      42,
+                      44,
+                      46,
+                      48
+                    ],
+                    "stars": [
+                      2,
+                      7
+                    ],
+                    "mainMatches": 1,
+                    "starMatches": 1,
+                    "prizeTier": null
+                  }
+                ]
+              },
+              {
+                "drawDate": "2026-01-14",
+                "historySize": 13,
+                "lines": [
+                  {
+                    "mains": [
+                      4,
+                      7,
+                      26,
+                      30,
+                      44
+                    ],
+                    "stars": [
+                      9,
+                      10
+                    ],
+                    "mainMatches": 1,
+                    "starMatches": 1,
+                    "prizeTier": null
+                  }
+                ]
+              },
+              {
+                "drawDate": "2026-01-15",
+                "historySize": 14,
+                "lines": [
+                  {
+                    "mains": [
+                      4,
+                      15,
+                      27,
+                      35,
+                      41
+                    ],
+                    "stars": [
+                      6,
+                      9
+                    ],
+                    "mainMatches": 1,
+                    "starMatches": 1,
+                    "prizeTier": null
+                  }
+                ]
+              }
+            ],
+            "disclaimer": "Lottery draws are independent random events. Historical frequency, gaps and patterns are statistical observations only — they do not change the probability of future draws and are not forecasts of future results.",
+            "note": "Historical simulation: the strategy was replayed against past draws without look-ahead. Past tier counts are descriptive — they do not improve future results. The random baseline exists so ordinary random variation is never mistaken for strategy value (spec §25)."
+          },
+          {
+            "label": "HISTORICAL SIMULATION",
+            "strategy": "ANTI_POPULAR",
+            "strategyDescription": "ANTI-POPULAR-mode lines: avoids common human selection patterns.",
+            "modelVersion": "1.0",
+            "lottery": "EUROMILLIONS",
+            "period": {
+              "from": "2026-01-13",
+              "to": "2026-01-15",
+              "drawsTested": 3,
+              "minHistoryDraws": 12,
+              "windowCap": 100
+            },
+            "linesPerDraw": 1,
+            "totalLines": 3,
+            "matchDistribution": {
+              "mains": [
+                2,
+                1,
+                0,
+                0,
+                0,
+                0
+              ],
+              "stars": [
+                2,
+                1,
+                0
+              ]
+            },
+            "tierCounts": [],
+            "bestLine": null,
+            "simulatedCost": null,
+            "costNote": "Official line pricing is not available in this environment — no cost is fabricated.",
+            "simulatedWinnings": null,
+            "winningsNote": "Official prize amounts vary per draw and are unavailable — only tier counts are reported; no winnings figure is fabricated.",
+            "perDraw": [
+              {
+                "drawDate": "2026-01-13",
+                "historySize": 12,
+                "lines": [
+                  {
+                    "mains": [
+                      27,
+                      31,
+                      37,
+                      41,
+                      48
+                    ],
+                    "stars": [
+                      7,
+                      11
+                    ],
+                    "mainMatches": 0,
+                    "starMatches": 1,
+                    "prizeTier": null
+                  }
+                ]
+              },
+              {
+                "drawDate": "2026-01-14",
+                "historySize": 13,
+                "lines": [
+                  {
+                    "mains": [
+                      5,
+                      20,
+                      39,
+                      43,
+                      47
+                    ],
+                    "stars": [
+                      2,
+                      8
+                    ],
+                    "mainMatches": 0,
+                    "starMatches": 0,
+                    "prizeTier": null
+                  }
+                ]
+              },
+              {
+                "drawDate": "2026-01-15",
+                "historySize": 14,
+                "lines": [
+                  {
+                    "mains": [
+                      4,
+                      28,
+                      35,
+                      36,
+                      50
+                    ],
+                    "stars": [
+                      11,
+                      12
+                    ],
+                    "mainMatches": 1,
+                    "starMatches": 0,
+                    "prizeTier": null
+                  }
+                ]
+              }
+            ],
+            "disclaimer": "Lottery draws are independent random events. Historical frequency, gaps and patterns are statistical observations only — they do not change the probability of future draws and are not forecasts of future results.",
+            "note": "Historical simulation: the strategy was replayed against past draws without look-ahead. Past tier counts are descriptive — they do not improve future results. The random baseline exists so ordinary random variation is never mistaken for strategy value (spec §25)."
+          }
+        ],
+        "note": "All strategies are replayed on the SAME period, including the mandatory random baseline. Differences in tier counts are descriptive only; with no official prize amounts and independent random draws, no strategy is declared \"better\" (spec §24/§34).",
+        "disclaimer": "Lottery draws are independent random events. Historical frequency, gaps and patterns are statistical observations only — they do not change the probability of future draws and are not forecasts of future results."
+      },
+      "a comparison without the baseline is refused": {
+        "ok": false,
+        "error": "the random baseline must be part of every comparison (spec §25)"
+      },
+      "an empty comparison is refused": {
+        "ok": false,
+        "error": "at least one strategy is required"
+      },
+      "an unknown comparison member is refused": {
+        "ok": false,
+        "error": "unknown strategy: WIZARD"
+      },
+      "rankOf the ten official labels (F-45 substr behaviour)": {
+        "TIER_1 (5 mains + 2 stars)": 1,
+        "TIER_2 (5 mains + 1 star)": 2,
+        "TIER_3 (5 mains)": 3,
+        "TIER_4 (4 mains + 2 stars)": 4,
+        "TIER_5 (4 mains + 1 star)": 5,
+        "TIER_6 (3 mains + 2 stars)": 6,
+        "TIER_7 (3 mains + 1 star)": 7,
+        "TIER_8 (2 mains + 2 stars)": 8,
+        "TIER_9 (1 main + 2 stars)": 9,
+        "TIER_10 (2 stars)": 1
+      }
     }
   }
 }

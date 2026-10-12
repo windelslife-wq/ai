@@ -92,11 +92,12 @@ test("a default host: status answers with the honest empty state and the not-por
   assert.deepEqual(body.rules.main, { count: 5, min: 1, max: 50 });
   assert.deepEqual(body.rules.stars, { count: 2, min: 1, max: 12 });
 
-  // The gap is stated, not silent (BC-10): three areas since slice 3 landed the
-  // ticket records and their checking — removed, never re-labelled.
-  assert.equal(body.notPorted.length, 3);
+  // The gap is stated, not silent (BC-10): two areas since slice 4 landed the
+  // backtester, model versions and the performance overview — removed, never
+  // re-labelled.
+  assert.equal(body.notPorted.length, 2);
   const areas = body.notPorted.map((entry) => entry.area).join(" | ");
-  for (const expected of ["backtests and model versions", "scheduled jobs", "console screens"]) {
+  for (const expected of ["scheduled jobs", "console screens"]) {
     assert.ok(areas.includes(expected), `the matrix names ${expected}`);
   }
   for (const gone of ["combination intelligence", "generation persistence"]) {

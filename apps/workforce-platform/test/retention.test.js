@@ -121,7 +121,7 @@ test("R-27 the retention cutoff must be a canonical ISO-8601 UTC instant", () =>
   // snapshot methods (migrations 014/015). Pinned here too, because
   // retention is a contract obligation and a method added to one adapter but not the
   // other is the failure mode this test exists to catch.
-  assert.equal(REPOSITORY_METHODS.length, 180);
+  assert.equal(REPOSITORY_METHODS.length, 185);
 });
 
 test("R-27 the cutoff arithmetic keeps everything when retention is off, and 0 never means 'delete all'", () => {

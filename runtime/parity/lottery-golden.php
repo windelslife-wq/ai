@@ -30,6 +30,7 @@ require_once __DIR__ . '/../../application/libraries/Aegis/Lottery/CombinationAn
 require_once __DIR__ . '/../../application/libraries/Aegis/Lottery/CombinationGenerator.php';
 require_once __DIR__ . '/../../application/libraries/Aegis/Lottery/DiversificationEngine.php';
 require_once __DIR__ . '/../../application/libraries/Aegis/Lottery/SystemBuilder.php';
+require_once __DIR__ . '/../../application/libraries/Aegis/Lottery/LotteryBacktester.php';
 
 use Aegis\Lottery\EuroMillionsRules;
 use Aegis\Lottery\LotteryResultValidator;
@@ -42,6 +43,7 @@ use Aegis\Lottery\CombinationGenerator;
 use Aegis\Lottery\DiversificationEngine;
 use Aegis\Lottery\SystemBuilder;
 use Aegis\Lottery\LotteryIntelligence;
+use Aegis\Lottery\LotteryBacktester;
 
 const SENTINEL = '<NOW>';
 
@@ -567,6 +569,76 @@ $tickets = [
     'the ladder has no star upper bound: 5 mains is TIER_3 whatever the stars' => LotteryIntelligence::prizeTier(5, 3),
 ];
 
+// ── the backtester (row 15, slice 4) ──────────────────────────────────────────
+//
+// The Strategy Lab: no-look-ahead replay of four seeded strategies over a
+// fixed synthetic history. The history itself is BUILT with the seeded
+// generator (one line per seed, fixed dates) and emitted alongside the
+// reports, so the Node test feeds the byte-identical draws to its port and
+// compares the reports directly. Reports carry no clock-derived fields —
+// nothing to strip.
+
+$backtester = new LotteryBacktester($rules, $analyzer, $generator, LotteryIntelligence::MODEL_VERSION);
+
+$btDraws = [];
+for ($i = 0; $i < 15; $i++) {
+    $g = $generator->generate([], ['mode' => 'RANDOM', 'count' => 1, 'seed' => 1000 + $i * 7]);
+    $btDraws[] = [
+        'drawDate' => sprintf('2026-01-%02d', $i + 1),
+        'main' => $g['lines'][0]['mains'],
+        'stars' => $g['lines'][0]['stars'],
+    ];
+}
+
+$btSeed = function (string $strategy, int $index): int {
+    $seed = (crc32($strategy) & 0x7FFFFFFF) ^ (($index * 2654435761) & 0x7FFFFFFF) ^ (crc32('WINDELS-Lottery-Model-v' . LotteryIntelligence::MODEL_VERSION) & 0x7FFFFFFF);
+    return $seed === 0 ? 1 : $seed;
+};
+
+$backtestCases = [
+    'constants' => [
+        'strategies' => LotteryBacktester::STRATEGIES,
+        'minHistory' => LotteryBacktester::MIN_HISTORY,
+        'maxWindow' => LotteryBacktester::MAX_WINDOW,
+        'maxLines' => LotteryBacktester::MAX_LINES,
+        'descriptions' => LotteryBacktester::DESCRIPTIONS,
+        'modelVersion' => LotteryIntelligence::MODEL_VERSION,
+    ],
+    'seeds' => [
+        'RANDOM_BASELINE' => ['i10' => $btSeed('RANDOM_BASELINE', 10), 'i11' => $btSeed('RANDOM_BASELINE', 11)],
+        'BALANCED_PROFILE' => ['i10' => $btSeed('BALANCED_PROFILE', 10), 'i11' => $btSeed('BALANCED_PROFILE', 11)],
+        'HISTORICAL_FREQ' => ['i10' => $btSeed('HISTORICAL_FREQ', 10), 'i11' => $btSeed('HISTORICAL_FREQ', 11)],
+        'ANTI_POPULAR' => ['i10' => $btSeed('ANTI_POPULAR', 10), 'i11' => $btSeed('ANTI_POPULAR', 11)],
+    ],
+    'drawsUsed' => $btDraws,
+    'RANDOM_BASELINE two lines over the last five draws' => $backtester->run($btDraws, 'RANDOM_BASELINE', 2, 5),
+    'BALANCED_PROFILE full window one line' => $backtester->run($btDraws, 'BALANCED_PROFILE'),
+    'HISTORICAL_FREQ three lines' => $backtester->run($btDraws, 'HISTORICAL_FREQ', 3),
+    'ANTI_POPULAR window clamped above the cap' => $backtester->run($btDraws, 'ANTI_POPULAR', 1, 9999),
+    'lines clamped: twelve asked, ten answered' => (function () use ($backtester, $btDraws) {
+        $r = $backtester->run($btDraws, 'RANDOM_BASELINE', 12, 2);
+        return ['linesPerDraw' => $r['linesPerDraw'], 'totalLines' => $r['totalLines'], 'perDrawLineCount' => count($r['perDraw'][0]['lines'])];
+    })(),
+    'an unknown strategy is refused' => outcome(fn () => $backtester->run($btDraws, 'MARTINGALE')),
+    'insufficient history is refused' => outcome(fn () => $backtester->run(array_slice($btDraws, 0, 8), 'RANDOM_BASELINE')),
+    'a comparison on the same period' => $backtester->compare($btDraws, ['random_baseline', 'ANTI_POPULAR', 'RANDOM_BASELINE'], 1, 3),
+    'a comparison without the baseline is refused' => outcome(fn () => $backtester->compare($btDraws, ['BALANCED_PROFILE'])),
+    'an empty comparison is refused' => outcome(fn () => $backtester->compare($btDraws, [])),
+    'an unknown comparison member is refused' => outcome(fn () => $backtester->compare($btDraws, ['RANDOM_BASELINE', 'WIZARD'])),
+    // F-45: the rank comes from substr(tier, 5, 1) — the FIRST digit after
+    // TIER_. TIER_10 therefore reads as rank 1. Legacy's behaviour, pinned
+    // here so a "fix" would be a deliberate, documented divergence.
+    'rankOf the ten official labels (F-45 substr behaviour)' => (function () {
+        $out = [];
+        $pairs = [[5, 2], [5, 1], [5, 0], [4, 2], [4, 1], [3, 2], [3, 1], [2, 2], [1, 2], [0, 2]];
+        foreach ($pairs as [$m, $s]) {
+            $tier = LotteryIntelligence::prizeTier($m, $s);
+            $out[$tier] = (int) substr($tier, 5, 1);
+        }
+        return $out;
+    })(),
+];
+
 // ── emit ──────────────────────────────────────────────────────────────────────
 
 echo json_encode([
@@ -582,5 +654,6 @@ echo json_encode([
         'unavailable' => $unavailableCases,
         'combinations' => $combinationCases,
         'tickets' => $tickets,
+        'backtests' => $backtestCases,
     ],
 ], JSON_UNESCAPED_SLASHES | JSON_PRESERVE_ZERO_FRACTION), PHP_EOL;

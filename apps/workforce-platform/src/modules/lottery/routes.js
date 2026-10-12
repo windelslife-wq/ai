@@ -130,6 +130,36 @@ const TICKET_PARAMS = Object.freeze({
   ticketId: Object.freeze({ type: "integer", required: true, min: 1 }),
 });
 
+// ── slice 4 schemas ───────────────────────────────────────────────────────────
+
+const BACKTEST_BODY = Object.freeze({
+  type: "object",
+  properties: Object.freeze({
+    // Legacy's controller casts with (string)($body['strategy'] ?? 'RANDOM_BASELINE')
+    // and the ENGINE refuses an unknown name — the schema stays permissive.
+    strategy: Object.freeze({ type: "string", maxLength: 40 }),
+    lines: Object.freeze({ type: "integer", nullable: true, min: 0, max: 1_000_000 }),
+    window: Object.freeze({ type: "integer", nullable: true, min: 0, max: 1_000_000 }),
+  }),
+});
+
+const BACKTEST_COMPARE_BODY = Object.freeze({
+  type: "object",
+  properties: Object.freeze({
+    strategies: Object.freeze({ type: "array" }),
+    lines: Object.freeze({ type: "integer", nullable: true, min: 0, max: 1_000_000 }),
+    window: Object.freeze({ type: "integer", nullable: true, min: 0, max: 1_000_000 }),
+  }),
+});
+
+const BACKTESTS_QUERY = Object.freeze({
+  limit: Object.freeze({ type: "integer", min: 1, max: 500 }),
+});
+
+const BACKTEST_PARAMS = Object.freeze({
+  backtestId: Object.freeze({ type: "integer", required: true, min: 1 }),
+});
+
 const TICKET_BODY = Object.freeze({
   type: "object",
   properties: Object.freeze({
@@ -425,6 +455,61 @@ export function lotteryRoutes(app, { config, store, lottery = null }) {
     const archived = await service().archiveTicket(request.params.ticketId, actorOf(request), actorOf(request));
     if (!archived) throw new AppError(404, "LOTTERY_TICKET_NOT_FOUND", "ticket not found");
     return { archived: request.params.ticketId };
+  });
+
+  // ── the measured half (slice 4, lottery.view) ────────────────────────────────
+  // Backtests are analysis reads that persist a report row — legacy keeps the
+  // whole surface behind lottery.view (like generate/diversity/system, these
+  // POSTs are records and analysis, not managed ingestion).
+
+  /**
+   * spec §23: HISTORICAL SIMULATION — one strategy replayed over the stored
+   * draws without look-ahead. Persisted, audited, model-version stamped.
+   */
+  app.post("/lottery/backtest", { preHandler: view, bodySchema: BACKTEST_BODY }, async (request) => {
+    const body = request.body ?? {};
+    return guarded(service().backtest(
+      String(body.strategy ?? "RANDOM_BASELINE"),
+      // Legacy's `(int)($body['lines'] ?: 1)` — 0/null/missing all become 1.
+      body.lines ? Math.trunc(Number(body.lines)) : 1,
+      body.window ? Math.trunc(Number(body.window)) : 0,
+    ));
+  });
+
+  /**
+   * spec §24: strategy comparison on the SAME period; the random baseline is
+   * mandatory (spec §25) and no strategy is declared "better" (spec §34).
+   */
+  app.post("/lottery/backtest-compare", { preHandler: view, bodySchema: BACKTEST_COMPARE_BODY }, async (request) => {
+    const body = request.body ?? {};
+    return guarded(service().backtestCompare(
+      Array.isArray(body.strategies) ? body.strategies.map((s) => String(s)) : [],
+      // Legacy's `(int)($body['lines'] ?: 1)` — 0/null/missing all become 1.
+      body.lines ? Math.trunc(Number(body.lines)) : 1,
+      body.window ? Math.trunc(Number(body.window)) : 0,
+    ));
+  });
+
+  /** Persisted backtests, newest first. GET ?limit=50 */
+  app.get("/lottery/backtests", { preHandler: view, querySchema: BACKTESTS_QUERY }, async (request) => {
+    return { backtests: await service().listBacktests(request.query?.limit ?? 50) };
+  });
+
+  /** One persisted backtest, report decoded. */
+  app.get("/lottery/backtests/:backtestId", { preHandler: view, paramsSchema: BACKTEST_PARAMS }, async (request) => {
+    const row = await service().backtestDetail(request.params.backtestId);
+    if (!row) throw new AppError(404, "LOTTERY_BACKTEST_NOT_FOUND", "backtest not found");
+    return { backtest: row };
+  });
+
+  /** Model versions (spec §33) — ensured once, never deleted or replaced. */
+  app.get("/lottery/models", { preHandler: view }, async () => {
+    return { models: await service().modelVersions() };
+  });
+
+  /** Performance overview (spec §30) — three separate sections, never mixed. */
+  app.get("/lottery/performance", { preHandler: view }, async () => {
+    return service().performance();
   });
 
   // ── writes (lottery.manage + POST + CSRF) ────────────────────────────────────

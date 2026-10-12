@@ -265,6 +265,15 @@ export const REPOSITORY_METHODS = Object.freeze([
   "updateLotteryTicket",
   "listLotteryTicketLines",
   "saveLotteryTicketLines",
+  // ── Lottery measured half (row 15, slice 4, migration 019) ──
+  // HISTORICAL SIMULATION backtest reports (spec §23–§25) and the model
+  // versions (spec §33) they are stamped with: ensured once on an existing
+  // (model_name, model_version) pair, never deleted or replaced.
+  "ensureLotteryModelVersion",
+  "listLotteryModelVersions",
+  "saveLotteryBacktest",
+  "findLotteryBacktest",
+  "listLotteryBacktests",
   // operational
   "readiness",
 ]);
