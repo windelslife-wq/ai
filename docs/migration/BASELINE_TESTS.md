@@ -1040,3 +1040,17 @@ indicators, `MathUtils`, regime generation and the notification rules remain un-
 provider-health monitor it never called). See
 [`PHASE16_SPORTS_PERSISTENCE.md`](PHASE16_SPORTS_PERSISTENCE.md) §3.
 
+**A CI failure that was not a test failure.** The first push of this phase failed the
+`javascript` job at step 7 (`npm run check`) in **30 s**. The same command passed **812/812**
+locally in a pristine clone of that exact commit with root-only `npm ci`, at concurrency 2,
+4 and 8, under `LC_ALL=C`, across seven complete runs — so the failure was not reproducible
+and not a wrong assertion. Comparing step timings against the next, green run gives the
+answer: a complete step 7 takes **42 s**, so the failing run was **aborted ~12 s short of
+finishing**. The step streams 812 TAP results plus the app's pino request logs, and the
+runner's own annotation said *"This step has been truncated due to its large size."*
+Redirecting that output to a file before it reaches the log collector fixed it, and the job
+now passes all 17 steps. Recorded here because the tempting misreading — "CI is red, a test
+must be failing" — would have sent the next person hunting for a defect that does not
+exist, and because the suite will only get larger, so the bound belongs in the workflow
+rather than in someone's memory.
+

@@ -16,9 +16,15 @@ jobs:
       - run: npm ci
       - run: npm run typecheck
       - run: npm run test:contracts
-      # TEMPORARY DIAGNOSTIC (revert once read): the runner log is not reachable from
-      # this sandbox, so surface the failing test names as annotations, which are.
-      # The exit code is preserved exactly, so a failure still fails the job.
+      # The suite's TAP output plus the app's pino request logs is large enough that
+      # streaming it directly to the runner's log collector truncated and aborted the
+      # step: a run that fails at 30s when a complete run takes 42s, with every test
+      # passing locally. Writing to a file first keeps the step's output bounded.
+      #
+      # On a genuine failure the test names, their failure detail, the suite totals and
+      # the log tail are re-emitted as check annotations, which are readable through the
+      # API without signing in to the Actions UI. The exit code is preserved exactly, so
+      # a failure still fails the job.
       - name: Run npm run check --workspace=@windels/workforce-platform
         run: |
           set +e
