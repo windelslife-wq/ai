@@ -2087,7 +2087,10 @@ export async function createFileStore({ dir, logger = console, idFactory = () =>
       const boundary = assertIsoCutoff(cutoff);
       const doomed = [...tables.get("lotterySyncRuns").values()].filter((row) => String(row.started_at) < boundary);
       for (const row of doomed) {
-        await mutate("lotterySyncRuns", "delete", { id: row.id });
+        // The job-run table is keyed by EXECUTION KEY (keyOf above), not by id —
+        // a delete record carrying `id` alone would name an undefined key and
+        // silently prune nothing (found by the slice-5 cleanup test).
+        await mutate("lotterySyncRuns", "delete", { execution_key: row.execution_key });
       }
       return doomed.length;
     },

@@ -44,6 +44,7 @@ import {
 import { ANALYZER_WEIGHTS } from "./combinations.js";
 import { GENERATOR_MODES } from "./generator.js";
 import { createHash, randomUUID } from "node:crypto";
+import { createLotteryCronService } from "./cron.js";
 import { AppError } from "../../http/errors.js";
 
 export const MODEL_VERSION = "1.0";
@@ -87,11 +88,10 @@ export function prizeTier(mainMatches, starMatches) {
  * become untrue.
  */
 export const LOTTERY_NOT_PORTED = Object.freeze([
-  // Slices 2–4 removed the combination-intelligence, generation-persistence,
-  // tickets and backtest/model-version entries: they became untrue, and untrue
-  // entries are removed, never re-labelled. What remains is what no slice has
-  // landed yet.
-  Object.freeze({ area: "scheduled jobs", legacy: "LotteryCronService (sync, health, statistics, systems, tickets, backtests, cleanup)", state: "not ported", detail: "The lottery cron is a later slice, on the same wf_job_locks pattern as the sports cron (row 19). Until then nothing here runs on a schedule — and the queued background system builds have no consumer yet." }),
+  // Slices 2–5 removed the combination-intelligence, generation-persistence,
+  // tickets, backtest/model-version and scheduled-jobs entries: they became
+  // untrue, and untrue entries are removed, never re-labelled. What remains is
+  // what no slice has landed yet.
   Object.freeze({ area: "console screens", legacy: "Lottery::index (views/lottery/*.php)", state: "not ported", detail: "No ported module has a console screen (F-29, platform-wide); the API reads exist under /lottery/*." }),
 ]);
 
@@ -575,9 +575,8 @@ export function createLotteryService({ store, config, now = () => Date.now(), pr
 
   /**
    * Build a system from a main/star pool. Small systems build inline and save;
-   * larger ones queue idempotently (execution key) for the lottery cron —
-   * which is slice 3, and the queue note says so rather than pointing at a
-   * command that does not exist on this platform.
+   * larger ones queue idempotently (execution key) for the lottery cron,
+   * whose `systems` job is their only consumer.
    */
   async function buildSystem(pools, actor = "system") {
     const store = requireStore();
@@ -608,7 +607,7 @@ export function createLotteryService({ store, config, now = () => Date.now(), pr
       plan,
       queued: true,
       run,
-      note: "background build queued — the lottery cron that processes it is not ported yet (slice 3); nothing consumes this queue today",
+      note: "background build queued — consumed by the lottery cron (npm run lottery:jobs); on a host that never runs it, the queue waits honestly",
     };
   }
 
@@ -1011,7 +1010,7 @@ export function createLotteryService({ store, config, now = () => Date.now(), pr
     };
   }
 
-  return Object.freeze({
+  const lotteryService = Object.freeze({
     status,
     drawCount,
     sync,
@@ -1038,6 +1037,9 @@ export function createLotteryService({ store, config, now = () => Date.now(), pr
     listMyTickets,
     ensureModelVersion,
     modelVersions,
+    resolvedRules: () => resolveRules(),
+    engines: () => engines(),
+    recordAudit,
     backtest,
     backtestCompare,
     listBacktests,
@@ -1054,4 +1056,11 @@ export function createLotteryService({ store, config, now = () => Date.now(), pr
     })),
     provider: chosenProvider,
   });
+  // The cron is the same object's consumer: it drives the very sync, check,
+  // backtest and system paths the routes use (never a private copy), so it is
+  // composed here over this service, exactly as the sports module composes
+  // its own. CLI-only (tools/lottery-jobs.mjs) — no HTTP route exists for it,
+  // and the scheduledJobs ledger label says why.
+  const cron = store ? createLotteryCronService({ lottery: lotteryService, store, now }) : null;
+  return Object.freeze({ ...lotteryService, cron });
 }

@@ -1157,15 +1157,15 @@ test("F-02 the status surface is honest about unported modules, and F-03 the rou
     /never overwrites a VERIFIED draw/i,
     /independence DISCLAIMER/i,
     /a default host has no provider and fabricates nothing/i,
-    /later slices, f-29/i,
-    /the queued background system builds have no consumer until the cron lands/i,
+    /the console screens are not ported \(f-29, platform-wide\)/i,
+    /systems consumer that finally drains the queued background builds/i,
     /nineteen lottery\.view reads/i,
     /eight lottery\.view POSTs/i,
     /three lottery\.manage writes/i,
   ]) {
     assert.match(lotteryLabel, pattern);
   }
-  assert.equal(body.modules.filter((module) => module.state === "partial").length, 6, "the public site (chat widget), execution (the remaining supervisor steps are broker-bound, no live route, no automated mode), scheduled jobs (no early-warning tiers, no sports/lottery cron), brokers (no verified adapter, no order routing), sports (measured but person-gated: nothing executed, no stake sized, no stored result trusted before a person attests, no verified vendor, no cron and no console screens) and lottery (combinations, ticket records and the measured half proven for parity; no cron or console screens) remain partial");
+  assert.equal(body.modules.filter((module) => module.state === "partial").length, 6, "the public site (chat widget), execution (the remaining supervisor steps are broker-bound, no live route, no automated mode), scheduled jobs (no early-warning tiers, no sports/lottery cron), brokers (no verified adapter, no order routing), sports (measured but person-gated: nothing executed, no stake sized, no stored result trusted before a person attests, no verified vendor, no cron and no console screens) and lottery (slices 1–5 ported and proven for parity; only the console screens are missing, F-29) remain partial");
   assert.equal(body.modules.filter((module) => module.state === "not-ported").length, 2, "language learning and lead discovery remain legacy-only");
   assert.equal(body.modules.length, 17, "the ledger keeps listing every module, ported or not");
   // The public status surface carries a market-data snapshot that must not have

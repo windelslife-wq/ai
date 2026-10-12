@@ -2,7 +2,37 @@
 
 **Updated:** 2026-10-13 · **Branch:** `arena/653d6218-ai`
 
-## Current Phase 24 status (2026-10-13)
+## Current Phase 25 status (2026-10-13)
+
+**The lottery cron is ported** (row 15, slice 5 — the scheduler row 15 has owed since slice 2
+queued its first background build). Seven execution-key-idempotent jobs in legacy's order — sync
+(once per day), health (read-only staleness), statistics (the data-integrity sweep, violations
+audited for manual correction), **systems** (the consumer that finally drains the queued
+background builds), tickets (auto post-draw checking; future-dated and archived tickets
+untouched), backtests (one per strategy per day, baseline included) and cleanup (the 90/30-day
+retention sweep) — CLI-only at `tools/lottery-jobs.mjs` (`npm run lottery:jobs`), **no HTTP
+route**, the route count honestly unchanged. The idempotency mechanism is legacy's own job-run
+table (`wf_lottery_sync_runs`), not the sports cron's window locks: `startLotteryJobRun` returns
+NULL on an existing key, a failed run's key still blocks the window, and the `systems` queue IS
+its job runs. Version **0.22.0**; the status matrix's lottery entry shrank **two areas → one**
+(console screens, F-29, platform-wide); `lottery` stays `partial` for that alone.
+
+The cleanup test caught a real slice-1 file-adapter bug: `deleteOldLotteryJobRuns` deleted by
+`{id}` while the table keys by `execution_key` — every prune was a silent no-op (the SQL adapter
+was correct; the old test asserted the count, not the effect). Fixed, comment at the delete.
+Full record: [`PHASE25_LOTTERY_CRON.md`](PHASE25_LOTTERY_CRON.md).
+
+Gates on this branch: `npm test` **970 / 970** across **66** files, `npm run check` exit 0
+(`verify:install` 29/29, 84 documented variables), PHP oracle **367 / 367**, and the legacy tree
+(`application/`, `system/`, `tests/`) unmodified. **Not run:** a real MySQL server, migrations
+001–019 against any database, any official feed, and a crontab — the CLI is proven by spawning
+the real tool against a real file store.
+
+**Still not ported (lottery):** the console screens only (F-29, platform-wide — no ported module
+has one). Platform-wide: F-15 (real MySQL), R-30 (file-adapter atomicity), row 22 (cutover), and
+the sports remainder (stake sizing, console screens).
+
+## Phase 24 status (2026-10-13) — superseded by Phase 25
 
 **The lottery's measured half is ported** (row 15, slice 4 — the Strategy Lab on slices 1–3's
 foundation). Four seeded strategies replay stored draws **without look-ahead** (test draw i sees

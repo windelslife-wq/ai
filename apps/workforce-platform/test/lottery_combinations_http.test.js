@@ -170,7 +170,8 @@ test("the generation permission is legacy's split: lottery.view may generate, ma
   const build = built.json();
   assert.equal(build.queued, true);
   assert.equal(build.plan.totalLines, 118755);
-  assert.match(build.note, /not ported yet \(slice 3\)/);
+  // Slice 5 landed the consumer; the note names it instead of promising a ghost.
+  assert.match(build.note, /consumed by the lottery cron/);
   assert.ok(build.run.execution_key.startsWith("system:EUROMILLIONS:"), "the execution key is the pool's md5");
   const { events } = await instance.store.listAuditEvents({ limit: 50, action: "lottery.system.queued" });
   assert.equal(events.length, 1);
