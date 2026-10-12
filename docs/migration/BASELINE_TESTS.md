@@ -811,3 +811,76 @@ Reproducibility note for this sandbox: `node_modules` does not persist between s
 `npm ci` inside `runtime/` (29 packages) were both required before the two runners above would
 start. A previously-green test failing with `ERR_MODULE_NOT_FOUND` on `bcryptjs` is that
 condition, not a regression.
+
+## Re-measured 2026-10-12 — Phase 14 (Broker Center: connector boundary, health and demo gates), branch `arena/8de8de2e-ai`, Node v22.22.3
+
+Same machine, same sandbox limits as the rows above. Everything below was executed for this
+phase; nothing is inherited from an earlier row.
+
+| Suite | Exact command | Result |
+|---|---|---|
+| Node platform (**39** files, was 36) | `cd apps/workforce-platform && npm test` | **689 passed, 0 failed** (~105 s) — was 616, **+73** |
+| Install verification | `cd apps/workforce-platform && npm run verify:install` | **29/29 checks**, **69** documented env vars (was 67). Migration list still reports **10** required — `001`–`010`, no new file |
+| AEGIS PHP/WASM (the parity oracle) | `node runtime/run-tests.mjs` | **367 passed, 0 failed**, 23.0 s — unchanged, and `git status --porcelain application/ system/ tests/` reports **0** modified paths |
+
+**Total executed in this sandbox for this phase: 1 056 passed, 0 failed** (689 app + 367 oracle).
+Scout (12), football-predictions (29) and the MT5-bridge `pytest` suite were **not** re-run:
+Phase 14 touches no path they exercise, and the bridge service itself is unchanged — this phase
+ports the *client* of its contract, not the contract.
+
+Three new files, **73** cases. **No new migration, no new contract method, no new table** —
+connector state is configuration plus probe results and neither is persisted. The only new
+persisted field is `brokerStates` inside the existing `PORTFOLIO_RISK_STATE_KEY` job-state
+document, exactly where legacy kept it.
+
+| File | Cases | Note |
+|---|---|---|
+| `test/brokers.test.js` | **57** (new) | The nine normalized data contracts and every refusal in them (negative account values, inverted quote, candle whose high is below its low, non-positive stop, unknown enum, unparseable timestamp, a present-and-null `symbol`, PHP `array_key_exists` semantics on the account row); the four-state ladder; a **nine-row gate table** each asserting the verdict *and* that `capabilities()` disagrees with it where it should — intent versus permission; **every write refused at every gate with an assertion that no order request reached the transport**; the forced re-probe on writes and the 5-second cache on reads; the health probe carrying **no token** while data reads carry one; secret non-leakage from a status or an error; order-body validation, clamping and the `action` wire key; ticket validation before it becomes a path segment; the manager's routing verdict in five configurations; duplicate-registration refusal; per-connector degradation to an `ERROR` entry; the ten-connector registry performing **zero I/O**; and roster↔config agreement including MT5's irregular variable names |
+| `test/brokers_http.test.js` | **6** (new) | The **F-32** permission gate at 401 anonymous / 403 without `trading.view` / 200 with it; the default body — ten `DISABLED` connectors, `routable: false`, nine `PLANNED` rows in legacy's wording — with no token, no loopback address and no `Bearer` anywhere in the serialized response; a route-inventory proof of exactly one broker route, no write route, no simulated-bridge toggle, and **every order-shaped route belonging to `/api/v1/paper`** (scoped with a non-vacuity guard, after an unscoped pattern matched paper's legitimate simulation routes); the probe-free public status surface; a configured-but-unreachable bridge reporting `DOWN` while `routable` stays false; and the config gate refusing a remote plain-HTTP URL, credentials inside a URL, a non-boolean flag and an out-of-range timeout |
+| `test/broker_transitions.test.js` | **10** (new) | Ten disabled connectors silent across two runs; `READY → DOWN` audited, broadcast `critical` and joining the alert list with **both dedupe keys asserted distinct** (the alert key is `broker:<id>:BROKER_DISCONNECTED`, the notification key is `broker:<id>:disconnected`); `DOWN → READY` audited and notified `info` with no alert; the one-cycle alert then reported cleared while still down (**BC-13**, pinned across three runs); unread-dedupe suppressing a second disconnect while both are audited; a dry run probing but writing nothing; **exactly one** `allStatus()` call per sweep (**BC-12**); no registry meaning no broker fields at all, so Phase 12's report shape is byte-identical; a throwing registry degrading to `brokerError` and zero alerts rather than a mass disconnect or a failed sweep; and `NOT_CONFIGURED` / `ERROR` / `DISABLED` never counting as a disconnect |
+
+**Four pre-existing assertions were updated, all of them ledger pins rather than behaviour:**
+the `trading.reason` regex in `test/platform_findings.test.js` and `test/analysis_http.test.js`
+(the reason string now explains that the connector boundary is ported but no order can be
+routed, and points at `routable` for the probed answer); the module-status ledger counts
+(`partial` 3 → **4**, `not-ported` 5 → **4**, 17 rows unchanged); one "other modules
+unaffected" assertion in `test/notifications_http.test.js` re-pointed from `brokers` to
+`sports`, because `brokers` is now legitimately `partial`; and four new label pins requiring
+the `brokers` label to say *all disabled by default*, *no order routing*, *no adapter verified
+against its provider* and *one read-only route*. `adminRoutes.length` stays **7**.
+
+**The strengthened F-33 gate is itself a measurement.** Enumerating prefix × suffix from the
+config's exported tables yields **71 composed variable names** (4 licensed-feed prefixes × 7
+suffixes, plus 10 broker prefixes × 5 suffixes with MT5's two overrides). **21 of them were
+pre-existing undocumented gaps** — `AEGIS_ETF_DATA_*`, `AEGIS_FUTURES_DATA_*`,
+`AEGIS_OPTIONS_DATA_*` — which the old literal-text scan could not see. All 71 are now in
+`.env.example`. Closing a blind spot in a gate should be expected to report pre-existing
+failures; that is the gate working.
+
+**Two defects were found by these tests and fixed before commit**, neither of which was
+visible by reading the port:
+
+| | Defect | How the test caught it |
+|---|---|---|
+| **D-20** | `read()` refused an array `data` payload. Legacy checked PHP's `is_array()`, which is true for a list *and* a map; the four list endpoints return a JSON array as `data` | A test asked for `history` from a bridge answering `{ok: true, data: []}`. The port would have rejected **every successful list read** — positions, orders, history and candles |
+| **D-21** | The config composed MT5's trading flags as `AEGIS_MT5_BRIDGE_TRADING_ENABLED`; legacy reads `AEGIS_MT5_TRADING_ENABLED` and `AEGIS_MT5_LIVE_ALLOWED`, **without** the `_BRIDGE` infix that its URL, token and enabled flag carry | A test set the legacy name and asserted the flag took effect. The uniform composition rule would have left the **only connector that can actually work** permanently switched off, with the documented variable silently doing nothing — F-30's shape, in configuration |
+
+**Not exercised, therefore not claimed.** No adapter has spoken to its provider: every gate
+test runs against an injected transport, which is how legacy tested its own bridge and is why
+the gates are provable here. **No order has been placed by any path** — `placeOrder` is tested
+to refuse, and to build a correct body against a fake transport; the one test that configures a
+connector points it at loopback port 9, where nothing listens. **Row 13's own acceptance
+criterion is unmet and cannot be met in this sandbox:** "verify MT5 against a real demo
+terminal before any real-routing claim" needs a Windows host running MetaTrader 5, and **no
+real-routing claim is made anywhere in this phase**. The PHP↔Node differential harness still
+does not exist (**F-26 stands**), although this phase made it the cheapest it has ever been:
+`BrokerDataNormalizer` is pure on both sides, its messages are byte-identical, and its
+timestamps now match. Concurrency and multi-process behaviour are unchanged (**F-24**), but
+note that broker probing adds an outbound call *inside* the sweep's lock, so a host with slow
+bridges now spends more of its lock TTL waiting; 8 s × 10 connectors is bounded but unmeasured
+against a real deployment. No real MySQL (**F-15**), unchanged rather than widened — this
+phase adds no SQL.
+
+Reproducibility note for this sandbox: `node_modules` does not persist between sessions, so
+`npm ci --no-audit --no-fund` at the repository root and a separate `npm ci` inside `runtime/`
+were both required before the two runners above would start.

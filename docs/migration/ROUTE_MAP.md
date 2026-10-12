@@ -504,6 +504,40 @@ lock, because a client that could clear one could wedge or unwedge the schedule.
 
 See [`PHASE12_SCHEDULED_JOBS.md`](PHASE12_SCHEDULED_JOBS.md), divergence SJ-10.
 
+### 14.14 Broker Center (1) — Phase 14
+
+Ports `GET /api/brokers` (`Api_system::brokers`). **One route, and it is a read.**
+
+| Method & path | Auth | Permission | Rate limit | Validated | Notes |
+|---|---|---|---|---|---|
+| `GET /api/v1/brokers` | session or bearer | `trading.view` | global | — | `GET /api/brokers`. Returns `{brokers, planned, routable, notice}`: every registered connector's state (`DISABLED` · `NOT_CONFIGURED` · `DOWN` · `READY` · `ERROR`) with its capabilities, the nine `PLANNED` adapters in legacy's own wording, and the one boolean that matters — whether any connector may actually route an order. **F-32:** legacy's `brokers()` made no `requirePermission` call, so any signed-in user could read connector health, and its siblings `mt5_account()` / `mt5_quote()` returned the broker login, currency, balance and equity to the same audience; Node requires `trading.view`. **BC-10:** `planned` and `routable` lived only in the legacy console view (`Brokers::index`), and no ported module has a console screen (F-29), so they move into the response rather than being lost |
+
+**No broker write route exists, and `test/brokers_http.test.js` asserts that from the
+route inventory rather than from a comment.** There is no order, modify, cancel or
+close endpoint; there is no connector-enable endpoint; and there is no equivalent of
+legacy's `Brokers::sim_toggle()`, which wrote a marker file that its dev front
+controller translated into `AEGIS_MT5_*` environment variables. Porting a toggle for a
+simulated bridge this platform does not have would advertise a capability that does not
+exist. Every order-shaped route in the inventory belongs to `/api/v1/paper` and reaches
+the simulation engine, never a connector.
+
+Order routing stays where legacy put it — exclusively in the execution supervisor — and
+stays unavailable: `BrokerManager::tradingConnector()` returns `null` unless a connector
+is order-capable **and** its own freshly probed status reports `READY` with
+`orderSubmissionEffective === true`, which requires the local trading flag, a bridge that
+also reports `tradingEnabled`, and a demo account unless live trading was separately and
+explicitly allowed.
+
+The public `/api/v1/system/status` surface reports `brokerConnectorAvailable: false` and
+a config-only `brokerConnectorsConfigured` count **without probing anything** (BC-11):
+that endpoint is unauthenticated, and the invariant it keeps is that an anonymous caller
+cannot make this server reach an outbound host. The probed answer is `routable` here.
+
+Legacy's `GET /api/brokers/mt5/account` and `/api/brokers/mt5/quote` are **not ported**.
+Both read a live bridge, and there is no verified adapter to read; a route that can only
+answer 503 is a worse surface than no route, and the connector methods behind them exist
+and are tested against an injected transport.
+
 ### 14.8 Strategies, backtesting and the journal (11) — Phase 6
 
 The Phase-6 routes are session-only with no permission gate, matching their legacy

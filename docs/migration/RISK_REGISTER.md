@@ -216,9 +216,101 @@ document without enforcement would recreate F-30). Recorded so the gap is not in
 `trading.view` for the read — and must port the limits *with* enforcement from the first
 commit, never as an echoed-back document nothing acts on.
 
+**Phase 14 status: still not ported, and now for a different reason.** Row 13's scope was
+reconciled in [`PHASE14_BROKER_CENTER.md`](PHASE14_BROKER_CENTER.md) and the connector
+boundary and health/demo gates shipped, but `automationLimits` did not. `automationModeGate()`
+is a gate on *enabling `FULLY_AUTOMATED`*, and enabling that mode is meaningless while
+`tradingConnector()` returns `null` — porting it now would produce a gate that always reports
+the same two reasons, which is the same settable-but-inert shape as F-30. It stays unported and
+is blocked on a verified adapter, not on scope. **F-32 below records that `automation_limits()`
+is one of six ungated reads in the same controller**, which upgrades this from an isolated
+omission to a pattern.
+
 The PHP source is authoritative and must not be modified during migration, so this is **not
 fixed in legacy**. If the PHP application remains reachable in production after cutover, the
 gap is live there and belongs in the cutover decision (row 22), not in this port. Related:
 AV-1, F-30, ES-6.
+
+### F-32 — the legacy system API authorized its writes and left its reads open (open, legacy-only)
+
+Found in Phase 14 while reconciling the broker connector surface
+([`PHASE14_BROKER_CENTER.md`](PHASE14_BROKER_CENTER.md)).
+
+`Api_system` gates **every write** and **most reads**, and then leaves a group of reads with
+no `requirePermission` call at all:
+
+| Ungated (any signed-in user) | Gated |
+|---|---|
+| `status`, `features` (**public**, in `PUBLIC_ACTIONS`) | `update_risk_limits`, `kill_switch`, `synthetic_paper`, `update_automation_limits`, `trading_mode` → `trading.control` |
+| `brokers`, `mt5_account`, `mt5_quote` | `execution_approvals`, `execution_recent`, `portfolio_scan` → `trading.view` |
+| `risk_limits`, `execution_preflight`, `automation_limits` | `execution_propose`, `execution_execute` → `trading.execute` |
+| | `notifications`, `notification_read_all` → `system.authenticated` |
+
+The pattern is not random: **writes are consistently gated, reads consistently are not.** This
+is AV-1 (Phase 10, `events()`) and F-31 (Phase 13, `automation_limits()`) generalized, and
+finding the same omission in three consecutive phases is what makes it a property of the
+legacy API rather than a run of oversights.
+
+**Severity varies enormously across the ungated group, and the two worst are broker-related:**
+
+* `mt5_account()` returns the broker `accountId` (**the login**), currency, balance, equity,
+  margin, free margin and leverage to any signed-in user.
+* `status` is **anonymous** and embeds `BrokerManager::allStatus()` plus the kill-switch state,
+  so an unauthenticated caller can enumerate connector health including `bridgeVersion`,
+  `accountType` and `simulated` — the exact fields that say whether a real bridge is live.
+
+The escalation path is trivial and needs no exploit: read `status` anonymously to learn a
+bridge is `READY`, sign in with any account, read the account snapshot. Compare
+`risk_limits()` (returns limits to the same user who cannot write them) and
+`execution_preflight()` (returns a governance verdict for a symbol the caller may not trade)
+— lower impact, same class.
+
+**Mitigated on the Node side in this phase:** `GET /api/v1/brokers` requires `trading.view`,
+and `mt5_account` / `mt5_quote` are **not ported at all** — a route that can only answer 503
+with no verified adapter is a worse surface than no route. The connector methods behind them
+exist and are tested against an injected transport, so they are two thin handlers once a real
+bridge is verified.
+
+**Not fixed in legacy.** The PHP source is authoritative and unmodified, so if the PHP
+application remains reachable in production after cutover, `mt5_account`, `automation_limits`,
+`risk_limits`, `execution_preflight` and `brokers` are still readable by any signed-in user
+there, and `status` still leaks connector health anonymously. **This belongs in the cutover
+decision (row 22): either the legacy API is retired, or these six reads are gated before
+cutover.** Related: AV-1, F-31, F-30, R-20.
+
+### F-33 — the configuration-documentation gate could not see a composed variable name (closed in Phase 14)
+
+Found in Phase 14 while documenting the broker connector settings.
+
+`verify:install` and the F-14 test both establish that every environment variable the config
+reads is documented in `.env.example`. Both do it by scanning `src/config.js` for **literal
+dotted reads** of the environment object. Every licensed-feed and broker setting is instead
+read through a **composed** name built from a prefix table — an array lookup whose key is
+assembled at runtime — which no regex over the source text can see.
+
+The consequence was real, not theoretical: `AEGIS_ETF_DATA_*`, `AEGIS_FUTURES_DATA_*` and
+`AEGIS_OPTIONS_DATA_*` — **21 variables across three licensed feed families** — had shipped
+undocumented with the gate reporting green. The 50 broker variables added by Phase 14 would
+have joined them, taking the blind spot to 71 knobs on a platform where
+**an undocumented knob is an unconfigurable one** (the principle F-14 exists to enforce).
+
+**How it was found matters more than what was found:** not by reading the gate, but by
+strengthening it. The test now enumerates prefix × suffix from the config's own exported
+tables (`LICENSED_ASSET_CLASSES`, `BROKER_CONNECTOR_ENV`, `brokerEnvNames`,
+`LICENSED_DATA_ENV_SUFFIXES`, `BROKER_ENV_SUFFIXES`) and requires each generated name to
+appear in `.env.example`. The strengthened gate immediately reported the 21 pre-existing gaps
+itself. Enumerating from `brokerEnvNames()` rather than a hand-written list is what keeps the
+gate from drifting when a prefix turns out to be irregular — which it did: MT5's trading flags
+are `AEGIS_MT5_TRADING_ENABLED` and `AEGIS_MT5_LIVE_ALLOWED`, **without** the `_BRIDGE`
+infix that its URL, token and enabled flag carry (divergence **D-21**).
+
+**Closed:** all 71 composed names are documented, the gate is derived from the same table the
+loader reads, and a future prefix cannot be documented and read inconsistently.
+
+**Lesson worth carrying forward:** a documentation gate is only as good as its ability to see
+the names the code actually uses. Two other gates in this repository work the same way — the
+route-inventory count and the persistence-contract length — and both enumerate a *live*
+structure rather than scanning source text, which is why neither has a comparable blind spot.
+**F-14 was the only one scanning text.** Related: F-14, F-30, F-31.
 
 — End of Phase 0 risk register.

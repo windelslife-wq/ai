@@ -58,6 +58,8 @@ export const LEGACY_ACTIONS = Object.freeze({
   cronRun: "CRON_RUN",
   riskAlert: "PORTFOLIO_RISK_ALERT",
   riskCleared: "PORTFOLIO_RISK_CLEARED",
+  brokerDisconnected: "BROKER_DISCONNECTED",
+  brokerConnected: "BROKER_CONNECTED",
 });
 
 /** Node's dotted audit vocabulary for the same events. */
@@ -65,10 +67,21 @@ export const AUDIT_ACTIONS = Object.freeze({
   cronRun: "system.job.run",
   riskAlert: "portfolio.risk.alert",
   riskCleared: "portfolio.risk.cleared",
+  brokerDisconnected: "brokers.connector.disconnected",
+  brokerConnected: "brokers.connector.connected",
 });
 
 /** The notification type Phase 9 declared and this module finally publishes (NV-6). */
 export const PORTFOLIO_RISK_NOTIFICATION_TYPE = "PORTFOLIO_RISK";
+
+/**
+ * The two broker-health notification types Phase 9 declared (NV-6), published here
+ * from the same sweep that publishes `PORTFOLIO_RISK` — because legacy published
+ * them from the same place too. `PortfolioRiskMonitor::brokerAlerts()` ran inside
+ * `scan()`, between the account checks and the transition diff.
+ */
+export const BROKER_DISCONNECTED_NOTIFICATION_TYPE = "BROKER_DISCONNECTED";
+export const BROKER_CONNECTED_NOTIFICATION_TYPE = "BROKER_CONNECTED";
 
 /**
  * Alert severities, most severe first.
@@ -148,6 +161,7 @@ export function createScheduledJobs({
   paper = null,
   execution = null,
   notifications = null,
+  brokers = null,
   log = null,
   now = () => Date.now(),
 } = {}) {
@@ -237,6 +251,138 @@ export function createScheduledJobs({
   }
 
   /**
+   * Legacy `PortfolioRiskMonitor::brokerAlerts()` — connector state transitions.
+   *
+   * Only two transitions mean anything, and legacy counted only those two:
+   * `READY -> DOWN` is a disconnect and `DOWN -> READY` is a reconnect. **`DISABLED`
+   * is never counted**, which is why a default deployment is silent rather than
+   * alerting on ten connectors nobody has enabled, and why a configuration change
+   * that disables an adapter is not reported as an outage.
+   *
+   * A disconnect is both an alert in the sweep's own vocabulary (so it participates
+   * in the `alertKeys` diff and is cleared when the connector returns) *and* an
+   * immediate `BROKER_DISCONNECTED` notification. A reconnect is only audited and
+   * notified — legacy did not add it to the alert list, because a working connector
+   * is not a risk condition.
+   *
+   * Note the two different dedupe keys, both preserved verbatim: the alert key is
+   * `broker:<id>:BROKER_DISCONNECTED` (the `<scope>:<code>` form every other alert
+   * uses) while the notification dedupe key is `broker:<id>:disconnected`. They are
+   * not the same string and never were; collapsing them would change which alerts
+   * Phase 9's unread-dedupe suppresses.
+   *
+   * @returns {Promise<{registryPresent:boolean, alerts:Array<object>, states:object|null,
+   *   disconnected:Array<string>, reconnected:Array<string>, memoryReadable:boolean, error:string|null}>}
+   */
+  async function brokerTransitions({ dryRun = false } = {}) {
+    const empty = { registryPresent: false, alerts: [], states: null, disconnected: [], reconnected: [], memoryReadable: true, error: null };
+    if (!brokers || typeof brokers.allStatus !== "function") return empty;
+
+    const observedAt = canonicalInstant(now());
+    let previous = {};
+    let memoryReadable = true;
+    try {
+      const state = typeof store.loadJobState === "function" ? await store.loadJobState(PORTFOLIO_RISK_STATE_KEY) : null;
+      previous = state?.brokerStates && typeof state.brokerStates === "object" ? state.brokerStates : {};
+    } catch (error) {
+      // Same distinction the portfolio memory makes: an unreadable baseline is a
+      // fault, not a first run, because it is about to re-alert on a known state.
+      memoryReadable = false;
+      log?.warn?.({ err: error }, "scheduled job could not read the persisted broker states");
+    }
+
+    // Legacy called `allStatus()` twice per scan — once here and once when saving
+    // `brokerStates`. Its 5-second health cache made the second call free; Node
+    // probes the same way but calls once and threads the result through, so a sweep
+    // cannot report a disconnect against one probe and persist a different state
+    // from another (divergence BC-12).
+    let statuses;
+    try {
+      statuses = await brokers.allStatus();
+    } catch (error) {
+      const reason = String(error?.message || error).slice(0, 240);
+      log?.error?.({ err: error }, "scheduled job could not read broker connector status");
+      return { ...empty, registryPresent: true, memoryReadable, error: reason };
+    }
+
+    const alerts = [];
+    const states = {};
+    const disconnected = [];
+    const reconnected = [];
+
+    for (const [id, status] of Object.entries(statuses ?? {})) {
+      const current = String(status?.state ?? "");
+      states[id] = current;
+      const was = Object.prototype.hasOwnProperty.call(previous, id) ? String(previous[id]) : null;
+
+      if (was === "READY" && current === "DOWN") {
+        disconnected.push(id);
+        alerts.push({
+          code: "BROKER_DISCONNECTED",
+          severity: "critical",
+          classified: true,
+          scope: `broker:${id}`,
+          detail: `connector ${id} was READY and is now DOWN`,
+          observedAt,
+          key: `broker:${id}:BROKER_DISCONNECTED`,
+          accountId: null,
+          accountName: null,
+          ownerUserId: null,
+        });
+        if (dryRun) continue;
+        await audit({
+          action: AUDIT_ACTIONS.brokerDisconnected,
+          entityType: "broker_connector",
+          entityId: id,
+          details: {
+            legacyAction: LEGACY_ACTIONS.brokerDisconnected,
+            summary: `Connector ${id} was READY and is now DOWN`,
+            broker: id,
+            from: "READY",
+            to: "DOWN",
+          },
+        });
+        await publish(
+          BROKER_DISCONNECTED_NOTIFICATION_TYPE,
+          "critical",
+          `Broker disconnected: ${id}`,
+          { broker: id, from: "READY", to: "DOWN" },
+          `broker:${id}:disconnected`,
+          null,
+        );
+        continue;
+      }
+
+      if (was === "DOWN" && current === "READY") {
+        reconnected.push(id);
+        if (dryRun) continue;
+        await audit({
+          action: AUDIT_ACTIONS.brokerConnected,
+          entityType: "broker_connector",
+          entityId: id,
+          details: {
+            legacyAction: LEGACY_ACTIONS.brokerConnected,
+            summary: `Connector ${id} reconnected (DOWN -> READY)`,
+            broker: id,
+            from: "DOWN",
+            to: "READY",
+          },
+        });
+        await publish(
+          BROKER_CONNECTED_NOTIFICATION_TYPE,
+          "info",
+          `Broker reconnected: ${id}`,
+          { broker: id, from: "DOWN", to: "READY" },
+          `broker:${id}:connected`,
+          null,
+        );
+      }
+    }
+
+    return { registryPresent: true, alerts, states, disconnected, reconnected, memoryReadable, error: null };
+  }
+
+  /**
    * Scan every paper account across every owner.
    *
    * Accounts are grouped by owner and each group goes through the already-ported
@@ -251,7 +397,7 @@ export function createScheduledJobs({
    *
    * @returns {Promise<{accountsScanned:number, alerts:Array<object>, owners:number, scanFailures:Array<object>, exhausted:boolean}>}
    */
-  async function portfolioRiskSweep({ limit = DEFAULT_ACCOUNT_LIMIT } = {}) {
+  async function portfolioRiskSweep({ limit = DEFAULT_ACCOUNT_LIMIT, dryRun = false } = {}) {
     requireStore();
     if (!paper || typeof paper.portfolioRiskScan !== "function") {
       const error = new Error("the portfolio risk sweep requires the paper trading service");
@@ -306,6 +452,12 @@ export function createScheduledJobs({
       }
     }
 
+    // Broker transitions join the same alert list, exactly where legacy put them:
+    // after the account checks and before the sort, so a `critical` disconnect
+    // ranks against the account breaches rather than in a separate report.
+    const brokerStep = await brokerTransitions({ dryRun });
+    alerts.push(...brokerStep.alerts);
+
     alerts.sort((a, b) => {
       const bySeverity = (SEVERITY_RANK[a.severity] ?? 99) - (SEVERITY_RANK[b.severity] ?? 99);
       return bySeverity !== 0 ? bySeverity : String(a.code).localeCompare(String(b.code));
@@ -317,6 +469,15 @@ export function createScheduledJobs({
       owners: byOwner.size,
       scanFailures,
       exhausted: accounts.length < bounded,
+      // `null` when no registry is wired, so a host without the broker module
+      // persists no `brokerStates` key at all rather than an empty object that
+      // would read as "ten connectors, all gone".
+      brokerStates: brokerStep.states,
+      brokerRegistryPresent: brokerStep.registryPresent,
+      brokerDisconnected: brokerStep.disconnected,
+      brokerReconnected: brokerStep.reconnected,
+      brokerMemoryReadable: brokerStep.memoryReadable,
+      brokerError: brokerStep.error,
     };
   }
 
@@ -331,7 +492,7 @@ export function createScheduledJobs({
    * operator who reads an alert would immediately get it again while the breach
    * persists. Legacy avoided that with `alertKeys`, and so does this.
    */
-  async function recordTransitions(alerts, { dryRun = false } = {}) {
+  async function recordTransitions(alerts, { dryRun = false, brokerStates = null } = {}) {
     const observedAt = canonicalInstant(now());
     let previous = {};
     // Two different reasons for "every alert looks new", and an operator needs to tell
@@ -431,6 +592,10 @@ export function createScheduledJobs({
           {
             lastScanAt: observedAt,
             alertKeys: current,
+            // Legacy persisted the connector states next to `alertKeys` in the same
+            // `portfolioRisk` document, and so does this — one memory, one write.
+            // Omitted entirely when no registry is wired (see `brokerStates: null`).
+            ...(brokerStates && typeof brokerStates === "object" ? { brokerStates } : {}),
             // The persisted report drops each alert's `key`, as legacy did, and also
             // `classified`: both are mechanism rather than finding. The key is what
             // the diff is computed from, and storing it inside the report would let a
@@ -477,6 +642,24 @@ export function createScheduledJobs({
    * @param {{holder?:string|null, lockTtlMs?:number, accountLimit?:number, proposalLimit?:number, timestamp?:number|null, dryRun?:boolean}} [options]
    * @returns {Promise<object>} the summary the CLI prints and the audit event records
    */
+  /**
+   * The broker portion of the risk summary.
+   *
+   * Returns an empty object when no registry is wired, so a host without the broker
+   * module reports exactly the summary shape it reported before this phase — the
+   * fields appear only where a connector could actually have been probed.
+   */
+  function brokerSummary(sweep) {
+    if (!sweep?.brokerRegistryPresent) return {};
+    return {
+      brokerConnectors: Object.keys(sweep.brokerStates ?? {}).length,
+      brokerDisconnected: sweep.brokerDisconnected ?? [],
+      brokerReconnected: sweep.brokerReconnected ?? [],
+      brokerMemoryReadable: sweep.brokerMemoryReadable,
+      brokerError: sweep.brokerError ?? null,
+    };
+  }
+
   async function runOperations({
     holder = null,
     lockTtlMs = DEFAULT_LOCK_TTL_MS,
@@ -508,8 +691,8 @@ export function createScheduledJobs({
       // Measured without the lock, so the report says explicitly that nothing was
       // reserved and a reader cannot mistake a dry run for a run that held the floor.
       try {
-        const sweep = await portfolioRiskSweep({ limit: accountLimit });
-        const transitions = await recordTransitions(sweep.alerts, { dryRun: true });
+        const sweep = await portfolioRiskSweep({ limit: accountLimit, dryRun: true });
+        const transitions = await recordTransitions(sweep.alerts, { dryRun: true, brokerStates: sweep.brokerStates });
         result.risk = {
           accountsScanned: sweep.accountsScanned,
           owners: sweep.owners,
@@ -523,6 +706,7 @@ export function createScheduledJobs({
           exhausted: sweep.exhausted,
           codes: [...new Set(sweep.alerts.map((alert) => alert.code))].sort(),
           unclassifiedCodes: [...new Set(sweep.alerts.filter((alert) => alert.classified === false).map((alert) => alert.code))].sort(),
+          ...brokerSummary(sweep),
           dryRun: true,
         };
       } catch (error) {
@@ -565,7 +749,7 @@ export function createScheduledJobs({
     try {
       try {
         const sweep = await portfolioRiskSweep({ limit: accountLimit });
-        const transitions = await recordTransitions(sweep.alerts);
+        const transitions = await recordTransitions(sweep.alerts, { brokerStates: sweep.brokerStates });
         result.risk = {
           accountsScanned: sweep.accountsScanned,
           owners: sweep.owners,
@@ -584,6 +768,7 @@ export function createScheduledJobs({
           // Surfaced in the summary rather than only in a test, because the code
           // that drifts is added in production, not in CI.
           unclassifiedCodes: [...new Set(sweep.alerts.filter((alert) => alert.classified === false).map((alert) => alert.code))].sort(),
+          ...brokerSummary(sweep),
         };
       } catch (error) {
         result.errors.push({ stage: "portfolio-risk-scan", reason: String(error?.message || error).slice(0, 240) });

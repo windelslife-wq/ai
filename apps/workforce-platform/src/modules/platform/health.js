@@ -85,7 +85,17 @@ export const MODULE_STATUS = Object.freeze([
   //   * no `sports_cron` or `lottery_cron`; those modules are not ported.
   // There is deliberately no HTTP route: `runOperations` takes no owner argument.
   { key: "scheduledJobs", label: "Scheduled operations cron: cross-owner portfolio risk sweep and stale-proposal expiry under a DB-backed lock (CLI only, no HTTP route, no early-warning tiers, no broker/sports/lottery cron)", state: "partial", tests: "unit + both adapters + CLI" },
-  { key: "brokers", label: "Broker connectors", state: "not-ported", tests: null },
+  // Phase 14 ports the connector *boundary* and its gates, not a working
+  // integration. What exists: the normalized data contracts every adapter must
+  // satisfy, the DISABLED -> NOT_CONFIGURED -> DOWN -> READY health ladder, and the
+  // order gates (local flag AND bridge-reported tradingEnabled AND a demo account
+  // unless live trading is separately allowed), all re-verified against a
+  // force-refreshed probe on every write. Legacy's ten connectors are registered and
+  // all are disabled by default. What does not exist: a verified adapter, an order
+  // path, or the simulated bridge legacy used for its offline demo. So `routable` is
+  // false on every host that has not deployed and verified a real bridge, and the
+  // label says that instead of letting `partial` imply a half-working broker.
+  { key: "brokers", label: "Broker connector boundary, normalized data contracts and demo-only order gates (ten adapters registered, all disabled by default; one read-only route, no order routing, no simulated bridge, no adapter verified against its provider)", state: "partial", tests: "unit + http + gates" },
   { key: "sports", label: "Sports intelligence", state: "not-ported", tests: null },
   { key: "lottery", label: "Lottery intelligence", state: "not-ported", tests: null },
   { key: "languageLearning", label: "Language learning and AI teacher", state: "not-ported", tests: null },
@@ -109,7 +119,24 @@ export function platformVersion() {
   return cachedVersion;
 }
 
-export async function healthRoutes(app, { store, config, adapter, router, marketData = null, analysis = null, notifications = null }) {
+/**
+ * Probe-free count of connectors this host has actually configured.
+ *
+ * Reads no state and opens no socket: `/system/status` is unauthenticated and every
+ * other field on it is computed the same way, so an anonymous caller cannot make
+ * this server reach an outbound host or do measurable work.
+ */
+function countConfiguredConnectors(brokers) {
+  if (!brokers || typeof brokers.configuredCount !== "function") return 0;
+  try {
+    const total = Number(brokers.configuredCount());
+    return Number.isFinite(total) && total > 0 ? Math.trunc(total) : 0;
+  } catch {
+    return 0;
+  }
+}
+
+export async function healthRoutes(app, { store, config, adapter, router, marketData = null, analysis = null, notifications = null, brokers = null }) {
   app.get("/health/live", async () => ({
     status: "ok",
     uptimeSeconds: Math.round(process.uptime()),
@@ -184,8 +211,20 @@ export async function healthRoutes(app, { store, config, adapter, router, market
         paperTradingAvailable: true,
         paperProposalWorkflowAvailable: true,
         liveTradingEnabled: false,
+        // Deliberately `false` on this surface rather than probed (BC-11).
+        // Answering it truthfully requires a health probe against every enabled
+        // bridge, and `/system/status` is unauthenticated: the invariant this
+        // snapshot holds — that an anonymous caller cannot make this server do work
+        // or reach an outbound host — is worth more than a live boolean here. The
+        // authoritative, probed answer is `routable` on the authenticated
+        // `GET /api/v1/brokers`. Understating live-trading capability on a public
+        // endpoint is also the safe direction to be wrong in, and it is stated
+        // rather than left to inference.
         brokerConnectorAvailable: false,
-        reason: "Paper accounts, proposal submissions and fills are simulation-only. Human approval and the existing paper risk/governance checks are required. The broader execution supervisor and every live broker/order route remain unavailable.",
+        // Config-only and probe-free: how many connectors this host has an enabled,
+        // reachable-looking configuration for. Zero on a default deployment.
+        brokerConnectorsConfigured: countConfiguredConnectors(brokers),
+        reason: "Paper accounts, proposal submissions and fills are simulation-only. Human approval and the existing paper risk/governance checks are required. The broker connector boundary and its demo-only order gates are ported, but no adapter is verified and no order can be routed; `brokerConnectorAvailable` is not probed on this unauthenticated surface — see `routable` on GET /api/v1/brokers.",
       },
     };
   });

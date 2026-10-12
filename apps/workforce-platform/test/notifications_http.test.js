@@ -399,5 +399,9 @@ test("the status surface reports notifications as ported and denies a delivery c
 
   const features = await instance.app.inject({ method: "GET", url: "/api/v1/system/features" });
   assert.equal(features.json().features.notifications, "ported");
-  assert.equal(features.json().features.brokers, "not-ported", "the other modules are unaffected by this port");
+  // `sports` rather than `brokers`: this assertion's point is that the notification
+  // port did not move any other module's state, and Phase 14 has since moved
+  // `brokers` to `partial` for its own reasons. Pinning a module no later phase
+  // touches keeps the intent intact instead of silently re-asserting a stale fact.
+  assert.equal(features.json().features.sports, "not-ported", "the other modules are unaffected by this port");
 });

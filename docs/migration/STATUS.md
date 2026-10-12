@@ -2,8 +2,72 @@
 
 **Updated:** 2026-10-12 · **Branch:** `arena/8de8de2e-ai`
 
+## Current Phase 14 status (2026-10-12)
 
-## Current Phase 13 status (2026-10-12)
+**The broker connector boundary and its gates are ported** (row 13). App version is now
+**0.13.0**. `brokers` moves from `not-ported` to `partial`, taking the ledger to **9 ported /
+4 partial / 4 not-ported** across **17** modules. Full record:
+[`PHASE14_BROKER_CENTER.md`](PHASE14_BROKER_CENTER.md).
+
+Row 13 asked for two things: port the connector boundary and health/demo gates, and verify
+MT5 against a real demo terminal before any real-routing claim. **The second cannot be done
+here** — there is no MetaTrader terminal in this sandbox — so it constrains the first: the
+boundary and the gates are ported and proven, and **no routing claim is made anywhere**.
+
+What exists now: the nine normalized data contracts every adapter must satisfy, with legacy's
+error messages byte-identical and legacy's timestamp shape preserved; the four-state health
+ladder `DISABLED → NOT_CONFIGURED → DOWN → READY`, where only `READY` carries the
+bridge-reported fields; the safety model — local flag **and** a bridge that also reports
+`tradingEnabled` **and** a demo account unless live trading is separately and explicitly
+allowed, all re-verified against a **force-refreshed** probe on every write; `BrokerManager`'s
+`tradingConnector()`, which returns `null` unless a connector is order-capable *and* `READY`
+*and* effective; and legacy's ten connectors registered in legacy's order under legacy's
+`AEGIS_*` variable names, all disabled by default. **One route, and it is a read**
+(`GET /api/v1/brokers`, `trading.view`), carrying the `PLANNED` honesty matrix that legacy
+showed only in its console.
+
+**This phase also publishes the last two broker notification types.** `BROKER_CONNECTED` and
+`BROKER_DISCONNECTED` came from `PortfolioRiskMonitor::brokerAlerts()`, inside the same cron
+sweep Phase 12 ported. `DISABLED` is never counted, so a default host with ten disabled
+connectors stays silent instead of raising ten critical alerts on its first run. **NV-6 now
+lists one unpublished type**, `SPORTS_MODEL_DRIFT` (row 14).
+
+**Two findings.** **F-32**: the legacy system API authorized its writes and left its reads
+open — `brokers()`, `mt5_account()`, `mt5_quote()`, `risk_limits()`, `execution_preflight()`
+and `automation_limits()` make no `requirePermission` call, and `status` is public, so
+connector health was anonymous and the broker **login, balance and equity** were readable by
+any signed-in user. That is AV-1 and F-31 again, and three instances across three phases is
+a property of the legacy API rather than a run of oversights. **F-33**: the documentation gate
+scans for literal dotted environment reads, so a name composed from a prefix table was
+invisible to it — 21 licensed-feed variables had already shipped undocumented with the gate
+green, and the 50 broker variables would have joined them. Found by strengthening the gate,
+which then reported the pre-existing gaps itself.
+
+Two defects were found by the new tests and fixed: **D-20**, `read()` refused an array `data`
+payload — legacy checked PHP's `is_array()`, true for a list *and* a map, so the port would
+have rejected **every successful list read**; and **D-21**, the config composed MT5's trading
+flags as `AEGIS_MT5_BRIDGE_TRADING_ENABLED` where legacy reads `AEGIS_MT5_TRADING_ENABLED`,
+which would have left the only connector that can actually work permanently switched off
+while the documented variable silently did nothing.
+
+**Deliberately not ported:** the simulated demo bridge (it would create the first
+order-routing path in this platform and needs a long-lived loopback listener that a
+Passenger host does not offer); the two MT5 read endpoints (a route that can only answer 503
+is worse than no route); and `automationLimits` / `automationModeGate` / the two automated
+modes, which stay blocked on a verified adapter rather than on scope.
+
+Gates: `npm test` **689 / 689** (was 616, **+73**), `verify:install` **29 / 29** with **69**
+documented config variables, PHP oracle **367 / 367** with **0** PHP paths modified, **81**
+routes (**7** admin), contract **86**, migrations **001–010**.
+
+**Not claimed:** no adapter has spoken to its provider — every gate test runs against an
+injected transport, which is how legacy tested its own bridge; **no order has been placed by
+any path**; the one configured connector in the tests points at loopback port 9, where
+nothing listens; the PHP↔Node differential harness still does not exist (**F-26**), although
+this phase made it cheap; and row 13's own verification criterion is unmet and unmeetable
+here.
+
+## Phase 13 status (2026-10-12)
 
 **The Execution Supervisor is reconciled, step by step** (row 12). App version is now
 **0.12.0**. Full record: [`PHASE13_EXECUTION_GOVERNANCE.md`](PHASE13_EXECUTION_GOVERNANCE.md).

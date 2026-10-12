@@ -44,6 +44,8 @@ import { notificationRoutes } from "./modules/notifications/routes.js";
 import { createNotificationService } from "./modules/notifications/service.js";
 import { portfolioRoutes } from "./modules/portfolio/routes.js";
 import { createPortfolioService } from "./modules/portfolio/service.js";
+import { brokerRoutes } from "./modules/brokers/routes.js";
+import { createBrokerRegistry } from "./modules/brokers/registry.js";
 
 const JSON_TYPE = "application/json; charset=utf-8";
 
@@ -145,6 +147,15 @@ export async function buildApp({ config, store, logger = true, publicDir = path.
   // must see the same caches, breakers and provenance stamps as the API does.
   const analysis = createAnalysisService({ store, marketData, log: app.log });
 
+  // One broker registry per app (row 13). All ten connectors legacy registered are
+  // registered here too, and all ten are disabled unless the host configured them.
+  // Registering is not enabling: an unconfigured connector reports DISABLED without
+  // performing any I/O, and `tradingConnector()` returns null unless a bridge is
+  // reachable, reports tradingEnabled, and holds a demo account (or live trading was
+  // separately and explicitly allowed). Nothing in this process is given a connector
+  // directly — the execution supervisor asks the manager, exactly as legacy did.
+  const brokers = createBrokerRegistry({ brokers: config.brokers });
+
   // One notification service per app. It is built before the paper service
   // because governance transitions publish through it, and it is handed to that
   // service as an *optional* collaborator: a host whose migration 009 has not
@@ -155,7 +166,7 @@ export async function buildApp({ config, store, logger = true, publicDir = path.
   // The status surface reports the notification module alongside market data and
   // analysis, so an operator can see that alerts are stored-and-read only and that
   // no outbound delivery channel exists.
-  await app.register(healthRoutes, { prefix: "/api/v1", store, config, adapter, router, marketData, analysis, notifications });
+  await app.register(healthRoutes, { prefix: "/api/v1", store, config, adapter, router, marketData, analysis, notifications, brokers });
   if (config.auth !== false) {
     await app.register(identityRoutes, { prefix: "/api/v1", store, config, loginGuard });
   }
@@ -194,9 +205,12 @@ export async function buildApp({ config, store, logger = true, publicDir = path.
   await app.register(portfolioRoutes, { prefix: "/api/v1", store, config, service: portfolio, marketData, concurrency });
   const paper = createPaperService({ store, marketData, strategies, notifications, log: app.log });
   await app.register(paperRoutes, { prefix: "/api/v1", store, config, service: paper, marketData, strategies, log: app.log });
-  const execution = createExecutionService({ store, paper, strategies, notifications, log: app.log });
+  const execution = createExecutionService({ store, paper, strategies, notifications, brokers, log: app.log });
   await app.register(executionRoutes, { prefix: "/api/v1", store, config, service: execution, paper, strategies, notifications, log: app.log });
   await app.register(notificationRoutes, { prefix: "/api/v1", store, config, service: notifications, log: app.log });
+  // Broker Center (row 13): one read-only route. There is no order endpoint and no
+  // connector-enable endpoint here — routing stays in the execution supervisor.
+  await app.register(brokerRoutes, { prefix: "/api/v1", store, config, brokers });
 
   /**
    * Scheduled operations (row 19): the portfolio risk sweep and the cross-owner
@@ -210,7 +224,7 @@ export async function buildApp({ config, store, logger = true, publicDir = path.
    * for the audit trail. The host's cron drives it through
    * `tools/scheduled-jobs.mjs`, which holds a `wf_job_locks` row for the duration.
    */
-  const jobs = createScheduledJobs({ store, paper, execution, notifications, log: app.log });
+  const jobs = createScheduledJobs({ store, paper, execution, notifications, brokers, log: app.log });
   const siteDocuments = createSiteDocuments({ config, store, log: app.log, rateLimiter, publicDir });
   for (const extra of config.modules || []) await app.register(extra, { prefix: "/api/v1", store, config, loginGuard });
 

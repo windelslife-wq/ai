@@ -140,7 +140,7 @@ function safeFailure(error) {
   };
 }
 
-export function createExecutionService({ store = null, paper = null, strategies = null, notifications = null, log = null, now = () => Date.now() } = {}) {
+export function createExecutionService({ store = null, paper = null, strategies = null, notifications = null, brokers = null, log = null, now = () => Date.now() } = {}) {
   function requireStore() {
     if (!store || typeof store.withPaperTransaction !== "function" || typeof store.findExecutionProposal !== "function") {
       throw AppError.unavailable("Execution proposals require a configured persistence adapter", { code: "EXECUTION_STORE_UNAVAILABLE", retryAfter: 30 });
@@ -241,7 +241,18 @@ export function createExecutionService({ store = null, paper = null, strategies 
   }
 
   /** The UTC `YYYYMMDD` legacy's `gmdate('Ymd')` produced, for the daily dedupe key. */
-  function utcDayStamp() {
+  /** Probe-free count of configured broker connectors; 0 when the registry is absent. */
+function configuredConnectorCount(brokers) {
+  if (!brokers || typeof brokers.configuredCount !== "function") return 0;
+  try {
+    const total = Number(brokers.configuredCount());
+    return Number.isFinite(total) && total > 0 ? Math.trunc(total) : 0;
+  } catch {
+    return 0;
+  }
+}
+
+function utcDayStamp() {
     return isoNow(now).slice(0, 10).replaceAll("-", "");
   }
 
@@ -844,7 +855,15 @@ export function createExecutionService({ store = null, paper = null, strategies 
       simulationOnly: true,
       paperSubmissionAvailable: Boolean(paper && typeof paper.submitOrder === "function"),
       liveTradingEnabled: false,
+      // Row 13 ports the connector boundary and its gates, and this stays `false`
+      // on purpose. It answers "could an order be routed", which needs a bridge
+      // health probe; `statusSnapshot()` is synchronous and this endpoint should not
+      // become as slow as the slowest configured adapter. The probed, authoritative
+      // answer is `routable` on `GET /api/v1/brokers`. The count below is
+      // config-only, so a host that set the env vars can see that they took effect
+      // without this snapshot reaching the network.
       brokerConnectorAvailable: false,
+      brokerConnectorsConfigured: configuredConnectorCount(brokers),
       automatedModesAvailable: false,
       approvalRequired: true,
       proposalExpiryMinutes: MAX_PROPOSAL_AGE_MS / 60_000,

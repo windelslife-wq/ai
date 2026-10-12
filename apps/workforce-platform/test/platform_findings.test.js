@@ -18,6 +18,7 @@ import { validateRequest, validationDetails, validationMessage } from "../src/ht
 import { contentTypeOf, boundaryOf, parseMultipart, readRawBody } from "../src/http/bodies.js";
 import { cacheControlFor, staticAssetPath } from "../src/http/static.js";
 import { AppError } from "../src/http/errors.js";
+import { brokerEnvNames, BROKER_CONNECTOR_ENV, LICENSED_ASSET_CLASSES, LICENSED_DATA_ENV_SUFFIXES } from "../src/config.js";
 import { buildCsp, isCrossSiteMutation, parseAllowedOrigins, resolveCors, securityHeaders } from "../src/security/headers.js";
 import { createLoginGuard, createRateLimiter } from "../src/security/ratelimit.js";
 import { avatarFileName, inspectImage, parseAvatarFileId, removeAvatarFile, validateImageUpload } from "../src/security/uploads.js";
@@ -1000,7 +1001,7 @@ test("F-02 the status surface is honest about unported modules, and F-03 the rou
   assert.equal(body.trading.enabled, true, "paper trading is available but remains simulation-only");
   assert.equal(body.trading.simulationOnly, true);
   assert.equal(body.trading.liveTradingEnabled, false);
-  assert.match(body.trading.reason, /broader execution supervisor and every live broker\/order route remain unavailable/i);
+  assert.match(body.trading.reason, /no adapter is verified and no order can be routed/i);
   assert.equal(body.trading.paperProposalWorkflowAvailable, true);
   assert.equal(body.modules.find((module) => module.key === "identity").state, "ported");
   assert.equal(body.modules.find((module) => module.key === "marketData").state, "ported", "market data was ported in Phase 4");
@@ -1040,6 +1041,15 @@ test("F-02 the status surface is honest about unported modules, and F-03 the rou
   assert.match(body.modules.find((module) => module.key === "execution").label, /broker-bound/i);
   assert.match(body.modules.find((module) => module.key === "execution").label, /no live route/i);
   assert.match(body.modules.find((module) => module.key === "execution").label, /no automated mode/i);
+  // Phase 14 ports the broker connector boundary. `partial` must say that what is
+  // missing is a *verified adapter and an order path*, not the boundary itself, or a
+  // reader cannot tell "half-built" from "built and switched off" — which is the
+  // whole distinction this module exists to make.
+  assert.equal(body.modules.find((module) => module.key === "brokers").state, "partial");
+  assert.match(body.modules.find((module) => module.key === "brokers").label, /all disabled by default/i);
+  assert.match(body.modules.find((module) => module.key === "brokers").label, /no order routing/i);
+  assert.match(body.modules.find((module) => module.key === "brokers").label, /no adapter verified against its provider/i);
+  assert.match(body.modules.find((module) => module.key === "brokers").label, /one read-only route/i);
   // Phase 12 ports `Tools::cron()` as a scheduled-jobs module. It is `partial` and
   // the label must carry the gap: legacy alerted at 80/70/60% of a limit as a
   // `warning` and at the limit as `critical`, while this port alerts only on the
@@ -1049,8 +1059,11 @@ test("F-02 the status surface is honest about unported modules, and F-03 the rou
   assert.match(body.modules.find((module) => module.key === "scheduledJobs").label, /no HTTP route/i);
   assert.match(body.modules.find((module) => module.key === "scheduledJobs").label, /no early-warning tiers/i);
   assert.match(body.modules.find((module) => module.key === "scheduledJobs").label, /CLI only/i);
-  assert.equal(body.modules.filter((module) => module.state === "partial").length, 3, "the public site (chat widget), execution (the remaining supervisor steps are broker-bound, no live route, no automated mode) and scheduled jobs (no early-warning tiers, no broker/sports/lottery cron) remain partial");
-  assert.equal(body.modules.filter((module) => module.state === "not-ported").length, 5, "brokers, sports, lottery, language learning and lead discovery remain legacy-only");
+  // Phase 14 moves `brokers` from not-ported to partial: the connector boundary, the
+  // normalized data contracts and the demo-only order gates are ported and tested,
+  // while no adapter is verified against its provider and no order can be routed.
+  assert.equal(body.modules.filter((module) => module.state === "partial").length, 4, "the public site (chat widget), execution (the remaining supervisor steps are broker-bound, no live route, no automated mode), scheduled jobs (no early-warning tiers, no sports/lottery cron) and brokers (no verified adapter, no order routing) remain partial");
+  assert.equal(body.modules.filter((module) => module.state === "not-ported").length, 4, "sports, lottery, language learning and lead discovery remain legacy-only");
   assert.equal(body.modules.length, 17, "the ledger keeps listing every module, ported or not");
   // The public status surface carries a market-data snapshot that must not have
   // probed an external host to produce it.
@@ -1223,6 +1236,24 @@ test("F-14 the example environment documents every variable and never defaults t
   const documented = new Set([...example.matchAll(/^#?\s*([A-Z][A-Z0-9_]{2,})=/gm)].map((match) => match[1]));
   const missing = [...referenced].filter((name) => !documented.has(name));
   assert.deepEqual(missing, [], "every variable the config reads must be documented");
+  // The scan above matches literal `env.NAME`, so a name composed at runtime —
+  // `env[`${prefix}_URL`]` — is invisible to it. That blind spot is F-33: all four
+  // licensed-feed prefixes and all ten broker connectors read their settings that
+  // way, so 110 real knobs could ship undocumented with this gate still green.
+  // Enumerate them from the config's own tables rather than trusting the scan.
+  const composed = new Set();
+  for (const entry of LICENSED_ASSET_CLASSES) {
+    for (const suffix of LICENSED_DATA_ENV_SUFFIXES) composed.add(`${entry.envPrefix}_${suffix}`);
+  }
+  for (const entry of BROKER_CONNECTOR_ENV) {
+    // Derived from the config's own name resolver, not recomposed here, because one
+    // connector (mt5-bridge) reads two irregular legacy names and a second rule
+    // would document variables the config never reads.
+    for (const name of Object.values(brokerEnvNames(entry))) composed.add(name);
+  }
+  assert.ok(composed.size >= 70, `expected the composed names to be enumerated, found ${composed.size}`);
+  const missingComposed = [...composed].filter((name) => !documented.has(name));
+  assert.deepEqual(missingComposed, [], "every composed variable the config reads must be documented");
   assert.match(example, /^NODE_ENV=development$/m, "an example file headed for development must not set NODE_ENV=production");
   for (const name of ["LEGACY_DB_HOST", "LEGACY_DB_NAME", "LEGACY_DB_USER", "LEGACY_DB_PASSWORD", "SESSION_SECRET", "STORAGE_DIR", "UPLOAD_DIR", "RATE_LIMIT_API_MAX", "LOGIN_LOCKOUT_FAILURES", "CORS_ALLOWED_ORIGINS", "PASSWORD_MIN_LENGTH"]) {
     assert.ok(documented.has(name), `${name} was the specific gap: undocumented knobs are unconfigurable`);

@@ -299,7 +299,7 @@ function loadSiteConfig(env, { production, publicBaseUrl }) {
  *    host that must never show a synthetic candle can say so and get an error
  *    instead of a fallback.
  */
-const LICENSED_ASSET_CLASSES = Object.freeze([
+export const LICENSED_ASSET_CLASSES = Object.freeze([
   { assetClass: "stock", envPrefix: "AEGIS_STOCK_DATA", displayName: "Licensed stock data", priority: 30 },
   { assetClass: "etf", envPrefix: "AEGIS_ETF_DATA", displayName: "Licensed ETF data", priority: 31 },
   { assetClass: "futures", envPrefix: "AEGIS_FUTURES_DATA", displayName: "Licensed futures data", priority: 32 },
@@ -331,6 +331,135 @@ function symbolList(value) {
     .map((entry) => entry.trim().toUpperCase())
     .filter(Boolean)
     .slice(0, 500));
+}
+
+/**
+ * Broker connector configuration (module: brokers, row 13).
+ *
+ * Environment names are legacy's verbatim (`AEGIS_MT5_BRIDGE_URL`,
+ * `AEGIS_BINANCE_CONNECTOR_ENABLED`, …) so an existing deployment's broker
+ * settings carry across unchanged. The `AEGIS_` prefix is already used here for
+ * the licensed market-data providers above.
+ *
+ * This list carries only the id↔prefix pairing, because `config.js` must not
+ * import from a module. `modules/brokers/registry.js` owns the display names,
+ * market classes and verification text, and a test asserts the two lists agree —
+ * a connector added to the roster without config wiring would otherwise fail
+ * silently, reading as `DISABLED` forever with no variable that could enable it.
+ *
+ * Every flag defaults to **off**. Nothing here can enable an integration by
+ * accident, and `LIVE_ALLOWED` is a third, separate switch on top of `ENABLED`
+ * and `TRADING_ENABLED` — legacy's rule that no provider is ever silently live.
+ */
+export const BROKER_CONNECTOR_ENV = Object.freeze([
+  {
+    id: "mt5-bridge",
+    envPrefix: "AEGIS_MT5_BRIDGE",
+    // Legacy's MT5 connector is irregular: its URL, token and enable flag are
+    // `AEGIS_MT5_BRIDGE_*`, but its two trading flags are `AEGIS_MT5_TRADING_ENABLED`
+    // and `AEGIS_MT5_LIVE_ALLOWED` — no `_BRIDGE`. `DemoBridgeConfig` writes exactly
+    // those names. Spelling the exception out instead of composing it is what makes
+    // an existing cPanel environment work unchanged.
+    tradingEnabledEnv: "AEGIS_MT5_TRADING_ENABLED",
+    liveAllowedEnv: "AEGIS_MT5_LIVE_ALLOWED",
+  },
+  { id: "mt4-bridge", envPrefix: "AEGIS_MT4_BRIDGE" },
+  { id: "binance", envPrefix: "AEGIS_BINANCE_CONNECTOR" },
+  { id: "bybit", envPrefix: "AEGIS_BYBIT_CONNECTOR" },
+  { id: "okx", envPrefix: "AEGIS_OKX_CONNECTOR" },
+  { id: "coinbase", envPrefix: "AEGIS_COINBASE_CONNECTOR" },
+  { id: "kraken", envPrefix: "AEGIS_KRAKEN_CONNECTOR" },
+  { id: "ib", envPrefix: "AEGIS_IB_CONNECTOR" },
+  { id: "alpaca", envPrefix: "AEGIS_ALPACA_CONNECTOR" },
+  { id: "oanda", envPrefix: "AEGIS_OANDA_CONNECTOR" },
+]);
+
+/**
+ * The variable suffixes each prefix table composes at runtime.
+ *
+ * Exported because `F-14` cannot see a composed name: its scan matches a literal
+ * dotted read of an UPPER_SNAKE key off the environment object, so a bracketed
+ * lookup built from one of these prefixes is invisible to it and every one of
+ * these knobs could ship undocumented with the gate still green (**F-33**). The
+ * documentation test enumerates prefix × suffix from these tables instead of
+ * trusting the scan.
+ *
+ * Wording note: this comment deliberately avoids writing a dotted example, because
+ * the scanner reads comments too and a literal illustration here becomes a phantom
+ * variable the documentation gate then demands be documented.
+ */
+export const LICENSED_DATA_ENV_SUFFIXES = Object.freeze(["URL", "HEALTH_URL", "TOKEN", "LICENSE", "ENABLED", "DELAYED", "SYMBOLS"]);
+export const BROKER_ENV_SUFFIXES = Object.freeze(["URL", "TOKEN", "ENABLED", "TRADING_ENABLED", "LIVE_ALLOWED"]);
+
+/**
+ * The five variable names one connector actually reads.
+ *
+ * Single source of truth for both the loader and the documentation gate, so a
+ * composed name and a read name cannot drift apart. Entries may override the two
+ * trading flags, which is how legacy's irregular MT5 spelling is preserved.
+ */
+export function brokerEnvNames(entry) {
+  const prefix = entry.envPrefix;
+  return Object.freeze({
+    url: `${prefix}_URL`,
+    token: `${prefix}_TOKEN`,
+    enabled: `${prefix}_ENABLED`,
+    tradingEnabled: entry.tradingEnabledEnv ?? `${prefix}_TRADING_ENABLED`,
+    liveAllowed: entry.liveAllowedEnv ?? `${prefix}_LIVE_ALLOWED`,
+  });
+}
+
+/** Hosts for which a plain-HTTP bridge URL is legitimate even in production. */
+const LOOPBACK_HOSTS = Object.freeze(new Set(["localhost", "127.0.0.1", "[::1]", "::1"]));
+
+/**
+ * Like `httpsBaseUrl`, but a **loopback** bridge may stay on http:// in
+ * production. The MT5 bridge is a separate service on the same host or LAN
+ * (`python-services/mt5-bridge`), and legacy's own demo-bridge rule required the
+ * URL to be loopback; demanding TLS for a localhost socket would push operators
+ * toward self-signed certificates, which is a worse outcome than the plain
+ * loopback it replaces. Credentials in the URL are refused in every mode, and
+ * only the origin is kept — never a path or query string.
+ */
+function brokerBaseUrl(value, name, { production }) {
+  const raw = String(value || "").trim();
+  if (!raw) return null;
+  let parsed;
+  try {
+    parsed = new URL(raw);
+  } catch {
+    throw new Error(`${name} must be an absolute URL`);
+  }
+  if (parsed.username || parsed.password) throw new Error(`${name} must not contain credentials`);
+  const loopback = LOOPBACK_HOSTS.has(parsed.hostname);
+  if (parsed.protocol !== "https:" && !(parsed.protocol === "http:" && (!production || loopback))) {
+    throw new Error(`${name} must use https:// in production (http:// is allowed only for a loopback bridge)`);
+  }
+  return parsed.origin;
+}
+
+function loadBrokerConfig(env, { production }) {
+  const connectors = {};
+  for (const entry of BROKER_CONNECTOR_ENV) {
+    const names = brokerEnvNames(entry);
+    connectors[entry.id] = Object.freeze({
+      url: brokerBaseUrl(env[names.url], names.url, { production }),
+      token: String(env[names.token] || "").trim(),
+      enabled: boolean(env[names.enabled], names.enabled, false),
+      tradingEnabled: boolean(env[names.tradingEnabled], names.tradingEnabled, false),
+      liveAllowed: boolean(env[names.liveAllowed], names.liveAllowed, false),
+    });
+  }
+
+  return Object.freeze({
+    connectors: Object.freeze(connectors),
+    // Legacy used an 8 s timeout in the generic connector and 5 s in the MT5
+    // bridge. One budget applies to every connector here; it is deliberately
+    // shorter than the market-data deadline because a bridge call sits on the
+    // order path, where waiting is worse than failing.
+    requestTimeoutMs: integer(env.BROKER_REQUEST_TIMEOUT_MS, "BROKER_REQUEST_TIMEOUT_MS", { fallback: 8_000, min: 1_000, max: 60_000 }),
+    healthTtlMs: integer(env.BROKER_HEALTH_TTL_MS, "BROKER_HEALTH_TTL_MS", { fallback: 5_000, min: 1_000, max: 60_000 }),
+  });
 }
 
 function loadMarketDataConfig(env, { production }) {
@@ -453,6 +582,7 @@ export function loadConfig(env = process.env) {
     storage,
     site: loadSiteConfig(env, { production, publicBaseUrl }),
     marketData: loadMarketDataConfig(env, { production }),
+    brokers: loadBrokerConfig(env, { production }),
     analysis: loadAnalysisConfig(env),
     uploads: loadUploadConfig(env, { production }),
     rateLimit: loadRateLimitConfig(env),
