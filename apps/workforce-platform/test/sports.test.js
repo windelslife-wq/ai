@@ -519,7 +519,7 @@ test("a default host registers no provider at all", async () => {
   assert.equal(report.enabled, false);
   assert.equal(report.mode, "SANDBOX");
   assert.equal(report.isDemoData, true);
-  assert.equal(report.ticketEngine, "NOT_PORTED");
+  assert.equal(report.ticketEngine, "ON_REQUEST");
   // Legacy's own wording, because it is the sentence that says nothing was invented.
   assert.equal(report.message, "No sports provider is configured. No fixtures, odds, predictions, or tickets are fabricated.");
 });
@@ -588,13 +588,13 @@ test("the not-ported matrix names every slice row 14 still owes", async () => {
   const service = createSportsService({ config: sportsConfig(), now: () => NOW });
   const report = await service.status();
   assert.equal(report.notPorted, SPORTS_NOT_PORTED);
-  // Nine, not ten: "fixture, odds and result ingestion" graduated out of this matrix
-  // in Phase 16 when migration 011 gave it somewhere to write. Asserting the count
-  // moved DOWN is the point — a matrix that only ever grows is a matrix nobody checks
-  // for entries that are no longer true.
-  assert.equal(SPORTS_NOT_PORTED.length, 9);
+  // Six, down from seven. Phase 16 removed ingestion, slice 3 removed predictions and the
+  // configuration service, and slice 4 removed correlation and ticket governance, which now
+  // exist. Asserting the count moved DOWN is the point:
+  // a matrix that only ever grows is a matrix nobody checks for entries that are no longer true.
+  assert.equal(SPORTS_NOT_PORTED.length, 6);
   const areas = SPORTS_NOT_PORTED.map((entry) => entry.area).join(" | ");
-  for (const expected of ["predictions", "value and staking", "ticket governance", "settlement", "calibration", "backtesting", "model monitoring", "configuration service", "dashboards"]) {
+  for (const expected of ["stake sizing", "settlement", "calibration", "backtesting", "model monitoring", "dashboards"]) {
     assert.match(areas, new RegExp(expected, "i"), `the matrix must name ${expected}`);
   }
   for (const entry of SPORTS_NOT_PORTED) {
@@ -628,7 +628,7 @@ test("statusSnapshot() is synchronous, probe-free and reports configuration only
   assert.equal(snapshot.simulatedProviders, 1);
   assert.equal(snapshot.persistence, false, "stated as a fact about this slice, not implied by empty arrays");
   assert.equal(snapshot.notPortedAreas, SPORTS_NOT_PORTED.length);
-  assert.equal(snapshot.ticketEngine, "NOT_PORTED");
+  assert.equal(snapshot.ticketEngine, "ON_REQUEST");
   assert.equal(snapshot.derivedStatus, undefined, "no derived health on a surface that has witnessed nothing");
   assert.match(snapshot.reason, /GET \/api\/v1\/sports\/status/);
   // Deep-freeze: the snapshot is embedded in an unauthenticated response.

@@ -25,6 +25,16 @@
 
 import { AppError } from "../../http/errors.js";
 import { createAuthenticator, requirePermission } from "../platform/guards.js";
+import {
+  BOOLEAN_FIELDS,
+  CORRELATION_LIMITS,
+  ENGINE_MODES,
+  LIST_FIELDS,
+  NUMBER_FIELDS,
+  PLATFORM_MODES,
+  RISK_LEVELS,
+  VOID_POLICIES,
+} from "./configuration.js";
 
 /**
  * The status route's query contract.
@@ -125,6 +135,104 @@ const SYNC_BODY = Object.freeze({
     executionKey: Object.freeze({ type: "string", required: true, minLength: 1, maxLength: 128 }),
     fixtureExternalId: Object.freeze({ type: "string", maxLength: 128 }),
     query: Object.freeze({ type: "object" }),
+  }),
+});
+
+// ── decision-chain schemas (slice 3) ─────────────────────────────────────────
+
+const CALIBRATION_PARAMS = Object.freeze({
+  calibrationId: Object.freeze({ type: "integer", required: true, min: 1 }),
+});
+
+const PREDICTION_PARAMS = Object.freeze({
+  predictionId: Object.freeze({ type: "string", required: true, minLength: 1, maxLength: 40 }),
+});
+
+const LIMIT_QUERY = Object.freeze({
+  limit: Object.freeze({ type: "integer", default: 50, min: 1, max: 200 }),
+});
+
+const WINDOW_QUERY = Object.freeze({
+  windowDays: Object.freeze({ type: "integer", default: 90, min: 1, max: 3650 }),
+});
+
+// Literal lists, matching `CALIBRATION_STATUSES` and `PREDICTION_DECISIONS` in
+// `persistence/sports-rows.js`. The repository checks them again, so a drift would fail
+// closed rather than silently match nothing.
+const CALIBRATIONS_QUERY = Object.freeze({
+  status: Object.freeze({ type: "string", values: ["PENDING", "APPROVED", "REJECTED"] }),
+  modelVersionId: Object.freeze({ type: "integer", min: 1 }),
+  limit: Object.freeze({ type: "integer", default: 50, min: 1, max: 200 }),
+});
+
+// ── ticket schemas (slice 4) ─────────────────────────────────────────────────
+
+const TICKET_APPROVALS = ["PENDING_USER_APPROVAL", "APPROVED_NOT_EXECUTED", "REJECTED"];
+
+const TICKET_PARAMS = Object.freeze({
+  ticketId: Object.freeze({ type: "string", required: true, minLength: 1, maxLength: 40 }),
+});
+
+const TICKETS_QUERY = Object.freeze({
+  approvalStatus: Object.freeze({ type: "string", values: TICKET_APPROVALS }),
+  runDate: Object.freeze({ type: "string", maxLength: 10 }),
+  limit: Object.freeze({ type: "integer", default: 50, min: 1, max: 200 }),
+});
+
+const DAILY_RUNS_QUERY = Object.freeze({
+  limit: Object.freeze({ type: "integer", default: 50, min: 1, max: 200 }),
+});
+
+const DAILY_RUN_BODY = Object.freeze({
+  type: "object",
+  properties: Object.freeze({
+    // The UTC day to generate for. Omitted means today (UTC), as legacy's `gmdate('Y-m-d')`.
+    date: Object.freeze({ type: "string", maxLength: 10 }),
+  }),
+});
+
+const TICKET_DECISION_BODY = Object.freeze({
+  type: "object",
+  required: ["approve"],
+  properties: Object.freeze({
+    approve: Object.freeze({ type: "boolean", required: true }),
+    reason: Object.freeze({ type: "string", maxLength: 500 }),
+  }),
+});
+
+const PREDICTIONS_QUERY = Object.freeze({
+  matchId: Object.freeze({ type: "integer", min: 1 }),
+  modelVersionId: Object.freeze({ type: "integer", min: 1 }),
+  decision: Object.freeze({ type: "string", values: ["PREDICTION_READY", "NO_PREDICTION"] }),
+  limit: Object.freeze({ type: "integer", default: 50, min: 1, max: 200 }),
+});
+
+/**
+ * The configuration patch. Every editable field is declared, because the validator drops
+ * undeclared keys (the body is rebuilt from its schema). Types come from the configuration
+ * module's own field lists, so the schema cannot drift from `validateConfiguration`.
+ * `reason` is optional HERE on purpose: a missing or blank reason is refused by the
+ * service as 422, the same status legacy returns, instead of a generic 400.
+ */
+const CONFIGURATION_BODY = Object.freeze({
+  type: "object",
+  properties: Object.freeze({
+    reason: Object.freeze({ type: "string", maxLength: 4000 }),
+    ...Object.fromEntries(BOOLEAN_FIELDS.map((field) => [field, Object.freeze({ type: "boolean" })])),
+    platform_mode: Object.freeze({ type: "string", values: PLATFORM_MODES }),
+    engine_mode: Object.freeze({ type: "string", values: ENGINE_MODES }),
+    risk_level: Object.freeze({ type: "string", values: RISK_LEVELS }),
+    max_correlation: Object.freeze({ type: "string", values: CORRELATION_LIMITS }),
+    void_policy: Object.freeze({ type: "string", values: VOID_POLICIES }),
+    ...Object.fromEntries(NUMBER_FIELDS.map((field) => [field, Object.freeze({
+      type: field === "max_selections" || field === "min_data_quality" ? "integer" : "number",
+    })])),
+    min_liquidity: Object.freeze({ type: "number", nullable: true }),
+    ...Object.fromEntries(LIST_FIELDS.map((field) => [field, Object.freeze({
+      type: "array",
+      maxItems: 100,
+      items: Object.freeze({ type: "string", minLength: 1, maxLength: 64 }),
+    })])),
   }),
 });
 
@@ -371,6 +479,162 @@ export function sportsRoutes(app, { config, store, sports = null }) {
     executionKey: request.body.executionKey,
     fixtureExternalId: request.body.fixtureExternalId ?? null,
     query: request.body.query ?? {},
+    actorId: actorOf(request),
+  })));
+
+  // ── decision chain (slice 3) ──────────────────────────────────────────────
+  // Every read and write goes through the intelligence service, which owns the inputs,
+  // the audit trail and the refusals. These handlers add no logic of their own.
+  // Configuration is read and changed under `sports.manage`: it sets the engine mode and
+  // its limits, which is an administrator's concern. Everything else is `sports.view`.
+  const intel = sports.intelligence;
+
+  app.get("/sports/configuration", { preHandler: manage }, async () => guarded(intel.configuration()));
+
+  app.get("/sports/configuration/versions", {
+    preHandler: manage,
+    querySchema: LIMIT_QUERY,
+  }, async (request) => {
+    const versions = await guarded(intel.configurationVersions(request.query.limit));
+    return { versions, count: versions.length };
+  });
+
+  /**
+   * Publish the next configuration version. Append-only. `AUTOMATED_EXECUTION` is refused
+   * whatever the body says (DV-14), because the allow-flag is not a request field.
+   */
+  app.patch("/sports/configuration", {
+    preHandler: manage,
+    bodySchema: CONFIGURATION_BODY,
+  }, async (request) => {
+    const { reason, ...patch } = request.body;
+    return guarded(intel.updateConfiguration({ patch, reason: reason ?? "", actorId: actorOf(request) }));
+  });
+
+  app.get("/sports/models", { preHandler: view }, async () => {
+    const models = await guarded(intel.listModels());
+    return { models, count: models.length };
+  });
+
+  /**
+   * Model performance. `samples` is 0 and the metrics are null until settlement exists
+   * (slice 5); ticket metrics are NOT_PORTED, not zero.
+   */
+  app.get("/sports/models/performance", {
+    preHandler: view,
+    querySchema: WINDOW_QUERY,
+  }, async (request) => guarded(intel.modelPerformance({ windowDays: request.query.windowDays })));
+
+  app.get("/sports/calibrations", {
+    preHandler: view,
+    querySchema: CALIBRATIONS_QUERY,
+  }, async (request) => {
+    const { limit, ...filter } = request.query;
+    const calibrations = await guarded(intel.listCalibrations(filter, limit));
+    return { calibrations, count: calibrations.length };
+  });
+
+  /** Refused in this slice (422): a fit needs settled outcomes, which settlement will supply. */
+  app.post("/sports/calibrations/fit", { preHandler: manage }, async () => guarded(intel.fitCalibration()));
+
+  app.post("/sports/calibrations/:calibrationId/approve", {
+    preHandler: manage,
+    paramsSchema: CALIBRATION_PARAMS,
+  }, async (request) => guarded(intel.decideCalibration({
+    id: request.params.calibrationId,
+    decision: "APPROVED",
+    actorId: actorOf(request),
+  })));
+
+  app.post("/sports/calibrations/:calibrationId/reject", {
+    preHandler: manage,
+    paramsSchema: CALIBRATION_PARAMS,
+  }, async (request) => guarded(intel.decideCalibration({
+    id: request.params.calibrationId,
+    decision: "REJECTED",
+    actorId: actorOf(request),
+  })));
+
+  /**
+   * Record a decision for a fixture. Gated `sports.manage`: it writes evidence, and an
+   * operator asked for it. Quality is re-assessed from the current price (F-38), so no
+   * stored assessment is needed; a fixture that does not exist is a 404.
+   */
+  app.post("/sports/matches/:matchId/evaluate", {
+    preHandler: manage,
+    paramsSchema: MATCH_PARAMS,
+  }, async (request) => guarded(intel.evaluateMatch({
+    matchId: request.params.matchId,
+    actorId: actorOf(request),
+  })));
+
+  /** What the chain would conclude now, with nothing stored. */
+  app.get("/sports/matches/:matchId/intelligence", {
+    preHandler: view,
+    paramsSchema: MATCH_PARAMS,
+  }, async (request) => guarded(intel.matchIntelligence(request.params.matchId)));
+
+  app.get("/sports/predictions", {
+    preHandler: view,
+    querySchema: PREDICTIONS_QUERY,
+  }, async (request) => {
+    const { limit, ...filter } = request.query;
+    const predictions = await guarded(intel.listPredictions(filter, limit));
+    return { predictions, count: predictions.length };
+  });
+
+  app.get("/sports/predictions/:predictionId/decision", {
+    preHandler: view,
+    paramsSchema: PREDICTION_PARAMS,
+  }, async (request) => guarded(intel.predictionDecision(request.params.predictionId)));
+
+  // ── tickets (slice 4) ─────────────────────────────────────────────────────
+  // Generating a run is an operator's action (`sports.manage`). Reading is `sports.view`.
+  // Deciding a ticket is `sports.approve`, the permission legacy's `Api_sports` checks, and
+  // it records a decision only: nothing is executed.
+
+  /**
+   * Run the daily ticket generation for one UTC day over the fixtures already stored. A
+   * second run for the same day and configuration version is DUPLICATE_SKIPPED.
+   */
+  app.post("/sports/daily-tickets/run", {
+    preHandler: manage,
+    bodySchema: DAILY_RUN_BODY,
+  }, async (request) => guarded(sports.tickets.runDaily({
+    date: request.body?.date ?? null,
+    actorId: actorOf(request),
+  })));
+
+  app.get("/sports/daily-tickets", {
+    preHandler: view,
+    querySchema: DAILY_RUNS_QUERY,
+  }, async (request) => {
+    const runs = await guarded(sports.tickets.listDailyRuns(request.query.limit));
+    return { runs, count: runs.length };
+  });
+
+  app.get("/sports/tickets", {
+    preHandler: view,
+    querySchema: TICKETS_QUERY,
+  }, async (request) => {
+    const { limit, ...filter } = request.query;
+    const tickets = await guarded(sports.tickets.listTickets(filter, limit));
+    return { tickets, count: tickets.length };
+  });
+
+  app.get("/sports/tickets/:ticketId", {
+    preHandler: view,
+    paramsSchema: TICKET_PARAMS,
+  }, async (request) => guarded(sports.tickets.getTicket(request.params.ticketId)));
+
+  app.post("/sports/tickets/:ticketId/decision", {
+    preHandler: guardFor("sports.approve"),
+    paramsSchema: TICKET_PARAMS,
+    bodySchema: TICKET_DECISION_BODY,
+  }, async (request) => guarded(sports.tickets.decideTicket({
+    id: request.params.ticketId,
+    approve: request.body.approve,
+    reason: request.body.reason ?? "",
     actorId: actorOf(request),
   })));
 }

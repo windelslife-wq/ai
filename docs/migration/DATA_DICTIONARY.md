@@ -484,3 +484,47 @@ Real MySQL/MariaDB execution has not been performed (finding F-15): behaviour is
 file adapter, and the SQL shapes, bound parameters, `ON DUPLICATE KEY UPDATE` upserts and
 `LIMIT` bounds against a recording executor.
 See [`PHASE16_SPORTS_PERSISTENCE.md`](PHASE16_SPORTS_PERSISTENCE.md).
+
+## 13. Node platform schema — Sports Intelligence decision chain (Phase 17; `012_sports_intelligence.sql`)
+
+> The platform table count is **35**: 31 before Phase 17, plus the four tables below. Migration
+> `012` is the decision chain. Its tables are written only by `SportsIntelligenceService`, and
+> `wf_sports_predictions` is insert-only.
+
+| Table | Purpose | Keys and constraints that carry meaning |
+|---|---|---|
+| `wf_sports_model_versions` | The registry of model identities. A decision names the version it used. | `UNIQUE (model_name, model_version, feature_version, calibration_version)`. The uncalibrated state is `calibration_version = ''`, not NULL, because a UNIQUE key treats NULLs as distinct. |
+| `wf_sports_predictions` | One immutable decision per evaluation: the raw and calibrated probability, implied probability, expected value, confidence, risk, correlation, the data-quality score, the verdict and the gate's **full** rejection list. | `id` is `prd_` plus 24 lower-case hex digits. `correlation` defaults to `UNKNOWN` (SP-32). `rejection_reasons` and `factors` are JSON in `LONGTEXT`. No update or delete path (SP-31). |
+| `wf_sports_configurations` | Versioned engine configuration. Rows are appended, never changed. | `UNIQUE (version)`. A lost race returns `null`, mapped to 409 (SP-29). `engine_mode` never accepts `AUTOMATED_EXECUTION` from a request (DV-14). |
+| `wf_sports_calibrations` | Fitted calibrations, with their status and who decided them. | `method` is `platt` or `identity` (F-37). `status` is `PENDING`, `APPROVED` or `REJECTED`. Decisions are compare-and-set on PENDING (SP-28). `approved_by` and `approved_at` are stamped on a rejection too (SP-27). |
+
+Cross-table references. `wf_sports_predictions` refers to a fixture in `wf_sports_matches` and to a row in
+`wf_sports_model_versions`. Migration 012 declares **no foreign keys**, so the intelligence service checks that the
+fixture exists before it writes a decision (404 otherwise, `intelligence-service.js`). The database does not enforce
+these references.
+
+See [`PHASE17_SPORTS_DECISION_CHAIN.md`](PHASE17_SPORTS_DECISION_CHAIN.md) §5.
+
+## 14. Node platform schema — Sports Intelligence tickets (Phase 18; `013_sports_tickets.sql`)
+
+> The platform table count is **38**: 35 before Phase 18, plus the three tables below. Migration `013` is the
+> ticket engine. Its tables are written only by the ticket service (`ticket-service.js`, through the repository), and no column in
+> them names a stake that is sized, a wager, a payout, a bookmaker account or an order. A ticket records what was
+> proposed and who decided it. It cannot record whether it won, because settlement is slice 5.
+
+| Table | Purpose | Keys and constraints that carry meaning |
+|---|---|---|
+| `wf_sports_tickets` | One recorded combination. | `id` VARCHAR(40) **PK**, `tkt_` plus 16 hex, generated before the insert. `status` is `PENDING` until a person decides, and the engine never writes `APPROVED` (DV-22). `approval_status` is `PENDING_USER_APPROVAL`, `APPROVED_NOT_EXECUTED` or `REJECTED`. `settlement_status` is `PENDING`. `stake` is the configured stake, copied, not sized. `confidence` is NULL when no leg had a measured confidence. |
+| `wf_sports_ticket_selections` | One leg of a ticket, linked to its prediction by id. | `id` **PK** AI. `ticket_id` and `prediction_id` are indexed. `result` is NULL until settlement decides it. `correlation_reasons` is a JSON array of the pairwise reasons. |
+| `wf_sports_daily_tickets` | One daily run, per UTC day and configuration version. | `id` **PK** AI. `UNIQUE (run_date, configuration_version)`: the claim is an insert on this key. `status` is `RUNNING`, then `NO_QUALIFIED_TICKET` (also the status of a run that throws, with the error in `message` and `errors`, DV-23) or `PENDING_USER_APPROVAL`. `DUPLICATE_SKIPPED` is never stored. `simulated_refused` counts candidates excluded for being simulated (DV-20). |
+
+Cross-table references are by convention. `wf_sports_ticket_selections.ticket_id` refers to `wf_sports_tickets`,
+`prediction_id` to `wf_sports_predictions`, and `wf_sports_daily_tickets.ticket_id` to `wf_sports_tickets`. Migration
+013 declares **no foreign keys**. The repository writes a ticket and its legs in one transaction on MySQL, and the
+file adapter does not (R-30).
+
+Timestamps are canonical UTC strings. Probabilities and odds are `DECIMAL`. JSON-shaped fields are `LONGTEXT`.
+
+**Still absent, owed by slice 5:** any settlement or result column on a ticket or leg, `wf_sports_backtests`,
+`wf_sports_model_metrics` and `wf_sports_performance_snapshots`.
+

@@ -475,4 +475,92 @@ cannot "helpfully" start using it and silently change every derived status.
 Related: F-26 (the harness that made the monitor comparable), F-30 and F-31 (the same
 declared-but-inert shape), SP-15, SP-21, SP-22.
 
+### F-36 — legacy's Brier score is always 0.0 (found in Phase 17; the port does not reproduce it)
+
+`CalibrationEngine::evaluate` accumulates `(int) (($p - $y) ** 2)`. A squared error between two
+probabilities is always below 1, so the cast is always 0. The reported Brier score, and
+`identityBrier` with it, is **always 0.0**. The model-performance `brier` inherits the defect.
+
+The port computes the real squared error, and the parity test asserts the difference explicitly
+rather than treating the two as equal. Anyone comparing a Node Brier with a legacy figure must know
+that the legacy figure measured nothing. **Open in legacy**, which is the rollback target and is not
+modified.
+
+### F-37 — legacy's calibration is linear, Node's is logistic, and the identity fallback's output depends on the map (found in Phase 17)
+
+Three facts, each verified in the PHP and in the port.
+
+1. Legacy `PredictionEngine` applies `intercept + slope · raw` **linearly**. Legacy `CalibrationEngine::apply`
+   applies the logistic map. The two disagree, and the linear form is the one that reaches a decision.
+2. The port uses the **logistic** map everywhere (DV-12, user-chosen). That changes decisions: a case that is
+   fully qualified is `REJECTED` with `LOW_MODEL_EDGE` under the linear form and `QUALIFIED` under the logistic form.
+3. The identity fallback, used when a fit is degenerate, is `sigmoid(raw)` under the logistic map and `raw` under
+   legacy's linear `PredictionEngine`. Legacy's fallback keeps the method `platt`, so the stored label does not say
+   which output it produces. **The user chose `raw`** (DV-19). The port stores the fallback with method `identity` and returns the raw
+   probability, so a stored fallback is distinguishable from a fitted line that happens to be 0 + 1·x.
+
+**Mitigation.** The method label, the golden test (`isIdentityFallback`) and PHASE17 §3 make the divergence
+visible. **Residual risk:** a calibration measured on the identity has ECE and Brier values that describe the raw
+probability, not a calibration. Those are reported with `method: identity`, and `fitCalibration` never presents them as a learned fit.
+
+### F-38 — the stored quality assessment could not qualify any decision (found in Phase 17; closed by re-assessment)
+
+`latestSportsQuality` is written at sync, which assesses without odds and without recent form, as the sync code
+states it does for legacy (SP-22). Legacy's `Api_sports` reads that stored assessment (`Api_sports.php:90`).
+Legacy's `DailyTicketService` (`:101`) re-assesses with the current odds before it evaluates. Slice 3 first
+reproduced the legacy controller, and every decision was refused on a READY prediction.
+
+**Closed.** The user chose re-assessment, and `evaluate` now re-assesses from the current price, the provider's
+derived reliability and the recent form in `payload.context`. The stored row is never written by the evaluation.
+Reliability is derived from stored sync history, so a provider with no history scores 0.
+
+**New risk, open.** A sandbox fixture with a fresh price now reaches `QUALIFIED`, labelled `simulated: true`. Legacy's
+gate ignores the flag too, so the port matches. Slice 3 creates no ticket from it. Whether a `simulated` decision
+should be allowed to qualify is open (PHASE17 §9, decision 3). A real provider has not been connected, so this
+cannot yet reach a real fixture.
+
+Related: SP-22, DV-18, DV-19, F-15, NV-6.
+
 — End of Phase 0 risk register.
+
+## Additions after Phase 18 (2026-10-12, branch `arena/7577d922-ai`)
+
+### R-29 — A daily ticket run stuck in RUNNING blocks its day and configuration version, with no recovery route (open)
+
+**Risk.** A run claims `(run_date, configuration_version)` before any work and finishes it after. A crash, or a
+process stopped mid-run, leaves the row `RUNNING`. The claim is an insert on a unique key, so every later run for
+that day and version reports `DUPLICATE_SKIPPED`, and nothing in the API clears the row.
+
+**Mitigation / owner.** None yet. Before any scheduled run (`SportsCronService`, still unported), add a recovery
+route or an operator procedure that finishes an abandoned run and records who did it and why. The status it writes is decided with that route. Related: DV-23.
+
+### R-30 — The file adapter writes a ticket and its legs in separate appends (open)
+
+**Risk.** `saveSportsTicket` on the file adapter appends the ticket and then each leg. A crash between the appends
+leaves a ticket with missing legs, which reads as a combination with fewer selections than it was recorded with.
+The MySQL adapter writes them in one transaction, and a test proves it rolls back whole.
+
+**Mitigation / owner.** Acceptable while the file adapter is test or sandbox storage. Before the file adapter holds
+anything real, make the ticket write atomic or check on read that every ticket has its legs.
+
+### R-31 — An approved ticket is a record, and a reader may take `APPROVED_NOT_EXECUTED` as an order (mitigated)
+
+**Risk.** A person approves a ticket and the status reads as approval. A reader who does not know the engine has no
+execution path could take it as instruction to place a bet.
+
+**Mitigation.** The status name says `NOT_EXECUTED`, every decision audit carries `externalExecution: false`, and no
+route, table or column reaches a paper, order or broker path. Owner: the slice that adds any execution connector
+must revisit this before it lands.
+
+### R-32 — F-39: the port's ticket composition differs from legacy's production behaviour (open, decided)
+
+**Risk.** Legacy's team and competition correlation checks never fire, so two selections that share a team are LOW
+and can share a ticket. The port runs the checks as documented, so it refuses some pairs legacy would place. The
+ticket a person sees is therefore not the one legacy would have produced for the same day.
+
+**Mitigation.** The difference is pinned by `sports_tickets_parity.test.js` (the pipeline-shaped pair is LOW, the
+port-shaped twin HIGH), so it is visible rather than silent. **Decided:** the user chose the documented checks (PHASE18 §9, decision 2). The residual risk is
+that tickets differ from legacy's production output, which is the reason for the decision.
+
+Related: F-39, F-40, DV-20, DV-21, DV-22, DV-23, R-29.
+
