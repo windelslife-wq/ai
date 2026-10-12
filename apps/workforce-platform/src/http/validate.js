@@ -199,6 +199,16 @@ function validateNode(schema, input, field, issues, options) {
       // separated: the array answers "which of my keys are mandatory", and a
       // `true` value — which only an `items` node can now carry — is handled there.
       const requiredList = Array.isArray(schema.required) ? schema.required : [];
+      // `additionalProperties: true` with no declared properties is a PASSTHROUGH:
+      // the value was already type-checked as a plain object above, and its inner
+      // keys travel untouched. This is how a route accepts caller-shaped JSON that
+      // a service stores verbatim (e.g. a lottery ticket's free-form configuration,
+      // the port of legacy's json_decode'd column) without the framework having to
+      // enumerate keys it cannot know. Without it the key-stripping below would
+      // silently reduce the object to `{}`.
+      if (schema.additionalProperties === true && Object.keys(properties).length === 0) {
+        break;
+      }
       const next = {};
       for (const [key, childSchema] of Object.entries(properties)) {
         const result = validateNode(

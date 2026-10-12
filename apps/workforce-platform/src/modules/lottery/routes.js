@@ -22,6 +22,7 @@
 import { AppError } from "../../http/errors.js";
 import { SYNC_LINE_LIMIT } from "./system.js";
 import { createAuthenticator, requirePermission } from "../platform/guards.js";
+import { userHasPermission } from "../identity/service.js";
 
 const DRAW_PARAMS = Object.freeze({
   drawId: Object.freeze({ type: "integer", required: true, min: 1 }),
@@ -118,6 +119,28 @@ const SYSTEM_BUILD_BODY = Object.freeze({
   properties: Object.freeze({
     mains: Object.freeze({ type: "array" }),
     stars: Object.freeze({ type: "array" }),
+  }),
+});
+
+const TICKETS_QUERY = Object.freeze({
+  limit: Object.freeze({ type: "integer", min: 1, max: 500 }),
+});
+
+const TICKET_PARAMS = Object.freeze({
+  ticketId: Object.freeze({ type: "integer", required: true, min: 1 }),
+});
+
+const TICKET_BODY = Object.freeze({
+  type: "object",
+  properties: Object.freeze({
+    name: Object.freeze({ type: "string", maxLength: 200 }),
+    lines: Object.freeze({ type: "array" }),
+    generationMethod: Object.freeze({ type: "string", maxLength: 32 }),
+    drawDate: Object.freeze({ type: "string", maxLength: 10, nullable: true }),
+    modelVersion: Object.freeze({ type: "string", maxLength: 64, nullable: true }),
+    // Free-form caller JSON, stored verbatim (legacy's json_decode'd column) —
+    // the validator's declared passthrough keeps its keys intact.
+    configuration: Object.freeze({ type: "object", additionalProperties: true }),
   }),
 });
 
@@ -348,6 +371,60 @@ export function lotteryRoutes(app, { config, store, lottery = null }) {
       { mains: Array.isArray(body.mains) ? body.mains : [], stars: Array.isArray(body.stars) ? body.stars : [] },
       String(actorOf(request) ?? "system"),
     ));
+  });
+
+  // ── saved tickets (slice 3, lottery.view — records, never purchases) ─────────
+
+  /** The caller's own tickets, newest first (spec §38 — never other users'). */
+  app.get("/lottery/tickets", { preHandler: view, querySchema: TICKETS_QUERY }, async (request) => {
+    return { tickets: await service().listMyTickets(actorOf(request), request.query?.limit ?? 50) };
+  });
+
+  /**
+   * Create the caller's own ticket. Every line is validated before anything is
+   * stored — one bad line rejects the whole ticket (legacy's contract).
+   */
+  app.post("/lottery/tickets", { preHandler: view, bodySchema: TICKET_BODY }, async (request) => {
+    const body = request.body ?? {};
+    // Legacy's controller envelope: the stored row AND its lines, separately.
+    const ticket = await guarded(service().createTicket(
+      actorOf(request),
+      String(body.name ?? ""),
+      Array.isArray(body.lines) ? body.lines : [],
+      String(body.generationMethod ?? "MANUAL"),
+      body.drawDate ?? null,
+      body.modelVersion ?? null,
+      body.configuration && typeof body.configuration === "object" ? body.configuration : {},
+    ));
+    return { ticket, lines: ticket.lines };
+  });
+
+  /** Ticket detail — own tickets, or an administrator with lottery.manage sees any. */
+  app.get("/lottery/tickets/:ticketId", { preHandler: view, paramsSchema: TICKET_PARAMS }, async (request) => {
+    const isAdmin = userHasPermission(request.auth?.permissions ?? [], "lottery.manage");
+    const ticket = await service().ticketDetail(request.params.ticketId, isAdmin ? null : actorOf(request));
+    if (!ticket) throw new AppError(404, "LOTTERY_TICKET_NOT_FOUND", "ticket not found");
+    return { ticket };
+  });
+
+  /**
+   * Compare the ticket against the stored VERIFIED draw (spec §29). A ticket is
+   * checkable only by its owner; a draw that has not landed yet is legacy's 409.
+   */
+  app.post("/lottery/tickets/:ticketId/check", { preHandler: view, bodySchema: EMPTY_BODY, paramsSchema: TICKET_PARAMS }, async (request) => {
+    const result = await service().checkTicket(request.params.ticketId, actorOf(request), actorOf(request));
+    if (result === null) throw new AppError(404, "LOTTERY_TICKET_NOT_FOUND", "ticket not found");
+    if ((result.status ?? "") === "NO_DRAW") {
+      throw new AppError(409, "LOTTERY_NO_DRAW_TO_CHECK", "no stored draw to compare yet (sync the provider first)");
+    }
+    return result;
+  });
+
+  /** Archive (soft delete) the caller's own ticket. */
+  app.post("/lottery/tickets/:ticketId/delete", { preHandler: view, bodySchema: EMPTY_BODY, paramsSchema: TICKET_PARAMS }, async (request) => {
+    const archived = await service().archiveTicket(request.params.ticketId, actorOf(request), actorOf(request));
+    if (!archived) throw new AppError(404, "LOTTERY_TICKET_NOT_FOUND", "ticket not found");
+    return { archived: request.params.ticketId };
   });
 
   // ── writes (lottery.manage + POST + CSRF) ────────────────────────────────────

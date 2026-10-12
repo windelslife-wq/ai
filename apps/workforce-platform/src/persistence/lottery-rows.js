@@ -369,3 +369,71 @@ export function lotteryAiDecisionRow(row) {
     created_at: String(row.created_at),
   };
 }
+
+// ── tickets (slice 3) ─────────────────────────────────────────────────────────
+
+const TICKET_STATUSES = Object.freeze(["OPEN", "CHECKED", "ARCHIVED"]);
+export const LOTTERY_TICKET_METHODS = Object.freeze(["MANUAL", "RANDOM", "BALANCED", "HISTORICAL", "DIVERSIFIED", "ANTI-POPULAR"]);
+
+/**
+ * A ticket record: a named, user-scoped set of number lines. `draw_date` is
+ * nullable (the caller may target "the latest draw"); `result` is null until a
+ * check fills it, and holds the per-line outcome JSON — tier LABELS only, never
+ * an amount. `configuration` is the caller's own JSON, decoded on read.
+ */
+export function prepareLotteryTicket({ userId, lotteryCode, name, drawDate, generationMethod, modelVersion, configuration, status, result, createdAt, updatedAt }) {
+  return {
+    user_id: assertRowId(userId, "user_id"),
+    lottery_code: assertLotteryCode(lotteryCode),
+    name: assertText(name, 120, "name"),
+    draw_date: drawDate === null || drawDate === undefined ? null : assertDrawDate(drawDate),
+    generation_method: assertEnum(generationMethod, LOTTERY_TICKET_METHODS, "generation_method"),
+    model_version: assertText(modelVersion, 64, "model_version"),
+    configuration: encodeJson(configuration),
+    status: assertEnum(status, TICKET_STATUSES, "status"),
+    result: result === null || result === undefined ? null : encodeJson(result),
+    created_at: assertInstant(createdAt, "created_at"),
+    updated_at: assertInstant(updatedAt, "updated_at"),
+  };
+}
+
+export function lotteryTicketRow(row) {
+  if (!row) return null;
+  return {
+    id: Number(row.id),
+    user_id: Number(row.user_id),
+    lottery_code: String(row.lottery_code),
+    name: String(row.name),
+    draw_date: row.draw_date === null || row.draw_date === undefined || row.draw_date === "" ? null : String(row.draw_date),
+    generation_method: String(row.generation_method),
+    model_version: String(row.model_version),
+    configuration: decodeJson(row.configuration, {}),
+    status: String(row.status),
+    result: row.result === null || row.result === undefined || row.result === "" ? null : decodeJson(row.result, null),
+    created_at: String(row.created_at),
+    updated_at: String(row.updated_at),
+  };
+}
+
+/** One ticket line: its position is its order AS GIVEN at save time. */
+export function prepareLotteryTicketLine({ ticketId, position, mains, stars, createdAt }) {
+  return {
+    ticket_id: assertRowId(ticketId, "ticket_id"),
+    position: nonNegativeInt(position, "position"),
+    mains: encodeJson(mains),
+    stars: encodeJson(stars),
+    created_at: assertInstant(createdAt, "created_at"),
+  };
+}
+
+export function lotteryTicketLineRow(row) {
+  if (!row) return null;
+  return {
+    id: Number(row.id),
+    ticket_id: Number(row.ticket_id),
+    position: Number(row.position),
+    mains: decodeJson(row.mains, []),
+    stars: decodeJson(row.stars, []),
+    created_at: String(row.created_at),
+  };
+}

@@ -39,11 +39,17 @@ import {
   lotterySyncRunRow,
   lotteryCombinationRow,
   lotteryAiDecisionRow,
+  lotteryTicketRow,
+  lotteryTicketLineRow,
   prepareLotteryCombination,
   prepareLotteryAiDecision,
+  prepareLotteryTicket,
+  prepareLotteryTicketLine,
   prepareLotteryDraw,
 } from "../persistence/lottery-rows.js";
 import {
+  assertEnum,
+  assertInstant,
   assertRowId,
   assertText,
   optionalRowId,
@@ -89,6 +95,14 @@ export function createLotteryRepository(executor) {
       [id],
     );
     return lotteryAiDecisionRow(rows?.[0] ?? null);
+  }
+
+  async function findLotteryTicketById(id) {
+    const [rows] = await executor.query(
+      `SELECT * FROM wf_lottery_tickets WHERE id = ? LIMIT 1`,
+      [id],
+    );
+    return lotteryTicketRow(rows?.[0] ?? null);
   }
 
   const repo = {
@@ -566,11 +580,124 @@ export function createLotteryRepository(executor) {
       );
       return (rows ?? []).map(lotteryAiDecisionRow);
     },
+
+    // ── tickets (slice 3) ────────────────────────────────────────────────────
+    // User isolation is IN the statement (spec §38): the user_id filter is part
+    // of the SQL, never an afterthought in a route.
+
+    async saveLotteryTicket(input) {
+      const i = input && typeof input === "object" ? input : {};
+      const record = prepareLotteryTicket({
+        userId: i.userId,
+        lotteryCode: i.lotteryCode,
+        name: i.name,
+        drawDate: i.drawDate ?? null,
+        generationMethod: i.generationMethod,
+        modelVersion: i.modelVersion,
+        configuration: i.configuration,
+        status: i.status,
+        result: i.result ?? null,
+        createdAt: i.createdAt,
+        updatedAt: i.updatedAt,
+      });
+      const [result] = await executor.execute(
+        `INSERT INTO wf_lottery_tickets
+           (user_id, lottery_code, name, draw_date, generation_method, model_version, configuration, status, result, created_at, updated_at)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+        [
+          record.user_id, record.lottery_code, record.name, record.draw_date,
+          record.generation_method, record.model_version, record.configuration,
+          record.status, record.result, record.created_at, record.updated_at,
+        ],
+      );
+      return { row: await findLotteryTicketById(result.insertId), created: true };
+    },
+
+    async findLotteryTicket(id, userId = null) {
+      const scoped = userId === null || userId === undefined ? null : assertRowId(userId, "user_id");
+      if (scoped !== null) {
+        const [rows] = await executor.query(
+          `SELECT * FROM wf_lottery_tickets WHERE id = ? AND user_id = ? LIMIT 1`,
+          [assertRowId(id, "id"), scoped],
+        );
+        return lotteryTicketRow(rows?.[0] ?? null);
+      }
+      return findLotteryTicketById(assertRowId(id, "id"));
+    },
+
+    async listLotteryTickets(userId, limit = 50) {
+      const bounded = Math.min(500, Math.max(1, toInt(limit, 50)));
+      const [rows] = await executor.query(
+        `SELECT * FROM wf_lottery_tickets WHERE user_id = ? ORDER BY id DESC LIMIT ${bounded}`,
+        [assertRowId(userId, "user_id")],
+      );
+      return (rows ?? []).map(lotteryTicketRow);
+    },
+
+    async listAllLotteryTickets(limit = 200) {
+      const bounded = Math.min(1000, Math.max(1, toInt(limit, 200)));
+      const [rows] = await executor.query(
+        `SELECT * FROM wf_lottery_tickets ORDER BY id DESC LIMIT ${bounded}`,
+        [],
+      );
+      return (rows ?? []).map(lotteryTicketRow);
+    },
+
+    async updateLotteryTicket(id, patch = {}) {
+      // Whitelisted columns only — the SET list is built from a fixed map, never
+      // from caller-supplied key names. Legacy's UPDATE that matches no row is
+      // silent, and so is this one.
+      const columns = [];
+      const values = [];
+      if (patch.status !== undefined) {
+        columns.push("status = ?");
+        values.push(assertEnum(patch.status, ["OPEN", "CHECKED", "ARCHIVED"], "status"));
+      }
+      if (patch.result !== undefined) {
+        columns.push("result = ?");
+        values.push(patch.result === null ? null : String(patch.result));
+      }
+      if (patch.updated_at !== undefined) {
+        columns.push("updated_at = ?");
+        values.push(assertInstant(patch.updated_at, "updated_at"));
+      }
+      if (columns.length === 0) return;
+      values.push(assertRowId(id, "id"));
+      await executor.execute(
+        `UPDATE wf_lottery_tickets SET ${columns.join(", ")} WHERE id = ?`,
+        values,
+      );
+    },
+
+    async listLotteryTicketLines(ticketId) {
+      const [rows] = await executor.query(
+        `SELECT * FROM wf_lottery_ticket_lines WHERE ticket_id = ? ORDER BY position ASC`,
+        [assertRowId(ticketId, "ticket_id")],
+      );
+      return (rows ?? []).map(lotteryTicketLineRow);
+    },
+
+    async saveLotteryTicketLines(ticketId, linesIn) {
+      // Delete-then-insert, positions AS GIVEN (the draw-numbers rule).
+      const owner = assertRowId(ticketId, "ticket_id");
+      await executor.execute(`DELETE FROM wf_lottery_ticket_lines WHERE ticket_id = ?`, [owner]);
+      const lines = Array.isArray(linesIn) ? linesIn : [];
+      const at = canonicalNow();
+      for (let position = 0; position < lines.length; position += 1) {
+        const line = lines[position] ?? {};
+        const record = prepareLotteryTicketLine({ ticketId: owner, position, mains: line.mains ?? [], stars: line.stars ?? [], createdAt: at });
+        await executor.execute(
+          `INSERT INTO wf_lottery_ticket_lines (ticket_id, position, mains, stars, created_at) VALUES (?, ?, ?, ?, ?)`,
+          [record.ticket_id, record.position, record.mains, record.stars, record.created_at],
+        );
+      }
+      return lines.length;
+    },
   };
   return repo;
 }
 
-/** The 29 methods this repository adds to the shared store contract (slices 1–2 of row 15). */
+/** The 36 methods this repository adds to the shared store contract (slices 1–3 of row 15). */
 export const LOTTERY_REPOSITORY_METHODS = Object.freeze([
   "ensureLotteryGame",
   "listLotteryGames",
@@ -602,4 +729,12 @@ export const LOTTERY_REPOSITORY_METHODS = Object.freeze([
   "saveLotteryAiDecision",
   "findLotteryAiDecision",
   "listLotteryAiDecisions",
+  // Slice 3 (migration 018): saved tickets + their lines (records, never purchases).
+  "saveLotteryTicket",
+  "findLotteryTicket",
+  "listLotteryTickets",
+  "listAllLotteryTickets",
+  "updateLotteryTicket",
+  "listLotteryTicketLines",
+  "saveLotteryTicketLines",
 ]);

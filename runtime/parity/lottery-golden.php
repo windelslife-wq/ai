@@ -41,6 +41,7 @@ use Aegis\Lottery\CombinationAnalyzer;
 use Aegis\Lottery\CombinationGenerator;
 use Aegis\Lottery\DiversificationEngine;
 use Aegis\Lottery\SystemBuilder;
+use Aegis\Lottery\LotteryIntelligence;
 
 const SENTINEL = '<NOW>';
 
@@ -526,6 +527,46 @@ $combinationCases['system: allLines materialises the whole small system'] = (fun
     return ['count' => count($systemBuilder->allLines([1, 2, 3, 4, 5, 6], [1, 2])), 'first' => ['mains' => [1, 2, 3, 4, 5], 'stars' => [1, 2]]];
 })();
 
+// ── the ticket domain (slice 3) ───────────────────────────────────────────────
+//
+// `prizeTier` and the ticket constants are PUBLIC STATIC on
+// LotteryIntelligence — callable WITHOUT constructing the facade (whose
+// constructor needs the full repository interface, which a harness fake cannot
+// realistically satisfy). The tier ladder and its boundary strings are the
+// domain truth a checked ticket reports; every label is PHP's own output.
+
+$tickets = [
+    'constants' => [
+        'maxTicketLines' => LotteryIntelligence::MAX_TICKET_LINES,
+        'methods' => LotteryIntelligence::TICKET_METHODS,
+        'statuses' => [LotteryIntelligence::STATUS_OPEN, LotteryIntelligence::STATUS_CHECKED, LotteryIntelligence::STATUS_ARCHIVED],
+        'lottery' => LotteryIntelligence::LOTTERY,
+        'modelVersion' => LotteryIntelligence::MODEL_VERSION,
+    ],
+    'tierGrid' => (function () {
+        $out = [];
+        for ($m = 0; $m <= 5; $m++) {
+            for ($st = 0; $st <= 2; $st++) {
+                $out["{$m}+{$st}"] = LotteryIntelligence::prizeTier($m, $st);
+            }
+        }
+        return $out;
+    })(),
+    'tierLabels are exactly the ten official strings' => [
+        LotteryIntelligence::prizeTier(5, 2),
+        LotteryIntelligence::prizeTier(5, 1),
+        LotteryIntelligence::prizeTier(5, 0),
+        LotteryIntelligence::prizeTier(4, 2),
+        LotteryIntelligence::prizeTier(4, 1),
+        LotteryIntelligence::prizeTier(3, 2),
+        LotteryIntelligence::prizeTier(3, 1),
+        LotteryIntelligence::prizeTier(2, 2),
+        LotteryIntelligence::prizeTier(1, 2),
+        LotteryIntelligence::prizeTier(0, 2),
+    ],
+    'the ladder has no star upper bound: 5 mains is TIER_3 whatever the stars' => LotteryIntelligence::prizeTier(5, 3),
+];
+
 // ── emit ──────────────────────────────────────────────────────────────────────
 
 echo json_encode([
@@ -540,5 +581,6 @@ echo json_encode([
         'official' => $officialCases,
         'unavailable' => $unavailableCases,
         'combinations' => $combinationCases,
+        'tickets' => $tickets,
     ],
 ], JSON_UNESCAPED_SLASHES | JSON_PRESERVE_ZERO_FRACTION), PHP_EOL;

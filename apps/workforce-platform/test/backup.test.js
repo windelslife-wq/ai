@@ -155,7 +155,7 @@ test("F-13 the MySQL row counts cover every table the migrations create, and not
   // NOT counted here would be backed up without this test ever proving it can be
   // restored. The number moving is the point: it forces whoever adds a table to look
   // at whether the restore path covers it.
-  assert.equal(tables.length, 50, `expected the 50 tables the migrations create, got: ${tables.join(", ")}`);
+  assert.equal(tables.length, 52, `expected the 52 tables the migrations create, got: ${tables.join(", ")}`);
   assert.ok(!tables.includes("wf_user_files"), "the phantom table must stay out — counting it broke MySQL backups");
   for (const expected of [
     "wf_analysis_runs",
@@ -189,6 +189,9 @@ test("F-13 the MySQL row counts cover every table the migrations create, and not
     // Migration 017 (row 15 slice 2): combinations + AI decisions.
     "wf_lottery_combinations",
     "wf_lottery_ai_decisions",
+    // Migration 018 (row 15 slice 3): saved tickets + their number lines.
+    "wf_lottery_tickets",
+    "wf_lottery_ticket_lines",
   ]) {
     assert.ok(tables.includes(expected), `${expected} must be counted`);
   }
@@ -265,6 +268,8 @@ test("F-13 the MySQL row counts cover every table the migrations create, and not
       lotterySyncRuns: "wf_lottery_sync_runs",
       lotteryCombinations: "wf_lottery_combinations",
       lotteryAiDecisions: "wf_lottery_ai_decisions",
+      lotteryTickets: "wf_lottery_tickets",
+      lotteryTicketLines: "wf_lottery_ticket_lines",
     };
     const stats = await store.stats();
     for (const collection of Object.keys(stats)) {

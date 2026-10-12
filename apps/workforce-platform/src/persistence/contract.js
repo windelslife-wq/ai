@@ -254,6 +254,17 @@ export const REPOSITORY_METHODS = Object.freeze([
   "saveLotteryAiDecision",
   "findLotteryAiDecision",
   "listLotteryAiDecisions",
+  // ── Lottery saved tickets (row 15, slice 3, migration 018) ──
+  // A ticket is a RECORD of number lines, never a purchase. User isolation is
+  // inside the repository (spec §38): find/list filter by user_id in the
+  // statement itself; null userId is the admin/system scope.
+  "saveLotteryTicket",
+  "findLotteryTicket",
+  "listLotteryTickets",
+  "listAllLotteryTickets",
+  "updateLotteryTicket",
+  "listLotteryTicketLines",
+  "saveLotteryTicketLines",
   // operational
   "readiness",
 ]);

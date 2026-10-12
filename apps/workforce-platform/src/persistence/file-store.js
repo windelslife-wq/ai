@@ -86,6 +86,10 @@ import {
   lotteryDrawRow,
   lotteryCombinationRow,
   lotteryAiDecisionRow,
+  lotteryTicketRow,
+  lotteryTicketLineRow,
+  prepareLotteryTicket,
+  prepareLotteryTicketLine,
   lotteryGameRow,
   lotteryHealthRow,
   lotteryProviderRow,
@@ -125,7 +129,9 @@ const ENTITIES = ["users", "profiles", "sessions", "roles", "permissions", "user
   "lotteryDrawNumbers", "lotterySyncRuns",
   // Slice 2 (migration 017): the generated-combination record and its AI
   // decision report (spec §14/§26/§33).
-  "lotteryCombinations", "lotteryAiDecisions"];
+  "lotteryCombinations", "lotteryAiDecisions",
+  // Slice 3 (migration 018): the ticket record and its number lines.
+  "lotteryTickets", "lotteryTicketLines"];
 const PAPER_TX_ENTITIES = Object.freeze(["tradingState", "paperAccounts", "paperOrders", "paperPositions", "paperTrades", "paperDeployments", "executionProposals", "strategies", "journalEntries", "audit"]);
 const COMPACTION_ENTRIES = 2_000;
 /**
@@ -2153,6 +2159,100 @@ export async function createFileStore({ dir, logger = console, idFactory = () =>
         .sort((a, b) => toInt(b.id, 0) - toInt(a.id, 0))
         .slice(0, bounded)
         .map((row) => lotteryAiDecisionRow(row));
+    },
+
+    // ── tickets (slice 3) ────────────────────────────────────────────────────
+    // A ticket is a record of number lines, never a purchase. User isolation is
+    // IN the repository (spec §38): find/list filter by user_id here, so a route
+    // cannot leak another user's ticket by forgetting the clause.
+
+    async saveLotteryTicket(input) {
+      const i = input && typeof input === "object" ? input : {};
+      const record = prepareLotteryTicket({
+        userId: i.userId,
+        lotteryCode: i.lotteryCode,
+        name: i.name,
+        drawDate: i.drawDate ?? null,
+        generationMethod: i.generationMethod,
+        modelVersion: i.modelVersion,
+        configuration: i.configuration,
+        status: i.status,
+        result: i.result ?? null,
+        createdAt: i.createdAt,
+        updatedAt: i.updatedAt,
+      });
+      const row = { id: nextRowId("lotteryTickets"), ...record };
+      await mutate("lotteryTickets", "upsert", row);
+      return { row: lotteryTicketRow(tables.get("lotteryTickets").get(String(row.id))), created: true };
+    },
+
+    async findLotteryTicket(id, userId = null) {
+      const row = tables.get("lotteryTickets").get(String(assertRowId(id, "id")));
+      if (!row) return null;
+      if (userId !== null && userId !== undefined && toInt(row.user_id, 0) !== assertRowId(userId, "user_id")) return null;
+      return lotteryTicketRow(row);
+    },
+
+    async listLotteryTickets(userId, limit = 50) {
+      const bounded = Math.min(500, Math.max(1, toInt(limit, 50)));
+      const owner = assertRowId(userId, "user_id");
+      return [...tables.get("lotteryTickets").values()]
+        .filter((row) => toInt(row.user_id, 0) === owner)
+        .sort((a, b) => toInt(b.id, 0) - toInt(a.id, 0))
+        .slice(0, bounded)
+        .map(lotteryTicketRow);
+    },
+
+    async listAllLotteryTickets(limit = 200) {
+      const bounded = Math.min(1000, Math.max(1, toInt(limit, 200)));
+      return [...tables.get("lotteryTickets").values()]
+        .sort((a, b) => toInt(b.id, 0) - toInt(a.id, 0))
+        .slice(0, bounded)
+        .map(lotteryTicketRow);
+    },
+
+    async updateLotteryTicket(id, patch = {}) {
+      // Legacy passes raw column values (the service json_encodes result itself);
+      // the adapter merges only the columns the service may legally change.
+      const key = String(assertRowId(id, "id"));
+      const existing = tables.get("lotteryTickets").get(key);
+      if (!existing) return; // legacy: an UPDATE that matches no row is silent
+      const next = { ...existing };
+      if (patch.status !== undefined) next.status = assertEnum(patch.status, ["OPEN", "CHECKED", "ARCHIVED"], "status");
+      if (patch.result !== undefined) next.result = patch.result === null ? null : String(patch.result); // already JSON text from the service
+      if (patch.updated_at !== undefined) next.updated_at = assertInstant(patch.updated_at, "updated_at");
+      await mutate("lotteryTickets", "upsert", next);
+    },
+
+    async listLotteryTicketLines(ticketId) {
+      const owner = assertRowId(ticketId, "ticket_id");
+      return [...tables.get("lotteryTicketLines").values()]
+        .filter((row) => toInt(row.ticket_id, 0) === owner)
+        .sort((a, b) => toInt(a.position, 0) - toInt(b.position, 0))
+        .map(lotteryTicketLineRow);
+    },
+
+    async saveLotteryTicketLines(ticketId, linesIn) {
+      // Delete-then-insert, positions AS GIVEN (the draw-numbers rule), each
+      // line stamped by the adapter exactly as legacy stamps gmdate('c').
+      const owner = assertRowId(ticketId, "ticket_id");
+      const table = tables.get("lotteryTicketLines");
+      const doomed = [...table.values()].filter((row) => toInt(row.ticket_id, 0) === owner);
+      for (const row of doomed) await mutate("lotteryTicketLines", "delete", { id: row.id });
+      const lines = Array.isArray(linesIn) ? linesIn : [];
+      for (let position = 0; position < lines.length; position += 1) {
+        const line = lines[position] ?? {};
+        const record = prepareLotteryTicketLine({
+          ticketId: owner,
+          position,
+          mains: line.mains ?? [],
+          stars: line.stars ?? [],
+          createdAt: nowIso(),
+        });
+        const row = { id: nextRowId("lotteryTicketLines"), ...record };
+        await mutate("lotteryTicketLines", "upsert", row);
+      }
+      return lines.length;
     },
 
     /**

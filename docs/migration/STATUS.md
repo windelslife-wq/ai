@@ -1,8 +1,42 @@
 # JavaScript / Node.js / cPanel migration status
 
-**Updated:** 2026-10-12 · **Branch:** `arena/653d6218-ai`
+**Updated:** 2026-10-13 · **Branch:** `arena/653d6218-ai`
 
-## Current Phase 22 status (2026-10-12)
+## Current Phase 23 status (2026-10-13)
+
+**The saved ticket is ported** (row 15, slice 3 — the record layer on slices 1–2's foundation).
+A ticket is a **record of number lines, never a purchase**: create (validated with legacy's own
+refusal strings; lines stored sorted; ≤50 lines; free-form `configuration` JSON kept verbatim),
+list and detail (owner-scoped; an actor with `lottery.manage` reads any ticket by id, legacy's
+`identity->can` branch), **check** against stored VERIFIED draws on or before the ticket's date
+(no stored draw → **409** `NO_DRAW`, the row never marked CHECKED on that path; matches reported
+as per-line counts and official prize-tier **labels** — `TIER_1 (5 mains + 2 stars)` …
+`TIER_10 (2 stars)` — and never an amount), and soft **archive** (status only; detail still
+returns the row). Migration **018** adds `wf_lottery_tickets` + `wf_lottery_ticket_lines`
+(schema **52**); the contract reaches **180** methods (36 lottery); routes are **140**
+(25 lottery: 15 `lottery.view` reads, 6 `lottery.view` POSTs, 3 `lottery.manage` writes,
+1 status read); the version is **0.20.0**. The status matrix's lottery entry shrank
+**four areas → three** (removed, never re-labelled); `lottery` stays `partial` with
+backtests/model versions, the cron and the console screens remaining.
+
+The differential golden grows to **122 cases** (+4 ticket cases). One oracle-corrected
+assumption is pinned: the legacy tier ladder has **no star upper bound** — `prizeTier(5,3)` is
+`TIER_3`, whatever the stars. The framework validator gained one declared passthrough
+(`additionalProperties: true` on a property-less object) so free-form caller JSON can reach a
+verbatim column; it is commented in `src/http/validate.js` and pinned by the HTTP round-trip.
+Full record: [`PHASE23_LOTTERY_TICKETS.md`](PHASE23_LOTTERY_TICKETS.md).
+
+Gates on this branch: `npm test` **949 / 949** across **62** files, `npm run check` exit 0
+(`verify:install` 29/29, 84 documented variables), PHP oracle **367 / 367**, and the legacy tree
+(`application/`, `system/`, `tests/`) unmodified. **Not run:** a real MySQL server, migrations
+016–018 against any database, any official feed, and a crontab.
+
+**Still not ported (lottery):** backtests, model versions and measured performance; the lottery
+cron (the queued system builds' consumer); the console screens (F-29). Platform-wide: F-15 (real
+MySQL), R-30 (file-adapter atomicity), row 22 (cutover), and the sports remainder (stake sizing,
+console screens).
+
+## Phase 22 status (2026-10-12) — superseded by Phase 23
 
 **The lottery combination engines are ported** (row 15, slice 2 — the intelligence on slice 1's
 foundation). The five-mode generator (RANDOM, BALANCED, HISTORICAL, DIVERSIFIED, ANTI-POPULAR —
@@ -25,17 +59,7 @@ string — **passed on the first run with zero port fixes**, the xorshift32 PRNG
 doing exactly what it was proven for. Full record:
 [`PHASE22_LOTTERY_COMBINATIONS.md`](PHASE22_LOTTERY_COMBINATIONS.md).
 
-Gates on this branch: `npm test` **938 / 938** across **59** files, `npm run check` exit 0
-(`verify:install` 29/29, 84 documented variables), PHP oracle **367 / 367**, and the legacy tree
-(`application/`, `system/`, `tests/`) unmodified. **Not run:** a real MySQL server, migration 017
-against any database, any official feed, and a crontab.
-
-**Still not ported (lottery):** tickets and checking; backtests, model versions and measured
-performance; the lottery cron (the queued system builds' consumer); the console screens (F-29).
-Platform-wide: F-15 (real MySQL), R-30 (file-adapter atomicity), row 22 (cutover), and the sports
-remainder (stake sizing, console screens).
-
-## Phase 21 status (2026-10-12) — superseded by Phase 22
+## Phase 21 status (2026-10-12) — superseded by Phases 22–23
 
 **The lottery foundation is ported** (row 15, slice 1 — the layer every later lottery slice stands
 on). The provider boundary lands with all three implementations: the unavailable default, the

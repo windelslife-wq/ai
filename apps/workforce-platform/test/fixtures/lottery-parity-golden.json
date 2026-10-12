@@ -4885,6 +4885,59 @@
           ]
         }
       }
+    },
+    "tickets": {
+      "constants": {
+        "maxTicketLines": 50,
+        "methods": [
+          "MANUAL",
+          "RANDOM",
+          "BALANCED",
+          "HISTORICAL",
+          "DIVERSIFIED",
+          "ANTI-POPULAR"
+        ],
+        "statuses": [
+          "OPEN",
+          "CHECKED",
+          "ARCHIVED"
+        ],
+        "lottery": "EUROMILLIONS",
+        "modelVersion": "1.0"
+      },
+      "tierGrid": {
+        "0+0": null,
+        "0+1": null,
+        "0+2": "TIER_10 (2 stars)",
+        "1+0": null,
+        "1+1": null,
+        "1+2": "TIER_9 (1 main + 2 stars)",
+        "2+0": null,
+        "2+1": null,
+        "2+2": "TIER_8 (2 mains + 2 stars)",
+        "3+0": null,
+        "3+1": "TIER_7 (3 mains + 1 star)",
+        "3+2": "TIER_6 (3 mains + 2 stars)",
+        "4+0": null,
+        "4+1": "TIER_5 (4 mains + 1 star)",
+        "4+2": "TIER_4 (4 mains + 2 stars)",
+        "5+0": "TIER_3 (5 mains)",
+        "5+1": "TIER_2 (5 mains + 1 star)",
+        "5+2": "TIER_1 (5 mains + 2 stars)"
+      },
+      "tierLabels are exactly the ten official strings": [
+        "TIER_1 (5 mains + 2 stars)",
+        "TIER_2 (5 mains + 1 star)",
+        "TIER_3 (5 mains)",
+        "TIER_4 (4 mains + 2 stars)",
+        "TIER_5 (4 mains + 1 star)",
+        "TIER_6 (3 mains + 2 stars)",
+        "TIER_7 (3 mains + 1 star)",
+        "TIER_8 (2 mains + 2 stars)",
+        "TIER_9 (1 main + 2 stars)",
+        "TIER_10 (2 stars)"
+      ],
+      "the ladder has no star upper bound: 5 mains is TIER_3 whatever the stars": "TIER_3 (5 mains)"
     }
   }
 }

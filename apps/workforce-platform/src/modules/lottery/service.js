@@ -42,6 +42,34 @@ export const LOTTERY = "EUROMILLIONS";
 export const ENGINE_DISABLED = "DISABLED_NO_PROVIDER";
 export const ENGINE_ACTIVE = "ACTIVE";
 
+// ── tickets (slice 3) — legacy's constants, verbatim ──────────────────────────
+
+export const MAX_TICKET_LINES = 50;
+export const TICKET_METHODS = Object.freeze(["MANUAL", "RANDOM", "BALANCED", "HISTORICAL", "DIVERSIFIED", "ANTI-POPULAR"]);
+export const TICKET_STATUS_OPEN = "OPEN";
+export const TICKET_STATUS_CHECKED = "CHECKED";
+export const TICKET_STATUS_ARCHIVED = "ARCHIVED";
+
+/**
+ * Official EuroMillions prize tier structure (a stable rule set — legacy's own
+ * `match(true)` ladder, exported pure for the differential harness). Tier
+ * LABELS only: prize amounts vary per draw and are NEVER stored or fabricated
+ * (spec §29). There is deliberately no amount column anywhere in this module.
+ */
+export function prizeTier(mainMatches, starMatches) {
+  if (mainMatches === 5 && starMatches === 2) return "TIER_1 (5 mains + 2 stars)";
+  if (mainMatches === 5 && starMatches === 1) return "TIER_2 (5 mains + 1 star)";
+  if (mainMatches === 5) return "TIER_3 (5 mains)";
+  if (mainMatches === 4 && starMatches === 2) return "TIER_4 (4 mains + 2 stars)";
+  if (mainMatches === 4 && starMatches === 1) return "TIER_5 (4 mains + 1 star)";
+  if (mainMatches === 3 && starMatches === 2) return "TIER_6 (3 mains + 2 stars)";
+  if (mainMatches === 3 && starMatches === 1) return "TIER_7 (3 mains + 1 star)";
+  if (mainMatches === 2 && starMatches === 2) return "TIER_8 (2 mains + 2 stars)";
+  if (mainMatches === 1 && starMatches === 2) return "TIER_9 (1 main + 2 stars)";
+  if (mainMatches === 0 && starMatches === 2) return "TIER_10 (2 stars)";
+  return null;
+}
+
 /**
  * The parts of row 15 this port still does not contain, in legacy's own terms.
  * Slice 2 (combination intelligence, tickets, backtests, model versions) empties
@@ -50,10 +78,9 @@ export const ENGINE_ACTIVE = "ACTIVE";
  * become untrue.
  */
 export const LOTTERY_NOT_PORTED = Object.freeze([
-  // Slice 2 removed the combination-intelligence and generation-persistence
-  // entries: they became untrue, and untrue entries are removed, never
+  // Slices 2–3 removed the combination-intelligence, generation-persistence and
+  // tickets entries: they became untrue, and untrue entries are removed, never
   // re-labelled. What remains is what no slice has landed yet.
-  Object.freeze({ area: "tickets and checking", legacy: "createTicket/checkTicket/archiveTicket, lottery_tickets + lottery_ticket_lines", state: "not ported", detail: "A lottery ticket on this platform is a record of number lines, never a purchase; the record and its draw checking are the next slice." }),
   Object.freeze({ area: "backtests and model versions", legacy: "LotteryBacktester, lottery_backtests + lottery_model_versions", state: "not ported", detail: "Strategy replay over stored history without look-ahead, persisted as historical simulation reports." }),
   Object.freeze({ area: "scheduled jobs", legacy: "LotteryCronService (sync, health, statistics, systems, tickets, backtests, cleanup)", state: "not ported", detail: "The lottery cron is a later slice, on the same wf_job_locks pattern as the sports cron (row 19). Until then nothing here runs on a schedule — and the queued background system builds have no consumer yet." }),
   Object.freeze({ area: "console screens", legacy: "Lottery::index (views/lottery/*.php)", state: "not ported", detail: "No ported module has a console screen (F-29, platform-wide); the API reads exist under /lottery/*." }),
@@ -641,6 +668,163 @@ export function createLotteryService({ store, config, now = () => Date.now(), pr
     return row;
   }
 
+  // ---------------------------------------------------------- saved tickets
+  //
+  // Slice 3: legacy `LotteryIntelligence` ticket methods. A ticket on this
+  // platform is a RECORD of number lines a user chose or generated — never a
+  // purchase, never a wager. Checking compares the lines against the stored
+  // VERIFIED draw and records official prize-tier LABELS; amounts vary per
+  // draw and are never stored or fabricated (spec §29).
+
+  /**
+   * Create a named, user-scoped ticket. EVERY line is validated against the
+   * rules before anything is stored — one bad line rejects the whole ticket.
+   * Lines are normalized (sorted) on save, exactly as legacy normalizes them.
+   */
+  async function createTicket(userId, name, linesIn, method = "MANUAL", drawDate = null, modelVersion = null, configuration = {}) {
+    const store = requireStore();
+    const ticketMethod = String(method ?? "MANUAL").toUpperCase();
+    if (!TICKET_METHODS.includes(ticketMethod)) throw new TypeError(`unknown generation method: ${ticketMethod}`);
+    if (String(name ?? "").trim() === "") throw new TypeError("ticket name is required");
+    const lines = Array.isArray(linesIn) ? linesIn : [];
+    if (lines.length === 0) throw new TypeError("at least one line is required");
+    if (lines.length > MAX_TICKET_LINES) throw new TypeError(`a ticket holds at most ${MAX_TICKET_LINES} lines`);
+    if (drawDate !== null && drawDate !== undefined && drawDate !== "") {
+      // Legacy: DateTimeImmutable::createFromFormat('Y-m-d') + a format round-trip,
+      // refusing with ITS OWN string (not the validator's) — this is a caller
+      // argument, not a stored draw.
+      const text = String(drawDate);
+      const at = new Date(`${text}T00:00:00Z`);
+      if (!/^\d{4}-\d{2}-\d{2}$/.test(text) || Number.isNaN(at.getTime()) || at.toISOString().slice(0, 10) !== text) {
+        throw new TypeError(`invalid draw date: ${text}`);
+      }
+    }
+    const active = await engines();
+    const validated = lines.map((line, i) => {
+      const mains = Array.isArray(line?.mains) ? [...line.mains] : [];
+      const stars = Array.isArray(line?.stars) ? [...line.stars] : [];
+      const check = active.rules.validateLine(mains, stars);
+      if (!check.valid) throw new TypeError(`line ${i + 1} invalid: ${check.errors.join("; ")}`);
+      mains.sort((a, b) => a - b);
+      stars.sort((a, b) => a - b);
+      return { mains, stars };
+    });
+    const at = nowIso();
+    const saved = await store.saveLotteryTicket({
+      userId,
+      lotteryCode: LOTTERY,
+      name: String(name),
+      drawDate: drawDate ?? null,
+      generationMethod: ticketMethod,
+      modelVersion: modelVersion ?? "MANUAL",
+      configuration: configuration && typeof configuration === "object" ? configuration : {},
+      status: TICKET_STATUS_OPEN,
+      result: null,
+      createdAt: at,
+      updatedAt: at,
+    });
+    const ticketId = Number(saved.row.id);
+    await store.saveLotteryTicketLines(ticketId, validated);
+    await recordAudit(
+      typeof userId === "number" ? userId : null,
+      "lottery.ticket.created",
+      `Ticket "${String(name)}" created with ${validated.length} line(s)`,
+      { ticketId, userId, method: ticketMethod, lineCount: validated.length },
+    );
+    return { ...saved.row, lines: await store.listLotteryTicketLines(ticketId) };
+  }
+
+  /** The caller's own tickets (spec §38 — never other users'). */
+  async function listMyTickets(userId, limit = 50) {
+    return requireStore().listLotteryTickets(userId, limit);
+  }
+
+  /** One ticket with its lines; user-scoped when userId is given (admin/system passes null). */
+  async function ticketDetail(id, userId = null) {
+    const store = requireStore();
+    const row = await store.findLotteryTicket(id, userId);
+    if (!row || row.lottery_code !== LOTTERY) return null;
+    row.lines = await store.listLotteryTicketLines(Number(row.id));
+    return row;
+  }
+
+  /**
+   * Compare a ticket's lines against the stored draw for its draw date — the
+   * latest VERIFIED draw on or before that date (latest overall when the ticket
+   * has no date). Marks the ticket CHECKED with per-line matches + official
+   * prize tier LABELS (no amounts). User-scoped: only the owner (or system)
+   * can check. null = not found / not the owner.
+   */
+  async function checkTicket(ticketId, userId = null, actor = "system") {
+    const store = requireStore();
+    const ticket = await store.findLotteryTicket(ticketId, userId);
+    if (!ticket || ticket.lottery_code !== LOTTERY) return null;
+    const drawFilter = { lotteryCode: LOTTERY, verificationStatus: "VERIFIED" };
+    if (ticket.draw_date) drawFilter.to = String(ticket.draw_date);
+    const draws = await store.listLotteryDraws(drawFilter, 1);
+    if (draws.length === 0) {
+      return {
+        ticketId,
+        status: "NO_DRAW",
+        note: `no stored VERIFIED draw on or before ${ticket.draw_date ? String(ticket.draw_date) : "the latest draw"}`,
+      };
+    }
+    const draw = draws[0];
+    const drawPayload = draw.payload && typeof draw.payload === "object" ? draw.payload : {};
+    const drawMains = new Set((drawPayload.main ?? []).map(phpIntval));
+    const drawStars = new Set((drawPayload.stars ?? []).map(phpIntval));
+    const lines = await store.listLotteryTicketLines(Number(ticket.id));
+    const lineResults = lines.map((line) => {
+      const mainMatches = (line.mains ?? []).filter((m) => drawMains.has(phpIntval(m))).length;
+      const starMatches = (line.stars ?? []).filter((st) => drawStars.has(phpIntval(st))).length;
+      return {
+        mains: line.mains ?? [],
+        stars: line.stars ?? [],
+        mainMatches,
+        starMatches,
+        prizeTier: prizeTier(mainMatches, starMatches),
+      };
+    });
+    const result = {
+      drawDate: String(draw.draw_date),
+      drawExternalId: String(draw.external_id),
+      drawSource: String(draw.source),
+      lines: lineResults,
+      checkedAt: nowIso(),
+      note: "Prize tiers follow the official EuroMillions structure; amounts vary per draw and are not stored. These are ACTUAL ticket outcomes — kept separate from backtest results and demo data (spec §30).",
+    };
+    await store.updateLotteryTicket(Number(ticket.id), {
+      status: TICKET_STATUS_CHECKED,
+      result: JSON.stringify(result),
+      updated_at: nowIso(),
+    });
+    await recordAudit(
+      typeof actor === "number" ? actor : isNumeric(actor) ? Number(actor) : null,
+      "lottery.ticket.checked",
+      `Ticket ${ticketId} checked against draw ${String(draw.draw_date)}`,
+      { ticketId, drawDate: String(draw.draw_date) },
+    );
+    return { ...result, ticketId, status: TICKET_STATUS_CHECKED };
+  }
+
+  /** Archive (soft delete) — user-scoped. */
+  async function archiveTicket(ticketId, userId = null, actor = "system") {
+    const store = requireStore();
+    const ticket = await store.findLotteryTicket(ticketId, userId);
+    if (!ticket || ticket.lottery_code !== LOTTERY) return false;
+    await store.updateLotteryTicket(Number(ticket.id), {
+      status: TICKET_STATUS_ARCHIVED,
+      updated_at: nowIso(),
+    });
+    await recordAudit(
+      typeof actor === "number" ? actor : isNumeric(actor) ? Number(actor) : null,
+      "lottery.ticket.archived",
+      `Ticket ${ticketId} archived`,
+      { ticketId },
+    );
+    return true;
+  }
+
   return Object.freeze({
     status,
     drawCount,
@@ -664,6 +848,11 @@ export function createLotteryService({ store, config, now = () => Date.now(), pr
     combinationDetail,
     listDecisions,
     decisionDetail,
+    createTicket,
+    listMyTickets,
+    ticketDetail,
+    checkTicket,
+    archiveTicket,
     rules: () => resolveRules().then((r) => ({
       code: r.code(), version: r.version(),
       main: { count: r.mainCount(), min: r.mainMin(), max: r.mainMax() },
