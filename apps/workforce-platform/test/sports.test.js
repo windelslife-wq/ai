@@ -588,13 +588,12 @@ test("the not-ported matrix names every slice row 14 still owes", async () => {
   const service = createSportsService({ config: sportsConfig(), now: () => NOW });
   const report = await service.status();
   assert.equal(report.notPorted, SPORTS_NOT_PORTED);
-  // Nine, not ten: "fixture, odds and result ingestion" graduated out of this matrix
-  // in Phase 16 when migration 011 gave it somewhere to write. Asserting the count
-  // moved DOWN is the point — a matrix that only ever grows is a matrix nobody checks
-  // for entries that are no longer true.
-  assert.equal(SPORTS_NOT_PORTED.length, 9);
+  // Seven, down from nine. Phase 16 removed ingestion, and slice 3 removed predictions and
+  // the configuration service, which now exist. Asserting the count moved DOWN is the point:
+  // a matrix that only ever grows is a matrix nobody checks for entries that are no longer true.
+  assert.equal(SPORTS_NOT_PORTED.length, 7);
   const areas = SPORTS_NOT_PORTED.map((entry) => entry.area).join(" | ");
-  for (const expected of ["predictions", "value and staking", "ticket governance", "settlement", "calibration", "backtesting", "model monitoring", "configuration service", "dashboards"]) {
+  for (const expected of ["correlation and staking", "ticket governance", "settlement", "calibration", "backtesting", "model monitoring", "dashboards"]) {
     assert.match(areas, new RegExp(expected, "i"), `the matrix must name ${expected}`);
   }
   for (const entry of SPORTS_NOT_PORTED) {

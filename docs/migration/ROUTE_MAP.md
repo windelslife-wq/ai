@@ -642,6 +642,32 @@ about provenance on the one field whose job is to make that claim. Only ingestio
 health rows, which also keeps a dashboard load from mutating the history the monitor derives
 from. See [`PHASE16_SPORTS_PERSISTENCE.md`](PHASE16_SPORTS_PERSISTENCE.md).
 
+### 14.17 Sports Intelligence — the decision chain (13) — Phase 17
+
+Slice 3 of row 14. Migration 012 created four tables, so these routes read and write them. Every route is
+session or bearer, rate-limited globally, and validated where it takes input. Writes that record evidence
+are `sports.manage`. Reads are `sports.view`, except configuration, which is `sports.manage` because it sets
+the engine mode and its limits. `AUTOMATED_EXECUTION` is refused in every case (DV-14).
+
+| Method & path | Permission | Validated | Notes |
+|---|---|---|---|
+| `GET /api/v1/sports/configuration` | `sports.manage` | none | The stored configuration, or the built-in default |
+| `GET /api/v1/sports/configuration/versions` | `sports.manage` | `querySchema` | Newest first |
+| `PATCH /api/v1/sports/configuration` | `sports.manage` | `bodySchema` | Requires `reason`. An undeclared property is a 400 `UNKNOWN_PROPERTY`, not dropped |
+| `GET /api/v1/sports/models` | `sports.view` | none | The registry of model identities |
+| `GET /api/v1/sports/models/performance` | `sports.view` | `querySchema` | `samples: 0` and `null` metrics until settlement (slice 5) |
+| `GET /api/v1/sports/calibrations` | `sports.view` | `querySchema` | Filter by status and model version |
+| `POST /api/v1/sports/calibrations/fit` | `sports.manage` | none | Always 422 `SETTLED_OUTCOMES_UNAVAILABLE` until slice 5 |
+| `POST /api/v1/sports/calibrations/:calibrationId/approve` | `sports.manage` | `paramsSchema` | PENDING only; 409 otherwise |
+| `POST /api/v1/sports/calibrations/:calibrationId/reject` | `sports.manage` | `paramsSchema` | PENDING only; 409 otherwise |
+| `POST /api/v1/sports/matches/:matchId/evaluate` | `sports.manage` | `paramsSchema` | Records a decision from quality re-assessed now (F-38). 404 for an unknown fixture |
+| `GET /api/v1/sports/matches/:matchId/intelligence` | `sports.view` | `paramsSchema` | Preview only. Stores nothing |
+| `GET /api/v1/sports/predictions` | `sports.view` | `querySchema` | Filter by match, model version and decision |
+| `GET /api/v1/sports/predictions/:predictionId/decision` | `sports.view` | `paramsSchema` | The stored decision with its gate |
+
+Audit actions: `sports.decision.recorded`, `sports.configuration.updated`, `sports.calibration.approved`,
+`sports.calibration.rejected`. See [`PHASE17_SPORTS_DECISION_CHAIN.md`](PHASE17_SPORTS_DECISION_CHAIN.md).
+
 ### 14.8 Strategies, backtesting and the journal (11) — Phase 6
 
 The Phase-6 routes are session-only with no permission gate, matching their legacy

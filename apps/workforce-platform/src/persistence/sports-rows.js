@@ -292,3 +292,224 @@ export function syncRunRow(row) {
   };
 }
 
+
+// ── Slice 3 (migration 012): decisions, model registry, configuration, calibration ──
+//
+// Shared by both adapters for the same reason as everything above: the MySQL and file
+// stores must refuse the same inputs and return the same shapes. The `prepare*` functions
+// validate and build the storage row; the `*Row` readers turn a stored row into the shape
+// the API returns. Storage holds booleans as 0/1 and lists as JSON text, as migration 012
+// declares; the readers turn them back.
+
+export const CALIBRATION_STATUSES = Object.freeze(["PENDING", "APPROVED", "REJECTED"]);
+export const PREDICTION_DECISIONS = Object.freeze(["PREDICTION_READY", "NO_PREDICTION"]);
+
+/** `prd_` followed by 24 lower-case hex digits, as legacy's `bin2hex(random_bytes(12))` produces. */
+export function assertPredictionId(value) {
+  const id = String(value ?? "").trim();
+  if (!/^prd_[0-9a-f]{24}$/.test(id)) {
+    throw new TypeError(`a prediction id must be prd_ followed by 24 hex digits, received ${JSON.stringify(id.slice(0, 40))}`);
+  }
+  return id;
+}
+
+/** A probability-like column: finite, or null when the decision did not produce one. */
+function optionalNumber(value) {
+  if (value === null || value === undefined || value === "") return null;
+  const parsed = Number(value);
+  if (!Number.isFinite(parsed)) throw new TypeError(`expected a finite number, received ${JSON.stringify(String(value).slice(0, 40))}`);
+  return parsed;
+}
+
+/**
+ * The model-version row for one (name, version, feature set, calibration) identity.
+ * `calibration_version` is stored as '' when absent, so the UNIQUE key holds.
+ */
+export function prepareModelVersion(input, createdAt) {
+  return {
+    model_name: assertText(input.modelName, 80, "model_name"),
+    model_version: assertText(input.modelVersion, 32, "model_version"),
+    feature_version: assertText(input.featureVersion, 40, "feature_version"),
+    calibration_version: assertText(input.calibrationVersion ?? "", 120, "calibration_version"),
+    status: "ACTIVE",
+    created_at: createdAt,
+  };
+}
+
+export function modelVersionRow(row) {
+  if (!row) return null;
+  return {
+    id: toInt(row.id),
+    model_name: String(row.model_name),
+    model_version: String(row.model_version),
+    feature_version: String(row.feature_version),
+    calibration_version: row.calibration_version === "" || row.calibration_version === null || row.calibration_version === undefined
+      ? null
+      : String(row.calibration_version),
+    status: String(row.status),
+    created_at: String(row.created_at),
+  };
+}
+
+/**
+ * One immutable decision. Every field the chain produced is stored, so the decision can
+ * be reconstructed later: the odds at decision time with its timestamp, the feature and
+ * calibration versions, both probabilities, confidence, value, risk, and the gate's
+ * full list of reasons.
+ */
+export function preparePrediction(input, { id, createdAt }) {
+  return {
+    id: assertPredictionId(id),
+    match_id: assertRowId(input.matchId, "match_id"),
+    model_version_id: assertRowId(input.modelVersionId, "model_version_id"),
+    market: assertText(input.market ?? "UNSPECIFIED", 40, "market"),
+    selection: assertText(input.selection ?? "UNSPECIFIED", 40, "selection"),
+    raw_probability: optionalNumber(input.rawProbability),
+    calibrated_probability: optionalNumber(input.calibratedProbability),
+    implied_probability: optionalNumber(input.impliedProbability),
+    expected_value: optionalNumber(input.expectedValue),
+    confidence: optionalNumber(input.confidence),
+    risk: assertEnum(input.risk ?? "REJECTED", ["LOW", "MEDIUM", "HIGH", "REJECTED"], "risk"),
+    correlation: assertText(input.correlation ?? "UNKNOWN", 16, "correlation"),
+    data_quality_score: toInt(input.dataQualityScore, 0),
+    decision: assertEnum(input.decision, PREDICTION_DECISIONS, "decision"),
+    rejection_reasons: encodeJson(Array.isArray(input.rejectionReasons) ? input.rejectionReasons : []),
+    factors: encodeJson(input.factors ?? {}),
+    input_version: assertText(input.inputVersion ?? "unknown", 40, "input_version"),
+    odds: optionalNumber(input.odds),
+    odds_timestamp: optionalInstant(input.oddsTimestamp, "odds_timestamp"),
+    created_at: createdAt,
+  };
+}
+
+export function predictionRow(row) {
+  if (!row) return null;
+  return {
+    id: String(row.id),
+    match_id: toInt(row.match_id),
+    model_version_id: toInt(row.model_version_id),
+    market: String(row.market),
+    selection: String(row.selection),
+    raw_probability: toDecimal(row.raw_probability),
+    calibrated_probability: toDecimal(row.calibrated_probability),
+    implied_probability: toDecimal(row.implied_probability),
+    expected_value: toDecimal(row.expected_value),
+    confidence: toDecimal(row.confidence),
+    risk: String(row.risk),
+    correlation: String(row.correlation),
+    data_quality_score: toInt(row.data_quality_score, 0),
+    decision: String(row.decision),
+    rejection_reasons: decodeJson(row.rejection_reasons, []),
+    factors: decodeJson(row.factors, {}),
+    input_version: String(row.input_version),
+    odds: toDecimal(row.odds),
+    odds_timestamp: row.odds_timestamp === null || row.odds_timestamp === undefined ? null : String(row.odds_timestamp),
+    created_at: String(row.created_at),
+  };
+}
+
+const CONFIGURATION_BOOLEANS = Object.freeze(["module_enabled", "ticket_engine_enabled", "require_calibration"]);
+const CONFIGURATION_LISTS = Object.freeze(["allowed_markets", "allowed_leagues"]);
+
+/**
+ * The storage row for one configuration version. Booleans become 0/1 and lists become
+ * JSON text; the configuration module has already validated every value.
+ */
+export function prepareConfiguration(row) {
+  const out = {
+    version: assertRowId(row.version, "version"),
+    platform_mode: assertText(row.platform_mode, 16, "platform_mode"),
+    engine_mode: assertText(row.engine_mode, 32, "engine_mode"),
+    target_odds_min: Number(row.target_odds_min),
+    target_odds_max: Number(row.target_odds_max),
+    max_selections: toInt(row.max_selections, 0),
+    risk_level: assertText(row.risk_level, 16, "risk_level"),
+    min_confidence: Number(row.min_confidence),
+    min_expected_value: Number(row.min_expected_value),
+    max_correlation: assertText(row.max_correlation, 8, "max_correlation"),
+    min_data_quality: toInt(row.min_data_quality, 0),
+    min_liquidity: row.min_liquidity === null || row.min_liquidity === undefined ? null : Number(row.min_liquidity),
+    max_exposure: Number(row.max_exposure),
+    stake_amount: Number(row.stake_amount),
+    void_policy: assertText(row.void_policy, 24, "void_policy"),
+    updated_by: assertText(row.updated_by, 64, "updated_by"),
+    reason: assertText(row.reason, 500, "reason"),
+    created_at: assertInstant(row.created_at, "created_at"),
+  };
+  for (const field of CONFIGURATION_BOOLEANS) out[field] = row[field] ? 1 : 0;
+  for (const field of CONFIGURATION_LISTS) out[field] = encodeJson(Array.isArray(row[field]) ? row[field] : []);
+  return out;
+}
+
+export function configurationRow(row) {
+  if (!row) return null;
+  const out = {
+    id: toInt(row.id),
+    version: toInt(row.version, 0),
+    platform_mode: String(row.platform_mode),
+    engine_mode: String(row.engine_mode),
+    target_odds_min: toDecimal(row.target_odds_min),
+    target_odds_max: toDecimal(row.target_odds_max),
+    max_selections: toInt(row.max_selections, 0),
+    risk_level: String(row.risk_level),
+    min_confidence: toDecimal(row.min_confidence),
+    min_expected_value: toDecimal(row.min_expected_value),
+    max_correlation: String(row.max_correlation),
+    min_data_quality: toInt(row.min_data_quality, 0),
+    min_liquidity: toDecimal(row.min_liquidity),
+    max_exposure: toDecimal(row.max_exposure),
+    stake_amount: toDecimal(row.stake_amount),
+    void_policy: String(row.void_policy),
+    updated_by: String(row.updated_by),
+    reason: String(row.reason),
+    created_at: String(row.created_at),
+  };
+  for (const field of CONFIGURATION_BOOLEANS) out[field] = toInt(row[field], 0) === 1;
+  for (const field of CONFIGURATION_LISTS) out[field] = decodeJson(row[field], []);
+  return out;
+}
+
+/** The storage row for a fitted calibration, PENDING until an administrator decides. */
+export function prepareCalibration(fit, { modelVersionId, calibrationVersion, createdBy, createdAt }) {
+  return {
+    model_version_id: assertRowId(modelVersionId, "model_version_id"),
+    method: assertText(fit.method, 16, "method"),
+    intercept: Number(fit.intercept),
+    slope: Number(fit.slope),
+    samples: toInt(fit.samples, 0),
+    positives: toInt(fit.positives, 0),
+    ece: Number(fit.ece),
+    brier: Number(fit.brier),
+    identity_brier: Number(fit.identityBrier),
+    bins: encodeJson(Array.isArray(fit.bins) ? fit.bins : []),
+    calibration_version: assertText(calibrationVersion, 120, "calibration_version"),
+    status: "PENDING",
+    created_by: assertText(createdBy, 64, "created_by"),
+    created_at: createdAt,
+    approved_by: null,
+    approved_at: null,
+  };
+}
+
+export function calibrationRow(row) {
+  if (!row) return null;
+  return {
+    id: toInt(row.id),
+    model_version_id: toInt(row.model_version_id),
+    method: String(row.method),
+    intercept: toDecimal(row.intercept),
+    slope: toDecimal(row.slope),
+    samples: toInt(row.samples, 0),
+    positives: toInt(row.positives, 0),
+    ece: toDecimal(row.ece),
+    brier: toDecimal(row.brier),
+    identity_brier: toDecimal(row.identity_brier),
+    bins: decodeJson(row.bins, []),
+    calibration_version: String(row.calibration_version),
+    status: String(row.status),
+    created_by: String(row.created_by),
+    created_at: String(row.created_at),
+    approved_by: row.approved_by === null || row.approved_by === undefined ? null : String(row.approved_by),
+    approved_at: row.approved_at === null || row.approved_at === undefined ? null : String(row.approved_at),
+  };
+}

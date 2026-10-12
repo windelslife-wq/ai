@@ -475,4 +475,50 @@ cannot "helpfully" start using it and silently change every derived status.
 Related: F-26 (the harness that made the monitor comparable), F-30 and F-31 (the same
 declared-but-inert shape), SP-15, SP-21, SP-22.
 
+### F-36 — legacy's Brier score is always 0.0 (found in Phase 17; the port does not reproduce it)
+
+`CalibrationEngine::evaluate` accumulates `(int) (($p - $y) ** 2)`. A squared error between two
+probabilities is always below 1, so the cast is always 0. The reported Brier score, and
+`identityBrier` with it, is **always 0.0**. The model-performance `brier` inherits the defect.
+
+The port computes the real squared error, and the parity test asserts the difference explicitly
+rather than treating the two as equal. Anyone comparing a Node Brier with a legacy figure must know
+that the legacy figure measured nothing. **Open in legacy**, which is the rollback target and is not
+modified.
+
+### F-37 — legacy's calibration is linear, Node's is logistic, and the identity fallback's output depends on the map (found in Phase 17)
+
+Three facts, each verified in the PHP and in the port.
+
+1. Legacy `PredictionEngine` applies `intercept + slope · raw` **linearly**. Legacy `CalibrationEngine::apply`
+   applies the logistic map. The two disagree, and the linear form is the one that reaches a decision.
+2. The port uses the **logistic** map everywhere (DV-12, user-chosen). That changes decisions: a case that is
+   fully qualified is `REJECTED` with `LOW_MODEL_EDGE` under the linear form and `QUALIFIED` under the logistic form.
+3. The identity fallback, used when a fit is degenerate, is `sigmoid(raw)` under the logistic map and `raw` under
+   legacy's linear `PredictionEngine`. Legacy's fallback keeps the method `platt`, so the stored label does not say
+   which output it produces. **The user chose `raw`** (DV-19). The port stores the fallback with method `identity` and returns the raw
+   probability, so a stored fallback is distinguishable from a fitted line that happens to be 0 + 1·x.
+
+**Mitigation.** The method label, the golden test (`isIdentityFallback`) and PHASE17 §3 make the divergence
+visible. **Residual risk:** a calibration measured on the identity has ECE and Brier values that describe the raw
+probability, not a calibration. Those are reported with `method: identity`, and `fitCalibration` never presents them as a learned fit.
+
+### F-38 — the stored quality assessment could not qualify any decision (found in Phase 17; closed by re-assessment)
+
+`latestSportsQuality` is written at sync, which assesses without odds and without recent form, as the sync code
+states it does for legacy (SP-22). Legacy's `Api_sports` reads that stored assessment (`Api_sports.php:90`).
+Legacy's `DailyTicketService` (`:101`) re-assesses with the current odds before it evaluates. Slice 3 first
+reproduced the legacy controller, and every decision was refused on a READY prediction.
+
+**Closed.** The user chose re-assessment, and `evaluate` now re-assesses from the current price, the provider's
+derived reliability and the recent form in `payload.context`. The stored row is never written by the evaluation.
+Reliability is derived from stored sync history, so a provider with no history scores 0.
+
+**New risk, open.** A sandbox fixture with a fresh price now reaches `QUALIFIED`, labelled `simulated: true`. Legacy's
+gate ignores the flag too, so the port matches. Slice 3 creates no ticket from it. Whether a `simulated` decision
+should be allowed to qualify is open (PHASE17 §9, decision 3). A real provider has not been connected, so this
+cannot yet reach a real fixture.
+
+Related: SP-22, DV-18, DV-19, F-15, NV-6.
+
 — End of Phase 0 risk register.

@@ -36,6 +36,7 @@ import { assessProviderHealth } from "./health-monitor.js";
 import { createSportsProviderManager } from "./providers/manager.js";
 import { AppError } from "../../http/errors.js";
 import { createSportsSyncService } from "./sync.js";
+import { createSportsIntelligenceService } from "./intelligence-service.js";
 import { createSandboxSportsProvider, SANDBOX_PROVIDER_ID } from "./providers/sandbox.js";
 import { createHttpSportsProvider } from "./providers/http.js";
 
@@ -56,15 +57,13 @@ import { createHttpSportsProvider } from "./providers/http.js";
  * ported" must not look the same from the outside.
  */
 export const SPORTS_NOT_PORTED = Object.freeze([
-  Object.freeze({ area: "predictions", legacy: "PredictionPipeline, PredictionEngine, FeatureEngineeringEngine, MatchIntelligenceEngine", state: "not ported", detail: "No prediction can be produced. Its inputs — calibrated probabilities and verified results — do not exist in this port yet." }),
-  Object.freeze({ area: "value and staking", legacy: "ValueEngine, RiskEngine, CorrelationEngine, ConfidenceEngine", state: "not ported", detail: "No edge, stake or correlation check exists. Nothing in this module can size a wager." }),
-  Object.freeze({ area: "ticket governance and optimization", legacy: "TicketGovernance, TicketOptimizer, DailyTicketService", state: "not ported", detail: "No ticket can be generated, and `sports_tickets` has no Node counterpart." }),
-  Object.freeze({ area: "settlement and result verification", legacy: "TicketSettlementService, ResultVerificationEngine, PersistedResultVerifier", state: "not ported", detail: "No result can be verified or settled. `wf_sports_results.verified` exists and ingestion deliberately leaves it false — and re-ingesting a result CLEARS it (divergence SP-14), because a changed scoreline invalidates an attestation made about the old one. `verifySportsResult` is not in the contract." }),
-  Object.freeze({ area: "calibration", legacy: "CalibrationEngine", state: "not ported", detail: "No calibration can be fitted or approved, and no raw probability can be mapped to a calibrated one." }),
-  Object.freeze({ area: "backtesting", legacy: "SportsBacktester", state: "not ported", detail: "Point-in-time backtesting is now UNBLOCKED but not written: migration 011 stores odds as one row per observation, and `findSportsOddsBefore(match, instant)` answers \"what did we know then\". No backtest is run and `wf_sports_backtests` does not exist." }),
-  Object.freeze({ area: "model monitoring", legacy: "ModelPerformanceService, ModelDriftMonitor", state: "not ported", detail: "`SPORTS_MODEL_DRIFT` therefore remains the last notification type with no publisher (NV-6)." }),
-  Object.freeze({ area: "configuration service", legacy: "ConfigurationService", state: "not ported", detail: "Engine mode and its limits live in `sports_configurations`, which does not exist here; the mode reported by this service comes from the environment only." }),
-  Object.freeze({ area: "performance analytics and dashboards", legacy: "PerformanceAnalytics, Sports::index, Sports::tickets", state: "not ported", detail: "Both aggregate stored tickets and selections. No console screen exists in any ported module (F-29)." }),
+  Object.freeze({ area: "correlation and staking", legacy: "CorrelationEngine, stake sizing in TicketOptimizer", state: "not ported", detail: "No correlation between selections is measured: every stored decision carries `UNKNOWN`, never a placeholder class. No stake is sized. Both are row 14 slice 4." }),
+  Object.freeze({ area: "ticket governance and optimization", legacy: "TicketGovernance, TicketOptimizer, DailyTicketService", state: "not ported", detail: "No ticket can be generated, and `ticketEngine` stays NOT_PORTED rather than DISABLED, because there is no engine to disable. Row 14 slice 4." }),
+  Object.freeze({ area: "settlement and result verification", legacy: "TicketSettlementService, ResultVerificationEngine, PersistedResultVerifier", state: "not ported", detail: "No result can be verified, so no decision has an outcome and `verified` stays false everywhere. Row 14 slice 5." }),
+  Object.freeze({ area: "calibration", legacy: "CalibrationEngine::fit", state: "not ported", detail: "A calibration cannot be fitted yet, because a fit needs settled outcomes. Approving and rejecting a fitted calibration are ported; `POST /sports/calibrations/fit` returns 422 and stores nothing until settlement exists. Row 14 slice 5." }),
+  Object.freeze({ area: "backtesting", legacy: "SportsBacktester", state: "not ported", detail: "Point-in-time backtesting is UNBLOCKED but not written: migration 011 stores odds as one row per observation, so `findSportsOddsBefore` can answer what was known at a time. It needs settled outcomes, so it is row 14 slice 5." }),
+  Object.freeze({ area: "model monitoring", legacy: "ModelDriftMonitor", state: "not ported", detail: "The model registry and the prediction counts are ported, but drift is not measured. `SPORTS_MODEL_DRIFT` therefore remains the last notification type with no publisher (NV-6), until slice 5." }),
+  Object.freeze({ area: "performance analytics and dashboards", legacy: "PerformanceAnalytics, Sports::index, Sports::tickets", state: "not ported", detail: "Both aggregate stored tickets and settled results, and neither exists yet. The model-performance read reports `samples: 0` and null metrics, which is the honest answer, not a dashboard." }),
 ]);
 
 /**
@@ -301,9 +300,9 @@ export function createSportsService({ config, store = null, now = () => Date.now
       ticketEngine: "NOT_PORTED",
       reason: configured
         ? (store
-          ? "Providers are configured from the environment and ingestion is persisted. No prediction, ticket, settlement, calibration or backtest can be produced, and no stored result is verified. This snapshot reports configuration only: derived health is computed from stored observations and is available on the authenticated GET /api/v1/sports/status, never here, because this surface is unauthenticated and must not trigger a read of provider history or an outbound call."
-          : "Providers are configured from the environment but this host has no sports repository, so no fixture, odds or result is persisted, and no prediction, ticket, settlement, calibration or backtest can be produced. The authenticated GET /api/v1/sports/status reports the same and can probe on request.")
-        : "No sports provider is configured, so no fixture, odds, prediction or ticket can be produced and nothing is fabricated to fill the gap.",
+          ? "Providers are configured from the environment and ingestion is persisted. Decisions are recorded for fixtures that have a quality assessment, but no ticket, settlement, backtest or model drift can be produced, and no stored result is verified. This snapshot reports configuration only: derived health is computed from stored observations and is available on the authenticated GET /api/v1/sports/status, never here, because this surface is unauthenticated and must not trigger a read of provider history or an outbound call."
+          : "Providers are configured from the environment but this host has no sports repository, so no fixture, odds or result is persisted, and no decision, ticket, settlement or backtest can be produced. The authenticated GET /api/v1/sports/status reports the same and can probe on request.")
+        : "No sports provider is configured, so no fixture, odds, decision or ticket can be produced and nothing is fabricated to fill the gap.",
     });
   }
 
@@ -459,9 +458,17 @@ export function createSportsService({ config, store = null, now = () => Date.now
     throw new AppError(400, "INVALID_JOB_TYPE", `jobType must be one of FIXTURES, ODDS, RESULTS, received ${String(jobType).slice(0, 40)}`);
   }
 
+  /**
+   * The decision chain (slice 3): predictions, the model registry, configuration, and
+   * calibration decisions. Its own namespace, so the foundation's reads and writes stay
+   * distinct from the chain that is built on them.
+   */
+  const intelligence = createSportsIntelligenceService({ store, now });
+
   return Object.freeze({
     status,
     statusSnapshot,
+    intelligence,
     readFixtures,
     readOdds,
     readResults,

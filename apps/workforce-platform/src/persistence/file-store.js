@@ -44,6 +44,16 @@ import {
   resultRow,
   syncRunRow,
   toInt,
+  assertPredictionId,
+  calibrationRow,
+  configurationRow,
+  modelVersionRow,
+  predictionRow,
+  prepareCalibration,
+  prepareConfiguration,
+  prepareModelVersion,
+  preparePrediction,
+  CALIBRATION_STATUSES,
 } from "./sports-rows.js";
 import { createHash } from "node:crypto";
 import path from "node:path";
@@ -55,7 +65,10 @@ const ENTITIES = ["users", "profiles", "sessions", "roles", "permissions", "user
   // collide with them. Adding an entity here also adds it to `stats()`, which is what
   // makes `backup.test.js` demand a MySQL counterpart for each one.
   "sportsProviders", "sportsHealth", "sportsMatches", "sportsOdds", "sportsResults",
-  "sportsQuality", "sportsSyncRuns"];
+  "sportsQuality", "sportsSyncRuns",
+  // Sports decision chain (migration 012): model registry, immutable predictions,
+  // append-only configuration and PENDING-until-decided calibrations.
+  "sportsModelVersions", "sportsPredictions", "sportsConfigurations", "sportsCalibrations"];
 const PAPER_TX_ENTITIES = Object.freeze(["tradingState", "paperAccounts", "paperOrders", "paperPositions", "paperTrades", "paperDeployments", "executionProposals", "strategies", "journalEntries", "audit"]);
 const COMPACTION_ENTRIES = 2_000;
 /**
@@ -144,6 +157,10 @@ function keyOf(entity, record) {
   if (entity === "sportsMatches") return `${record.provider_id}:${record.external_id}`;
   if (entity === "sportsResults") return `${record.match_id}:${record.provider_id}`;
   if (entity === "sportsSyncRuns") return String(record.execution_key);
+  if (entity === "sportsModelVersions") {
+    return [record.model_name, record.model_version, record.feature_version, record.calibration_version].join("|");
+  }
+  if (entity === "sportsConfigurations") return String(record.version);
   return String(record.id);
 }
 
@@ -1194,6 +1211,124 @@ export async function createFileStore({ dir, logger = console, idFactory = () =>
         .sort((a, b) => String(b.started_at).localeCompare(String(a.started_at)) || String(b.id).localeCompare(String(a.id)))
         .slice(0, bounded)
         .map(syncRunRow);
+    },
+
+    // ── slice 3: mirrors src/db/sports-intelligence-repository.js method for method ──
+    // The same validators and shapes come from sports-rows.js, and the same three rules
+    // apply: predictions are insert-only, configuration versions are unique, and calibration
+    // decisions only succeed from PENDING. Single-process, like everything in this adapter.
+    async ensureSportsModelVersion(input) {
+      const row = prepareModelVersion(input ?? {}, input?.createdAt);
+      const find = () => [...tables.get("sportsModelVersions").values()].find((r) => r.model_name === row.model_name
+        && r.model_version === row.model_version && r.feature_version === row.feature_version
+        && r.calibration_version === row.calibration_version);
+      const existing = find();
+      if (existing) return modelVersionRow(existing);
+      const record = { id: nextRowId("sportsModelVersions"), ...row };
+      await mutate("sportsModelVersions", "upsert", record);
+      return modelVersionRow(find());
+    },
+
+    async listSportsModelVersions() {
+      return [...tables.get("sportsModelVersions").values()]
+        .sort((a, b) => toInt(a.id, 0) - toInt(b.id, 0))
+        .map(modelVersionRow);
+    },
+
+    async saveSportsPrediction(input) {
+      const id = assertPredictionId(input?.id);
+      const row = preparePrediction(input ?? {}, { id, createdAt: input?.createdAt });
+      // `replace: false`: a decision is never overwritten, so a duplicate id throws, as the
+      // MySQL primary key does.
+      await mutate("sportsPredictions", "upsert", { id, ...row, replace: false });
+      return predictionRow(tables.get("sportsPredictions").get(id));
+    },
+
+    async findSportsPrediction(id) {
+      return predictionRow(tables.get("sportsPredictions").get(assertPredictionId(id)) ?? null);
+    },
+
+    async listSportsPredictions(filter = {}, limit = 50) {
+      const f = filter && typeof filter === "object" ? filter : {};
+      const bounded = Math.min(500, Math.max(1, toInt(limit, 50)));
+      const matchId = f.matchId === null || f.matchId === undefined ? null : assertRowId(f.matchId, "filter.matchId");
+      const modelVersionId = f.modelVersionId === null || f.modelVersionId === undefined
+        ? null : assertRowId(f.modelVersionId, "filter.modelVersionId");
+      const decision = f.decision === null || f.decision === undefined
+        ? null : assertEnum(f.decision, ["PREDICTION_READY", "NO_PREDICTION"], "filter.decision");
+      return [...tables.get("sportsPredictions").values()]
+        .filter((r) => (matchId === null || toInt(r.match_id) === matchId)
+          && (modelVersionId === null || toInt(r.model_version_id) === modelVersionId)
+          && (decision === null || r.decision === decision))
+        .sort((a, b) => String(b.created_at).localeCompare(String(a.created_at)) || String(b.id).localeCompare(String(a.id)))
+        .slice(0, bounded)
+        .map(predictionRow);
+    },
+
+    async saveSportsConfiguration(input) {
+      const row = prepareConfiguration(input ?? {});
+      if ([...tables.get("sportsConfigurations").values()].some((r) => toInt(r.version) === row.version)) return null;
+      const record = { id: nextRowId("sportsConfigurations"), ...row };
+      await mutate("sportsConfigurations", "upsert", { ...record, replace: false });
+      return configurationRow(record);
+    },
+
+    async activeSportsConfiguration() {
+      const rows = [...tables.get("sportsConfigurations").values()].sort((a, b) => toInt(b.version, 0) - toInt(a.version, 0));
+      return configurationRow(rows[0] ?? null);
+    },
+
+    async listSportsConfigurations(limit = 50) {
+      const bounded = Math.min(500, Math.max(1, toInt(limit, 50)));
+      return [...tables.get("sportsConfigurations").values()]
+        .sort((a, b) => toInt(b.version, 0) - toInt(a.version, 0))
+        .slice(0, bounded)
+        .map(configurationRow);
+    },
+
+    async saveSportsCalibration(input) {
+      const row = prepareCalibration(input?.fit ?? {}, {
+        modelVersionId: input?.modelVersionId,
+        calibrationVersion: input?.calibrationVersion,
+        createdBy: input?.createdBy,
+        createdAt: input?.createdAt,
+      });
+      const record = { id: nextRowId("sportsCalibrations"), ...row };
+      await mutate("sportsCalibrations", "upsert", record);
+      return calibrationRow(record);
+    },
+
+    async findSportsCalibration(id) {
+      return calibrationRow(tables.get("sportsCalibrations").get(String(assertRowId(id, "calibration id"))) ?? null);
+    },
+
+    async listSportsCalibrations(filter = {}, limit = 50) {
+      const f = filter && typeof filter === "object" ? filter : {};
+      const bounded = Math.min(500, Math.max(1, toInt(limit, 50)));
+      const modelVersionId = f.modelVersionId === null || f.modelVersionId === undefined
+        ? null : assertRowId(f.modelVersionId, "filter.modelVersionId");
+      const status = f.status === null || f.status === undefined
+        ? null : assertEnum(f.status, CALIBRATION_STATUSES, "filter.status");
+      return [...tables.get("sportsCalibrations").values()]
+        .filter((r) => (modelVersionId === null || toInt(r.model_version_id) === modelVersionId)
+          && (status === null || r.status === status))
+        .sort((a, b) => toInt(b.id, 0) - toInt(a.id, 0))
+        .slice(0, bounded)
+        .map(calibrationRow);
+    },
+
+    async decideSportsCalibration(id, status, actorId, decidedAt) {
+      const calibrationId = String(assertRowId(id, "calibration id"));
+      const decision = assertEnum(status, ["APPROVED", "REJECTED"], "calibration decision");
+      const current = tables.get("sportsCalibrations").get(calibrationId);
+      if (!current || current.status !== "PENDING") return null;
+      await mutate("sportsCalibrations", "upsert", {
+        ...current,
+        status: decision,
+        approved_by: String(actorId ?? "").slice(0, 64),
+        approved_at: decidedAt,
+      });
+      return calibrationRow(tables.get("sportsCalibrations").get(calibrationId));
     },
 
     /**

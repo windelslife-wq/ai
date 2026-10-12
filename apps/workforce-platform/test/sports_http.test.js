@@ -95,7 +95,7 @@ test("a default host configures no provider, fabricates nothing, and lists what 
 
   // The honesty matrix travels in the response because no ported module has a
   // console screen (F-29) — the same decision as BC-10 in the broker port.
-  assert.equal(body.notPorted.length, 9, "ingestion graduated out of the matrix in Phase 16");
+  assert.equal(body.notPorted.length, 7, "ingestion left the matrix in Phase 16; predictions and the configuration service left it in slice 3");
   for (const entry of body.notPorted) {
     assert.ok(entry.area && entry.legacy && entry.state && entry.detail, JSON.stringify(entry));
     assert.notEqual(entry.state, "ported");
@@ -103,7 +103,7 @@ test("a default host configures no provider, fabricates nothing, and lists what 
   assert.match(JSON.stringify(body.notPorted), /SPORTS_MODEL_DRIFT/, "NV-6's last type is named where an operator can see it");
 });
 
-test("the route inventory has six sports routes, and the only write is a gated sync", async (t) => {
+test("the route inventory is exactly the slice 3 surface, and every write is a gated, named route", async (t) => {
   const instance = await createFileStoreApp({});
   t.after(() => instance.cleanup());
 
@@ -112,49 +112,76 @@ test("the route inventory has six sports routes, and the only write is a gated s
   const inventory = response.json().routes;
   assert.ok(inventory.length >= 80, "non-vacuity: the inventory really is populated");
 
+  // Every sports route, with the permission it must require. Asserted per route rather
+  // than by count, so a route that lost its guard fails by name. Slice 3 (row 14) adds the
+  // decision chain: configuration, models, calibration decisions, evaluation and reads of
+  // the stored decisions. Slices 4 and 5 will extend this table, not relax it.
+  const EXPECTED = new Map([
+    ["GET /api/v1/sports/status", "sports.view"],
+    ["GET /api/v1/sports/providers", "sports.view"],
+    ["GET /api/v1/sports/providers/:providerCode/health", "sports.view"],
+    ["GET /api/v1/sports/matches", "sports.view"],
+    ["GET /api/v1/sports/matches/:matchId", "sports.view"],
+    ["GET /api/v1/sports/sync-runs", "sports.view"],
+    ["POST /api/v1/sports/sync", "sports.manage"],
+    ["GET /api/v1/sports/configuration", "sports.manage"],
+    ["GET /api/v1/sports/configuration/versions", "sports.manage"],
+    ["PATCH /api/v1/sports/configuration", "sports.manage"],
+    ["GET /api/v1/sports/models", "sports.view"],
+    ["GET /api/v1/sports/models/performance", "sports.view"],
+    ["GET /api/v1/sports/calibrations", "sports.view"],
+    ["POST /api/v1/sports/calibrations/fit", "sports.manage"],
+    ["POST /api/v1/sports/calibrations/:calibrationId/approve", "sports.manage"],
+    ["POST /api/v1/sports/calibrations/:calibrationId/reject", "sports.manage"],
+    ["POST /api/v1/sports/matches/:matchId/evaluate", "sports.manage"],
+    ["GET /api/v1/sports/matches/:matchId/intelligence", "sports.view"],
+    ["GET /api/v1/sports/predictions", "sports.view"],
+    ["GET /api/v1/sports/predictions/:predictionId/decision", "sports.view"],
+  ]);
+
   const sports = inventory.filter((route) => route.path.includes("/sports"));
   assert.deepEqual(
-    sports.map((route) => `${route.method} ${route.path}`),
+    sports.map((route) => `${route.method} ${route.path}`).sort(),
+    [...EXPECTED.keys()].sort(),
+    "the sports inventory is exactly the slice 3 surface, no more and no fewer",
+  );
+  // Routes that take no input have nothing to validate, so they are the only ones allowed
+  // to report `validated: false`. Named here, so a new unvalidated route fails the test.
+  const NO_INPUT = new Set([
+    "GET /api/v1/sports/status",
+    "GET /api/v1/sports/providers",
+    "GET /api/v1/sports/configuration",
+    "GET /api/v1/sports/models",
+    "POST /api/v1/sports/calibrations/fit",
+  ]);
+  for (const route of sports) {
+    const key = `${route.method} ${route.path}`;
+    assert.equal(route.permission, EXPECTED.get(key), `${key} must require ${EXPECTED.get(key)}`);
+    if (!NO_INPUT.has(key)) assert.equal(route.validated, true, `${key} must declare a schema`);
+  }
+
+  // The write surface, named. Every non-GET sports route is in this list, so a new write
+  // cannot appear without this test being edited on purpose.
+  assert.deepEqual(
+    sports.filter((route) => route.method !== "GET").map((route) => `${route.method} ${route.path}`).sort(),
     [
-      "GET /api/v1/sports/status",
-      "GET /api/v1/sports/providers",
-      "GET /api/v1/sports/providers/:providerCode/health",
-      "GET /api/v1/sports/matches",
-      "GET /api/v1/sports/matches/:matchId",
-      "GET /api/v1/sports/sync-runs",
+      "PATCH /api/v1/sports/configuration",
+      "POST /api/v1/sports/calibrations/:calibrationId/approve",
+      "POST /api/v1/sports/calibrations/:calibrationId/reject",
+      "POST /api/v1/sports/calibrations/fit",
+      "POST /api/v1/sports/matches/:matchId/evaluate",
       "POST /api/v1/sports/sync",
     ],
   );
-  // Reads need `sports.view`; the one write needs `sports.manage` — legacy's own split
-  // in `Api_sports`, and the first caller of a permission the baseline declared in
-  // anticipation. Asserted per route rather than by count, so a route that lost its
-  // guard fails by name.
-  for (const route of sports) {
-    const expected = route.method === "POST" ? "sports.manage" : "sports.view";
-    assert.equal(route.permission, expected, `${route.method} ${route.path} must require ${expected}`);
-    assert.equal(route.validated, true, `${route.method} ${route.path} must declare a schema`);
-  }
 
-  // Every legacy sports endpoint that would need a table this slice does not create
-  // is absent. Asserted as an absence rather than as a count, because a count would
-  // also pass if the route were renamed.
-  // "matches", "providers" and "sync" came OFF this list in Phase 16: those tables
-  // exist now, so those routes read and write real stored rows. What stays forbidden is
-  // everything whose table does not — and note that "odds" and "results" stay
-  // forbidden too, because odds and results are served inside a fixture's detail
-  // response rather than as standalone endpoints, and a `/sports/odds` route would
-  // invite a caller to read a price series with no fixture attached to it.
-  for (const forbidden of ["odds", "predictions", "tickets", "daily", "results", "models", "calibration", "backtest", "configuration", "settle", "verify"]) {
+  // Every legacy sports endpoint whose table or engine does not exist yet is still absent.
+  // Asserted as an absence rather than a count, because a count would also pass if a route
+  // were renamed. Slice 3 removes predictions, models, calibration and configuration from
+  // this list; what remains is everything slices 4 and 5 own.
+  for (const forbidden of ["odds", "tickets", "daily", "results", "settle", "verify", "backtest", "risk", "correlation", "optimi", "stake", "order", "broker", "drift"]) {
     const found = inventory.filter((route) => route.path.includes("/sports") && route.path.toLowerCase().includes(forbidden));
     assert.deepEqual(found.map((route) => route.path), [], `no /sports/${forbidden} route may exist in this slice`);
   }
-  // The only non-GET sports route is the sync, and it is a write to the seven
-  // `wf_sports_*` tables and nothing else: no order, proposal, position, account or
-  // broker route may appear here whatever slice row 14 reaches.
-  assert.deepEqual(
-    inventory.filter((route) => route.path.includes("/sports") && route.method !== "GET").map((route) => `${route.method} ${route.path}`),
-    ["POST /api/v1/sports/sync"],
-  );
 });
 
 test("the public status surface reports sports from configuration and contacts no provider", async (t) => {
@@ -178,7 +205,7 @@ test("the public status surface reports sports from configuration and contacts n
   assert.deepEqual(body.sports.providerIds, ["sandbox-sim"]);
   assert.equal(body.sports.simulatedProviders, 1);
   // True on this host: `createFileStoreApp` wires the file adapter, which implements
-  // all 22 sports methods. A host without migration 011 would report false, and the
+  // all 34 sports methods. A host without migration 011 would report false, and the
   // stored-read routes would refuse with 503 rather than returning empty lists.
   assert.equal(body.sports.persistence, true, "stated as a fact about this host");
   assert.equal(body.sports.ticketEngine, "NOT_PORTED");
@@ -195,7 +222,7 @@ test("the public status surface reports sports from configuration and contacts n
   const sports = body.modules.find((module) => module.key === "sports");
   assert.equal(sports.state, "partial");
   assert.match(sports.label, /no stored result is verified/i);
-  assert.match(sports.label, /no prediction, ticket, settlement, calibration, backtest or monitoring/i);
+  assert.match(sports.label, /not ported: correlation and staking, tickets, settlement, calibration fitting, backtests and model drift/i);
   assert.ok(!/no persistence/i.test(sports.label), "persistence exists now; a stale label reads as current documentation");
   assert.equal(body.modules.length, 17);
 });
@@ -655,28 +682,29 @@ test("after a sync, /sports/status reports a derived health that was measured, n
   assert.equal(probed.persisted, false);
 });
 
-test("no sports route can reach a prediction, ticket, settlement or broker surface", async (t) => {
+test("no sports route can settle, verify, stake or reach a broker, and a prediction is never updated", async (t) => {
   const instance = await sandboxApp(t);
   t.after(() => instance.cleanup());
-  const { headers } = await signIn(instance.app);
+  await signIn(instance.app);
 
   // Non-vacuity: the inventory really is populated, so the absences below are findings
   // rather than an empty response.
   const inventory = (await instance.app.inject({ method: "GET", url: "/api/v1/system/routes" })).json().routes;
   assert.ok(inventory.length >= 80);
   const sports = inventory.filter((route) => route.path.includes("/sports"));
-  assert.equal(sports.length, 7);
+  assert.equal(sports.length, 20, "7 foundation routes + 13 decision-chain routes");
 
   // Asserted as absences rather than as a count, because a count would also pass if a
-  // route were renamed.
-  for (const forbidden of ["prediction", "ticket", "settle", "verify", "calibrat", "backtest", "model", "daily", "value", "stake", "order", "broker"]) {
+  // route were renamed. `prediction` and `calibrat` are allowed now; settlement and staking
+  // are not, and neither is any broker or order surface.
+  for (const forbidden of ["settle", "verify", "backtest", "ticket", "daily", "stake", "order", "broker", "risk", "correlation", "drift"]) {
     assert.deepEqual(
       sports.filter((route) => route.path.toLowerCase().includes(forbidden)).map((route) => route.path),
       [],
       `no /sports route may mention ${forbidden} in this slice`,
     );
   }
-  // And the one write route writes only to the seven `wf_sports_*` tables: nothing here
-  // can place an order, move a stake or enable a connector.
-  assert.deepEqual(sports.filter((route) => route.method !== "GET").map((route) => route.path), ["/api/v1/sports/sync"]);
+  // A prediction is immutable: no route may update or delete one, only create or read.
+  const predictionWrites = sports.filter((route) => route.path.includes("/predictions") && route.method !== "GET");
+  assert.deepEqual(predictionWrites.map((route) => route.path), [], "predictions are insert-only and have no write route");
 });

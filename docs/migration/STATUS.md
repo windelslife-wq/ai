@@ -2,7 +2,30 @@
 
 **Updated:** 2026-10-12 · **Branch:** `arena/8de8de2e-ai`
 
-## Current Phase 16 status (2026-10-12)
+## Current Phase 17 status (2026-10-12)
+
+**The sports decision chain is ported** (row 14, slice 3 of 5). App version is still **0.15.0**;
+no release was cut. The ledger stays at **9 ported / 5 partial / 3 not-ported** across **17**
+modules, and `sports` remains `partial`. Migration **012** adds four `wf_sports_*` tables, taking
+the schema to **35**. The repository grows from 108 to **120** methods. Thirteen routes are added
+and the sports surface reaches **20**. The total route count is **101**. Full record:
+[`PHASE17_SPORTS_DECISION_CHAIN.md`](PHASE17_SPORTS_DECISION_CHAIN.md).
+
+Two findings change what the operator sees. **F-38**: the stored quality assessment could never
+qualify a decision, because the sync writes it without odds. The user chose re-assessment, so
+`evaluate` now re-assesses from the current price. With a fresh price, a sandbox fixture can reach
+`QUALIFIED`, labelled `simulated: true`. Whether that should be allowed is open (PHASE17 §9).
+**F-37**: the calibration is logistic (DV-12), and the identity fallback returns the raw probability
+(DV-19), both user-chosen.
+
+Gates on this branch: `npm test` **841 / 841**, `npm run check` exit 0 (`verify:install` 29/29,
+76 documented variables), PHP oracle **367 / 367**, and the legacy tree (`application/`, `system/`,
+`tests/`) unmodified. **Not run:** a real MySQL server, and migration 012 against any database.
+
+**Still not ported:** correlation, staking, the optimizer and the daily ticket (slice 4); settlement,
+verification, the backtester, drift and analytics (slice 5); calibration fitting; and cron.
+
+## Phase 16 status (2026-10-12) — superseded by Phase 17
 
 **Sports persistence and ingestion are ported** (row 14, slice 2 of 5). App version is
 now **0.15.0**. The ledger stays at **9 ported / 5 partial / 3 not-ported** across **17**

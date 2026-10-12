@@ -97,21 +97,14 @@ export const MODULE_STATUS = Object.freeze([
   // false on every host that has not deployed and verified a real bridge, and the
   // label says that instead of letting `partial` imply a half-working broker.
   { key: "brokers", label: "Broker connector boundary, normalized data contracts and demo-only order gates (ten adapters registered, all disabled by default; one read-only route, no order routing, no simulated bridge, no adapter verified against its provider)", state: "partial", tests: "unit + http + gates" },
-  // Phase 15 ports slice 1 of row 14: the normalized data contracts, the two
-  // conservative engines, and the provider boundary. What exists: the fixture and
-  // odds normalizers, the data-quality and odds-freshness engines, the sandbox
-  // provider (deterministic, double-gated, every record labelled `simulated`), the
-  // generic HTTP provider with classified failures, the fallback chain that returns
-  // a structured failure instead of an empty success, and the health monitor that
-  // derives a status from observations and invents none. All four pure classes are
-  // proven **bit-identical to PHP 8.2** by a differential harness (F-26, closed for
-  // this module). What does not exist: any persistence — the seven tables ingestion
-  // writes are not created — and therefore no sync, no prediction, no value or
-  // staking calculation, no ticket, no settlement, no calibration, no backtest, no
-  // model monitoring and no dashboard. `SPORTS_MODEL_DRIFT` is still unpublished
-  // (NV-6). The label has to say that, because "sports intelligence: partial"
-  // reads as "half a betting engine" and this is a tenth of a data layer.
-  { key: "sports", label: "Sports data foundation and ingestion: normalized fixture/odds/result contracts, data-quality and freshness gates, the provider boundary (sandbox simulation double-gated and labelled, generic REST provider never verified against a vendor), and idempotent ingestion into seven tables under a unique execution key with derived provider health computed from stored observations; PHP-parity proven by differential test. No prediction, ticket, settlement, calibration, backtest or monitoring, and no stored result is verified \u2014 ingestion reports an outcome, it does not attest to one. Five read routes and one write route gated sports.manage", state: "partial", tests: "unit + php-parity + http + store" },
+  // Slice 3 (row 14) adds the decision chain: the prediction pipeline and match
+  // intelligence, the value and risk gates, the configuration service, the model
+  // registry and calibration approval. Every decision is recorded immutably with the gate's
+  // reasons. What is NOT ported and must not be read as present: correlation and staking,
+  // tickets, settlement, calibration fitting, backtests and model drift. `SPORTS_MODEL_DRIFT`
+  // is still unpublished (NV-6). The label has to say that, because "sports intelligence:
+  // partial" reads as "half a betting engine".
+  { key: "sports", label: "Sports data foundation, ingestion and decision chain: normalized fixture/odds/result contracts, data-quality and freshness gates, the provider boundary (sandbox simulation double-gated and labelled, generic REST provider never verified against a vendor), idempotent ingestion into the seven foundation tables under a unique execution key, derived provider health from stored observations, PHP-parity proven by differential test (the intelligence chain included), and the decision chain over four further tables: prediction pipeline and match intelligence, value and risk gates, the configuration service with append-only versions, the model registry, and calibration approve/reject, with the calibration fit refused until settlement exists. Every decision is stored immutably with its gate's reasons. Not ported: correlation and staking, tickets, settlement, calibration fitting, backtests and model drift. No stored result is verified \u2014 ingestion reports an outcome, it does not attest to one. Twelve sports.view reads, two sports.manage reads, and six sports.manage writes (sync, configuration patch, evaluate, calibration fit/approve/reject)", state: "partial", tests: "unit + php-parity + http + store" },
   { key: "lottery", label: "Lottery intelligence", state: "not-ported", tests: null },
   { key: "languageLearning", label: "Language learning and AI teacher", state: "not-ported", tests: null },
   { key: "leadDiscovery", label: "Lead discovery", state: "not-ported", tests: null },

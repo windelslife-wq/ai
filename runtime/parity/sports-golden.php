@@ -290,6 +290,10 @@ $healthCases = [
     'an empty provider row changes nothing, because it is never read' => [[], [$obs('ONLINE', 60)], [$run('COMPLETED', 30)], $NOW],
 ];
 
+// Slice 3: the decision chain, calibration, configuration and PHP round(). See the
+// included file for the cases and for why two of them are recorded as evidence.
+$slice3 = require __DIR__ . '/sports-intelligence-golden.php';
+
 $payload = [
     'generator' => 'runtime/parity/sports-golden.php',
     'php' => ['version' => PHP_VERSION, 'sapi' => PHP_SAPI],
@@ -325,6 +329,7 @@ $payload = [
             foreach ($freshnessCases as $name => [$odds, $maxAge, $now]) $out[$name] = ['odds' => $odds, 'maxAgeSeconds' => $maxAge, 'now' => $now, 'result' => outcome(fn() => $freshness->assess($odds, $maxAge, $now))];
             return $out;
         })(),
+        'slice3' => $slice3,
         'sandbox' => [
             'health' => strip_clock($sandbox->health()),
             'fixtureCount' => count($fixtures),

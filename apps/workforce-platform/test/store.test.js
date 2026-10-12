@@ -13,7 +13,7 @@ test("database readiness requires every ordered Node identity migration and repo
   };
   const readiness = await createStore(pool).readiness();
   assert.deepEqual(readiness, { database: true, schema: false, adapter: "mysql", detail: null });
-  assert.match(calls[1].sql, /IN \(\?, \?, \?, \?, \?, \?, \?, \?, \?, \?, \?\)/);
+  assert.match(calls[1].sql, /IN \(\?, \?, \?, \?, \?, \?, \?, \?, \?, \?, \?, \?\)/);
   assert.deepEqual(calls[1].values, [
     "001_platform_foundation",
     "002_identity_import_fields",
@@ -33,6 +33,8 @@ test("database readiness requires every ordered Node identity migration and repo
     // fail on a missing table — and instead of letting `/api/v1/sports/status`
     // quietly report `persistence: false` as though that were a configuration choice.
     "011_sports_foundation",
+    // Slice 3: the decision chain (predictions, model registry, configuration, calibration).
+    "012_sports_intelligence",
   ]);
 });
 

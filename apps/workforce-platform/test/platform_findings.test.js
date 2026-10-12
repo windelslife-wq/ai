@@ -633,7 +633,9 @@ test("F-01 the durable file adapter replays its log, survives a torn write, and 
     // a sports row this test never wrote would show up here as a non-zero count, which
     // is the point of asserting them rather than letting `deepEqual` discover them.
     sportsProviders: 0, sportsHealth: 0, sportsMatches: 0, sportsOdds: 0,
-    sportsResults: 0, sportsQuality: 0, sportsSyncRuns: 0 });
+    sportsResults: 0, sportsQuality: 0, sportsSyncRuns: 0,
+    // Slice 3: the four decision-chain collections, all empty for the same reason.
+    sportsModelVersions: 0, sportsPredictions: 0, sportsConfigurations: 0, sportsCalibrations: 0 });
 
   await reopened.compact();
   const compacted = (await readFile(fileStorePaths(dir).log, "utf8")).trim();
@@ -666,9 +668,10 @@ test("F-01 the file store and the SQL store implement one repository contract, s
     () => assertRepositoryContract({ adapter: "stub", capabilities: {}, readiness: async () => ({}) }, { adapter: "stub" }),
     /does not implement the repository contract.*findUserByIdentifier/s,
   );
-  assert.equal(REPOSITORY_METHODS.length, 108, "8 identity + 6 sessions + 9 RBAC + 2 admin + 4 audit/profile + 2 contact intake + 4 analysis runs + 11 Strategy Lab (including persisted human sign-off) + 23 paper trading + 3 execution proposal reads (2 owner-scoped + 1 cross-owner for the scheduled job) + 6 operator notifications + 5 job locks + 2 job state + 22 sports foundation (3 provider registry + 4 health including retention + 4 fixtures + 4 odds + 2 results + 2 quality + 3 sync runs) + 1 readiness");
+  assert.equal(REPOSITORY_METHODS.length, 120, "8 identity + 6 sessions + 9 RBAC + 2 admin + 4 audit/profile + 2 contact intake + 4 analysis runs + 11 Strategy Lab (including persisted human sign-off) + 23 paper trading + 3 execution proposal reads (2 owner-scoped + 1 cross-owner for the scheduled job) + 6 operator notifications + 5 job locks + 2 job state + 22 sports foundation (3 provider registry + 4 health including retention + 4 fixtures + 4 odds + 2 results + 2 quality + 3 sync runs) + 12 sports intelligence (2 model versions + 4 predictions + 3 configuration + 3 calibration) + 1 readiness");
 
-  // The 22 sports methods are named here rather than only counted, because this is the
+  // The 22 sports foundation methods and the 12 decision-chain methods (migration 012)
+  // are named here rather than only counted, because this is the
   // assertion that both adapters implement the same one. Two of them matter enough to
   // call out: `listSportsSyncRuns` has no legacy counterpart at all (legacy wrote
   // `sports_sync_runs` and could not read it — finding F-35), and `verifySportsResult`
@@ -681,6 +684,10 @@ test("F-01 the file store and the SQL store implement one repository contract, s
     "saveSportsOdds", "latestSportsOdds", "listSportsOdds", "findSportsOddsBefore",
     "saveSportsResult", "findSportsResult", "saveSportsQuality", "latestSportsQuality",
     "startSportsSync", "finishSportsSync", "listSportsSyncRuns",
+    "ensureSportsModelVersion", "listSportsModelVersions", "saveSportsPrediction",
+    "findSportsPrediction", "listSportsPredictions", "saveSportsConfiguration",
+    "activeSportsConfiguration", "listSportsConfigurations", "saveSportsCalibration",
+    "findSportsCalibration", "listSportsCalibrations", "decideSportsCalibration",
   ]) {
     assert.ok(REPOSITORY_METHODS.includes(method), `${method} must be in the contract, not an adapter extra`);
   }
@@ -1093,10 +1100,10 @@ test("F-02 the status surface is honest about unported modules, and F-03 the rou
     // "no persistence" came OUT of this list in Phase 16, and the assertion that it
     // is gone is as important as the ones that remain: a ledger label is documentation,
     // and a stale one is worse than none because it is read as current.
-    /no prediction, ticket, settlement, calibration, backtest or monitoring/i,
+    /not ported: correlation and staking, tickets, settlement, calibration fitting, backtests and model drift/i,
     /no stored result is verified/i,
     /never verified against a vendor/i,
-    /five read routes and one write route gated sports\.manage/i,
+    /twelve sports\.view reads, two sports\.manage reads, and six sports\.manage writes/i,
     // The one positive claim the label makes, and the only one this slice can
     // support with evidence rather than assertion.
     /PHP-parity proven by differential test/i,

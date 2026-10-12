@@ -21,6 +21,7 @@ export const REQUIRED_MIGRATIONS = Object.freeze([
   "009_notifications",
   "010_job_locks",
   "011_sports_foundation",
+  "012_sports_intelligence",
 ]);
 
 /** Only driver codes are ever reported; never an SQL statement or credential. */
@@ -73,7 +74,7 @@ export function createStore(pool, { requiredMigrations = REQUIRED_MIGRATIONS } =
     loadJobState: jobs.loadJobState,
     // Sports Intelligence data foundation (migration 011). Listed explicitly rather
     // than spread, matching the job block above, so the boundary is stated instead of
-    // implied: these 22 methods read and write ONLY the seven `wf_sports_*` tables.
+    // implied: these 22 methods read and write ONLY the seven `wf_sports_*` foundation tables.
     // None of them can reach a proposal, order, position, account or broker row, and
     // none of them places a bet — this is observed sporting data and the evidence of
     // how it was obtained. `verifySportsResult` is deliberately absent: ingestion
@@ -100,6 +101,23 @@ export function createStore(pool, { requiredMigrations = REQUIRED_MIGRATIONS } =
     startSportsSync: sports.startSportsSync,
     finishSportsSync: sports.finishSportsSync,
     listSportsSyncRuns: sports.listSportsSyncRuns,
+    // Sports decision chain (migration 012, slice 3). Same boundary as the foundation:
+    // these twelve read and write ONLY the four `wf_sports_*` intelligence tables.
+    // Predictions are insert-only; configuration and calibration are the sole mutable
+    // state, and calibration decisions are compare-and-set on PENDING. None of them
+    // can place a bet or reach a proposal, order, position or broker row.
+    ensureSportsModelVersion: sports.ensureSportsModelVersion,
+    listSportsModelVersions: sports.listSportsModelVersions,
+    saveSportsPrediction: sports.saveSportsPrediction,
+    findSportsPrediction: sports.findSportsPrediction,
+    listSportsPredictions: sports.listSportsPredictions,
+    saveSportsConfiguration: sports.saveSportsConfiguration,
+    activeSportsConfiguration: sports.activeSportsConfiguration,
+    listSportsConfigurations: sports.listSportsConfigurations,
+    saveSportsCalibration: sports.saveSportsCalibration,
+    findSportsCalibration: sports.findSportsCalibration,
+    listSportsCalibrations: sports.listSportsCalibrations,
+    decideSportsCalibration: sports.decideSportsCalibration,
     saveJobState: jobs.saveJobState,
     // Notifications are written outside any paper transaction: they are evidence
     // about a change that already committed, and a failed notification must never

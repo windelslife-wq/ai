@@ -1078,3 +1078,34 @@ this sandbox cannot reproduce. And **an unreproducible failure should be made
 reproducible or made legible before it is explained** — the explanation committed first
 was plausible, self-consistent, and false.
 
+## Re-measured 2026-10-12 — Phase 17 (Sports Intelligence: the decision chain), branch `arena/7577d922-ai`, Node v22.22.3
+
+| Measure | Phase 16 | Phase 17 |
+|---|---|---|
+| Node assertions (`npm test`) | 812 | **841** (+29) |
+| Test files | 44 | **47** (+3) |
+| Static checks (`npm run check`) | 0 failures | **0 failures** (exit 0) |
+| Install checks (`npm run verify:install`) | 29/29 | **29/29** |
+| Documented environment variables | 76 | **76** (unchanged; Phase 17 adds no configuration) |
+| PHP oracle (`node runtime/run-tests.mjs`) | 367 passed / 0 failed | **367 passed / 0 failed** |
+| Total assertions executed (`npm test` + oracle) | 1 179 | **1 208** |
+| Routes | 88 | **101** (+13) |
+| Sports routes | 7 | **20** |
+| Admin routes | 7 | **7** |
+| Storage contract methods | 108 | **120** (+12) |
+| Tables / migrations | 31 / 001–011 | **35 / 001–012** |
+| Module ledger | 9 / 5 / 3 | **9 / 5 / 3** (unchanged; `sports` stays `partial`) |
+| App version | 0.15.0 | **0.15.0** (no release cut) |
+| PHP paths modified | 0 | **0** |
+
+New test files: `test/sports_intelligence_http.test.js` (**7**), `test/sports_intelligence_store.test.js`
+(**6**), `test/sports_intelligence_parity.test.js` (**16**). The golden artifact now holds **272**
+case records: the Phase 16 sections (134, unchanged) and the slice 3 sections (138). The Phase 16
+record reports 124 comparable cases, and that difference is not reconciled in this slice.
+Extended: `test/platform_findings.test.js` names all 34 sports methods, not only counts them.
+
+`test/sports_http.test.js` was checked in this slice. Its route inventory and prediction-absence checks already
+target slice 3, and one stale comment (22 → 34 sports methods) was corrected.
+
+**Not measured:** a MySQL server. The MySQL adapter is tested against a scripted executor only (F-15).
+

@@ -484,3 +484,24 @@ Real MySQL/MariaDB execution has not been performed (finding F-15): behaviour is
 file adapter, and the SQL shapes, bound parameters, `ON DUPLICATE KEY UPDATE` upserts and
 `LIMIT` bounds against a recording executor.
 See [`PHASE16_SPORTS_PERSISTENCE.md`](PHASE16_SPORTS_PERSISTENCE.md).
+
+## 13. Node platform schema — Sports Intelligence decision chain (Phase 17; `012_sports_intelligence.sql`)
+
+> The platform table count is **35**: 31 before Phase 17, plus the four tables below. Migration
+> `012` is the decision chain. Its tables are written only by `SportsIntelligenceService`, and
+> `wf_sports_predictions` is insert-only.
+
+| Table | Purpose | Keys and constraints that carry meaning |
+|---|---|---|
+| `wf_sports_model_versions` | The registry of model identities. A decision names the version it used. | `UNIQUE (model_name, model_version, feature_version, calibration_version)`. The uncalibrated state is `calibration_version = ''`, not NULL, because a UNIQUE key treats NULLs as distinct. |
+| `wf_sports_predictions` | One immutable decision per evaluation: the raw and calibrated probability, implied probability, expected value, confidence, risk, correlation, the data-quality score, the verdict and the gate's **full** rejection list. | `id` is `prd_` plus 24 lower-case hex digits. `correlation` defaults to `UNKNOWN` (SP-32). `rejection_reasons` and `factors` are JSON in `LONGTEXT`. No update or delete path (SP-31). |
+| `wf_sports_configurations` | Versioned engine configuration. Rows are appended, never changed. | `UNIQUE (version)`. A lost race returns `null`, mapped to 409 (SP-29). `engine_mode` never accepts `AUTOMATED_EXECUTION` from a request (DV-14). |
+| `wf_sports_calibrations` | Fitted calibrations, with their status and who decided them. | `method` is `platt` or `identity` (F-37). `status` is `PENDING`, `APPROVED` or `REJECTED`. Decisions are compare-and-set on PENDING (SP-28). `approved_by` and `approved_at` are stamped on a rejection too (SP-27). |
+
+Cross-table references. `wf_sports_predictions` refers to a fixture in `wf_sports_matches` and to a row in
+`wf_sports_model_versions`. Migration 012 declares **no foreign keys**, so the intelligence service checks that the
+fixture exists before it writes a decision (404 otherwise, `intelligence-service.js`). The database does not enforce
+these references.
+
+See [`PHASE17_SPORTS_DECISION_CHAIN.md`](PHASE17_SPORTS_DECISION_CHAIN.md) §5.
+

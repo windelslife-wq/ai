@@ -38,6 +38,7 @@
  */
 
 import { assertIsoCutoff } from "../persistence/contract.js";
+import { createSportsIntelligenceRepository, SPORTS_INTELLIGENCE_METHODS } from "./sports-intelligence-repository.js";
 import { parseStrictInstant } from "../lib/php-date.js";
 import {
   HEALTH_STATUSES,
@@ -115,6 +116,8 @@ async function readSportsResult(executor, matchId, providerId) {
  */
 export function createSportsRepository(executor) {
   return {
+    // ── slice 3: decisions, model registry, configuration, calibration (migration 012) ──
+    ...createSportsIntelligenceRepository(executor),
     // ── providers ──────────────────────────────────────────────────────────────
 
     /**
@@ -791,7 +794,7 @@ export function createSportsRepository(executor) {
   };
 }
 
-/** The 22 methods this repository adds to the shared store contract. */
+/** The 34 methods this repository adds to the shared store contract (22 foundation, 12 slice 3). */
 export const SPORTS_REPOSITORY_METHODS = Object.freeze([
   "ensureSportsProvider",
   "listSportsProviders",
@@ -815,4 +818,5 @@ export const SPORTS_REPOSITORY_METHODS = Object.freeze([
   "startSportsSync",
   "finishSportsSync",
   "listSportsSyncRuns",
+  ...SPORTS_INTELLIGENCE_METHODS,
 ]);
