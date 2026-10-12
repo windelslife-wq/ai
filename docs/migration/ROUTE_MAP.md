@@ -540,6 +540,13 @@ and are tested against an injected transport.
 
 ### 14.15 Sports Intelligence (1) — Phase 15
 
+> **Superseded by §14.16 for everything except the status route's own semantics.**
+> Slice 1 had one route because migration 011 did not exist; the absence list below is
+> now historical, and six of its entries (`matches`, `providers`, `sync`) are routes that
+> exist as of Phase 16. Kept in full because it records *why* those routes were absent
+> rather than approximated — the reasoning, not the count, is what still applies to the
+> endpoints that remain absent.
+
 Slice 1 of row 14: the data foundation and provider boundary. **One route, and it is a
 read.**
 
@@ -573,9 +580,67 @@ change was needed; only `sports.view` is enforced yet, because only one route ex
 
 `GET /api/v1/system/status` additionally carries a synchronous, probe-free
 `sports` snapshot (`enabled`, `mode`, `isDemoData`, `providersConfigured`, `providerIds`,
-`simulatedProviders`, `persistence: false`, `ticketEngine: "NOT_PORTED"`, `reason`). It
-reports **no derived health**, because a field that could only ever hold `UNKNOWN` invites
-a reader to think it was measured. See [`PHASE15_SPORTS_FOUNDATION.md`](PHASE15_SPORTS_FOUNDATION.md).
+`simulatedProviders`, `persistence`, `ticketEngine: "NOT_PORTED"`, `reason`). It reports
+**no derived health**, because a field that could only ever hold `UNKNOWN` invites a reader
+to think it was measured — and **F-35** later supplied the evidence for why it could only
+ever hold `UNKNOWN`: legacy never computed one either. `persistence` was hard-coded `false`
+in slice 1 and is `store !== null` from Phase 16; the snapshot stays synchronous and
+I/O-free either way, so it reports whether a repository *exists*, never what it contains.
+See [`PHASE15_SPORTS_FOUNDATION.md`](PHASE15_SPORTS_FOUNDATION.md).
+
+### 14.16 Sports Intelligence — stored reads and ingestion (7) — Phase 16
+
+Slice 2 of row 14. Migration 011 created seven tables, so the routes that read and fill
+them now exist. **Six are new; the status route is unchanged in path and gating but is now
+store-backed.**
+
+| Method & path | Auth | Permission | Rate limit | Validated | Notes |
+|---|---|---|---|---|---|
+| `GET /api/v1/sports/status` | session or bearer | `sports.view` | global | `querySchema` | Unchanged from §14.15, except that `providers[].derivedStatus` is now **measured** from stored health rows and sync runs rather than hard-coded `UNKNOWN`, and each entry also reports `registered`, `enabled`, `observations` and `syncRuns` |
+| `GET /api/v1/sports/providers` | session or bearer | `sports.view` | global | `querySchema` | The **stored** registry (`wf_sports_data_sources`), `?enabledOnly=` a coerced boolean. Distinct from `status().providers`, which lists what *this process* registered from the environment — the two disagreeing is information |
+| `GET /api/v1/sports/providers/:providerCode/health` | session or bearer | `sports.view` | global | `paramsSchema` + `querySchema` | One provider's observation **series**, newest first, bounded to 200. A series rather than a current value, because an outage is visible as a gap and invisible in an overwritten row. Unknown code → `404` |
+| `GET /api/v1/sports/matches` | session or bearer | `sports.view` | global | `querySchema` | Stored fixtures, oldest kickoff first. Filters: `status` (enum), `from`/`to` (inclusive instants), `competition` (**prefix**), `providerId`, `limit` ≤ 200 |
+| `GET /api/v1/sports/matches/:matchId` | session or bearer | `sports.view` | global | `paramsSchema` + `querySchema` | One fixture with its **odds series**, latest quality assessment and result, plus an explicit `verified` flag. Assembled in one response because read separately the four rows can be combined into a picture that never existed. Unknown id → `404` |
+| `GET /api/v1/sports/sync-runs` | session or bearer | `sports.view` | global | `querySchema` | Sync-run evidence, newest first, with `errors` returned **whole** and an `unfinished` count. **The read legacy never had** — see F-35 |
+| `POST /api/v1/sports/sync` | session or bearer + CSRF | **`sports.manage`** | global | `bodySchema` | Runs one ingestion job. Body: `jobType` (`FIXTURES`\|`ODDS`\|`RESULTS`), `providerId` (the registered id, not the row id), `executionKey`, and `fixtureExternalId`/`query` as the job needs |
+
+**`POST /sports/sync` is the module's only write, and it writes only to the seven
+`wf_sports_*` tables.** It cannot place an order, move a stake, verify a result or enable a
+connector. `sports.manage` is enforced here for the first time — the permission and both
+sports roles already existed in `src/db/platform-baseline.js`, declared in anticipation, so
+this is the first caller rather than a new grant. `test/sports_http.test.js` proves a
+`sports.view`-only member gets `403` and that a refused sync opens no run row.
+
+**Idempotency is the property a caller can rely on.** `executionKey` is required *from the
+caller* rather than generated server-side, because a key the server invented would differ on
+every retry and would guarantee nothing. A reused key returns `200` with
+`status: "DUPLICATE_SKIPPED"`, **no `runId`** (no run was opened, so returning an id would
+imply a row that does not exist) and **no audit event** (the original run already has one, and
+a second would double-count every retry in a filter built on these actions). The `UNIQUE`
+constraint is the arbiter, not a preceding check — divergence **SP-12**.
+
+**A malformed filter is a `400 INVALID_SPORTS_QUERY`, never a `500` and never a silently
+empty result.** The repository's validators throw `TypeError`, which the route translates;
+without that, `?from=12345` would report an internal error and invite a retry of a request
+that can never succeed. This is defect **D-12**'s exact shape — `new Date("12345")` is the
+year 12345, and an empty window looks like a working filter. An offset input
+(`?from=2026-03-07T01:00:00+01:00`) is *normalized* rather than refused (**SP-26**), because
+the columns hold one canonical width and comparing an offset string as text would be the
+actual bug.
+
+**Still absent, asserted by name against the route inventory** rather than by count: no
+`prediction`, `ticket`, `settle`, `verify`, `calibrat`, `backtest`, `model`, `daily`,
+`value`, `stake`, `order` or `broker` route under `/sports`. `odds` and `results` are absent
+as standalone paths too, because both are served inside a fixture's detail response rather
+than detached from the fixture they describe — a `/sports/odds` route would invite a caller
+to read a price series with no fixture attached to it.
+
+**A probe is still never persisted** (`persisted: false` on `?probe=1`), even on a host with
+a repository. Making that conditional on `store` was the first thing slice 2 tried and it was
+**D-27**: it reported `persisted: true` for a reading written nowhere, which is a false claim
+about provenance on the one field whose job is to make that claim. Only ingestion appends
+health rows, which also keeps a dashboard load from mutating the history the monitor derives
+from. See [`PHASE16_SPORTS_PERSISTENCE.md`](PHASE16_SPORTS_PERSISTENCE.md).
 
 ### 14.8 Strategies, backtesting and the journal (11) — Phase 6
 

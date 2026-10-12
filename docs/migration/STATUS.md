@@ -2,7 +2,42 @@
 
 **Updated:** 2026-10-12 · **Branch:** `arena/8de8de2e-ai`
 
-## Current Phase 15 status (2026-10-12)
+## Current Phase 16 status (2026-10-12)
+
+**Sports persistence and ingestion are ported** (row 14, slice 2 of 5). App version is
+now **0.15.0**. The ledger stays at **9 ported / 5 partial / 3 not-ported** across **17**
+modules — `sports` remains `partial`, and what changed is its label. Full record:
+[`PHASE16_SPORTS_PERSISTENCE.md`](PHASE16_SPORTS_PERSISTENCE.md).
+
+Migration **011** creates seven `wf_sports_*` tables, taking the schema to **31**. The
+storage contract grows **86 → 108** methods, implemented identically on both adapters.
+Fixture, odds and result ingestion runs end to end under a caller-supplied `executionKey`
+whose `UNIQUE` constraint is the arbiter, and routes go **82 → 88**: five reads on
+`sports.view`, one write on `sports.manage`, and the existing status route — whose
+`derivedStatus` is now **measured** from stored rows instead of hard-coded `UNKNOWN`.
+Node assertions **752 → 812**; the differential harness now compares **eight** legacy
+classes over **124** cases (was six and 62). PHP oracle **367/367**, **0** PHP paths
+modified.
+
+**Finding F-35, and why it matters more than the table count.** Legacy's
+`ProviderHealthMonitor::assess()` has **no caller anywhere** in `application/`, and its
+own docblock documents its third parameter as *"newest-first `sports_sync_runs` rows"* —
+a table the `SportsRepository` interface provides no method to read. Legacy wrote sync
+evidence into a table it could not query, and built a monitor whose derived status it
+never computed, so every quality assessment was scored against a provider reliability
+that came from whatever a vendor self-reported. **Porting the class would not have closed
+this**; Phase 15 already did that. Adding `listSportsSyncRuns` — which has no legacy
+counterpart — did.
+
+**Still not claimed:** no prediction, ticket, stake, settlement, calibration, backtest,
+model metric, dashboard, configuration service or cron. **No stored result is verified** —
+ingestion reports an outcome and `verifySportsResult` is not in the contract, so nothing
+in this slice can attest to one. No provider is verified against a real vendor, and no
+MySQL was exercised (**F-15**). **NV-6** is unchanged.
+
+---
+
+## Phase 15 status (2026-10-12) — superseded by Phase 16
 
 **The sports data foundation is ported** (row 14, slice 1 of 5). App version is now
 **0.14.0**. `sports` moves from `not-ported` to `partial`, taking the ledger to

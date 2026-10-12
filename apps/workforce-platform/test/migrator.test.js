@@ -109,7 +109,12 @@ test("Phase 8A migration creates only the paper-proposal record, with owner and 
   assert.match(sql, /intent_json LONGTEXT NOT NULL/);
   assert.match(sql, /decision_by_user_id BIGINT UNSIGNED NULL/);
   assert.doesNotMatch(sql, /CREATE TABLE IF NOT EXISTS wf_(?:live|broker)_/i);
-  assert.equal((await listMigrationFiles(new URL("../src/db/migrations/", import.meta.url))).at(-1), "010_job_locks.sql");
+  // The last migration in filename order, which is also the one a fresh host applies
+  // last. Pinned so that adding a migration is a deliberate act that shows up in a
+  // diff: an out-of-order or mis-numbered file would change the order migrations run
+  // in, and a migration that runs before the table it references exists is a failure
+  // only on a fresh install — exactly the install nobody tests.
+  assert.equal((await listMigrationFiles(new URL("../src/db/migrations/", import.meta.url))).at(-1), "011_sports_foundation.sql");
 });
 
 test("Phase 12 migration creates only the job-lock table, keyed by job name", async () => {

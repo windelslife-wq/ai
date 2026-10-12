@@ -119,6 +119,43 @@ export const REPOSITORY_METHODS = Object.freeze([
   // remember what it already alerted on without ever writing the kill switch.
   "loadJobState",
   "saveJobState",
+  // ── Sports Intelligence data foundation (row 14, slice 2) ─────────────────
+  //
+  // Module-prefixed like every other name here, and deliberately so: this contract
+  // is ONE flat namespace shared by every module, whereas legacy's `SportsRepository`
+  // is a PHP interface whose methods are scoped by the interface itself. Legacy's
+  // lottery repository declares `ensureProvider`, `saveHealth`, `latestHealth`,
+  // `listHealth` and `deleteOldHealth` with exactly the same names as its sports one —
+  // so porting row 15 would have overwritten row 14's methods in the spread that
+  // composes the store, and the last module to load would silently win. Divergence
+  // SP-18. `pruneSportsHealth` uses the platform's retention verb rather than
+  // legacy's `delete`, so "what can be deleted" is findable under one prefix.
+  //
+  // Not here, and owed by later slices: `verifySportsResult` and
+  // `findSportsResultByMatch` (settlement, slice 5). Ingestion reports a result; it
+  // does not get to verify one.
+  "ensureSportsProvider",
+  "listSportsProviders",
+  "setSportsProviderEnabled",
+  "saveSportsHealth",
+  "latestSportsHealth",
+  "listSportsHealth",
+  "pruneSportsHealth",
+  "findSportsMatchById",
+  "listSportsMatches",
+  "saveSportsMatch",
+  "findSportsMatch",
+  "saveSportsOdds",
+  "latestSportsOdds",
+  "listSportsOdds",
+  "findSportsOddsBefore",
+  "saveSportsResult",
+  "findSportsResult",
+  "saveSportsQuality",
+  "latestSportsQuality",
+  "startSportsSync",
+  "finishSportsSync",
+  "listSportsSyncRuns",
   // operational
   "readiness",
 ]);

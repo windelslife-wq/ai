@@ -158,13 +158,20 @@ export async function buildApp({ config, store, logger = true, publicDir = path.
   // directly — the execution supervisor asks the manager, exactly as legacy did.
   const brokers = createBrokerRegistry({ brokers: config.brokers });
 
-  // One sports service per app (row 14, slice 1). Providers come from the
-  // environment only, and a default host registers none at all: the sandbox
-  // provider needs WINDELS_SPORTS_MODE=SANDBOX *and* WINDELS_SPORTS_SANDBOX=1, and
-  // the HTTP provider needs a valid base URL. Unlike the broker registry this
-  // service holds no repository, so it can read a provider but cannot store what it
-  // read — which is why its one route reports status rather than fixtures.
-  const sports = createSportsService({ config });
+  // One sports service per app (row 14). Providers come from the environment only,
+  // and a default host registers none at all: the sandbox provider needs
+  // WINDELS_SPORTS_MODE=SANDBOX *and* WINDELS_SPORTS_SANDBOX=1, and the HTTP
+  // provider needs a valid base URL.
+  //
+  // Slice 2 hands it the store, which is what changes the module's reach: with a
+  // repository it can ingest fixtures, odds and results into the seven
+  // `wf_sports_*` tables, read that history back, and derive a provider's health
+  // from stored observations instead of reporting UNKNOWN for want of any. Without
+  // one — a host whose migration 011 has not been applied — every stored read
+  // refuses with 503 rather than returning an empty list that would look like an
+  // empty database, and `/api/v1/sports/status` still answers, because configuration
+  // is not something a missing table can make unknown.
+  const sports = createSportsService({ config, store });
 
   // One notification service per app. It is built before the paper service
   // because governance transitions publish through it, and it is handed to that

@@ -393,3 +393,94 @@ outright on both adapters, so a cron run cannot rewrite the kill switch (diverge
 Real MySQL/MariaDB execution has not been performed: mutual exclusion is tested on the file
 adapter and the SQL shapes, bindings and bounds against a recording executor (finding F-15).
 See [`PHASE12_SCHEDULED_JOBS.md`](PHASE12_SCHEDULED_JOBS.md).
+
+## 12. Node platform schema — Sports Intelligence data foundation (Phase 16; `011_sports_foundation.sql`)
+
+> The platform table count is **31**: 24 before Phase 16, plus the seven `wf_sports_*`
+> tables below. Migration `011` was drafted in Phase 15 and **removed from that change**,
+> because tables nothing reads or writes are dead schema: they cost a host a migration and
+> four pinned counts in the test suite and buy nothing until the repository that fills them
+> exists. They land here, in the same change as that repository.
+
+| Table | Key columns | Purpose |
+|---|---|---|
+| `wf_sports_data_sources` | `id` **PK** AI, `provider_code` VARCHAR(64) **UNIQUE**, `display_name`, `enabled` TINYINT **default 0**, `created_at`, `updated_at` | One row per data vendor. The provenance key every other table here points at |
+| `wf_sports_provider_health` | `id` **PK** AI, `provider_id`, `status` VARCHAR(32), `response_ms`, `error_rate` DECIMAL(8,5), `rate_limit_remaining`, five `last_*_at` instants, `data_freshness_seconds`, `records_received`, `invalid_records`, `missing_fields` LONGTEXT (JSON), `observed_at`; `KEY (provider_id, observed_at)` | One row per health **observation**. Append-only, so an outage is a gap rather than an overwritten row |
+| `wf_sports_matches` | `id` **PK** AI, `provider_id` + `external_id` VARCHAR(128) **UNIQUE together**, `sport`, `competition`, `home_team`, `away_team`, `kickoff_at`, `status`, `source_timestamp`, `payload` LONGTEXT (JSON), `created_at`, `updated_at`; `KEY (kickoff_at)`, `KEY (status)` | One row per provider per fixture. `external_id` is scoped by provider, not globally unique |
+| `wf_sports_odds` | `id` **PK** AI, `match_id`, `provider_id`, `market` VARCHAR(96), `selection` VARCHAR(160), `decimal_odds` DECIMAL(12,6), `observed_at`, `payload`; `KEY (match_id, market, observed_at)`, `KEY (provider_id, observed_at)` | One row per odds **observation at an instant**. Deliberately no unique key on (match, market, selection) |
+| `wf_sports_results` | `id` **PK** AI, `match_id` + `provider_id` **UNIQUE together**, `home_score` INT **NULL**, `away_score` INT **NULL**, `status`, `verified` TINYINT **default 0**, `source_timestamp`, `verified_at` **NULL**, `payload`; `KEY (match_id, verified)` | One stored outcome per provider per fixture |
+| `wf_sports_data_quality_assessments` | `id` **PK** AI, `match_id`, `score` INT, `band` VARCHAR(16), `freshness_score`, `provider_reliability_score`, `eligible_prediction`, `eligible_ticket`, `missing_fields` (JSON), `checks_payload` (JSON), `assessed_at`; `KEY (match_id, assessed_at)` | One row per assessment. Append-only |
+| `wf_sports_sync_runs` | `id` VARCHAR(36) **PK** (caller-supplied UUID), `provider_id` **NULL**, `job_type` VARCHAR(48), `status` VARCHAR(24), `started_at`, `ended_at` **NULL**, `records_processed`, `records_created`, `records_updated`, `errors` LONGTEXT (JSON), `execution_key` VARCHAR(128) **UNIQUE**; `KEY (job_type, started_at)` | One row per ingestion attempt, opened **before** the work starts |
+
+**Three design decisions carry the most weight, and all three are about not collapsing rows
+that mean different things.**
+
+An **odds row is an observation at an instant, never a current price.** There is no unique key
+on `(match_id, market, selection)`, and `latestSportsOdds` / `findSportsOddsBefore` are
+queries rather than columns. Point-in-time backtesting (slice 5) depends on it: a table that
+overwrote in place could not answer "what did we know then", and a backtest that used a price
+observed *after* kickoff would be lookahead.
+
+**Health is a series, not a value.** Append-only, so the monitor derives from the newest N and
+an outage shows up as a gap. `observed_at` is stamped by the repository rather than taken from
+the payload, because it records when *this platform* saw the report and a provider's own clock
+is not authoritative for staleness.
+
+**A result's `verified` flag is not set by ingestion.** Ingestion reports; a human verifies,
+through a separate step behind `sports.settle` that does not exist yet (slice 5). Re-ingesting
+a result **clears** the flag and `verified_at` (divergence SP-14) — a provider that changes a
+scoreline invalidates the attestation made about the old one, so the safe direction is to
+require a human to look again. Scores are nullable and are non-null only for `FINISHED`:
+`NULL` means "no score was reported", which is a different fact from "no goals were scored",
+and writing `0-0` for a postponed match would fabricate a scoreline.
+
+**Timestamps are VARCHAR(32) canonical UTC with milliseconds always present** (divergence
+SP-19), matching migrations 007–010 and divergence AV-2. Fixed-width canonical instants compare
+correctly as strings, so `kickoff_at >= ?` — which `listSportsMatches` really does issue as a
+string comparison — needs no timezone conversion and cannot be reordered by a host `time_zone`
+setting. The fractional part is never trimmed: `"…T12:34:56.789Z"` sorts *before*
+`"…T12:34:56Z"` because `.` is 0x2E and `Z` is 0x5A, even though it is 789 ms later, so one
+width is what makes text ordering chronological. An *input* carrying an explicit offset is
+parsed and normalized rather than refused (SP-26), unlike `wf_job_locks`, whose callers are
+internal and must already be canonical. `test/sports_store.test.js` asserts the invariant by
+measuring the lengths of nine stored instants.
+
+`execution_key` is the idempotency arbiter, on the same reasoning as `wf_job_locks.job_name`:
+the constraint is the guarantee, not a `SELECT` followed by an `INSERT`. A cron job that fires
+twice for one window, or a retry after a timeout, cannot ingest the same data twice, and the
+loser reports `DUPLICATE_SKIPPED` rather than throwing (divergence SP-12 — legacy checked and
+then inserted without catching the collision).
+
+`wf_sports_sync_runs.id` is a **caller-supplied UUID** rather than an auto-increment, because
+the row has to exist before the work starts so that a crash mid-sync still leaves evidence of
+the attempt. A row left in `RUNNING` is exactly that evidence. Its `errors` array holds each
+refusal message truncated to 200 characters: a run that processed 40 records and stored 38 must
+be able to say what the other two were and why, because counting them without naming them hides
+the reason. **This table had no reader in legacy at all** (finding F-35) — `startSync` and
+`finishSync` wrote it and nothing in `application/` selected from it, so run evidence was
+recorded into a table no operator could query. `listSportsSyncRuns` has no legacy counterpart
+(SP-15) and is what makes both this table readable and `ProviderHealthMonitor` reachable.
+
+Provider and match ids are plain integers rather than foreign keys, for the reason migration 010
+gives for avoiding `GET_LOCK()`: the file adapter must implement the identical contract, and it
+has no referential engine. `missing_fields`, `checks_payload`, `errors` and `payload` are JSON
+in a LONGTEXT column, decoded by both adapters on every read path (divergence SP-17 — legacy
+decoded `missing_fields` on one health read path and not the other, so the same column had two
+shapes depending on which method fetched it).
+
+**No column in this migration names a stake, a wager, a payout or a bookmaker account**, and
+there is no foreign key to any trading, order, position or broker table. This schema stores
+observed sporting data and the evidence of how it was obtained. It cannot authorise or record a
+bet. Additive only: migration 011 alters no existing table and seeds no row.
+
+**Absent, and owed by slices 3–5:** `wf_sports_model_versions`, `wf_sports_predictions`,
+`wf_sports_tickets`, `wf_sports_ticket_selections`, `wf_sports_configurations`,
+`wf_sports_calibrations`, `wf_sports_job_runs`, `wf_sports_backtests`, `wf_sports_model_metrics`,
+`wf_sports_daily_tickets`, `wf_sports_performance_snapshots`. No prediction, ticket or settlement
+can be produced from this schema, which is the point: the honesty of the slice is visible in what
+it cannot express.
+
+Real MySQL/MariaDB execution has not been performed (finding F-15): behaviour is proven on the
+file adapter, and the SQL shapes, bound parameters, `ON DUPLICATE KEY UPDATE` upserts and
+`LIMIT` bounds against a recording executor.
+See [`PHASE16_SPORTS_PERSISTENCE.md`](PHASE16_SPORTS_PERSISTENCE.md).

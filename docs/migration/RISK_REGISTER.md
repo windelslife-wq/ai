@@ -313,7 +313,7 @@ route-inventory count and the persistence-contract length — and both enumerate
 structure rather than scanning source text, which is why neither has a comparable blind spot.
 **F-14 was the only one scanning text.** Related: F-14, F-30, F-31.
 
-### F-26 — no PHP↔Node differential harness (closed in Phase 15 for the sports foundation; coverage still owed elsewhere)
+### F-26 — no PHP↔Node differential harness (closed in Phase 15 for the sports foundation, extended in Phase 16; coverage still owed elsewhere)
 
 Open since Phase 4 and restated at every phase since: both suites were green and
 **nothing compared the two implementations against each other**, so a port could be
@@ -321,11 +321,11 @@ internally consistent and externally wrong. Every earlier phase preserved legacy
 error messages, rounding behaviour or timestamp shape *in case* such a harness ever
 existed; none could use them.
 
-**It now exists.** `runtime/parity/sports-golden.php` `require`s six legacy class
-files by path and emits their real output; `runtime/sports-parity.mjs` runs it in
-WASM PHP 8.2 and writes
+**It now exists.** `runtime/parity/sports-golden.php` `require`s **eight** legacy
+class files by path and emits their real output; `runtime/sports-parity.mjs` runs it
+in WASM PHP 8.2 and writes
 `apps/workforce-platform/test/fixtures/sports-parity-golden.json`;
-`test/sports_parity.test.js` recomputes all **62 cases** with the Node port and
+`test/sports_parity.test.js` recomputes all **124 cases** with the Node port and
 asserts agreement to the last double and the last character of every refusal
 message. The golden file is PHP's own output, not a transcription of what PHP was
 believed to do. Regenerating it is a normal workflow step, and the generator lives
@@ -410,5 +410,69 @@ stated rather than buried in four shift masks). `test/sports.test.js` asserts
 `crc32BigEndian("123456789") === 0xfc891918` next to
 `crc32HashHex("123456789") === "181989fc"`, because the byte swap is exactly the
 kind of step a later reader would "simplify" away. Related: F-26, D-22.
+
+
+### F-35 — legacy wrote sync evidence it could not read, and built a provider-health monitor it never called (found in Phase 16; closed for the Node port, open in legacy)
+
+Found while looking for the concrete `SportsRepository` implementation, which turned
+out to be an anonymous class inside `application/models/Aegis_model.php` rather than
+anything in the `Persistence` namespace — a navigation fact worth recording on its
+own, because grepping the persistence namespace for behaviour finds only signatures.
+
+Two independent gaps, both verified by grepping every PHP file under `application/`:
+
+1. **`sports_sync_runs` has no reader.** The `SportsRepository` interface declares
+   `startSync` and `finishSync` and nothing else for that table, and no file in the
+   application issues a `SELECT` against it. The only other occurrence of the table
+   name anywhere is a *docblock*. So each run's counters, and the per-record refusal
+   messages `finishSync` stores truncated to 200 characters, were written into a
+   table no operator could query. A row left in `RUNNING` — which is precisely the
+   evidence that a worker died mid-sync — was invisible.
+2. **`ProviderHealthMonitor::assess()` has no caller.** The only references to the
+   class in the whole application are its `use` statement and its construction in
+   `SportsIntelligence`. And its own docblock documents the third parameter as
+   *"newest-first `sports_sync_runs` rows for this provider"* — the table gap 1 says
+   cannot be read.
+
+So the derived provider status, which is the monitor's entire purpose and the value
+the data-quality engine consumes as `providerReliability`, was **never computed in
+the legacy application**. Every quality assessment was scored against a provider
+reliability that came from whatever a provider self-reported in its own `health()`
+payload, and the seven-rule derivation that was supposed to discipline that number
+never ran.
+
+This retroactively justifies a Phase 15 decision. Slice 1 declined to report
+`derivedStatus` on the unauthenticated status surface, on the reasoning that "a field
+that can only ever hold `UNKNOWN` invites a reader to think it was measured". F-35 is
+the evidence for *why* it could only ever hold `UNKNOWN`: legacy never measured it.
+
+**Severity: high, silent.** Nothing fails, nothing logs, and no test in either suite
+could notice — both were green for the whole life of the module. It is the same shape
+as F-30 (`maxCorrelatedPositions` declared and enforced nowhere) and F-31
+(`automation_limits` authenticated but never authorized): a control that exists in
+code and not in behaviour.
+
+**Closed for the Node port.** The fix is not porting the class — Phase 15 already did
+that — but adding the read it needs. `listSportsSyncRuns` has **no legacy
+counterpart** (divergence SP-15) and is what makes `assessProviderHealth` reachable:
+`GET /api/v1/sports/status` now derives each provider's status from stored health
+observations and stored sync runs, `GET /api/v1/sports/sync-runs` exposes the run
+evidence including its refusal messages, and `test/sports_sync.test.js` asserts that
+after one sync the derived status is *not* `UNKNOWN`. Porting the class would not have
+closed this; porting the capability did.
+
+**Open in legacy, and not fixed there.** The PHP application remains authoritative and
+is not modified during migration (master plan §2). Legacy's monitor is still
+unreachable and its sync evidence is still unreadable. Recorded here so the gap is
+visible to anyone comparing the two, and so the Node port's extra method is understood
+as a deliberate extension rather than a porting error.
+
+A smaller observation from the same reading: `assess()`'s first parameter is
+documented as the `sports_data_sources` row and is never read by the implementation.
+The harness captures a case with an empty provider row to pin that, so a future port
+cannot "helpfully" start using it and silently change every derived status.
+
+Related: F-26 (the harness that made the monitor comparable), F-30 and F-31 (the same
+declared-but-inert shape), SP-15, SP-21, SP-22.
 
 — End of Phase 0 risk register.

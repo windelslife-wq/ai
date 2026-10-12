@@ -7,6 +7,7 @@ import { createPaperRepository } from "./paper-repository.js";
 import { createExecutionRepository } from "./execution-repository.js";
 import { createNotificationRepository } from "./notification-repository.js";
 import { createJobRepository } from "./job-repository.js";
+import { createSportsRepository } from "./sports-repository.js";
 
 export const REQUIRED_MIGRATIONS = Object.freeze([
   "001_platform_foundation",
@@ -19,6 +20,7 @@ export const REQUIRED_MIGRATIONS = Object.freeze([
   "008_execution_supervisor",
   "009_notifications",
   "010_job_locks",
+  "011_sports_foundation",
 ]);
 
 /** Only driver codes are ever reported; never an SQL statement or credential. */
@@ -41,6 +43,7 @@ export function createStore(pool, { requiredMigrations = REQUIRED_MIGRATIONS } =
   const execution = createExecutionRepository(pool);
   const notifications = createNotificationRepository(pool);
   const jobs = createJobRepository(pool);
+  const sports = createSportsRepository(pool);
   return {
     ...repository,
     ...site,
@@ -68,6 +71,35 @@ export function createStore(pool, { requiredMigrations = REQUIRED_MIGRATIONS } =
     // refuses the `'global'` key outright — so a cron run cannot rewrite the kill
     // switch. See `PORTFOLIO_RISK_STATE_KEY`.
     loadJobState: jobs.loadJobState,
+    // Sports Intelligence data foundation (migration 011). Listed explicitly rather
+    // than spread, matching the job block above, so the boundary is stated instead of
+    // implied: these 22 methods read and write ONLY the seven `wf_sports_*` tables.
+    // None of them can reach a proposal, order, position, account or broker row, and
+    // none of them places a bet — this is observed sporting data and the evidence of
+    // how it was obtained. `verifySportsResult` is deliberately absent: ingestion
+    // reports a result, it does not get to attest to one.
+    ensureSportsProvider: sports.ensureSportsProvider,
+    listSportsProviders: sports.listSportsProviders,
+    setSportsProviderEnabled: sports.setSportsProviderEnabled,
+    saveSportsHealth: sports.saveSportsHealth,
+    latestSportsHealth: sports.latestSportsHealth,
+    listSportsHealth: sports.listSportsHealth,
+    pruneSportsHealth: sports.pruneSportsHealth,
+    findSportsMatchById: sports.findSportsMatchById,
+    listSportsMatches: sports.listSportsMatches,
+    saveSportsMatch: sports.saveSportsMatch,
+    findSportsMatch: sports.findSportsMatch,
+    saveSportsOdds: sports.saveSportsOdds,
+    latestSportsOdds: sports.latestSportsOdds,
+    listSportsOdds: sports.listSportsOdds,
+    findSportsOddsBefore: sports.findSportsOddsBefore,
+    saveSportsResult: sports.saveSportsResult,
+    findSportsResult: sports.findSportsResult,
+    saveSportsQuality: sports.saveSportsQuality,
+    latestSportsQuality: sports.latestSportsQuality,
+    startSportsSync: sports.startSportsSync,
+    finishSportsSync: sports.finishSportsSync,
+    listSportsSyncRuns: sports.listSportsSyncRuns,
     saveJobState: jobs.saveJobState,
     // Notifications are written outside any paper transaction: they are evidence
     // about a change that already committed, and a failed notification must never

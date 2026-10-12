@@ -1967,6 +1967,1608 @@
         }
       }
     },
+    "result": {
+      "a finished result with integer scores": {
+        "input": {
+          "externalId": "e1",
+          "status": "FINISHED",
+          "homeScore": 2,
+          "awayScore": 1,
+          "sourceTimestamp": "2020-01-04T16:00:00Z"
+        },
+        "provider": "P",
+        "result": {
+          "ok": true,
+          "value": {
+            "provider": "P",
+            "externalId": "e1",
+            "status": "FINISHED",
+            "homeScore": 2,
+            "awayScore": 1,
+            "sourceTimestamp": "2020-01-04T16:00:00Z",
+            "verified": false,
+            "payload": {
+              "externalId": "e1",
+              "status": "FINISHED",
+              "homeScore": 2,
+              "awayScore": 1,
+              "sourceTimestamp": "2020-01-04T16:00:00Z"
+            }
+          }
+        }
+      },
+      "a finished result with quoted scores": {
+        "input": {
+          "externalId": "e1",
+          "status": "FINISHED",
+          "homeScore": "2",
+          "awayScore": "0",
+          "sourceTimestamp": "2020-01-04T16:00:00Z"
+        },
+        "provider": "P",
+        "result": {
+          "ok": true,
+          "value": {
+            "provider": "P",
+            "externalId": "e1",
+            "status": "FINISHED",
+            "homeScore": 2,
+            "awayScore": 0,
+            "sourceTimestamp": "2020-01-04T16:00:00Z",
+            "verified": false,
+            "payload": {
+              "externalId": "e1",
+              "status": "FINISHED",
+              "homeScore": "2",
+              "awayScore": "0",
+              "sourceTimestamp": "2020-01-04T16:00:00Z"
+            }
+          }
+        }
+      },
+      "a finished nil-nil draw": {
+        "input": {
+          "externalId": "e1",
+          "status": "FINISHED",
+          "homeScore": 0,
+          "awayScore": 0,
+          "sourceTimestamp": "2020-01-04T16:00:00Z"
+        },
+        "provider": "P",
+        "result": {
+          "ok": true,
+          "value": {
+            "provider": "P",
+            "externalId": "e1",
+            "status": "FINISHED",
+            "homeScore": 0,
+            "awayScore": 0,
+            "sourceTimestamp": "2020-01-04T16:00:00Z",
+            "verified": false,
+            "payload": {
+              "externalId": "e1",
+              "status": "FINISHED",
+              "homeScore": 0,
+              "awayScore": 0,
+              "sourceTimestamp": "2020-01-04T16:00:00Z"
+            }
+          }
+        }
+      },
+      "status is upper-cased": {
+        "input": {
+          "externalId": "e1",
+          "status": "finished",
+          "homeScore": 1,
+          "awayScore": 1,
+          "sourceTimestamp": "2020-01-04T16:00:00Z"
+        },
+        "provider": "P",
+        "result": {
+          "ok": true,
+          "value": {
+            "provider": "P",
+            "externalId": "e1",
+            "status": "FINISHED",
+            "homeScore": 1,
+            "awayScore": 1,
+            "sourceTimestamp": "2020-01-04T16:00:00Z",
+            "verified": false,
+            "payload": {
+              "externalId": "e1",
+              "status": "finished",
+              "homeScore": 1,
+              "awayScore": 1,
+              "sourceTimestamp": "2020-01-04T16:00:00Z"
+            }
+          }
+        }
+      },
+      "a fractional score is refused": {
+        "input": {
+          "externalId": "e1",
+          "status": "FINISHED",
+          "homeScore": 2.5,
+          "awayScore": 1,
+          "sourceTimestamp": "2020-01-04T16:00:00Z"
+        },
+        "provider": "P",
+        "result": {
+          "ok": false,
+          "error": "finished result scores invalid",
+          "class": "InvalidArgumentException"
+        }
+      },
+      "a fractional score as text is refused": {
+        "input": {
+          "externalId": "e1",
+          "status": "FINISHED",
+          "homeScore": "2.5",
+          "awayScore": "1",
+          "sourceTimestamp": "2020-01-04T16:00:00Z"
+        },
+        "provider": "P",
+        "result": {
+          "ok": false,
+          "error": "finished result scores invalid",
+          "class": "InvalidArgumentException"
+        }
+      },
+      "a whole float is accepted because PHP stringifies it": {
+        "input": {
+          "externalId": "e1",
+          "status": "FINISHED",
+          "homeScore": 2,
+          "awayScore": 1,
+          "sourceTimestamp": "2020-01-04T16:00:00Z"
+        },
+        "provider": "P",
+        "result": {
+          "ok": true,
+          "value": {
+            "provider": "P",
+            "externalId": "e1",
+            "status": "FINISHED",
+            "homeScore": 2,
+            "awayScore": 1,
+            "sourceTimestamp": "2020-01-04T16:00:00Z",
+            "verified": false,
+            "payload": {
+              "externalId": "e1",
+              "status": "FINISHED",
+              "homeScore": 2,
+              "awayScore": 1,
+              "sourceTimestamp": "2020-01-04T16:00:00Z"
+            }
+          }
+        }
+      },
+      "a negative score is refused": {
+        "input": {
+          "externalId": "e1",
+          "status": "FINISHED",
+          "homeScore": -1,
+          "awayScore": 0,
+          "sourceTimestamp": "2020-01-04T16:00:00Z"
+        },
+        "provider": "P",
+        "result": {
+          "ok": false,
+          "error": "finished result scores invalid",
+          "class": "InvalidArgumentException"
+        }
+      },
+      "true stringifies to 1 and passes": {
+        "input": {
+          "externalId": "e1",
+          "status": "FINISHED",
+          "homeScore": true,
+          "awayScore": true,
+          "sourceTimestamp": "2020-01-04T16:00:00Z"
+        },
+        "provider": "P",
+        "result": {
+          "ok": true,
+          "value": {
+            "provider": "P",
+            "externalId": "e1",
+            "status": "FINISHED",
+            "homeScore": 1,
+            "awayScore": 1,
+            "sourceTimestamp": "2020-01-04T16:00:00Z",
+            "verified": false,
+            "payload": {
+              "externalId": "e1",
+              "status": "FINISHED",
+              "homeScore": true,
+              "awayScore": true,
+              "sourceTimestamp": "2020-01-04T16:00:00Z"
+            }
+          }
+        }
+      },
+      "false stringifies to empty and is refused": {
+        "input": {
+          "externalId": "e1",
+          "status": "FINISHED",
+          "homeScore": false,
+          "awayScore": 1,
+          "sourceTimestamp": "2020-01-04T16:00:00Z"
+        },
+        "provider": "P",
+        "result": {
+          "ok": false,
+          "error": "finished result scores invalid",
+          "class": "InvalidArgumentException"
+        }
+      },
+      "a finished result missing a score is refused": {
+        "input": {
+          "externalId": "e1",
+          "status": "FINISHED",
+          "homeScore": 2,
+          "sourceTimestamp": "2020-01-04T16:00:00Z"
+        },
+        "provider": "P",
+        "result": {
+          "ok": false,
+          "error": "finished result scores invalid",
+          "class": "InvalidArgumentException"
+        }
+      },
+      "a postponed result needs no scores and stores none": {
+        "input": {
+          "externalId": "e1",
+          "status": "POSTPONED",
+          "sourceTimestamp": "2020-01-04T16:00:00Z"
+        },
+        "provider": "P",
+        "result": {
+          "ok": true,
+          "value": {
+            "provider": "P",
+            "externalId": "e1",
+            "status": "POSTPONED",
+            "homeScore": null,
+            "awayScore": null,
+            "sourceTimestamp": "2020-01-04T16:00:00Z",
+            "verified": false,
+            "payload": {
+              "externalId": "e1",
+              "status": "POSTPONED",
+              "sourceTimestamp": "2020-01-04T16:00:00Z"
+            }
+          }
+        }
+      },
+      "a postponed result discards scores it was given": {
+        "input": {
+          "externalId": "e1",
+          "status": "POSTPONED",
+          "homeScore": 3,
+          "awayScore": 0,
+          "sourceTimestamp": "2020-01-04T16:00:00Z"
+        },
+        "provider": "P",
+        "result": {
+          "ok": true,
+          "value": {
+            "provider": "P",
+            "externalId": "e1",
+            "status": "POSTPONED",
+            "homeScore": null,
+            "awayScore": null,
+            "sourceTimestamp": "2020-01-04T16:00:00Z",
+            "verified": false,
+            "payload": {
+              "externalId": "e1",
+              "status": "POSTPONED",
+              "homeScore": 3,
+              "awayScore": 0,
+              "sourceTimestamp": "2020-01-04T16:00:00Z"
+            }
+          }
+        }
+      },
+      "a void result": {
+        "input": {
+          "externalId": "e1",
+          "status": "VOID",
+          "sourceTimestamp": "2020-01-04T16:00:00Z"
+        },
+        "provider": "P",
+        "result": {
+          "ok": true,
+          "value": {
+            "provider": "P",
+            "externalId": "e1",
+            "status": "VOID",
+            "homeScore": null,
+            "awayScore": null,
+            "sourceTimestamp": "2020-01-04T16:00:00Z",
+            "verified": false,
+            "payload": {
+              "externalId": "e1",
+              "status": "VOID",
+              "sourceTimestamp": "2020-01-04T16:00:00Z"
+            }
+          }
+        }
+      },
+      "a cancelled result": {
+        "input": {
+          "externalId": "e1",
+          "status": "CANCELLED",
+          "sourceTimestamp": "2020-01-04T16:00:00Z"
+        },
+        "provider": "P",
+        "result": {
+          "ok": true,
+          "value": {
+            "provider": "P",
+            "externalId": "e1",
+            "status": "CANCELLED",
+            "homeScore": null,
+            "awayScore": null,
+            "sourceTimestamp": "2020-01-04T16:00:00Z",
+            "verified": false,
+            "payload": {
+              "externalId": "e1",
+              "status": "CANCELLED",
+              "sourceTimestamp": "2020-01-04T16:00:00Z"
+            }
+          }
+        }
+      },
+      "a suspended result": {
+        "input": {
+          "externalId": "e1",
+          "status": "SUSPENDED",
+          "sourceTimestamp": "2020-01-04T16:00:00Z"
+        },
+        "provider": "P",
+        "result": {
+          "ok": true,
+          "value": {
+            "provider": "P",
+            "externalId": "e1",
+            "status": "SUSPENDED",
+            "homeScore": null,
+            "awayScore": null,
+            "sourceTimestamp": "2020-01-04T16:00:00Z",
+            "verified": false,
+            "payload": {
+              "externalId": "e1",
+              "status": "SUSPENDED",
+              "sourceTimestamp": "2020-01-04T16:00:00Z"
+            }
+          }
+        }
+      },
+      "an unlisted status is refused": {
+        "input": {
+          "externalId": "e1",
+          "status": "ABANDONED",
+          "sourceTimestamp": "2020-01-04T16:00:00Z"
+        },
+        "provider": "P",
+        "result": {
+          "ok": false,
+          "error": "result status invalid",
+          "class": "InvalidArgumentException"
+        }
+      },
+      "SCHEDULED is a fixture status, not a result": {
+        "input": {
+          "externalId": "e1",
+          "status": "SCHEDULED",
+          "sourceTimestamp": "2020-01-04T16:00:00Z"
+        },
+        "provider": "P",
+        "result": {
+          "ok": false,
+          "error": "result status invalid",
+          "class": "InvalidArgumentException"
+        }
+      },
+      "LIVE is a fixture status, not a result": {
+        "input": {
+          "externalId": "e1",
+          "status": "LIVE",
+          "sourceTimestamp": "2020-01-04T16:00:00Z"
+        },
+        "provider": "P",
+        "result": {
+          "ok": false,
+          "error": "result status invalid",
+          "class": "InvalidArgumentException"
+        }
+      },
+      "a missing external id is refused": {
+        "input": {
+          "status": "FINISHED",
+          "homeScore": 1,
+          "awayScore": 0,
+          "sourceTimestamp": "2020-01-04T16:00:00Z"
+        },
+        "provider": "P",
+        "result": {
+          "ok": false,
+          "error": "result missing externalId",
+          "class": "InvalidArgumentException"
+        }
+      },
+      "an empty external id is refused": {
+        "input": {
+          "externalId": "",
+          "status": "FINISHED",
+          "homeScore": 1,
+          "awayScore": 0,
+          "sourceTimestamp": "2020-01-04T16:00:00Z"
+        },
+        "provider": "P",
+        "result": {
+          "ok": false,
+          "error": "result missing externalId",
+          "class": "InvalidArgumentException"
+        }
+      },
+      "a missing source timestamp is refused": {
+        "input": {
+          "externalId": "e1",
+          "status": "FINISHED",
+          "homeScore": 1,
+          "awayScore": 0
+        },
+        "provider": "P",
+        "result": {
+          "ok": false,
+          "error": "result missing sourceTimestamp",
+          "class": "InvalidArgumentException"
+        }
+      },
+      "a missing status is refused": {
+        "input": {
+          "externalId": "e1",
+          "homeScore": 1,
+          "awayScore": 0,
+          "sourceTimestamp": "2020-01-04T16:00:00Z"
+        },
+        "provider": "P",
+        "result": {
+          "ok": false,
+          "error": "result missing status",
+          "class": "InvalidArgumentException"
+        }
+      },
+      "an empty status is refused": {
+        "input": {
+          "externalId": "e1",
+          "status": "",
+          "sourceTimestamp": "2020-01-04T16:00:00Z"
+        },
+        "provider": "P",
+        "result": {
+          "ok": false,
+          "error": "result missing status",
+          "class": "InvalidArgumentException"
+        }
+      },
+      "the provider is stamped on as provenance": {
+        "input": {
+          "externalId": "e1",
+          "status": "VOID",
+          "sourceTimestamp": "2020-01-04T16:00:00Z"
+        },
+        "provider": "sandbox-sim",
+        "result": {
+          "ok": true,
+          "value": {
+            "provider": "sandbox-sim",
+            "externalId": "e1",
+            "status": "VOID",
+            "homeScore": null,
+            "awayScore": null,
+            "sourceTimestamp": "2020-01-04T16:00:00Z",
+            "verified": false,
+            "payload": {
+              "externalId": "e1",
+              "status": "VOID",
+              "sourceTimestamp": "2020-01-04T16:00:00Z"
+            }
+          }
+        }
+      },
+      "a score of the string zero is a real score": {
+        "input": {
+          "externalId": "e1",
+          "status": "FINISHED",
+          "homeScore": "0",
+          "awayScore": "0",
+          "sourceTimestamp": "2020-01-04T16:00:00Z"
+        },
+        "provider": "P",
+        "result": {
+          "ok": true,
+          "value": {
+            "provider": "P",
+            "externalId": "e1",
+            "status": "FINISHED",
+            "homeScore": 0,
+            "awayScore": 0,
+            "sourceTimestamp": "2020-01-04T16:00:00Z",
+            "verified": false,
+            "payload": {
+              "externalId": "e1",
+              "status": "FINISHED",
+              "homeScore": "0",
+              "awayScore": "0",
+              "sourceTimestamp": "2020-01-04T16:00:00Z"
+            }
+          }
+        }
+      },
+      "a padded score is accepted": {
+        "input": {
+          "externalId": "e1",
+          "status": "FINISHED",
+          "homeScore": " 2 ",
+          "awayScore": "1",
+          "sourceTimestamp": "2020-01-04T16:00:00Z"
+        },
+        "provider": "P",
+        "result": {
+          "ok": true,
+          "value": {
+            "provider": "P",
+            "externalId": "e1",
+            "status": "FINISHED",
+            "homeScore": 2,
+            "awayScore": 1,
+            "sourceTimestamp": "2020-01-04T16:00:00Z",
+            "verified": false,
+            "payload": {
+              "externalId": "e1",
+              "status": "FINISHED",
+              "homeScore": " 2 ",
+              "awayScore": "1",
+              "sourceTimestamp": "2020-01-04T16:00:00Z"
+            }
+          }
+        }
+      },
+      "a hexadecimal score is refused": {
+        "input": {
+          "externalId": "e1",
+          "status": "FINISHED",
+          "homeScore": "0x2",
+          "awayScore": "1",
+          "sourceTimestamp": "2020-01-04T16:00:00Z"
+        },
+        "provider": "P",
+        "result": {
+          "ok": false,
+          "error": "finished result scores invalid",
+          "class": "InvalidArgumentException"
+        }
+      },
+      "the raw payload is returned whole": {
+        "input": {
+          "externalId": "e1",
+          "status": "VOID",
+          "sourceTimestamp": "2020-01-04T16:00:00Z",
+          "note": "kept"
+        },
+        "provider": "P",
+        "result": {
+          "ok": true,
+          "value": {
+            "provider": "P",
+            "externalId": "e1",
+            "status": "VOID",
+            "homeScore": null,
+            "awayScore": null,
+            "sourceTimestamp": "2020-01-04T16:00:00Z",
+            "verified": false,
+            "payload": {
+              "externalId": "e1",
+              "status": "VOID",
+              "sourceTimestamp": "2020-01-04T16:00:00Z",
+              "note": "kept"
+            }
+          }
+        }
+      }
+    },
+    "health": {
+      "constants": {
+        "STALE_AFTER_SECONDS": 21600,
+        "DEGRADED_ERROR_RATE": 0.5
+      },
+      "rule 1 nothing observed at all": {
+        "provider": {
+          "id": 1,
+          "provider_code": "sandbox-sim",
+          "display_name": "sandbox-sim",
+          "enabled": 1
+        },
+        "health": [],
+        "jobRuns": [],
+        "now": 1772701200,
+        "result": {
+          "ok": true,
+          "value": {
+            "status": "UNKNOWN",
+            "reliability": 0,
+            "detail": "no observations yet",
+            "checkedAt": "2026-03-05T09:00:00+00:00"
+          }
+        }
+      },
+      "rule 2 a recent authentication error wins over everything": {
+        "provider": {
+          "id": 1,
+          "provider_code": "sandbox-sim",
+          "display_name": "sandbox-sim",
+          "enabled": 1
+        },
+        "health": [
+          {
+            "status": "AUTHENTICATION_ERROR",
+            "observed_at": "2026-03-05T08:59:00+00:00"
+          }
+        ],
+        "jobRuns": [
+          {
+            "status": "COMPLETED",
+            "started_at": "2026-03-05T08:59:30+00:00"
+          }
+        ],
+        "now": 1772701200,
+        "result": {
+          "ok": true,
+          "value": {
+            "status": "AUTHENTICATION_ERROR",
+            "reliability": 0.95,
+            "detail": "last provider report: AUTHENTICATION_ERROR",
+            "checkedAt": "2026-03-05T09:00:00+00:00"
+          }
+        }
+      },
+      "rule 2 a recent rate limit is terminal too": {
+        "provider": {
+          "id": 1,
+          "provider_code": "sandbox-sim",
+          "display_name": "sandbox-sim",
+          "enabled": 1
+        },
+        "health": [
+          {
+            "status": "RATE_LIMITED",
+            "observed_at": "2026-03-05T08:59:00+00:00"
+          }
+        ],
+        "jobRuns": [
+          {
+            "status": "FAILED",
+            "started_at": "2026-03-05T08:59:30+00:00"
+          }
+        ],
+        "now": 1772701200,
+        "result": {
+          "ok": true,
+          "value": {
+            "status": "RATE_LIMITED",
+            "reliability": 0,
+            "detail": "last provider report: RATE_LIMITED",
+            "checkedAt": "2026-03-05T09:00:00+00:00"
+          }
+        }
+      },
+      "rule 2 a terminal report older than thirty minutes no longer wins": {
+        "provider": {
+          "id": 1,
+          "provider_code": "sandbox-sim",
+          "display_name": "sandbox-sim",
+          "enabled": 1
+        },
+        "health": [
+          {
+            "status": "AUTHENTICATION_ERROR",
+            "observed_at": "2026-03-05T08:29:59+00:00"
+          }
+        ],
+        "jobRuns": [
+          {
+            "status": "COMPLETED",
+            "started_at": "2026-03-05T08:59:00+00:00"
+          }
+        ],
+        "now": 1772701200,
+        "result": {
+          "ok": true,
+          "value": {
+            "status": "DEGRADED",
+            "reliability": 0.95,
+            "detail": "no recent ONLINE observation",
+            "checkedAt": "2026-03-05T09:00:00+00:00"
+          }
+        }
+      },
+      "rule 2 exactly at the thirty minute boundary still wins": {
+        "provider": {
+          "id": 1,
+          "provider_code": "sandbox-sim",
+          "display_name": "sandbox-sim",
+          "enabled": 1
+        },
+        "health": [
+          {
+            "status": "RATE_LIMITED",
+            "observed_at": "2026-03-05T08:30:00+00:00"
+          }
+        ],
+        "jobRuns": [
+          {
+            "status": "COMPLETED",
+            "started_at": "2026-03-05T08:59:00+00:00"
+          }
+        ],
+        "now": 1772701200,
+        "result": {
+          "ok": true,
+          "value": {
+            "status": "RATE_LIMITED",
+            "reliability": 0.95,
+            "detail": "last provider report: RATE_LIMITED",
+            "checkedAt": "2026-03-05T09:00:00+00:00"
+          }
+        }
+      },
+      "rule 3 a failure within five minutes degrades": {
+        "provider": {
+          "id": 1,
+          "provider_code": "sandbox-sim",
+          "display_name": "sandbox-sim",
+          "enabled": 1
+        },
+        "health": [
+          {
+            "status": "OFFLINE",
+            "observed_at": "2026-03-05T08:59:00+00:00"
+          }
+        ],
+        "jobRuns": [
+          {
+            "status": "COMPLETED",
+            "started_at": "2026-03-05T08:59:30+00:00"
+          }
+        ],
+        "now": 1772701200,
+        "result": {
+          "ok": true,
+          "value": {
+            "status": "DEGRADED",
+            "reliability": 0.95,
+            "detail": "failing since 2026-03-05T08:59:00+00:00 (OFFLINE)",
+            "checkedAt": "2026-03-05T09:00:00+00:00"
+          }
+        }
+      },
+      "rule 3 a recent rate-limited failure keeps its own status": {
+        "provider": {
+          "id": 1,
+          "provider_code": "sandbox-sim",
+          "display_name": "sandbox-sim",
+          "enabled": 1
+        },
+        "health": [
+          {
+            "status": "RATE_LIMITED",
+            "observed_at": "2026-03-05T08:53:20+00:00"
+          }
+        ],
+        "jobRuns": [
+          {
+            "status": "COMPLETED",
+            "started_at": "2026-03-05T08:59:30+00:00"
+          }
+        ],
+        "now": 1772701200,
+        "result": {
+          "ok": true,
+          "value": {
+            "status": "RATE_LIMITED",
+            "reliability": 0.95,
+            "detail": "last provider report: RATE_LIMITED",
+            "checkedAt": "2026-03-05T09:00:00+00:00"
+          }
+        }
+      },
+      "rule 3 a DATA_ERROR within five minutes": {
+        "provider": {
+          "id": 1,
+          "provider_code": "sandbox-sim",
+          "display_name": "sandbox-sim",
+          "enabled": 1
+        },
+        "health": [
+          {
+            "status": "DATA_ERROR",
+            "observed_at": "2026-03-05T08:55:01+00:00"
+          }
+        ],
+        "jobRuns": [
+          {
+            "status": "COMPLETED",
+            "started_at": "2026-03-05T08:59:30+00:00"
+          }
+        ],
+        "now": 1772701200,
+        "result": {
+          "ok": true,
+          "value": {
+            "status": "DEGRADED",
+            "reliability": 0.95,
+            "detail": "failing since 2026-03-05T08:55:01+00:00 (DATA_ERROR)",
+            "checkedAt": "2026-03-05T09:00:00+00:00"
+          }
+        }
+      },
+      "rule 3 a degraded observation within five minutes is still a failure": {
+        "provider": {
+          "id": 1,
+          "provider_code": "sandbox-sim",
+          "display_name": "sandbox-sim",
+          "enabled": 1
+        },
+        "health": [
+          {
+            "status": "DEGRADED",
+            "observed_at": "2026-03-05T08:59:00+00:00"
+          }
+        ],
+        "jobRuns": [
+          {
+            "status": "COMPLETED",
+            "started_at": "2026-03-05T08:59:30+00:00"
+          }
+        ],
+        "now": 1772701200,
+        "result": {
+          "ok": true,
+          "value": {
+            "status": "DEGRADED",
+            "reliability": 0.95,
+            "detail": "failing since 2026-03-05T08:59:00+00:00 (DEGRADED)",
+            "checkedAt": "2026-03-05T09:00:00+00:00"
+          }
+        }
+      },
+      "rule 4 both channels stale beyond six hours is offline": {
+        "provider": {
+          "id": 1,
+          "provider_code": "sandbox-sim",
+          "display_name": "sandbox-sim",
+          "enabled": 1
+        },
+        "health": [
+          {
+            "status": "ONLINE",
+            "observed_at": "2026-03-05T02:59:59+00:00"
+          }
+        ],
+        "jobRuns": [
+          {
+            "status": "COMPLETED",
+            "started_at": "2026-03-05T02:59:59+00:00"
+          }
+        ],
+        "now": 1772701200,
+        "result": {
+          "ok": true,
+          "value": {
+            "status": "OFFLINE",
+            "reliability": 0.95,
+            "detail": "no successful observation within 21600s",
+            "checkedAt": "2026-03-05T09:00:00+00:00"
+          }
+        }
+      },
+      "rule 4 health stale but a recent sync is not offline": {
+        "provider": {
+          "id": 1,
+          "provider_code": "sandbox-sim",
+          "display_name": "sandbox-sim",
+          "enabled": 1
+        },
+        "health": [
+          {
+            "status": "ONLINE",
+            "observed_at": "2026-03-05T02:59:59+00:00"
+          }
+        ],
+        "jobRuns": [
+          {
+            "status": "COMPLETED",
+            "started_at": "2026-03-05T08:59:00+00:00"
+          }
+        ],
+        "now": 1772701200,
+        "result": {
+          "ok": true,
+          "value": {
+            "status": "ONLINE",
+            "reliability": 1,
+            "detail": "last observation ONLINE",
+            "checkedAt": "2026-03-05T09:00:00+00:00"
+          }
+        }
+      },
+      "rule 4 a sync stale but recent health is not offline": {
+        "provider": {
+          "id": 1,
+          "provider_code": "sandbox-sim",
+          "display_name": "sandbox-sim",
+          "enabled": 1
+        },
+        "health": [
+          {
+            "status": "DEGRADED",
+            "observed_at": "2026-03-05T08:50:00+00:00"
+          }
+        ],
+        "jobRuns": [
+          {
+            "status": "COMPLETED",
+            "started_at": "2026-03-05T02:59:59+00:00"
+          }
+        ],
+        "now": 1772701200,
+        "result": {
+          "ok": true,
+          "value": {
+            "status": "DEGRADED",
+            "reliability": 0.95,
+            "detail": "no recent ONLINE observation",
+            "checkedAt": "2026-03-05T09:00:00+00:00"
+          }
+        }
+      },
+      "rule 4 no runs at all with stale health is offline": {
+        "provider": {
+          "id": 1,
+          "provider_code": "sandbox-sim",
+          "display_name": "sandbox-sim",
+          "enabled": 1
+        },
+        "health": [
+          {
+            "status": "ONLINE",
+            "observed_at": "2026-03-05T02:59:59+00:00"
+          }
+        ],
+        "jobRuns": [],
+        "now": 1772701200,
+        "result": {
+          "ok": true,
+          "value": {
+            "status": "OFFLINE",
+            "reliability": 0,
+            "detail": "no successful observation within 21600s",
+            "checkedAt": "2026-03-05T09:00:00+00:00"
+          }
+        }
+      },
+      "rule 5 a fifty percent run error rate is degraded": {
+        "provider": {
+          "id": 1,
+          "provider_code": "sandbox-sim",
+          "display_name": "sandbox-sim",
+          "enabled": 1
+        },
+        "health": [
+          {
+            "status": "ONLINE",
+            "observed_at": "2026-03-05T08:59:00+00:00"
+          }
+        ],
+        "jobRuns": [
+          {
+            "status": "COMPLETED",
+            "started_at": "2026-03-05T08:59:30+00:00"
+          },
+          {
+            "status": "FAILED",
+            "started_at": "2026-03-05T08:58:30+00:00"
+          }
+        ],
+        "now": 1772701200,
+        "result": {
+          "ok": true,
+          "value": {
+            "status": "DEGRADED",
+            "reliability": 0.475,
+            "detail": "error rate 50% over 2 runs",
+            "checkedAt": "2026-03-05T09:00:00+00:00"
+          }
+        }
+      },
+      "rule 5 fires before rule 6 at exactly the threshold": {
+        "provider": {
+          "id": 1,
+          "provider_code": "sandbox-sim",
+          "display_name": "sandbox-sim",
+          "enabled": 1
+        },
+        "health": [
+          {
+            "status": "ONLINE",
+            "observed_at": "2026-03-05T08:59:00+00:00"
+          }
+        ],
+        "jobRuns": [
+          {
+            "status": "FAILED",
+            "started_at": "2026-03-05T08:59:30+00:00"
+          },
+          {
+            "status": "COMPLETED",
+            "started_at": "2026-03-05T08:59:00+00:00"
+          }
+        ],
+        "now": 1772701200,
+        "result": {
+          "ok": true,
+          "value": {
+            "status": "DEGRADED",
+            "reliability": 0.475,
+            "detail": "error rate 50% over 2 runs",
+            "checkedAt": "2026-03-05T09:00:00+00:00"
+          }
+        }
+      },
+      "rule 5 a third of runs failing is not degraded": {
+        "provider": {
+          "id": 1,
+          "provider_code": "sandbox-sim",
+          "display_name": "sandbox-sim",
+          "enabled": 1
+        },
+        "health": [
+          {
+            "status": "ONLINE",
+            "observed_at": "2026-03-05T08:59:00+00:00"
+          }
+        ],
+        "jobRuns": [
+          {
+            "status": "COMPLETED",
+            "started_at": "2026-03-05T08:59:30+00:00"
+          },
+          {
+            "status": "COMPLETED",
+            "started_at": "2026-03-05T08:59:00+00:00"
+          },
+          {
+            "status": "FAILED",
+            "started_at": "2026-03-05T08:58:30+00:00"
+          }
+        ],
+        "now": 1772701200,
+        "result": {
+          "ok": true,
+          "value": {
+            "status": "ONLINE",
+            "reliability": 0.6667,
+            "detail": "last observation ONLINE",
+            "checkedAt": "2026-03-05T09:00:00+00:00"
+          }
+        }
+      },
+      "rule 6 a healthy provider with successful runs is online and boosted": {
+        "provider": {
+          "id": 1,
+          "provider_code": "sandbox-sim",
+          "display_name": "sandbox-sim",
+          "enabled": 1
+        },
+        "health": [
+          {
+            "status": "ONLINE",
+            "observed_at": "2026-03-05T08:59:00+00:00"
+          }
+        ],
+        "jobRuns": [
+          {
+            "status": "COMPLETED",
+            "started_at": "2026-03-05T08:59:30+00:00"
+          },
+          {
+            "status": "COMPLETED",
+            "started_at": "2026-03-05T08:58:30+00:00"
+          }
+        ],
+        "now": 1772701200,
+        "result": {
+          "ok": true,
+          "value": {
+            "status": "ONLINE",
+            "reliability": 1,
+            "detail": "last observation ONLINE",
+            "checkedAt": "2026-03-05T09:00:00+00:00"
+          }
+        }
+      },
+      "rule 6 online with no runs at all earns half reliability": {
+        "provider": {
+          "id": 1,
+          "provider_code": "sandbox-sim",
+          "display_name": "sandbox-sim",
+          "enabled": 1
+        },
+        "health": [
+          {
+            "status": "ONLINE",
+            "observed_at": "2026-03-05T08:59:00+00:00"
+          }
+        ],
+        "jobRuns": [],
+        "now": 1772701200,
+        "result": {
+          "ok": true,
+          "value": {
+            "status": "ONLINE",
+            "reliability": 0.5,
+            "detail": "last observation ONLINE",
+            "checkedAt": "2026-03-05T09:00:00+00:00"
+          }
+        }
+      },
+      "rule 7 an older degraded report falls through to degraded": {
+        "provider": {
+          "id": 1,
+          "provider_code": "sandbox-sim",
+          "display_name": "sandbox-sim",
+          "enabled": 1
+        },
+        "health": [
+          {
+            "status": "DEGRADED",
+            "observed_at": "2026-03-05T08:53:20+00:00"
+          }
+        ],
+        "jobRuns": [
+          {
+            "status": "COMPLETED",
+            "started_at": "2026-03-05T08:59:00+00:00"
+          }
+        ],
+        "now": 1772701200,
+        "result": {
+          "ok": true,
+          "value": {
+            "status": "DEGRADED",
+            "reliability": 0.95,
+            "detail": "no recent ONLINE observation",
+            "checkedAt": "2026-03-05T09:00:00+00:00"
+          }
+        }
+      },
+      "rule 7 an unknown status falls through to degraded": {
+        "provider": {
+          "id": 1,
+          "provider_code": "sandbox-sim",
+          "display_name": "sandbox-sim",
+          "enabled": 1
+        },
+        "health": [
+          {
+            "status": "SOMETHING_NEW",
+            "observed_at": "2026-03-05T08:59:00+00:00"
+          }
+        ],
+        "jobRuns": [
+          {
+            "status": "COMPLETED",
+            "started_at": "2026-03-05T08:59:30+00:00"
+          }
+        ],
+        "now": 1772701200,
+        "result": {
+          "ok": true,
+          "value": {
+            "status": "DEGRADED",
+            "reliability": 0.95,
+            "detail": "no recent ONLINE observation",
+            "checkedAt": "2026-03-05T09:00:00+00:00"
+          }
+        }
+      },
+      "reliability with no runs and no boost is zero": {
+        "provider": {
+          "id": 1,
+          "provider_code": "sandbox-sim",
+          "display_name": "sandbox-sim",
+          "enabled": 1
+        },
+        "health": [
+          {
+            "status": "DEGRADED",
+            "observed_at": "2026-03-05T08:59:00+00:00"
+          }
+        ],
+        "jobRuns": [],
+        "now": 1772701200,
+        "result": {
+          "ok": true,
+          "value": {
+            "status": "DEGRADED",
+            "reliability": 0,
+            "detail": "failing since 2026-03-05T08:59:00+00:00 (DEGRADED)",
+            "checkedAt": "2026-03-05T09:00:00+00:00"
+          }
+        }
+      },
+      "reliability is capped at one": {
+        "provider": {
+          "id": 1,
+          "provider_code": "sandbox-sim",
+          "display_name": "sandbox-sim",
+          "enabled": 1
+        },
+        "health": [
+          {
+            "status": "ONLINE",
+            "observed_at": "2026-03-05T08:59:00+00:00"
+          }
+        ],
+        "jobRuns": [
+          {
+            "status": "COMPLETED",
+            "started_at": "2026-03-05T08:59:50+00:00"
+          },
+          {
+            "status": "COMPLETED",
+            "started_at": "2026-03-05T08:59:40+00:00"
+          },
+          {
+            "status": "COMPLETED",
+            "started_at": "2026-03-05T08:59:30+00:00"
+          }
+        ],
+        "now": 1772701200,
+        "result": {
+          "ok": true,
+          "value": {
+            "status": "ONLINE",
+            "reliability": 1,
+            "detail": "last observation ONLINE",
+            "checkedAt": "2026-03-05T09:00:00+00:00"
+          }
+        }
+      },
+      "the newest observation is the first element, not the newest timestamp": {
+        "provider": {
+          "id": 1,
+          "provider_code": "sandbox-sim",
+          "display_name": "sandbox-sim",
+          "enabled": 1
+        },
+        "health": [
+          {
+            "status": "ONLINE",
+            "observed_at": "2026-03-05T08:50:00+00:00"
+          },
+          {
+            "status": "OFFLINE",
+            "observed_at": "2026-03-05T08:59:00+00:00"
+          }
+        ],
+        "jobRuns": [
+          {
+            "status": "COMPLETED",
+            "started_at": "2026-03-05T08:59:30+00:00"
+          }
+        ],
+        "now": 1772701200,
+        "result": {
+          "ok": true,
+          "value": {
+            "status": "DEGRADED",
+            "reliability": 0.95,
+            "detail": "failing since 2026-03-05T08:59:00+00:00 (OFFLINE)",
+            "checkedAt": "2026-03-05T09:00:00+00:00"
+          }
+        }
+      },
+      "an observation with no timestamp is skipped in the failure scan": {
+        "provider": {
+          "id": 1,
+          "provider_code": "sandbox-sim",
+          "display_name": "sandbox-sim",
+          "enabled": 1
+        },
+        "health": [
+          {
+            "status": "OFFLINE"
+          },
+          {
+            "status": "ONLINE",
+            "observed_at": "2026-03-05T08:59:00+00:00"
+          }
+        ],
+        "jobRuns": [
+          {
+            "status": "COMPLETED",
+            "started_at": "2026-03-05T08:59:30+00:00"
+          }
+        ],
+        "now": 1772701200,
+        "result": {
+          "ok": true,
+          "value": {
+            "status": "DEGRADED",
+            "reliability": 0.95,
+            "detail": "no recent ONLINE observation",
+            "checkedAt": "2026-03-05T09:00:00+00:00"
+          }
+        }
+      },
+      "an unparseable observation timestamp is skipped": {
+        "provider": {
+          "id": 1,
+          "provider_code": "sandbox-sim",
+          "display_name": "sandbox-sim",
+          "enabled": 1
+        },
+        "health": [
+          {
+            "status": "OFFLINE",
+            "observed_at": "not-a-date"
+          },
+          {
+            "status": "ONLINE",
+            "observed_at": "2026-03-05T08:59:00+00:00"
+          }
+        ],
+        "jobRuns": [
+          {
+            "status": "COMPLETED",
+            "started_at": "2026-03-05T08:59:30+00:00"
+          }
+        ],
+        "now": 1772701200,
+        "result": {
+          "ok": true,
+          "value": {
+            "status": "DEGRADED",
+            "reliability": 0.95,
+            "detail": "no recent ONLINE observation",
+            "checkedAt": "2026-03-05T09:00:00+00:00"
+          }
+        }
+      },
+      "the string zero as a timestamp is no timestamp at all": {
+        "provider": {
+          "id": 1,
+          "provider_code": "sandbox-sim",
+          "display_name": "sandbox-sim",
+          "enabled": 1
+        },
+        "health": [
+          {
+            "status": "OFFLINE",
+            "observed_at": "0"
+          },
+          {
+            "status": "ONLINE",
+            "observed_at": "2026-03-05T08:59:00+00:00"
+          }
+        ],
+        "jobRuns": [
+          {
+            "status": "COMPLETED",
+            "started_at": "2026-03-05T08:59:30+00:00"
+          }
+        ],
+        "now": 1772701200,
+        "result": {
+          "ok": true,
+          "value": {
+            "status": "DEGRADED",
+            "reliability": 0.95,
+            "detail": "no recent ONLINE observation",
+            "checkedAt": "2026-03-05T09:00:00+00:00"
+          }
+        }
+      },
+      "SP-11 a future observation is skipped in the scan but is still the latest": {
+        "provider": {
+          "id": 1,
+          "provider_code": "sandbox-sim",
+          "display_name": "sandbox-sim",
+          "enabled": 1
+        },
+        "health": [
+          {
+            "status": "OFFLINE",
+            "observed_at": "2026-03-05T09:10:00+00:00"
+          },
+          {
+            "status": "ONLINE",
+            "observed_at": "2026-03-05T08:59:00+00:00"
+          }
+        ],
+        "jobRuns": [
+          {
+            "status": "COMPLETED",
+            "started_at": "2026-03-05T08:59:30+00:00"
+          }
+        ],
+        "now": 1772701200,
+        "result": {
+          "ok": true,
+          "value": {
+            "status": "DEGRADED",
+            "reliability": 0.95,
+            "detail": "no recent ONLINE observation",
+            "checkedAt": "2026-03-05T09:00:00+00:00"
+          }
+        }
+      },
+      "SP-11 a future terminal report still wins, because recent() does not bound above": {
+        "provider": {
+          "id": 1,
+          "provider_code": "sandbox-sim",
+          "display_name": "sandbox-sim",
+          "enabled": 1
+        },
+        "health": [
+          {
+            "status": "AUTHENTICATION_ERROR",
+            "observed_at": "2026-03-05T09:10:00+00:00"
+          }
+        ],
+        "jobRuns": [
+          {
+            "status": "COMPLETED",
+            "started_at": "2026-03-05T08:59:30+00:00"
+          }
+        ],
+        "now": 1772701200,
+        "result": {
+          "ok": true,
+          "value": {
+            "status": "AUTHENTICATION_ERROR",
+            "reliability": 0.95,
+            "detail": "last provider report: AUTHENTICATION_ERROR",
+            "checkedAt": "2026-03-05T09:00:00+00:00"
+          }
+        }
+      },
+      "a run with no status counts as neither success nor failure": {
+        "provider": {
+          "id": 1,
+          "provider_code": "sandbox-sim",
+          "display_name": "sandbox-sim",
+          "enabled": 1
+        },
+        "health": [
+          {
+            "status": "ONLINE",
+            "observed_at": "2026-03-05T08:59:00+00:00"
+          }
+        ],
+        "jobRuns": [
+          {
+            "started_at": "2026-03-05T08:59:30+00:00"
+          }
+        ],
+        "now": 1772701200,
+        "result": {
+          "ok": true,
+          "value": {
+            "status": "ONLINE",
+            "reliability": 0.5,
+            "detail": "last observation ONLINE",
+            "checkedAt": "2026-03-05T09:00:00+00:00"
+          }
+        }
+      },
+      "a run with an unparseable started_at still counts towards the error rate": {
+        "provider": {
+          "id": 1,
+          "provider_code": "sandbox-sim",
+          "display_name": "sandbox-sim",
+          "enabled": 1
+        },
+        "health": [
+          {
+            "status": "ONLINE",
+            "observed_at": "2026-03-05T08:59:00+00:00"
+          }
+        ],
+        "jobRuns": [
+          {
+            "status": "COMPLETED",
+            "started_at": "2026-03-05T08:59:30+00:00"
+          },
+          {
+            "status": "FAILED",
+            "started_at": "not-a-date"
+          }
+        ],
+        "now": 1772701200,
+        "result": {
+          "ok": true,
+          "value": {
+            "status": "DEGRADED",
+            "reliability": 0.475,
+            "detail": "error rate 50% over 2 runs",
+            "checkedAt": "2026-03-05T09:00:00+00:00"
+          }
+        }
+      },
+      "a missing fields list is carried through untouched": {
+        "provider": {
+          "id": 1,
+          "provider_code": "sandbox-sim",
+          "display_name": "sandbox-sim",
+          "enabled": 1
+        },
+        "health": [
+          {
+            "status": "DEGRADED",
+            "observed_at": "2026-03-05T08:59:00+00:00",
+            "missing_fields": [
+              "kickoff"
+            ]
+          }
+        ],
+        "jobRuns": [
+          {
+            "status": "COMPLETED",
+            "started_at": "2026-03-05T08:59:30+00:00"
+          }
+        ],
+        "now": 1772701200,
+        "result": {
+          "ok": true,
+          "value": {
+            "status": "DEGRADED",
+            "reliability": 0.95,
+            "detail": "failing since 2026-03-05T08:59:00+00:00 (DEGRADED)",
+            "checkedAt": "2026-03-05T09:00:00+00:00"
+          }
+        }
+      },
+      "an empty provider row changes nothing, because it is never read": {
+        "provider": [],
+        "health": [
+          {
+            "status": "ONLINE",
+            "observed_at": "2026-03-05T08:59:00+00:00"
+          }
+        ],
+        "jobRuns": [
+          {
+            "status": "COMPLETED",
+            "started_at": "2026-03-05T08:59:30+00:00"
+          }
+        ],
+        "now": 1772701200,
+        "result": {
+          "ok": true,
+          "value": {
+            "status": "ONLINE",
+            "reliability": 1,
+            "detail": "last observation ONLINE",
+            "checkedAt": "2026-03-05T09:00:00+00:00"
+          }
+        }
+      }
+    },
     "freshness": {
       "no odds at all": {
         "odds": null,

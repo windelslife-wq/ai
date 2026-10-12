@@ -946,3 +946,97 @@ sessions, so `npm ci --no-audit --no-fund` at the repository root and a separate
 `npm ci` inside `runtime/` were both required before the runners would start. The
 parity generator additionally needs `runtime/`'s WASM PHP, and takes materially
 longer to boot than the oracle suite does — budget for it when regenerating.
+
+## Re-measured 2026-10-12 — Phase 16 (Sports Intelligence: persistence and ingestion), branch `arena/8de8de2e-ai`, Node v22.22.3
+
+| Measure | Phase 15 | Phase 16 |
+|---|---|---|
+| Node assertions (`npm test`) | 752 | **812** (+60) |
+| Test files | 42 | **44** |
+| Static checks (`npm run check`) | 0 failures | **0 failures** |
+| Install checks (`npm run verify:install`) | 29/29 | **29/29** |
+| Documented environment variables | 76 | **76** (unchanged — slice 2 adds no configuration) |
+| PHP oracle (`node runtime/run-tests.mjs`) | 367 passed / 0 failed | **367 passed / 0 failed** |
+| Total assertions executed | 1 119 | **1 179** |
+| Routes | 82 | **88** (+6) |
+| Sports routes | 1 | **7** |
+| Admin routes | 7 | **7** |
+| Storage contract methods | 86 | **108** (+22) |
+| Tables / migrations | 24 / 001–010 | **31 / 001–011** |
+| Module ledger | 9 ported / 5 partial / 3 not-ported | **9 / 5 / 3** (unchanged — `sports` stays `partial`, and its label changed) |
+| App version | 0.14.0 | **0.15.0** |
+| PHP paths modified | 0 | **0** |
+
+New test files: `test/sports_store.test.js` (**23** tests), `test/sports_sync.test.js`
+(**17**). Extended: `test/sports_http.test.js` (8 → **20**),
+`test/sports_parity.test.js` (16 → **24**).
+
+**The parity artifact grew, and its case count is the measured quantity.**
+
+| Parity group | Phase 15 | Phase 16 |
+|---|---|---|
+| fixture normalization | 23 | 24 |
+| odds normalization | 13 | 13 |
+| data quality | 14 | 14 |
+| odds freshness | 12 | 12 |
+| sandbox provider | 12 fixtures + 9 derivations | unchanged |
+| **result normalization** | — | **29** |
+| **provider health monitor** | — | **32** + 2 constants |
+| **Total comparable cases** | **62** | **124** |
+| Legacy classes under comparison | 6 | **8** |
+
+Slice 2 adds `SportsResultNormalizer` and `ProviderHealthMonitor`, which could not be
+captured earlier because the monitor's inputs are repository rows and migration 011 did
+not exist to define their shape. The result cases concentrate on
+`filter_var(..., FILTER_VALIDATE_INT)`, which is neither `is_int` nor `is_numeric`: a
+quoted integer passes, `"2.5"` fails, a whole float `2.0` stringifies and passes, `true`
+stringifies to `"1"` and passes, `false` to `""` and fails, and hexadecimal is refused.
+Those are exactly the edges a JavaScript port guesses at.
+
+**A coverage hole found in the harness itself.** The generator replaces clock-derived
+fields with a `<NOW>` sentinel so the committed artifact is stable. `sourceTimestamp` was
+in that set — correct for `SportsDataNormalizer::fixture()`, which re-derives it, and
+**wrong for `SportsResultNormalizer::normalize()`**, which merely casts the caller's value
+and returns it. Sentinelizing it blanked a deterministic value both sides could compare,
+and the comparison would still have *passed*, because the Node test applies the identical
+substitution. The field would have looked covered while being ignored — the failure mode a
+differential harness exists to avoid, appearing in the harness. Fixed by threading a `keep`
+list through `strip_clock()` / `outcome()` and their Node mirrors.
+
+**Two defects found and fixed while writing the slice.** **D-27**: `status({probe: true})`
+was first changed to report `persisted: store !== null`, which is false — a probe writes
+nothing, only ingestion appends health rows — so it would have claimed provenance for a
+reading stored nowhere. **D-28**: the 22 methods were first named `ensureProvider`,
+`saveHealth`, `saveMatch`, `findResult` and so on, matching legacy exactly and violating
+the platform's own convention that **every one of the 86 existing contract methods is
+module-prefixed**. The collision is not hypothetical: legacy's *lottery* repository
+declares `ensureProvider`, `saveHealth`, `latestHealth`, `listHealth` and `deleteOldHealth`
+with identical names, so porting row 15 would have overwritten row 14's methods in the
+spread that composes the store, and the last module to load would silently win (SP-18).
+
+**Every predicted tripwire fired**, and each was updated with its intent preserved rather
+than relaxed: the backup table count 24 → 31 and its `counted` collection map; the
+last-migration filename pin; the readiness migration list and its placeholder-count regex;
+the contract length in three files; the WAL-replay `stats()` map in two; and the module
+ledger's `partial` message and sports label. The label is the one worth calling out — it
+asserted `/no persistence/i`, which became **false**, and a stale ledger label is worse
+than none because it is read as current documentation.
+
+**Unchanged, and still owed.** No real MySQL server (**F-15**) — the SQL adapter is proven
+by statement shape, bound parameters and `LIMIT` bounds against a recording executor, and
+`ON DUPLICATE KEY UPDATE` is asserted as text, never executed. No multi-process Passenger
+contention test (**F-24**), which matters more now: the file adapter's uniqueness is
+single-process, so two Node processes on one directory can each believe they opened the
+same sync run. No live-provider probe (**F-25**). No console UI (**F-29**).
+`maxCorrelatedPositions` still enforced nowhere (**F-30**); legacy `automation_limits`
+still ungated (**F-31**); legacy `Api_system` reads still ungated (**F-32**). **F-34**
+stays closed. **NV-6** is unchanged: `SPORTS_MODEL_DRIFT` is still unpublished and
+`ModelDriftMonitor` is slice 5. **DV-10** must appear in any future numeric diff as an
+*expected* difference. The harness still covers only sports classes — the optimizer,
+indicators, `MathUtils`, regime generation and the notification rules remain un-diffed, and
+`SportsProviderManager` stays outside it because it is stateful rather than pure.
+
+**Newly closed: F-35** (legacy wrote sync evidence it could not read, and built a
+provider-health monitor it never called). See
+[`PHASE16_SPORTS_PERSISTENCE.md`](PHASE16_SPORTS_PERSISTENCE.md) §3.
+

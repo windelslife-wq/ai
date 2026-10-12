@@ -38,6 +38,8 @@ import { readFile } from "node:fs/promises";
 import test from "node:test";
 
 import { normalizeFixture, normalizeOdds } from "../src/modules/sports/normalizer.js";
+import { normalizeResult } from "../src/modules/sports/result-normalizer.js";
+import { assessProviderHealth } from "../src/modules/sports/health-monitor.js";
 import { assessOddsFreshness, assessQuality } from "../src/modules/sports/quality.js";
 import { PROVIDER_STATUS, ProviderError } from "../src/modules/sports/provider-error.js";
 import {
@@ -60,12 +62,26 @@ const GOLDEN_URL = new URL("./fixtures/sports-parity-golden.json", import.meta.u
 const CLOCK_FIELDS = new Set(["sourceTimestamp", "lastSuccessAt", "timestamp"]);
 const SENTINEL = "<NOW>";
 
-function stripClock(value) {
-  if (Array.isArray(value)) return value.map(stripClock);
+/**
+ * `keep` names fields to leave alone, mirroring the generator's second parameter.
+ *
+ * The sentinel is only correct for a field the class DERIVES from the clock.
+ * `normalizeFixture` re-derives `sourceTimestamp`; `normalizeResult` merely casts the
+ * caller's `sourceTimestamp` to a string and returns it. Sentinelizing the second would
+ * blank a deterministic value both sides can compare — and the comparison would still
+ * PASS, because both sides apply the identical substitution, so the field would look
+ * covered while being ignored. That is the failure mode a differential harness exists to
+ * avoid, appearing in the harness itself, and it is why `keep` is threaded recursively
+ * rather than applied at the top level only.
+ */
+function stripClock(value, keep = []) {
+  if (Array.isArray(value)) return value.map((entry) => stripClock(entry, keep));
   if (value && typeof value === "object") {
     const out = {};
     for (const [key, entry] of Object.entries(value)) {
-      out[key] = CLOCK_FIELDS.has(key) && typeof entry === "string" ? SENTINEL : stripClock(entry);
+      out[key] = CLOCK_FIELDS.has(key) && typeof entry === "string" && !keep.includes(key)
+        ? SENTINEL
+        : stripClock(entry, keep);
     }
     return out;
   }
@@ -73,9 +89,9 @@ function stripClock(value) {
 }
 
 /** Run `fn`, capturing either its value or the message it threw — the golden file's shape. */
-async function outcome(fn) {
+async function outcome(fn, keep = []) {
   try {
-    return { ok: true, value: stripClock(await fn()) };
+    return { ok: true, value: stripClock(await fn(), keep) };
   } catch (error) {
     return { ok: false, error: error instanceof Error ? error.message : String(error) };
   }
@@ -107,7 +123,7 @@ const PROVIDER_LABEL = "parity-provider";
 test("the golden file is the PHP generator's output and covers every case group", () => {
   assert.equal(golden.generator, "runtime/parity/sports-golden.php");
   assert.equal(golden.php.sapi, "wasm", "captured from WASM PHP, not from a transcription");
-  for (const group of ["fixture", "odds", "quality", "freshness", "sandbox"]) {
+  for (const group of ["fixture", "odds", "quality", "freshness", "sandbox", "result", "health"]) {
     assert.ok(cases[group], `the golden file has no "${group}" group`);
   }
   // Non-vacuity: a golden file that lost its contents would make every comparison
@@ -117,6 +133,12 @@ test("the golden file is the PHP generator's output and covers every case group"
   assert.ok(Object.keys(cases.quality).length >= 12, `expected at least 12 quality cases, got ${Object.keys(cases.quality).length}`);
   assert.ok(Object.keys(cases.freshness).length >= 10, `expected at least 10 freshness cases, got ${Object.keys(cases.freshness).length}`);
   assert.ok(cases.sandbox.fixtureCount >= 12, `expected at least 12 generated fixtures, got ${cases.sandbox.fixtureCount}`);
+  // Slice 2's two groups. `health` also carries the monitor's two constants, so it has
+  // one more key than it has cases.
+  assert.ok(Object.keys(cases.result).length >= 25, `expected at least 25 result cases, got ${Object.keys(cases.result).length}`);
+  assert.ok(Object.keys(cases.health).length >= 30, `expected at least 30 health entries, got ${Object.keys(cases.health).length}`);
+  assert.equal(cases.health.constants.STALE_AFTER_SECONDS, 21600, "the staleness window is PHP's own constant, not a transcription");
+  assert.equal(cases.health.constants.DEGRADED_ERROR_RATE, 0.5);
 });
 
 test("the fixture normalizer agrees with PHP on every case, including every refusal", async () => {
@@ -359,4 +381,172 @@ test("sandbox generation is deterministic across instances and calls", async () 
   const reseededFixtures = await reseeded.fixtures({ from: "2020-01-04", to: "2020-01-05" });
   assert.equal(reseededFixtures.length, cases.sandbox.fixtureCount, "the shape is stable");
   assert.notDeepEqual(stripClock(reseededFixtures), cases.sandbox.fixtures, "the content is not");
+});
+
+// ── slice 2: the result normalizer and the health monitor ────────────────────
+//
+// Both were outside the harness in Phase 15 — the result normalizer because it did not
+// exist in the port yet, the monitor because its inputs are repository rows and
+// migration 011 did not exist to define their shape. Both are pure functions of their
+// arguments, so both are exactly what a differential harness is for.
+
+test("the result normalizer agrees with PHP on every case, including every refusal", async () => {
+  for (const [name, captured] of Object.entries(cases.result)) {
+    const actual = await outcome(() => normalizeResult(captured.input, captured.provider), ["sourceTimestamp"]);
+    assertOutcome(`result: ${name}`, captured.result, actual);
+  }
+});
+
+test("PHP's filter_var(..., FILTER_VALIDATE_INT) is neither is_int nor is_numeric, and the port reproduces it", async () => {
+  // These are the edges a JavaScript port guesses at, so they are captured rather than
+  // reasoned about. Each one is a case where `Number.isInteger`, `parseInt` and
+  // `is_numeric` would give three different answers.
+  const expectations = {
+    "a finished result with quoted scores": { homeScore: 2, awayScore: 0 },
+    "a whole float is accepted because PHP stringifies it": { homeScore: 2, awayScore: 1 },
+    "true stringifies to 1 and passes": { homeScore: 1, awayScore: 1 },
+    "a padded score is accepted": { homeScore: 2, awayScore: 1 },
+    "a score of the string zero is a real score": { homeScore: 0, awayScore: 0 },
+  };
+  for (const [name, expected] of Object.entries(expectations)) {
+    const captured = cases.result[name];
+    assert.ok(captured, `the generator must capture "${name}"`);
+    assert.equal(captured.result.ok, true, `${name}: PHP accepts this, so the port must too`);
+    assert.equal(captured.result.value.homeScore, expected.homeScore, name);
+    assert.equal(captured.result.value.awayScore, expected.awayScore, name);
+  }
+  for (const name of [
+    "a fractional score is refused",
+    "a fractional score as text is refused",
+    "a negative score is refused",
+    "false stringifies to empty and is refused",
+    "a hexadecimal score is refused",
+  ]) {
+    assert.equal(cases.result[name].result.ok, false, `${name}: PHP refuses this`);
+    assert.equal(cases.result[name].result.error, "finished result scores invalid", name);
+  }
+});
+
+test("scores exist only for FINISHED, and a non-finished result discards the scores it was given", async () => {
+  // A postponed result storing 0-0 would fabricate a scoreline; NULL means "no score was
+  // reported", which is a different fact from "no goals were scored".
+  const postponed = cases.result["a postponed result needs no scores and stores none"].result.value;
+  assert.equal(postponed.homeScore, null);
+  assert.equal(postponed.awayScore, null);
+  const discarded = cases.result["a postponed result discards scores it was given"].result.value;
+  assert.equal(discarded.homeScore, null, "PHP throws the given scores away, and so must the port");
+  assert.equal(discarded.awayScore, null);
+  // And `verified` is never set by ingestion, on either side.
+  for (const captured of Object.values(cases.result)) {
+    if (captured.result.ok) assert.equal(captured.result.value.verified, false);
+  }
+});
+
+test("the result normalizer's field order, provenance stamp and raw payload match PHP", () => {
+  const captured = cases.result["the raw payload is returned whole"];
+  const actual = normalizeResult(captured.input, captured.provider);
+  // Field order is compared because a consumer that reads the normalized record
+  // positionally — or a snapshot test, or a diff of two logs — depends on it.
+  assert.deepEqual(Object.keys(actual), Object.keys(stripClock(captured.result.value, ["sourceTimestamp"])));
+  // Compared against what the generator passed, not against a label assumed here: the
+  // normalizer stamps whatever it is given, so parity proves the stamping, not the value.
+  assert.equal(actual.provider, captured.provider, "the provider is stamped on as provenance");
+  assert.deepEqual(actual.payload, captured.input, "the raw payload is returned whole, so a disputed row can be compared against what arrived");
+});
+
+test("the health monitor agrees with PHP on all seven rules, in precedence order", () => {
+  for (const [name, captured] of Object.entries(cases.health)) {
+    if (name === "constants") continue;
+    const actual = assessProviderHealth(captured.provider, captured.health, captured.jobRuns, captured.now);
+    assert.deepEqual(actual, stripClock(captured.result.value), `health: ${name}`);
+    assert.equal(actual.checkedAt, captured.result.value.checkedAt, `${name}: checkedAt is deterministic because $now is explicit`);
+  }
+});
+
+test("the monitor's precedence is PHP's precedence, including the boundaries", () => {
+  const at = (name) => cases.health[name].result.value;
+
+  // Rule 2: a terminal self-report within 30 minutes wins over everything else, and at
+  // exactly the boundary it still wins.
+  assert.equal(at("rule 2 a recent authentication error wins over everything").status, "AUTHENTICATION_ERROR");
+  assert.equal(at("rule 2 exactly at the thirty minute boundary still wins").status, "RATE_LIMITED");
+  // Older than the window, rule 2 stops applying — and because the latest observation is
+  // not ONLINE, rule 6 cannot rescue it either, so it falls all the way through to rule 7.
+  // Getting this wrong in the test would have been getting it wrong about precedence: the
+  // rules are not "terminal, else healthy", they are seven gates in order.
+  assert.equal(at("rule 2 a terminal report older than thirty minutes no longer wins").status, "DEGRADED");
+  assert.equal(at("rule 2 a terminal report older than thirty minutes no longer wins").detail, "no recent ONLINE observation");
+
+  // Rule 3: a failure within five minutes. DEGRADED is in the failure set, so a recent
+  // DEGRADED row fires this rule rather than falling through to rule 7.
+  assert.equal(at("rule 3 a degraded observation within five minutes is still a failure").status, "DEGRADED");
+  assert.match(at("rule 3 a failure within five minutes degrades").detail, /failing since/);
+
+  // Rule 4: BOTH channels must be stale. That is what makes a health gap survivable — a
+  // provider whose self-report stopped but whose syncs still run is not offline.
+  assert.equal(at("rule 4 both channels stale beyond six hours is offline").status, "OFFLINE");
+  assert.equal(at("rule 4 health stale but a recent sync is not offline").status, "ONLINE");
+  assert.equal(at("rule 4 a sync stale but recent health is not offline").status, "DEGRADED");
+
+  // Rule 5 fires BEFORE rule 6 at exactly 0.5, so a provider reporting ONLINE with half
+  // its runs failing is DEGRADED, not ONLINE.
+  assert.equal(at("rule 5 fires before rule 6 at exactly the threshold").status, "DEGRADED");
+  assert.equal(at("rule 5 a third of runs failing is not degraded").status, "ONLINE");
+
+  // Rule 6 is the only branch that earns the reliability boost.
+  assert.equal(at("rule 6 a healthy provider with successful runs is online and boosted").reliability, 1);
+  assert.equal(at("rule 6 online with no runs at all earns half reliability").reliability, 0.5);
+  assert.equal(at("reliability with no runs and no boost is zero").reliability, 0);
+});
+
+test("SP-11 is PHP's asymmetry, preserved: a future observation is skipped in the scan but is still the latest", () => {
+  // The failure scan requires `at <= now`, but `latest` is element 0 regardless. So a
+  // future-dated OFFLINE row is invisible to rule 3 while still being "the latest
+  // observation" — and a future-dated TERMINAL row still wins rule 2, because
+  // `recent()` bounds the window below but not above.
+  //
+  // This is a clock-skew asymmetry in the original, not a porting artifact. Preserved
+  // deliberately and pinned here, because "fixing" it would make the two implementations
+  // disagree on a provider whose clock runs fast — which is precisely when an operator
+  // is comparing them.
+  const skipped = cases.health["SP-11 a future observation is skipped in the scan but is still the latest"].result.value;
+  assert.notEqual(skipped.status, "OFFLINE", "the future-dated OFFLINE row never reaches rule 3");
+  const terminal = cases.health["SP-11 a future terminal report still wins, because recent() does not bound above"].result.value;
+  assert.equal(terminal.status, "AUTHENTICATION_ERROR");
+});
+
+test("the monitor never invents a status, and treats an unusable timestamp as no observation", () => {
+  const unknown = cases.health["rule 1 nothing observed at all"].result.value;
+  assert.equal(unknown.status, "UNKNOWN");
+  assert.equal(unknown.reliability, 0);
+  assert.equal(unknown.detail, "no observations yet");
+
+  // `ts()` returns null for a falsy or unparseable value, and a null timestamp is skipped
+  // in the FAILURE SCAN rather than treated as epoch — which would make every such row look
+  // 56 years stale and fire rule 3 on a row that says nothing about when it was observed.
+  //
+  // But it is NOT skipped for `latest`, and rule 4 explicitly treats `ts === null` as stale.
+  // So an unusable-timestamp row as element 0 yields DEGRADED via rule 7, not ONLINE: the
+  // failure scan ignores it, the staleness rule does not. Two different rules, two different
+  // treatments of the same null — and the distinction is only visible if the assertion says
+  // which status actually results rather than the reassuring one.
+  for (const name of [
+    "an observation with no timestamp is skipped in the failure scan",
+    "an unparseable observation timestamp is skipped",
+    "the string zero as a timestamp is no timestamp at all",
+  ]) {
+    const value = cases.health[name].result.value;
+    assert.equal(value.status, "DEGRADED", `${name}: skipped by the scan, still stale to rule 4`);
+    assert.match(value.detail, /no recent ONLINE observation/, name);
+  }
+  // And the scan really did skip it: had the unusable OFFLINE row been treated as a recent
+  // failure, rule 3 would have produced "failing since …" instead.
+  assert.ok(!/failing since/.test(cases.health["an observation with no timestamp is skipped in the failure scan"].result.value.detail));
+
+  // A documented parameter that the implementation never reads. Captured so a future port
+  // cannot "helpfully" start using it and silently change every derived status.
+  assert.deepEqual(
+    cases.health["an empty provider row changes nothing, because it is never read"].result.value,
+    cases.health["rule 6 a healthy provider with successful runs is online and boosted"].result.value,
+  );
 });

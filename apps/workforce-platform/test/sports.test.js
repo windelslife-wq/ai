@@ -588,14 +588,20 @@ test("the not-ported matrix names every slice row 14 still owes", async () => {
   const service = createSportsService({ config: sportsConfig(), now: () => NOW });
   const report = await service.status();
   assert.equal(report.notPorted, SPORTS_NOT_PORTED);
-  assert.ok(SPORTS_NOT_PORTED.length >= 10);
+  // Nine, not ten: "fixture, odds and result ingestion" graduated out of this matrix
+  // in Phase 16 when migration 011 gave it somewhere to write. Asserting the count
+  // moved DOWN is the point — a matrix that only ever grows is a matrix nobody checks
+  // for entries that are no longer true.
+  assert.equal(SPORTS_NOT_PORTED.length, 9);
   const areas = SPORTS_NOT_PORTED.map((entry) => entry.area).join(" | ");
-  for (const expected of ["ingestion", "predictions", "value and staking", "ticket governance", "settlement", "calibration", "backtesting", "model monitoring", "configuration service", "dashboards"]) {
+  for (const expected of ["predictions", "value and staking", "ticket governance", "settlement", "calibration", "backtesting", "model monitoring", "configuration service", "dashboards"]) {
     assert.match(areas, new RegExp(expected, "i"), `the matrix must name ${expected}`);
   }
   for (const entry of SPORTS_NOT_PORTED) {
     assert.ok(entry.legacy && entry.state && entry.detail, `${entry.area} must name its legacy class and its state`);
     assert.notEqual(entry.state, "ported", "this matrix lists what is NOT ported");
+    // And ingestion is no longer in it at all — not re-labelled, removed.
+    assert.ok(!/ingestion/i.test(entry.area), "ingestion is ported and must not appear in a not-ported matrix");
   }
   // NV-6's last remaining type is named here, so a reader of the API can see why it
   // is still unpublished rather than having to find the migration doc.

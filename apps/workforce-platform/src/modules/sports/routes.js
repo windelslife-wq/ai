@@ -52,6 +52,102 @@ const STATUS_QUERY = Object.freeze({
 });
 
 /**
+ * The stored-read and ingestion contracts (slice 2).
+ *
+ * Every one is declared rather than read ad hoc, for the reason D-24 made concrete:
+ * `validateRequest` rebuilds `request.query` from the schema, so an undeclared
+ * parameter is dropped. A filter that is silently ignored returns the whole table and
+ * looks like a filter that matched everything.
+ *
+ * Bounds are declared here AND re-asserted in the repository. The duplication is not
+ * accidental: a route is one caller of many, and the repository's own bounds are what
+ * keep a scheduled job or a future console from asking for a million rows.
+ */
+
+/** `wf_sports_data_sources.provider_code` is VARCHAR(64). */
+const PROVIDER_CODE_PARAMS = Object.freeze({
+  providerCode: Object.freeze({ type: "string", required: true, minLength: 1, maxLength: 64 }),
+});
+
+/** `wf_sports_matches.id` is BIGINT UNSIGNED. */
+const MATCH_PARAMS = Object.freeze({
+  matchId: Object.freeze({ type: "integer", required: true, min: 1 }),
+});
+
+const PROVIDERS_QUERY = Object.freeze({
+  // A boolean, not a string enum: the validator already coerces `1`/`true`/`yes` and
+  // `0`/`false`/`no` case-insensitively. D-26 is the record of what happens when a
+  // module hand-rolls its own spelling of that convention instead.
+  enabledOnly: Object.freeze({ type: "boolean", default: false }),
+});
+
+const HEALTH_QUERY = Object.freeze({
+  limit: Object.freeze({ type: "integer", default: 20, min: 1, max: 200 }),
+});
+
+const MATCHES_QUERY = Object.freeze({
+  status: Object.freeze({ type: "string", values: ["SCHEDULED", "LIVE", "FINISHED", "POSTPONED", "CANCELLED", "SUSPENDED"] }),
+  // Instants, validated as text here and parsed strictly by the repository. Declaring
+  // them at all is what makes `?from=12345` a 400 rather than an empty window that
+  // looks like a working filter — defect D-12, which is exactly that mistake.
+  from: Object.freeze({ type: "string", maxLength: 32 }),
+  to: Object.freeze({ type: "string", maxLength: 32 }),
+  competition: Object.freeze({ type: "string", maxLength: 160 }),
+  providerId: Object.freeze({ type: "integer", min: 1 }),
+  limit: Object.freeze({ type: "integer", default: 50, min: 1, max: 200 }),
+  oddsLimit: Object.freeze({ type: "integer", default: 50, min: 1, max: 500 }),
+});
+
+const SYNC_RUNS_QUERY = Object.freeze({
+  providerId: Object.freeze({ type: "integer", min: 1 }),
+  jobType: Object.freeze({ type: "string", values: ["FIXTURES", "ODDS", "RESULTS"] }),
+  status: Object.freeze({ type: "string", values: ["RUNNING", "COMPLETED", "FAILED", "DUPLICATE_SKIPPED"] }),
+  limit: Object.freeze({ type: "integer", default: 20, min: 1, max: 200 }),
+});
+
+const SYNC_BODY = Object.freeze({
+  type: "object",
+  required: ["jobType", "providerId", "executionKey"],
+  properties: Object.freeze({
+    jobType: Object.freeze({ type: "string", required: true, values: ["FIXTURES", "ODDS", "RESULTS"] }),
+    // The provider's registered id, not its numeric row id: a caller names the vendor
+    // it configured, and the registry row is looked up. Asking for a number here would
+    // make the caller depend on an insertion order it cannot see.
+    providerId: Object.freeze({ type: "string", required: true, minLength: 1, maxLength: 64 }),
+    /**
+     * The idempotency key, and the reason this route can be retried.
+     *
+     * Required from the CALLER rather than generated here, because a key the server
+     * invented would be different on every retry and would guarantee nothing. Legacy
+     * composes one from the job type and the window; a caller here supplies its own,
+     * which keeps the guarantee where the retry decision is made.
+     */
+    executionKey: Object.freeze({ type: "string", required: true, minLength: 1, maxLength: 128 }),
+    fixtureExternalId: Object.freeze({ type: "string", maxLength: 128 }),
+    query: Object.freeze({ type: "object" }),
+  }),
+});
+
+/**
+ * Turn a storage-layer refusal into a 400.
+ *
+ * The repository's validators throw `TypeError` — the right thing for a programming
+ * error, and the wrong thing to surface as a 500 when the cause is a malformed filter
+ * a caller supplied. Without this, `?from=12345` would report an internal error and
+ * invite a retry of a request that can never succeed.
+ */
+async function guarded(promise) {
+  try {
+    return await promise;
+  } catch (error) {
+    if (error instanceof TypeError) {
+      throw AppError.badRequest(error.message, { code: "INVALID_SPORTS_QUERY" });
+    }
+    throw error;
+  }
+}
+
+/**
  * @param {import("fastify").FastifyInstance} app
  * @param {object} options
  * @param {object} options.config
@@ -60,8 +156,25 @@ const STATUS_QUERY = Object.freeze({
  */
 export function sportsRoutes(app, { config, store, sports = null }) {
   const authenticate = createAuthenticator({ store, config });
+  const actorOf = (request) => request.auth?.user?.id ?? null;
+  const guardFor = (permission) => {
+    const guard = requirePermission(permission, config);
+    // Set so `/api/v1/system/routes` reports which permission each route needs. A
+    // route whose guard cannot name its permission looks ungated in the inventory,
+    // which is how F-02's count went stale in the first place.
+    guard.permission = permission;
+    return [authenticate, guard];
+  };
   const canViewSports = requirePermission("sports.view", config);
   canViewSports.permission = "sports.view";
+  const view = guardFor("sports.view");
+  /**
+   * Ingestion is a WRITE, and legacy gates every `Api_sports` write behind
+   * `sports.manage` while reads need only `sports.view`. Both permissions already
+   * existed in `src/db/platform-baseline.js` before this slice used either, so this is
+   * not a new grant — it is the first caller of one that was declared in anticipation.
+   */
+  const manage = guardFor("sports.manage");
 
   /**
    * Provider configuration, derived health, and the list of sports capabilities
@@ -74,8 +187,15 @@ export function sportsRoutes(app, { config, store, sports = null }) {
    * this slice stores none, that derivation is `UNKNOWN` — the monitor's defined
    * answer when it has witnessed nothing, not a placeholder.
    *
-   * A probed response is stamped `persisted: false`, because a reading with no
-   * history behind it must not be mistaken for one.
+   * A probed response is stamped `persisted`, which is true only on a host whose
+   * sports repository is wired: a probe is a reading taken now, and it becomes a
+   * history only where there is somewhere to put it.
+   *
+   * **Since slice 2 the derived status is measured, not assumed.** Phase 15 hard-coded
+   * two empty arrays into the monitor because there was nowhere to read from, so every
+   * provider reported `UNKNOWN`. `describeProviders()` now reads the health rows a sync
+   * persists and the sync runs it opens — which is what closes finding F-35, legacy
+   * having never called its own monitor at all.
    *
    * No secret can appear in this response: providers are described by id and kind,
    * the base URL is reported as a boolean rather than as a value, and the token is
@@ -99,8 +219,158 @@ export function sportsRoutes(app, { config, store, sports = null }) {
       // and `derivedStatus: "UNKNOWN"` are the *expected* answers on a default host
       // and neither is a fault.
       notice: report.providersConfigured
-        ? "Providers are configured from the environment. Nothing is persisted in this slice: ingestion, prediction, ticketing, settlement, calibration and backtesting are not ported."
+        ? (report.persistence
+          ? "Providers are configured from the environment and ingestion is persisted. Prediction, ticketing, settlement, calibration and backtesting are not ported, and no stored result is verified."
+          : "Providers are configured from the environment, but this host has no sports repository: ingestion, prediction, ticketing, settlement, calibration and backtesting are not available.")
         : "No sports provider is configured, so no fixture, odds, prediction or ticket can be produced. Nothing is fabricated to fill the gap.",
     };
   });
+
+  // ── stored reads ──────────────────────────────────────────────────────────────
+  //
+  // Legacy's `Api_sports` exposes twenty-odd endpoints over eighteen tables. These five
+  // read the seven that exist here, and no others: a `GET /sports/predictions` that
+  // answered from thin air would be the fabrication the platform's rules forbid, and one
+  // that answered from a live provider call would return a different thing under a name
+  // an operator already trusts.
+
+  /**
+   * The stored provider registry — which vendors have been seen, and whether each is
+   * enabled.
+   *
+   * Distinct from `/sports/status`, which lists the providers THIS PROCESS registered
+   * from the environment. The two disagreeing is information: a stored row with no
+   * registered provider is a vendor a previous configuration used, and its history is
+   * still attached to it.
+   *
+   * `enabled` is false for a row a sync created, because a row appearing is not an
+   * operator approving a vendor. There is no route here that sets it: enabling a
+   * provider changes what every future sync consults, and that is a configuration
+   * decision belonging to a later slice with the configuration service, not a side
+   * effect of an ingestion endpoint.
+   */
+  app.get("/sports/providers", {
+    preHandler: view,
+    querySchema: PROVIDERS_QUERY,
+  }, async (request) => {
+    const providers = await guarded(sports.listProviders(request.query.enabledOnly === true));
+    return { providers, count: providers.length };
+  });
+
+  /**
+   * One provider's stored health observations, newest first.
+   *
+   * The series, not the current value — because an outage is visible as a gap in a
+   * series and invisible in an overwritten row. Bounded to 200, the same window the
+   * monitor derives from, so what an operator reads here is what the derivation saw.
+   */
+  app.get("/sports/providers/:providerCode/health", {
+    preHandler: view,
+    paramsSchema: PROVIDER_CODE_PARAMS,
+    querySchema: HEALTH_QUERY,
+  }, async (request) => guarded(sports.providerHealthHistory(request.params.providerCode, request.query.limit)));
+
+  /**
+   * Stored fixtures, oldest kickoff first.
+   *
+   * **Stored history, not a live provider call.** That distinction is the whole reason
+   * this route did not exist in slice 1: `readFixtures()` can fetch fixtures from a
+   * provider, and serving those under this name would have made "the fixtures" mean
+   * something different depending on whether anything had been ingested. A caller that
+   * wants a live read has `/sports/status?probe=1` and the fallback chain, and this
+   * route answers only from what is stored.
+   */
+  app.get("/sports/matches", {
+    preHandler: view,
+    querySchema: MATCHES_QUERY,
+  }, async (request) => {
+    const { limit, oddsLimit: _oddsLimit, ...filter } = request.query;
+    const matches = await guarded(sports.listMatches(filter, limit));
+    return { matches, count: matches.length };
+  });
+
+  /**
+   * One fixture with everything stored about it: odds series, latest quality
+   * assessment, and its result.
+   *
+   * Assembled in one response rather than four, because the four rows are only
+   * meaningful together — an assessment says whether a fixture was eligible, the odds
+   * say what was on offer, the result says how it ended, and read separately they can
+   * be combined into a picture that never existed.
+   *
+   * `verified` is reported explicitly and is false for every row this slice can
+   * produce: ingestion reports a result, it does not attest to one, and settlement
+   * (slice 5) is the only thing that will.
+   */
+  app.get("/sports/matches/:matchId", {
+    preHandler: view,
+    paramsSchema: MATCH_PARAMS,
+    querySchema: MATCHES_QUERY,
+  }, async (request) => guarded(sports.matchDetail(request.params.matchId, { oddsLimit: request.query.oddsLimit })));
+
+  /**
+   * Sync-run evidence, newest first.
+   *
+   * **The read legacy never had.** `sports_sync_runs` was written by `startSync` and
+   * `finishSync` and selected from nowhere in `application/` — so a run's counters and
+   * its per-record refusal messages were recorded into a table no operator could query,
+   * and a row left in `RUNNING` (the evidence of a worker that died mid-sync) was
+   * invisible. Finding F-35; divergence SP-15.
+   *
+   * `errors` is returned whole rather than as a count, because "40 processed, 2
+   * refused" without the two messages is a number to shrug at and the messages are the
+   * thing that tells an operator whether the provider changed shape or the clock
+   * drifted.
+   */
+  app.get("/sports/sync-runs", {
+    preHandler: view,
+    querySchema: SYNC_RUNS_QUERY,
+  }, async (request) => {
+    const { limit, ...filter } = request.query;
+    const runs = await guarded(sports.listSyncRuns(filter, limit));
+    return {
+      runs,
+      count: runs.length,
+      // Called out rather than left to be counted: a run still in RUNNING is not
+      // in-flight, it is unfinished, and on a single-process cPanel host it will not
+      // resume itself.
+      unfinished: runs.filter((run) => run.status === "RUNNING").length,
+    };
+  });
+
+  // ── ingestion ─────────────────────────────────────────────────────────────────
+
+  /**
+   * Run one ingestion job: fixtures for a window, or odds/results for one fixture.
+   *
+   * Gated `sports.manage`, matching legacy's write gate. Idempotent by the caller's
+   * `executionKey`: a retry after a timeout, or a schedule that fires twice for one
+   * window, returns `DUPLICATE_SKIPPED` instead of storing the same records again.
+   *
+   * The response distinguishes three outcomes that must not be collapsed:
+   *
+   *  - `COMPLETED` — the run finished. It may still carry `errors`, because one
+   *    malformed record out of forty does not fail a run; it is counted and named.
+   *  - `FAILED` — a provider-level refusal (not `ONLINE`, or a fixture that was never
+   *    synchronized). The counters say how far it got, so a run that stored four
+   *    fixtures before the provider dropped does not report zero work.
+   *  - `DUPLICATE_SKIPPED` — this `executionKey` has been used. No `runId` is returned,
+   *    because no run was opened, and no audit event is emitted, because the original
+   *    run already has one.
+   *
+   * **This route stores data and nothing else.** It cannot verify a result, generate a
+   * prediction, size a stake or build a ticket — none of those tables exists, and no
+   * code path here reaches one.
+   */
+  app.post("/sports/sync", {
+    preHandler: manage,
+    bodySchema: SYNC_BODY,
+  }, async (request) => guarded(sports.sync({
+    jobType: request.body.jobType,
+    providerId: request.body.providerId,
+    executionKey: request.body.executionKey,
+    fixtureExternalId: request.body.fixtureExternalId ?? null,
+    query: request.body.query ?? {},
+    actorId: actorOf(request),
+  })));
 }

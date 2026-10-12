@@ -41,11 +41,19 @@ require $sports . '/Providers/SandboxSportsProvider.php';
 require $sports . '/SportsDataNormalizer.php';
 require $sports . '/DataQualityEngine.php';
 require $sports . '/OddsFreshnessEngine.php';
+// Slice 2 adds the two classes whose inputs are repository rows, which is why they
+// could not be captured in slice 1: migration 011 did not exist yet, so there was no
+// defined row shape to synthesize. There is now, and the shapes below are the columns
+// that migration creates.
+require $sports . '/SportsResultNormalizer.php';
+require $sports . '/ProviderHealthMonitor.php';
 
 use Aegis\Sports\DataQualityEngine;
 use Aegis\Sports\OddsFreshnessEngine;
 use Aegis\Sports\Providers\SandboxSportsProvider;
 use Aegis\Sports\SportsDataNormalizer;
+use Aegis\Sports\SportsResultNormalizer;
+use Aegis\Sports\ProviderHealthMonitor;
 
 // The sandbox provider's double opt-in. Without both it reports OFFLINE and
 // refuses every call, which is itself one of the cases captured below.
@@ -54,23 +62,34 @@ putenv('WINDELS_SPORTS_SANDBOX=1');
 
 const SENTINEL = '<NOW>';
 
-/** Replace the fields that are genuinely "now" with a sentinel, recursively. */
-function strip_clock($value)
+/**
+ * Replace the fields that are genuinely "now" with a sentinel, recursively.
+ *
+ * `$keep` names keys to leave alone, and it exists because the sentinel is only correct
+ * for a field the class DERIVES from the clock. `SportsDataNormalizer::fixture()`
+ * re-derives `sourceTimestamp`; `SportsResultNormalizer::normalize()` merely casts the
+ * caller's `sourceTimestamp` to a string and returns it. Sentinelizing the second would
+ * blank a deterministic value both sides can compare — and the comparison would still
+ * PASS, because the Node test applies the identical substitution, so the field would
+ * look covered while being ignored. That is the failure mode a differential harness
+ * exists to avoid, in the harness itself.
+ */
+function strip_clock($value, array $keep = [])
 {
     if (!is_array($value)) return $value;
     $out = [];
     foreach ($value as $k => $v) {
-        if (in_array($k, ['sourceTimestamp', 'lastSuccessAt'], true) && is_string($v)) { $out[$k] = SENTINEL; continue; }
-        if ($k === 'timestamp' && is_string($v)) { $out[$k] = SENTINEL; continue; }
-        $out[$k] = strip_clock($v);
+        if (in_array($k, ['sourceTimestamp', 'lastSuccessAt'], true) && is_string($v) && !in_array($k, $keep, true)) { $out[$k] = SENTINEL; continue; }
+        if ($k === 'timestamp' && is_string($v) && !in_array($k, $keep, true)) { $out[$k] = SENTINEL; continue; }
+        $out[$k] = strip_clock($v, $keep);
     }
     return $out;
 }
 
 /** Run a callable, capturing either its return value or the message it threw. */
-function outcome(callable $fn)
+function outcome(callable $fn, array $keep = [])
 {
-    try { return ['ok' => true, 'value' => strip_clock($fn())]; }
+    try { return ['ok' => true, 'value' => strip_clock($fn(), $keep)]; }
     catch (Throwable $e) { return ['ok' => false, 'error' => $e->getMessage(), 'class' => get_class($e)]; }
 }
 
@@ -183,6 +202,94 @@ $disabled = null;
     putenv('WINDELS_SPORTS_SANDBOX=1');
 }
 
+// ── SportsResultNormalizer cases ──────────────────────────────────────────────
+//
+// Scores are the interesting ones. `filter_var(..., FILTER_VALIDATE_INT)` is not
+// `is_int` and not `is_numeric`: a quoted integer passes, a float fails, a whole float
+// stringifies to an integer and passes, and a boolean is stringified first — so `true`
+// passes as 1 and `false` fails as "". Those are the exact edges a JavaScript port
+// guesses at, which is why they are captured rather than reasoned about.
+$resultCases = [
+    'a finished result with integer scores' => [['externalId' => 'e1', 'status' => 'FINISHED', 'homeScore' => 2, 'awayScore' => 1, 'sourceTimestamp' => '2020-01-04T16:00:00Z'], 'P'],
+    'a finished result with quoted scores' => [['externalId' => 'e1', 'status' => 'FINISHED', 'homeScore' => '2', 'awayScore' => '0', 'sourceTimestamp' => '2020-01-04T16:00:00Z'], 'P'],
+    'a finished nil-nil draw' => [['externalId' => 'e1', 'status' => 'FINISHED', 'homeScore' => 0, 'awayScore' => 0, 'sourceTimestamp' => '2020-01-04T16:00:00Z'], 'P'],
+    'status is upper-cased' => [['externalId' => 'e1', 'status' => 'finished', 'homeScore' => 1, 'awayScore' => 1, 'sourceTimestamp' => '2020-01-04T16:00:00Z'], 'P'],
+    'a fractional score is refused' => [['externalId' => 'e1', 'status' => 'FINISHED', 'homeScore' => 2.5, 'awayScore' => 1, 'sourceTimestamp' => '2020-01-04T16:00:00Z'], 'P'],
+    'a fractional score as text is refused' => [['externalId' => 'e1', 'status' => 'FINISHED', 'homeScore' => '2.5', 'awayScore' => '1', 'sourceTimestamp' => '2020-01-04T16:00:00Z'], 'P'],
+    'a whole float is accepted because PHP stringifies it' => [['externalId' => 'e1', 'status' => 'FINISHED', 'homeScore' => 2.0, 'awayScore' => 1.0, 'sourceTimestamp' => '2020-01-04T16:00:00Z'], 'P'],
+    'a negative score is refused' => [['externalId' => 'e1', 'status' => 'FINISHED', 'homeScore' => -1, 'awayScore' => 0, 'sourceTimestamp' => '2020-01-04T16:00:00Z'], 'P'],
+    'true stringifies to 1 and passes' => [['externalId' => 'e1', 'status' => 'FINISHED', 'homeScore' => true, 'awayScore' => true, 'sourceTimestamp' => '2020-01-04T16:00:00Z'], 'P'],
+    'false stringifies to empty and is refused' => [['externalId' => 'e1', 'status' => 'FINISHED', 'homeScore' => false, 'awayScore' => 1, 'sourceTimestamp' => '2020-01-04T16:00:00Z'], 'P'],
+    'a finished result missing a score is refused' => [['externalId' => 'e1', 'status' => 'FINISHED', 'homeScore' => 2, 'sourceTimestamp' => '2020-01-04T16:00:00Z'], 'P'],
+    'a postponed result needs no scores and stores none' => [['externalId' => 'e1', 'status' => 'POSTPONED', 'sourceTimestamp' => '2020-01-04T16:00:00Z'], 'P'],
+    'a postponed result discards scores it was given' => [['externalId' => 'e1', 'status' => 'POSTPONED', 'homeScore' => 3, 'awayScore' => 0, 'sourceTimestamp' => '2020-01-04T16:00:00Z'], 'P'],
+    'a void result' => [['externalId' => 'e1', 'status' => 'VOID', 'sourceTimestamp' => '2020-01-04T16:00:00Z'], 'P'],
+    'a cancelled result' => [['externalId' => 'e1', 'status' => 'CANCELLED', 'sourceTimestamp' => '2020-01-04T16:00:00Z'], 'P'],
+    'a suspended result' => [['externalId' => 'e1', 'status' => 'SUSPENDED', 'sourceTimestamp' => '2020-01-04T16:00:00Z'], 'P'],
+    'an unlisted status is refused' => [['externalId' => 'e1', 'status' => 'ABANDONED', 'sourceTimestamp' => '2020-01-04T16:00:00Z'], 'P'],
+    'SCHEDULED is a fixture status, not a result' => [['externalId' => 'e1', 'status' => 'SCHEDULED', 'sourceTimestamp' => '2020-01-04T16:00:00Z'], 'P'],
+    'LIVE is a fixture status, not a result' => [['externalId' => 'e1', 'status' => 'LIVE', 'sourceTimestamp' => '2020-01-04T16:00:00Z'], 'P'],
+    'a missing external id is refused' => [['status' => 'FINISHED', 'homeScore' => 1, 'awayScore' => 0, 'sourceTimestamp' => '2020-01-04T16:00:00Z'], 'P'],
+    'an empty external id is refused' => [['externalId' => '', 'status' => 'FINISHED', 'homeScore' => 1, 'awayScore' => 0, 'sourceTimestamp' => '2020-01-04T16:00:00Z'], 'P'],
+    'a missing source timestamp is refused' => [['externalId' => 'e1', 'status' => 'FINISHED', 'homeScore' => 1, 'awayScore' => 0], 'P'],
+    'a missing status is refused' => [['externalId' => 'e1', 'homeScore' => 1, 'awayScore' => 0, 'sourceTimestamp' => '2020-01-04T16:00:00Z'], 'P'],
+    'an empty status is refused' => [['externalId' => 'e1', 'status' => '', 'sourceTimestamp' => '2020-01-04T16:00:00Z'], 'P'],
+    'the provider is stamped on as provenance' => [['externalId' => 'e1', 'status' => 'VOID', 'sourceTimestamp' => '2020-01-04T16:00:00Z'], 'sandbox-sim'],
+    'a score of the string zero is a real score' => [['externalId' => 'e1', 'status' => 'FINISHED', 'homeScore' => '0', 'awayScore' => '0', 'sourceTimestamp' => '2020-01-04T16:00:00Z'], 'P'],
+    'a padded score is accepted' => [['externalId' => 'e1', 'status' => 'FINISHED', 'homeScore' => ' 2 ', 'awayScore' => '1', 'sourceTimestamp' => '2020-01-04T16:00:00Z'], 'P'],
+    'a hexadecimal score is refused' => [['externalId' => 'e1', 'status' => 'FINISHED', 'homeScore' => '0x2', 'awayScore' => '1', 'sourceTimestamp' => '2020-01-04T16:00:00Z'], 'P'],
+    'the raw payload is returned whole' => [['externalId' => 'e1', 'status' => 'VOID', 'sourceTimestamp' => '2020-01-04T16:00:00Z', 'note' => 'kept'], 'P'],
+];
+
+// ── ProviderHealthMonitor cases ───────────────────────────────────────────────
+//
+// Seven rules in a fixed precedence order, plus the reliability helper. Every case
+// pins an explicit `$now`, so `checkedAt` is deterministic and needs no sentinel.
+//
+// Note that `assess()`'s first parameter is documented as the `sports_data_sources`
+// row and is never read by the implementation. Captured anyway: a parameter a port
+// assumes is meaningful and then wires up is a divergence nobody would notice.
+$NOW = 1772701200; // 2026-03-05T09:00:00+00:00
+$at = fn(int $secondsAgo) => gmdate('c', $NOW - $secondsAgo);
+$providerRow = ['id' => 1, 'provider_code' => 'sandbox-sim', 'display_name' => 'sandbox-sim', 'enabled' => 1];
+$run = fn(string $status, int $secondsAgo) => ['status' => $status, 'started_at' => $at($secondsAgo)];
+$obs = fn(string $status, int $secondsAgo) => ['status' => $status, 'observed_at' => $at($secondsAgo)];
+
+$healthCases = [
+    'rule 1 nothing observed at all' => [$providerRow, [], [], $NOW],
+    'rule 2 a recent authentication error wins over everything' => [$providerRow, [$obs('AUTHENTICATION_ERROR', 60)], [$run('COMPLETED', 30)], $NOW],
+    'rule 2 a recent rate limit is terminal too' => [$providerRow, [$obs('RATE_LIMITED', 60)], [$run('FAILED', 30)], $NOW],
+    'rule 2 a terminal report older than thirty minutes no longer wins' => [$providerRow, [$obs('AUTHENTICATION_ERROR', 1801)], [$run('COMPLETED', 60)], $NOW],
+    'rule 2 exactly at the thirty minute boundary still wins' => [$providerRow, [$obs('RATE_LIMITED', 1800)], [$run('COMPLETED', 60)], $NOW],
+    'rule 3 a failure within five minutes degrades' => [$providerRow, [$obs('OFFLINE', 60)], [$run('COMPLETED', 30)], $NOW],
+    'rule 3 a recent rate-limited failure keeps its own status' => [$providerRow, [$obs('RATE_LIMITED', 400)], [$run('COMPLETED', 30)], $NOW],
+    'rule 3 a DATA_ERROR within five minutes' => [$providerRow, [$obs('DATA_ERROR', 299)], [$run('COMPLETED', 30)], $NOW],
+    'rule 3 a degraded observation within five minutes is still a failure' => [$providerRow, [$obs('DEGRADED', 60)], [$run('COMPLETED', 30)], $NOW],
+    'rule 4 both channels stale beyond six hours is offline' => [$providerRow, [$obs('ONLINE', 21601)], [$run('COMPLETED', 21601)], $NOW],
+    'rule 4 health stale but a recent sync is not offline' => [$providerRow, [$obs('ONLINE', 21601)], [$run('COMPLETED', 60)], $NOW],
+    'rule 4 a sync stale but recent health is not offline' => [$providerRow, [$obs('DEGRADED', 600)], [$run('COMPLETED', 21601)], $NOW],
+    'rule 4 no runs at all with stale health is offline' => [$providerRow, [$obs('ONLINE', 21601)], [], $NOW],
+    'rule 5 a fifty percent run error rate is degraded' => [$providerRow, [$obs('ONLINE', 60)], [$run('COMPLETED', 30), $run('FAILED', 90)], $NOW],
+    'rule 5 fires before rule 6 at exactly the threshold' => [$providerRow, [$obs('ONLINE', 60)], [$run('FAILED', 30), $run('COMPLETED', 60)], $NOW],
+    'rule 5 a third of runs failing is not degraded' => [$providerRow, [$obs('ONLINE', 60)], [$run('COMPLETED', 30), $run('COMPLETED', 60), $run('FAILED', 90)], $NOW],
+    'rule 6 a healthy provider with successful runs is online and boosted' => [$providerRow, [$obs('ONLINE', 60)], [$run('COMPLETED', 30), $run('COMPLETED', 90)], $NOW],
+    'rule 6 online with no runs at all earns half reliability' => [$providerRow, [$obs('ONLINE', 60)], [], $NOW],
+    'rule 7 an older degraded report falls through to degraded' => [$providerRow, [$obs('DEGRADED', 400)], [$run('COMPLETED', 60)], $NOW],
+    'rule 7 an unknown status falls through to degraded' => [$providerRow, [$obs('SOMETHING_NEW', 60)], [$run('COMPLETED', 30)], $NOW],
+    'reliability with no runs and no boost is zero' => [$providerRow, [$obs('DEGRADED', 60)], [], $NOW],
+    'reliability is capped at one' => [$providerRow, [$obs('ONLINE', 60)], [$run('COMPLETED', 10), $run('COMPLETED', 20), $run('COMPLETED', 30)], $NOW],
+    'the newest observation is the first element, not the newest timestamp' => [$providerRow, [$obs('ONLINE', 600), $obs('OFFLINE', 60)], [$run('COMPLETED', 30)], $NOW],
+    'an observation with no timestamp is skipped in the failure scan' => [$providerRow, [['status' => 'OFFLINE'], $obs('ONLINE', 60)], [$run('COMPLETED', 30)], $NOW],
+    'an unparseable observation timestamp is skipped' => [$providerRow, [['status' => 'OFFLINE', 'observed_at' => 'not-a-date'], $obs('ONLINE', 60)], [$run('COMPLETED', 30)], $NOW],
+    'the string zero as a timestamp is no timestamp at all' => [$providerRow, [['status' => 'OFFLINE', 'observed_at' => '0'], $obs('ONLINE', 60)], [$run('COMPLETED', 30)], $NOW],
+    'SP-11 a future observation is skipped in the scan but is still the latest' => [$providerRow, [$obs('OFFLINE', -600), $obs('ONLINE', 60)], [$run('COMPLETED', 30)], $NOW],
+    'SP-11 a future terminal report still wins, because recent() does not bound above' => [$providerRow, [$obs('AUTHENTICATION_ERROR', -600)], [$run('COMPLETED', 30)], $NOW],
+    'a run with no status counts as neither success nor failure' => [$providerRow, [$obs('ONLINE', 60)], [['started_at' => $at(30)]], $NOW],
+    'a run with an unparseable started_at still counts towards the error rate' => [$providerRow, [$obs('ONLINE', 60)], [$run('COMPLETED', 30), ['status' => 'FAILED', 'started_at' => 'not-a-date']], $NOW],
+    'a missing fields list is carried through untouched' => [$providerRow, [array_merge($obs('DEGRADED', 60), ['missing_fields' => ['kickoff']])], [$run('COMPLETED', 30)], $NOW],
+    'an empty provider row changes nothing, because it is never read' => [[], [$obs('ONLINE', 60)], [$run('COMPLETED', 30)], $NOW],
+];
+
 $payload = [
     'generator' => 'runtime/parity/sports-golden.php',
     'php' => ['version' => PHP_VERSION, 'sapi' => PHP_SAPI],
@@ -200,6 +307,17 @@ $payload = [
         'quality' => (function () use ($quality, $qualityCases) {
             $out = [];
             foreach ($qualityCases as $name => [$fixture, $context]) $out[$name] = ['fixture' => $fixture, 'context' => $context, 'result' => outcome(fn() => $quality->assess($fixture, $context))];
+            return $out;
+        })(),
+        'result' => (function () use ($resultCases) {
+            $out = [];
+            foreach ($resultCases as $name => [$input, $provider]) $out[$name] = ['input' => $input, 'provider' => $provider, 'result' => outcome(fn() => SportsResultNormalizer::normalize($input, $provider), ['sourceTimestamp'])];
+            return $out;
+        })(),
+        'health' => (function () use ($healthCases) {
+            $monitor = new ProviderHealthMonitor();
+            $out = ['constants' => ['STALE_AFTER_SECONDS' => ProviderHealthMonitor::STALE_AFTER_SECONDS, 'DEGRADED_ERROR_RATE' => ProviderHealthMonitor::DEGRADED_ERROR_RATE]];
+            foreach ($healthCases as $name => [$provider, $observations, $runs, $now]) $out[$name] = ['provider' => $provider, 'health' => $observations, 'jobRuns' => $runs, 'now' => $now, 'result' => outcome(fn() => $monitor->assess($provider, $observations, $runs, $now))];
             return $out;
         })(),
         'freshness' => (function () use ($freshness, $freshnessCases) {
