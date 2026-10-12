@@ -8,6 +8,7 @@ import { createExecutionRepository } from "./execution-repository.js";
 import { createNotificationRepository } from "./notification-repository.js";
 import { createJobRepository } from "./job-repository.js";
 import { createSportsRepository } from "./sports-repository.js";
+import { createLotteryRepository } from "./lottery-repository.js";
 
 export const REQUIRED_MIGRATIONS = Object.freeze([
   "001_platform_foundation",
@@ -25,6 +26,7 @@ export const REQUIRED_MIGRATIONS = Object.freeze([
   "013_sports_tickets",
   "014_sports_settlement",
   "015_sports_snapshots",
+  "016_lottery_foundation",
 ]);
 
 /** Only driver codes are ever reported; never an SQL statement or credential. */
@@ -48,6 +50,7 @@ export function createStore(pool, { requiredMigrations = REQUIRED_MIGRATIONS } =
   const notifications = createNotificationRepository(pool);
   const jobs = createJobRepository(pool);
   const sports = createSportsRepository(pool);
+  const lottery = createLotteryRepository(pool);
   return {
     ...repository,
     ...site,
@@ -161,6 +164,36 @@ export function createStore(pool, { requiredMigrations = REQUIRED_MIGRATIONS } =
     // appends — exactly as legacy's unique key makes it.
     saveSportsPerformanceSnapshot: sports.saveSportsPerformanceSnapshot,
     listSportsPerformanceSnapshots: sports.listSportsPerformanceSnapshots,
+    // Lottery Intelligence data foundation (migration 016, row 15 slice 1). Listed
+    // explicitly like the sports block above — the F-41 lesson is that an implicit
+    // list is a stale list waiting to happen, so each name is written out and the
+    // contract test counts them. These 23 methods read and write ONLY the seven
+    // `wf_lottery*` tables: published draw results and the evidence of how they were
+    // obtained. Nothing here purchases, wagers or pays out anything, and none of it
+    // can reach a proposal, order, position, account or broker row.
+    ensureLotteryGame: lottery.ensureLotteryGame,
+    listLotteryGames: lottery.listLotteryGames,
+    activeLotteryRules: lottery.activeLotteryRules,
+    saveLotteryRules: lottery.saveLotteryRules,
+    ensureLotteryProvider: lottery.ensureLotteryProvider,
+    listLotteryProviders: lottery.listLotteryProviders,
+    saveLotteryHealth: lottery.saveLotteryHealth,
+    latestLotteryHealth: lottery.latestLotteryHealth,
+    listLotteryHealth: lottery.listLotteryHealth,
+    findLotteryDraw: lottery.findLotteryDraw,
+    findLotteryDrawByExternal: lottery.findLotteryDrawByExternal,
+    listLotteryDraws: lottery.listLotteryDraws,
+    saveLotteryDraw: lottery.saveLotteryDraw,
+    listLotteryDrawNumbers: lottery.listLotteryDrawNumbers,
+    saveLotteryDrawNumbers: lottery.saveLotteryDrawNumbers,
+    lotteryDrawsForStats: lottery.lotteryDrawsForStats,
+    countLotteryDraws: lottery.countLotteryDraws,
+    startLotteryJobRun: lottery.startLotteryJobRun,
+    finishLotteryJobRun: lottery.finishLotteryJobRun,
+    listLotteryJobRuns: lottery.listLotteryJobRuns,
+    findLotteryJobRunByKey: lottery.findLotteryJobRunByKey,
+    deleteOldLotteryJobRuns: lottery.deleteOldLotteryJobRuns,
+    deleteOldLotteryHealth: lottery.deleteOldLotteryHealth,
     saveJobState: jobs.saveJobState,
     // Notifications are written outside any paper transaction: they are evidence
     // about a change that already committed, and a failed notification must never

@@ -47,6 +47,8 @@ import { createPortfolioService } from "./modules/portfolio/service.js";
 import { brokerRoutes } from "./modules/brokers/routes.js";
 import { sportsRoutes } from "./modules/sports/routes.js";
 import { createSportsService } from "./modules/sports/service.js";
+import { lotteryRoutes } from "./modules/lottery/routes.js";
+import { createLotteryService } from "./modules/lottery/service.js";
 import { createBrokerRegistry } from "./modules/brokers/registry.js";
 
 const JSON_TYPE = "application/json; charset=utf-8";
@@ -184,6 +186,14 @@ export async function buildApp({ config, store, logger = true, publicDir = path.
   // (NV-6): a drift warning now reaches the operator inbox, deduped per model per day.
   const sports = createSportsService({ config, store, notifications });
 
+  // One lottery service per app (row 15, slice 1). The provider is legacy's
+  // Platform.php choice: an authorized official feed when configured, else the
+  // sandbox when WINDELS_LOTTERY_SANDBOX=1, else nothing — a default host has no
+  // provider, which is the honest state for a platform with no verified source.
+  // The service performs NO writes at construction (LT-4): the game registry row is
+  // ensured lazily on the first call that needs it, so booting stays read-free.
+  const lottery = createLotteryService({ config, store });
+
   // The status surface reports the notification module alongside market data and
   // analysis, so an operator can see that alerts are stored-and-read only and that
   // no outbound delivery channel exists.
@@ -237,6 +247,12 @@ export async function buildApp({ config, store, logger = true, publicDir = path.
   // create, so none of them is ported; a matches endpoint that answered from a live
   // provider call would return a different thing under a familiar name.
   await app.register(sportsRoutes, { prefix: "/api/v1", store, config, sports });
+  // Lottery Intelligence (row 15, slice 1): the foundation surface — status, rules,
+  // draws, statistics, providers, health, jobs, and the two lottery.manage writes
+  // (probe and sync). Legacy's thirty-odd other lottery endpoints read tables this
+  // slice does not create, so none of them is ported; the status route carries the
+  // not-ported matrix.
+  await app.register(lotteryRoutes, { prefix: "/api/v1", store, config, lottery });
 
   /**
    * Scheduled operations (row 19): the portfolio risk sweep and the cross-owner
@@ -569,6 +585,7 @@ export async function buildApp({ config, store, logger = true, publicDir = path.
     siteDocuments,
     jobs,
     sports,
+    lottery,
     routes: () => router.list(),
     documents: () => siteDocuments.paths(),
     async listen({ host = config.host, port = config.port } = {}) {

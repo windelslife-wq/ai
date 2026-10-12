@@ -76,6 +76,18 @@ import {
   settledSelectionRow,
   SNAPSHOT_WINDOWS,
 } from "./sports-rows.js";
+import {
+  LOTTERY_VERIFICATION_STATUSES,
+  assertDrawDate,
+  assertLotteryCode,
+  lotteryDrawNumberRow,
+  lotteryDrawRow,
+  lotteryGameRow,
+  lotteryHealthRow,
+  lotteryProviderRow,
+  lotteryRulesRow,
+  lotterySyncRunRow,
+} from "./lottery-rows.js";
 import { createHash } from "node:crypto";
 import path from "node:path";
 
@@ -98,7 +110,15 @@ const ENTITIES = ["users", "profiles", "sessions", "roles", "permissions", "user
   "sportsBacktests", "sportsModelMetrics",
   // Performance snapshots (migration 015, row 19). Keyed by (as_of hour, window) — the
   // migration's UNIQUE key, and what makes a re-run of the same hour REPLACE.
-  "sportsPerformanceSnapshots"];
+  "sportsPerformanceSnapshots",
+  // Lottery Intelligence data foundation (migration 016, row 15 slice 1). Seven
+  // collections for seven tables, named for the module exactly as the sports ones
+  // are — SP-18 was ABOUT this module's method names. The game registry is
+  // `lotteries` (legacy's own table name); a draw is (lottery, external id); a
+  // stored rule version is (lottery, version); numbers are (draw, kind, position);
+  // health and sync runs follow the sports collections' shapes.
+  "lotteries", "lotteryRules", "lotteryProviders", "lotteryHealth", "lotteryDraws",
+  "lotteryDrawNumbers", "lotterySyncRuns"];
 const PAPER_TX_ENTITIES = Object.freeze(["tradingState", "paperAccounts", "paperOrders", "paperPositions", "paperTrades", "paperDeployments", "executionProposals", "strategies", "journalEntries", "audit"]);
 const COMPACTION_ENTRIES = 2_000;
 /**
@@ -196,6 +216,18 @@ function keyOf(entity, record) {
   // One performance snapshot per (as_of hour, window), the same as the migration's
   // UNIQUE key — and what makes the cron's re-run of an hour REPLACE, not append.
   if (entity === "sportsPerformanceSnapshots") return `${record.as_of}|${record.window}`;
+  // Lottery foundation (migration 016). A game is its code; a stored rule version is
+  // (lottery, version); a provider is its code, as for sports; a draw is
+  // (lottery, external id), because two sources numbering one draw differently is
+  // the normal case; a number row is (draw, kind, position); a sync run is keyed by
+  // its execution key, which is what makes re-ingestion the adapter's arbiter.
+  // Health is append-only and keyed by id.
+  if (entity === "lotteries") return String(record.code);
+  if (entity === "lotteryRules") return `${record.lottery_code}|${record.version}`;
+  if (entity === "lotteryProviders") return String(record.provider_code);
+  if (entity === "lotteryDraws") return `${record.lottery_code}:${record.external_id}`;
+  if (entity === "lotteryDrawNumbers") return `${record.draw_id}|${record.kind}|${record.position}`;
+  if (entity === "lotterySyncRuns") return String(record.execution_key);
   return String(record.id);
 }
 
@@ -1697,6 +1729,354 @@ export async function createFileStore({ dir, logger = console, idFactory = () =>
         .sort((a, b) => String(b.as_of).localeCompare(String(a.as_of)))
         .slice(0, bounded)
         .map(performanceSnapshotRow);
+    },
+
+    // ── Lottery Intelligence data foundation: mirrors src/db/lottery-repository.js
+    // method for method (row 15 slice 1, migration 016), on the sports foundation's
+    // rules: rows in legacy's shape, instants canonical, writes idempotent by the
+    // unique key (LT-2's VERIFIED guard included), single-process.
+    async ensureLotteryGame(code, name, rulesVersion) {
+      const gameCode = assertLotteryCode(code);
+      const table = tables.get("lotteries");
+      const existing = table.get(gameCode);
+      if (existing) {
+        if (String(existing.rules_version) !== String(rulesVersion)) {
+          await mutate("lotteries", "upsert", { ...existing, rules_version: String(rulesVersion), updated_at: nowIso() });
+        }
+        return lotteryGameRow(table.get(gameCode));
+      }
+      const now = nowIso();
+      const record = {
+        id: nextRowId("lotteries"),
+        code: gameCode,
+        name: String(name).slice(0, 120),
+        enabled: 1,
+        rules_version: String(rulesVersion).slice(0, 16),
+        created_at: now,
+        updated_at: now,
+      };
+      await mutate("lotteries", "upsert", { ...record, replace: false }).catch(() => {});
+      return lotteryGameRow(table.get(gameCode));
+    },
+
+    async listLotteryGames() {
+      return [...tables.get("lotteries").values()]
+        .sort((a, b) => toInt(a.id, 0) - toInt(b.id, 0))
+        .map(lotteryGameRow);
+    },
+
+    async activeLotteryRules(lotteryCode) {
+      const code = assertLotteryCode(lotteryCode);
+      const rows = [...tables.get("lotteryRules").values()]
+        .filter((row) => row.lottery_code === code && toInt(row.active, 1) === 1)
+        .sort((a, b) => toInt(a.id, 0) - toInt(b.id, 0));
+      return rows.length ? lotteryRulesRow(rows[rows.length - 1]) : null;
+    },
+
+    async saveLotteryRules(input) {
+      const i = input && typeof input === "object" ? input : {};
+      const now = nowIso();
+      const record = {
+        id: nextRowId("lotteryRules"),
+        lottery_code: assertLotteryCode(i.lotteryCode),
+        version: String(i.version ?? "").slice(0, 16),
+        main_count: toInt(i.mainCount, 0),
+        main_min: toInt(i.mainMin, 0),
+        main_max: toInt(i.mainMax, 0),
+        star_count: toInt(i.starCount, 0),
+        star_min: toInt(i.starMin, 0),
+        star_max: toInt(i.starMax, 0),
+        schedule: String(i.schedule ?? ""),
+        active: i.active ? 1 : 0,
+        created_at: now,
+      };
+      await mutate("lotteryRules", "upsert", record);
+      return record.id;
+    },
+
+    async ensureLotteryProvider(code, name) {
+      const providerCode = String(code ?? "").trim().slice(0, 64);
+      if (!providerCode) throw new TypeError("provider_code must be 1-64 characters");
+      const table = tables.get("lotteryProviders");
+      const existing = table.get(providerCode);
+      if (existing) return lotteryProviderRow(existing);
+      const now = nowIso();
+      const record = {
+        id: nextRowId("lotteryProviders"),
+        provider_code: providerCode,
+        display_name: String(name ?? "").trim().slice(0, 120),
+        enabled: 0,
+        synthetic: providerCode.includes("sandbox") ? 1 : 0,
+        created_at: now,
+        updated_at: now,
+      };
+      try {
+        await mutate("lotteryProviders", "upsert", { ...record, replace: false });
+      } catch (error) {
+        if (!/already exists/i.test(String(error?.message || error))) throw error;
+      }
+      return lotteryProviderRow(table.get(providerCode) ?? null);
+    },
+
+    async listLotteryProviders(enabledOnly = false) {
+      return [...tables.get("lotteryProviders").values()]
+        .filter((row) => !enabledOnly || toInt(row.enabled, 0) === 1)
+        .sort((a, b) => toInt(a.id, 0) - toInt(b.id, 0))
+        .map(lotteryProviderRow);
+    },
+
+    async saveLotteryHealth(providerId, health) {
+      const h = health && typeof health === "object" ? health : {};
+      const record = {
+        id: nextRowId("lotteryHealth"),
+        provider_id: assertRowId(providerId, "provider_id"),
+        status: String(h.status ?? "").trim().slice(0, 32) || "UNKNOWN",
+        response_ms: h.responseMs === null || h.responseMs === undefined ? null : toInt(h.responseMs, 0),
+        records_received: toInt(h.recordsReceived, 0),
+        invalid_records: toInt(h.invalidRecords, 0),
+        error_rate: h.errorRate === null || h.errorRate === undefined ? null : Number(h.errorRate),
+        last_success_at: h.lastSuccessAt ?? null,
+        last_failure_at: h.lastFailureAt ?? null,
+        last_draw_retrieved: h.lastDrawRetrieved === null || h.lastDrawRetrieved === undefined ? null : assertDrawDate(h.lastDrawRetrieved),
+        data_freshness_seconds: h.dataFreshnessSeconds === null || h.dataFreshnessSeconds === undefined ? null : toInt(h.dataFreshnessSeconds, 0),
+        synthetic: h.synthetic ? 1 : 0,
+        // Stamped here, as the SQL adapter does: this is when THIS PLATFORM saw the report.
+        observed_at: nowIso(),
+      };
+      await mutate("lotteryHealth", "upsert", record);
+    },
+
+    async latestLotteryHealth(providerId) {
+      const id = assertRowId(providerId, "provider_id");
+      const rows = [...tables.get("lotteryHealth").values()]
+        .filter((row) => toInt(row.provider_id) === id)
+        .sort((a, b) => String(b.observed_at).localeCompare(String(a.observed_at)) || toInt(b.id, 0) - toInt(a.id, 0));
+      return rows.length ? lotteryHealthRow(rows[0]) : null;
+    },
+
+    async listLotteryHealth(providerId, limit = 20) {
+      const id = assertRowId(providerId, "provider_id");
+      const bounded = Math.min(200, Math.max(1, toInt(limit, 20)));
+      return [...tables.get("lotteryHealth").values()]
+        .filter((row) => toInt(row.provider_id) === id)
+        .sort((a, b) => String(b.observed_at).localeCompare(String(a.observed_at)) || toInt(b.id, 0) - toInt(a.id, 0))
+        .slice(0, bounded)
+        .map(lotteryHealthRow);
+    },
+
+    async findLotteryDraw(id) {
+      const drawId = assertRowId(id, "draw id");
+      const row = [...tables.get("lotteryDraws").values()].find((entry) => toInt(entry.id) === drawId);
+      return lotteryDrawRow(row ?? null);
+    },
+
+    async findLotteryDrawByExternal(lotteryCode, externalId) {
+      const key = `${assertLotteryCode(lotteryCode)}:${String(externalId ?? "").slice(0, 64)}`;
+      const row = tables.get("lotteryDraws").get(key);
+      return lotteryDrawRow(row ?? null);
+    },
+
+    async listLotteryDraws(filter = {}, limit = 100, order = "DESC") {
+      const f = filter && typeof filter === "object" ? filter : {};
+      const bounded = Math.min(100_000, Math.max(1, toInt(limit, 100)));
+      const lotteryCode = f.lotteryCode ? assertLotteryCode(f.lotteryCode) : null;
+      const from = f.from ? assertDrawDate(f.from) : null;
+      const to = f.to ? assertDrawDate(f.to) : null;
+      const verificationStatus = f.verificationStatus ? String(f.verificationStatus).slice(0, 32) : null;
+      return [...tables.get("lotteryDraws").values()]
+        .filter((row) => (lotteryCode === null ? true : row.lottery_code === lotteryCode))
+        .filter((row) => (from === null ? true : String(row.draw_date) >= from))
+        .filter((row) => (to === null ? true : String(row.draw_date) <= to))
+        .filter((row) => (verificationStatus === null ? true : String(row.verification_status) === verificationStatus))
+        .sort((a, b) => (order === "ASC"
+          ? String(a.draw_date).localeCompare(String(b.draw_date)) || toInt(a.id, 0) - toInt(b.id, 0)
+          : String(b.draw_date).localeCompare(String(a.draw_date)) || toInt(b.id, 0) - toInt(a.id, 0)))
+        .slice(0, bounded)
+        .map(lotteryDrawRow);
+    },
+
+    async saveLotteryDraw(input) {
+      const i = input && typeof input === "object" ? input : {};
+      const table = tables.get("lotteryDraws");
+      const key = `${assertLotteryCode(i.lotteryCode)}:${String(i.externalId ?? "").slice(0, 64)}`;
+      const existing = table.get(key);
+      const now = nowIso();
+      if (existing) {
+        // LT-2: an attested draw is not silently rewritten with different numbers.
+        const stored = lotteryDrawRow(existing);
+        const incoming = i.payload && typeof i.payload === "object" ? i.payload : {};
+        const same = JSON.stringify(stored.payload?.main ?? null) === JSON.stringify(incoming.main)
+          && JSON.stringify(stored.payload?.stars ?? null) === JSON.stringify(incoming.stars);
+        if (String(existing.verification_status) === "VERIFIED" && String(i.verificationStatus) === "VERIFIED" && !same) {
+          return { row: stored, created: false, conflict: true };
+        }
+        await mutate("lotteryDraws", "upsert", {
+          ...existing,
+          jackpot: i.jackpot ?? null,
+          rollover: i.rollover ? 1 : 0,
+          source: String(i.source ?? existing.source),
+          source_timestamp: String(i.sourceTimestamp ?? existing.source_timestamp),
+          retrieved_at: String(i.retrievedAt ?? existing.retrieved_at),
+          verification_status: String(i.verificationStatus ?? existing.verification_status),
+          payload: JSON.stringify(incoming ?? {}),
+          updated_at: now,
+        });
+        return { row: lotteryDrawRow(table.get(key)), created: false, conflict: false };
+      }
+      const record = {
+        id: nextRowId("lotteryDraws"),
+        lottery_code: assertLotteryCode(i.lotteryCode),
+        provider_id: i.providerId === null || i.providerId === undefined ? null : toInt(i.providerId, 0),
+        external_id: String(i.externalId ?? "").slice(0, 64),
+        draw_date: assertDrawDate(i.drawDate),
+        jackpot: i.jackpot === null || i.jackpot === undefined || i.jackpot === "" ? null : String(i.jackpot).slice(0, 32),
+        rollover: i.rollover ? 1 : 0,
+        source: String(i.source ?? "").slice(0, 120),
+        source_timestamp: String(i.sourceTimestamp ?? "").slice(0, 40),
+        retrieved_at: String(i.retrievedAt ?? now),
+        verification_status: LOTTERY_VERIFICATION_STATUSES.includes(String(i.verificationStatus)) ? String(i.verificationStatus) : "UNVERIFIED",
+        payload: JSON.stringify(i.payload && typeof i.payload === "object" ? i.payload : {}),
+        created_at: now,
+        updated_at: now,
+      };
+      try {
+        // Keyed by (lottery, external id): `replace: false` is the idempotency arbiter.
+        await mutate("lotteryDraws", "upsert", { ...record, replace: false });
+      } catch (error) {
+        if (!/already exists/i.test(String(error?.message || error))) throw error;
+      }
+      return { row: lotteryDrawRow(table.get(key)), created: true, conflict: false };
+    },
+
+    async listLotteryDrawNumbers(drawId) {
+      const id = assertRowId(drawId, "draw_id");
+      return [...tables.get("lotteryDrawNumbers").values()]
+        .filter((row) => toInt(row.draw_id) === id)
+        .sort((a, b) => String(a.kind).localeCompare(String(b.kind)) || toInt(a.position, 0) - toInt(b.position, 0))
+        .map(lotteryDrawNumberRow);
+    },
+
+    /** Replace a draw's numbers wholesale — legacy deletes then inserts, and so does this. */
+    async saveLotteryDrawNumbers(drawId, numbers) {
+      const id = assertRowId(drawId, "draw_id");
+      const table = tables.get("lotteryDrawNumbers");
+      const doomed = [...table.values()].filter((row) => toInt(row.draw_id) === id);
+      for (const row of doomed) {
+        await mutate("lotteryDrawNumbers", "delete", { id: row.id });
+      }
+      for (const [field, kind] of [["main", "MAIN"], ["stars", "STAR"]]) {
+        const list = Array.isArray(numbers?.[field]) ? numbers[field] : [];
+        for (let index = 0; index < list.length; index += 1) {
+          const value = Number(list[index]);
+          if (!Number.isInteger(value)) throw new TypeError(`draw numbers must be integers, received ${JSON.stringify(String(list[index]).slice(0, 20))}`);
+          await mutate("lotteryDrawNumbers", "upsert", {
+            id: nextRowId("lotteryDrawNumbers"),
+            draw_id: id,
+            kind,
+            position: index,
+            number: value,
+          });
+        }
+      }
+    },
+
+    async lotteryDrawsForStats(lotteryCode, limit = 10_000) {
+      const rows = await this.listLotteryDraws({ lotteryCode }, limit, "ASC");
+      const out = [];
+      for (const row of rows) {
+        const payload = row.payload && typeof row.payload === "object" ? row.payload : {};
+        if (!Array.isArray(payload.main) || !Array.isArray(payload.stars)) continue;
+        out.push({
+          drawDate: String(row.draw_date),
+          main: payload.main.map((value) => Math.trunc(Number(value))),
+          stars: payload.stars.map((value) => Math.trunc(Number(value))),
+        });
+      }
+      return out;
+    },
+
+    async countLotteryDraws(lotteryCode) {
+      return [...tables.get("lotteryDraws").values()].filter((row) => row.lottery_code === assertLotteryCode(lotteryCode)).length;
+    },
+
+    async startLotteryJobRun(run) {
+      const r = run && typeof run === "object" ? run : {};
+      const id = String(r.id ?? "").trim().slice(0, 64);
+      const executionKey = String(r.executionKey ?? "").trim().slice(0, 128);
+      if (!id) throw new TypeError("id must be a non-empty string");
+      if (!executionKey) throw new TypeError("execution_key must be a non-empty string");
+      const table = tables.get("lotterySyncRuns");
+      if (table.get(executionKey)) return null;
+      const record = {
+        id,
+        provider_id: r.providerId === null || r.providerId === undefined ? null : toInt(r.providerId, 0),
+        job_type: String(r.jobType ?? "").trim().slice(0, 40),
+        status: "RUNNING",
+        started_at: nowIso(),
+        ended_at: null,
+        records_processed: 0,
+        records_created: 0,
+        records_updated: 0,
+        errors: null,
+        payload: r.payload === null || r.payload === undefined ? null : JSON.stringify(r.payload),
+        execution_key: executionKey,
+      };
+      try {
+        await mutate("lotterySyncRuns", "upsert", { ...record, replace: false });
+      } catch (error) {
+        if (!/already exists/i.test(String(error?.message || error))) throw error;
+        return null;
+      }
+      return lotterySyncRunRow(record);
+    },
+
+    async finishLotteryJobRun(id, result) {
+      const runId = String(id ?? "").trim().slice(0, 64);
+      const r = result && typeof result === "object" ? result : {};
+      const table = tables.get("lotterySyncRuns");
+      const existing = [...table.values()].find((row) => String(row.id) === runId);
+      if (!existing) return;
+      await mutate("lotterySyncRuns", "upsert", {
+        ...existing,
+        status: String(r.status ?? "").trim().slice(0, 32) || existing.status,
+        ended_at: nowIso(),
+        records_processed: toInt(r.processed, 0),
+        records_created: toInt(r.created, 0),
+        records_updated: toInt(r.updated, 0),
+        errors: JSON.stringify(Array.isArray(r.errors) ? r.errors : []),
+      });
+    },
+
+    async listLotteryJobRuns(jobType = null, limit = 50) {
+      const bounded = Math.min(500, Math.max(1, toInt(limit, 50)));
+      return [...tables.get("lotterySyncRuns").values()]
+        .filter((row) => (jobType === null || jobType === undefined ? true : String(row.job_type) === String(jobType)))
+        .sort((a, b) => String(b.started_at).localeCompare(String(a.started_at)) || String(b.id).localeCompare(String(a.id)))
+        .slice(0, bounded)
+        .map(lotterySyncRunRow);
+    },
+
+    async findLotteryJobRunByKey(key) {
+      const row = tables.get("lotterySyncRuns").get(String(key ?? "").trim().slice(0, 128));
+      return lotterySyncRunRow(row ?? null);
+    },
+
+    async deleteOldLotteryJobRuns(cutoff) {
+      const boundary = assertIsoCutoff(cutoff);
+      const doomed = [...tables.get("lotterySyncRuns").values()].filter((row) => String(row.started_at) < boundary);
+      for (const row of doomed) {
+        await mutate("lotterySyncRuns", "delete", { id: row.id });
+      }
+      return doomed.length;
+    },
+
+    async deleteOldLotteryHealth(cutoff) {
+      const boundary = assertIsoCutoff(cutoff);
+      const doomed = [...tables.get("lotteryHealth").values()].filter((row) => String(row.observed_at) < boundary);
+      for (const row of doomed) {
+        await mutate("lotteryHealth", "delete", { id: row.id });
+      }
+      return doomed.length;
     },
 
     /**

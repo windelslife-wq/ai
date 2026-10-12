@@ -1,0 +1,3703 @@
+{
+  "generator": "runtime/parity/lottery-golden.php",
+  "php": {
+    "version": "8.2 (normalized)",
+    "sapi": "wasm"
+  },
+  "cases": {
+    "rules": {
+      "a valid line": {
+        "valid": true,
+        "errors": []
+      },
+      "unordered mains are the callers problem": {
+        "valid": true,
+        "errors": []
+      },
+      "a duplicate main": {
+        "valid": false,
+        "errors": [
+          "duplicate main numbers"
+        ]
+      },
+      "a duplicate star": {
+        "valid": false,
+        "errors": [
+          "duplicate Lucky Star numbers"
+        ]
+      },
+      "four mains": {
+        "valid": false,
+        "errors": [
+          "line must contain 5 main numbers (got 4)"
+        ]
+      },
+      "six mains": {
+        "valid": false,
+        "errors": [
+          "line must contain 5 main numbers (got 6)"
+        ]
+      },
+      "one star": {
+        "valid": false,
+        "errors": [
+          "line must contain 2 Lucky Star numbers (got 1)"
+        ]
+      },
+      "main above the range": {
+        "valid": false,
+        "errors": [
+          "main number out of range 1-50: 51"
+        ]
+      },
+      "main below the range": {
+        "valid": false,
+        "errors": [
+          "main number out of range 1-50: 0"
+        ]
+      },
+      "star above the range": {
+        "valid": false,
+        "errors": [
+          "Lucky Star number out of range 1-12: 13"
+        ]
+      },
+      "a string main is a scalar and is named": {
+        "valid": false,
+        "errors": [
+          "main number out of range 1-50: 12"
+        ]
+      },
+      "a float main is not is_int": {
+        "valid": false,
+        "errors": [
+          "main number out of range 1-50: 12.5"
+        ]
+      },
+      "a null main is invalid, not a string": {
+        "valid": false,
+        "errors": [
+          "main number out of range 1-50: invalid"
+        ]
+      },
+      "an array where a number belongs": {
+        "valid": false,
+        "errors": [
+          "main number out of range 1-50: invalid"
+        ]
+      },
+      "stored rules rebuild the format": {
+        "version": "1.1",
+        "mainCount": 6,
+        "starCount": 3,
+        "schedule": {
+          "days": [
+            3,
+            6
+          ],
+          "time": "20:00",
+          "timezone": "UTC"
+        },
+        "validSixThree": {
+          "valid": true,
+          "errors": []
+        }
+      },
+      "an unparseable stored schedule falls back to the default": {
+        "schedule": {
+          "days": [
+            2,
+            5
+          ],
+          "time": "21:00",
+          "timezone": "UTC"
+        }
+      },
+      "a stored schedule without days falls back to the default": {
+        "schedule": {
+          "days": [
+            2,
+            5
+          ],
+          "time": "21:00",
+          "timezone": "UTC"
+        }
+      }
+    },
+    "validator": {
+      "a valid draw": {
+        "valid": true,
+        "status": "VALID",
+        "errors": []
+      },
+      "a missing external id": {
+        "valid": false,
+        "status": "DATA_VALIDATION_FAILED",
+        "errors": [
+          "missing draw ID (externalId)"
+        ]
+      },
+      "an empty external id": {
+        "valid": false,
+        "status": "DATA_VALIDATION_FAILED",
+        "errors": [
+          "missing draw ID (externalId)"
+        ]
+      },
+      "a missing draw date": {
+        "valid": false,
+        "status": "DATA_VALIDATION_FAILED",
+        "errors": [
+          "invalid draw date: (missing)"
+        ]
+      },
+      "an impossible calendar day": {
+        "valid": false,
+        "status": "DATA_VALIDATION_FAILED",
+        "errors": [
+          "invalid draw date: 2026-02-30"
+        ]
+      },
+      "a non-leap february 29": {
+        "valid": false,
+        "status": "DATA_VALIDATION_FAILED",
+        "errors": [
+          "invalid draw date: 2027-02-29"
+        ]
+      },
+      "a leap february 29 is real": {
+        "valid": true,
+        "status": "VALID",
+        "errors": []
+      },
+      "a malformed draw date": {
+        "valid": false,
+        "status": "DATA_VALIDATION_FAILED",
+        "errors": [
+          "invalid draw date: 09/10/2026"
+        ]
+      },
+      "a missing source": {
+        "valid": false,
+        "status": "DATA_VALIDATION_FAILED",
+        "errors": [
+          "missing source attribution — no draw may be stored without a source"
+        ]
+      },
+      "an empty source": {
+        "valid": false,
+        "status": "DATA_VALIDATION_FAILED",
+        "errors": [
+          "missing source attribution — no draw may be stored without a source"
+        ]
+      },
+      "a missing source timestamp": {
+        "valid": false,
+        "status": "DATA_VALIDATION_FAILED",
+        "errors": [
+          "missing source timestamp"
+        ]
+      },
+      "numeric-string numbers are coerced": {
+        "valid": true,
+        "status": "VALID",
+        "errors": []
+      },
+      "a non-numeric entry becomes -1 and reports the range": {
+        "valid": false,
+        "status": "DATA_VALIDATION_FAILED",
+        "errors": [
+          "main number out of range 1-50: -1"
+        ]
+      },
+      "a float number is truncated then judged": {
+        "valid": true,
+        "status": "VALID",
+        "errors": []
+      },
+      "a non-array main is an empty list": {
+        "valid": false,
+        "status": "DATA_VALIDATION_FAILED",
+        "errors": [
+          "line must contain 5 main numbers (got 0)"
+        ]
+      },
+      "a null main is an empty list": {
+        "valid": false,
+        "status": "DATA_VALIDATION_FAILED",
+        "errors": [
+          "line must contain 5 main numbers (got 0)"
+        ]
+      },
+      "a wrong count via coercion": {
+        "valid": false,
+        "status": "DATA_VALIDATION_FAILED",
+        "errors": [
+          "line must contain 2 Lucky Star numbers (got 3)",
+          "Lucky Star number out of range 1-12: 99"
+        ]
+      }
+    },
+    "statistics": {
+      "numbers": {
+        "field": "main",
+        "disclaimer": "Lottery draws are independent random events. Historical frequency, gaps and patterns are statistical observations only — they do not change the probability of future draws and are not forecasts of future results.",
+        "totalDraws": 7,
+        "window": 4,
+        "numbers": {
+          "1": {
+            "number": 1,
+            "appearances": 3,
+            "appearancePct": 42.86,
+            "lastAppearance": "2026-10-06",
+            "drawsSinceLast": 2,
+            "currentGap": 2,
+            "avgGap": 2,
+            "minGap": 2,
+            "maxGap": 2,
+            "recentAppearances": 1,
+            "recentPct": 25,
+            "trend": -17.86
+          },
+          "2": {
+            "number": 2,
+            "appearances": 2,
+            "appearancePct": 28.57,
+            "lastAppearance": "2026-10-09",
+            "drawsSinceLast": 1,
+            "currentGap": 1,
+            "avgGap": 5,
+            "minGap": 5,
+            "maxGap": 5,
+            "recentAppearances": 1,
+            "recentPct": 25,
+            "trend": -3.57
+          },
+          "3": {
+            "number": 3,
+            "appearances": 2,
+            "appearancePct": 28.57,
+            "lastAppearance": "2026-10-09",
+            "drawsSinceLast": 1,
+            "currentGap": 1,
+            "avgGap": 5,
+            "minGap": 5,
+            "maxGap": 5,
+            "recentAppearances": 1,
+            "recentPct": 25,
+            "trend": -3.57
+          },
+          "4": {
+            "number": 4,
+            "appearances": 1,
+            "appearancePct": 14.29,
+            "lastAppearance": "2026-09-22",
+            "drawsSinceLast": 6,
+            "currentGap": 6,
+            "avgGap": null,
+            "minGap": null,
+            "maxGap": null,
+            "recentAppearances": 0,
+            "recentPct": 0,
+            "trend": -14.29
+          },
+          "5": {
+            "number": 5,
+            "appearances": 4,
+            "appearancePct": 57.14,
+            "lastAppearance": "2026-10-06",
+            "drawsSinceLast": 2,
+            "currentGap": 2,
+            "avgGap": 1.33,
+            "minGap": 1,
+            "maxGap": 2,
+            "recentAppearances": 1,
+            "recentPct": 25,
+            "trend": -32.14
+          },
+          "6": {
+            "number": 6,
+            "appearances": 0,
+            "appearancePct": 0,
+            "lastAppearance": null,
+            "drawsSinceLast": null,
+            "currentGap": null,
+            "avgGap": null,
+            "minGap": null,
+            "maxGap": null,
+            "recentAppearances": 0,
+            "recentPct": 0,
+            "trend": 0
+          },
+          "7": {
+            "number": 7,
+            "appearances": 4,
+            "appearancePct": 57.14,
+            "lastAppearance": "2026-10-12",
+            "drawsSinceLast": 0,
+            "currentGap": 0,
+            "avgGap": 1,
+            "minGap": 1,
+            "maxGap": 1,
+            "recentAppearances": 4,
+            "recentPct": 100,
+            "trend": 42.86
+          },
+          "8": {
+            "number": 8,
+            "appearances": 0,
+            "appearancePct": 0,
+            "lastAppearance": null,
+            "drawsSinceLast": null,
+            "currentGap": null,
+            "avgGap": null,
+            "minGap": null,
+            "maxGap": null,
+            "recentAppearances": 0,
+            "recentPct": 0,
+            "trend": 0
+          },
+          "9": {
+            "number": 9,
+            "appearances": 0,
+            "appearancePct": 0,
+            "lastAppearance": null,
+            "drawsSinceLast": null,
+            "currentGap": null,
+            "avgGap": null,
+            "minGap": null,
+            "maxGap": null,
+            "recentAppearances": 0,
+            "recentPct": 0,
+            "trend": 0
+          },
+          "10": {
+            "number": 10,
+            "appearances": 2,
+            "appearancePct": 28.57,
+            "lastAppearance": "2026-09-29",
+            "drawsSinceLast": 4,
+            "currentGap": 4,
+            "avgGap": 1,
+            "minGap": 1,
+            "maxGap": 1,
+            "recentAppearances": 0,
+            "recentPct": 0,
+            "trend": -28.57
+          },
+          "11": {
+            "number": 11,
+            "appearances": 0,
+            "appearancePct": 0,
+            "lastAppearance": null,
+            "drawsSinceLast": null,
+            "currentGap": null,
+            "avgGap": null,
+            "minGap": null,
+            "maxGap": null,
+            "recentAppearances": 0,
+            "recentPct": 0,
+            "trend": 0
+          },
+          "12": {
+            "number": 12,
+            "appearances": 0,
+            "appearancePct": 0,
+            "lastAppearance": null,
+            "drawsSinceLast": null,
+            "currentGap": null,
+            "avgGap": null,
+            "minGap": null,
+            "maxGap": null,
+            "recentAppearances": 0,
+            "recentPct": 0,
+            "trend": 0
+          },
+          "13": {
+            "number": 13,
+            "appearances": 0,
+            "appearancePct": 0,
+            "lastAppearance": null,
+            "drawsSinceLast": null,
+            "currentGap": null,
+            "avgGap": null,
+            "minGap": null,
+            "maxGap": null,
+            "recentAppearances": 0,
+            "recentPct": 0,
+            "trend": 0
+          },
+          "14": {
+            "number": 14,
+            "appearances": 3,
+            "appearancePct": 42.86,
+            "lastAppearance": "2026-10-12",
+            "drawsSinceLast": 0,
+            "currentGap": 0,
+            "avgGap": 1.5,
+            "minGap": 1,
+            "maxGap": 2,
+            "recentAppearances": 3,
+            "recentPct": 75,
+            "trend": 32.14
+          },
+          "15": {
+            "number": 15,
+            "appearances": 1,
+            "appearancePct": 14.29,
+            "lastAppearance": "2026-09-25",
+            "drawsSinceLast": 5,
+            "currentGap": 5,
+            "avgGap": null,
+            "minGap": null,
+            "maxGap": null,
+            "recentAppearances": 0,
+            "recentPct": 0,
+            "trend": -14.29
+          },
+          "16": {
+            "number": 16,
+            "appearances": 0,
+            "appearancePct": 0,
+            "lastAppearance": null,
+            "drawsSinceLast": null,
+            "currentGap": null,
+            "avgGap": null,
+            "minGap": null,
+            "maxGap": null,
+            "recentAppearances": 0,
+            "recentPct": 0,
+            "trend": 0
+          },
+          "17": {
+            "number": 17,
+            "appearances": 0,
+            "appearancePct": 0,
+            "lastAppearance": null,
+            "drawsSinceLast": null,
+            "currentGap": null,
+            "avgGap": null,
+            "minGap": null,
+            "maxGap": null,
+            "recentAppearances": 0,
+            "recentPct": 0,
+            "trend": 0
+          },
+          "18": {
+            "number": 18,
+            "appearances": 0,
+            "appearancePct": 0,
+            "lastAppearance": null,
+            "drawsSinceLast": null,
+            "currentGap": null,
+            "avgGap": null,
+            "minGap": null,
+            "maxGap": null,
+            "recentAppearances": 0,
+            "recentPct": 0,
+            "trend": 0
+          },
+          "19": {
+            "number": 19,
+            "appearances": 0,
+            "appearancePct": 0,
+            "lastAppearance": null,
+            "drawsSinceLast": null,
+            "currentGap": null,
+            "avgGap": null,
+            "minGap": null,
+            "maxGap": null,
+            "recentAppearances": 0,
+            "recentPct": 0,
+            "trend": 0
+          },
+          "20": {
+            "number": 20,
+            "appearances": 2,
+            "appearancePct": 28.57,
+            "lastAppearance": "2026-09-29",
+            "drawsSinceLast": 4,
+            "currentGap": 4,
+            "avgGap": 1,
+            "minGap": 1,
+            "maxGap": 1,
+            "recentAppearances": 0,
+            "recentPct": 0,
+            "trend": -28.57
+          },
+          "21": {
+            "number": 21,
+            "appearances": 3,
+            "appearancePct": 42.86,
+            "lastAppearance": "2026-10-12",
+            "drawsSinceLast": 0,
+            "currentGap": 0,
+            "avgGap": 1.5,
+            "minGap": 1,
+            "maxGap": 2,
+            "recentAppearances": 3,
+            "recentPct": 75,
+            "trend": 32.14
+          },
+          "22": {
+            "number": 22,
+            "appearances": 0,
+            "appearancePct": 0,
+            "lastAppearance": null,
+            "drawsSinceLast": null,
+            "currentGap": null,
+            "avgGap": null,
+            "minGap": null,
+            "maxGap": null,
+            "recentAppearances": 0,
+            "recentPct": 0,
+            "trend": 0
+          },
+          "23": {
+            "number": 23,
+            "appearances": 0,
+            "appearancePct": 0,
+            "lastAppearance": null,
+            "drawsSinceLast": null,
+            "currentGap": null,
+            "avgGap": null,
+            "minGap": null,
+            "maxGap": null,
+            "recentAppearances": 0,
+            "recentPct": 0,
+            "trend": 0
+          },
+          "24": {
+            "number": 24,
+            "appearances": 0,
+            "appearancePct": 0,
+            "lastAppearance": null,
+            "drawsSinceLast": null,
+            "currentGap": null,
+            "avgGap": null,
+            "minGap": null,
+            "maxGap": null,
+            "recentAppearances": 0,
+            "recentPct": 0,
+            "trend": 0
+          },
+          "25": {
+            "number": 25,
+            "appearances": 2,
+            "appearancePct": 28.57,
+            "lastAppearance": "2026-09-29",
+            "drawsSinceLast": 4,
+            "currentGap": 4,
+            "avgGap": 1,
+            "minGap": 1,
+            "maxGap": 1,
+            "recentAppearances": 0,
+            "recentPct": 0,
+            "trend": -28.57
+          },
+          "26": {
+            "number": 26,
+            "appearances": 0,
+            "appearancePct": 0,
+            "lastAppearance": null,
+            "drawsSinceLast": null,
+            "currentGap": null,
+            "avgGap": null,
+            "minGap": null,
+            "maxGap": null,
+            "recentAppearances": 0,
+            "recentPct": 0,
+            "trend": 0
+          },
+          "27": {
+            "number": 27,
+            "appearances": 0,
+            "appearancePct": 0,
+            "lastAppearance": null,
+            "drawsSinceLast": null,
+            "currentGap": null,
+            "avgGap": null,
+            "minGap": null,
+            "maxGap": null,
+            "recentAppearances": 0,
+            "recentPct": 0,
+            "trend": 0
+          },
+          "28": {
+            "number": 28,
+            "appearances": 3,
+            "appearancePct": 42.86,
+            "lastAppearance": "2026-10-12",
+            "drawsSinceLast": 0,
+            "currentGap": 0,
+            "avgGap": 1.5,
+            "minGap": 1,
+            "maxGap": 2,
+            "recentAppearances": 3,
+            "recentPct": 75,
+            "trend": 32.14
+          },
+          "29": {
+            "number": 29,
+            "appearances": 0,
+            "appearancePct": 0,
+            "lastAppearance": null,
+            "drawsSinceLast": null,
+            "currentGap": null,
+            "avgGap": null,
+            "minGap": null,
+            "maxGap": null,
+            "recentAppearances": 0,
+            "recentPct": 0,
+            "trend": 0
+          },
+          "30": {
+            "number": 30,
+            "appearances": 0,
+            "appearancePct": 0,
+            "lastAppearance": null,
+            "drawsSinceLast": null,
+            "currentGap": null,
+            "avgGap": null,
+            "minGap": null,
+            "maxGap": null,
+            "recentAppearances": 0,
+            "recentPct": 0,
+            "trend": 0
+          },
+          "31": {
+            "number": 31,
+            "appearances": 0,
+            "appearancePct": 0,
+            "lastAppearance": null,
+            "drawsSinceLast": null,
+            "currentGap": null,
+            "avgGap": null,
+            "minGap": null,
+            "maxGap": null,
+            "recentAppearances": 0,
+            "recentPct": 0,
+            "trend": 0
+          },
+          "32": {
+            "number": 32,
+            "appearances": 0,
+            "appearancePct": 0,
+            "lastAppearance": null,
+            "drawsSinceLast": null,
+            "currentGap": null,
+            "avgGap": null,
+            "minGap": null,
+            "maxGap": null,
+            "recentAppearances": 0,
+            "recentPct": 0,
+            "trend": 0
+          },
+          "33": {
+            "number": 33,
+            "appearances": 0,
+            "appearancePct": 0,
+            "lastAppearance": null,
+            "drawsSinceLast": null,
+            "currentGap": null,
+            "avgGap": null,
+            "minGap": null,
+            "maxGap": null,
+            "recentAppearances": 0,
+            "recentPct": 0,
+            "trend": 0
+          },
+          "34": {
+            "number": 34,
+            "appearances": 0,
+            "appearancePct": 0,
+            "lastAppearance": null,
+            "drawsSinceLast": null,
+            "currentGap": null,
+            "avgGap": null,
+            "minGap": null,
+            "maxGap": null,
+            "recentAppearances": 0,
+            "recentPct": 0,
+            "trend": 0
+          },
+          "35": {
+            "number": 35,
+            "appearances": 3,
+            "appearancePct": 42.86,
+            "lastAppearance": "2026-10-12",
+            "drawsSinceLast": 0,
+            "currentGap": 0,
+            "avgGap": 1.5,
+            "minGap": 1,
+            "maxGap": 2,
+            "recentAppearances": 3,
+            "recentPct": 75,
+            "trend": 32.14
+          },
+          "36": {
+            "number": 36,
+            "appearances": 0,
+            "appearancePct": 0,
+            "lastAppearance": null,
+            "drawsSinceLast": null,
+            "currentGap": null,
+            "avgGap": null,
+            "minGap": null,
+            "maxGap": null,
+            "recentAppearances": 0,
+            "recentPct": 0,
+            "trend": 0
+          },
+          "37": {
+            "number": 37,
+            "appearances": 0,
+            "appearancePct": 0,
+            "lastAppearance": null,
+            "drawsSinceLast": null,
+            "currentGap": null,
+            "avgGap": null,
+            "minGap": null,
+            "maxGap": null,
+            "recentAppearances": 0,
+            "recentPct": 0,
+            "trend": 0
+          },
+          "38": {
+            "number": 38,
+            "appearances": 0,
+            "appearancePct": 0,
+            "lastAppearance": null,
+            "drawsSinceLast": null,
+            "currentGap": null,
+            "avgGap": null,
+            "minGap": null,
+            "maxGap": null,
+            "recentAppearances": 0,
+            "recentPct": 0,
+            "trend": 0
+          },
+          "39": {
+            "number": 39,
+            "appearances": 0,
+            "appearancePct": 0,
+            "lastAppearance": null,
+            "drawsSinceLast": null,
+            "currentGap": null,
+            "avgGap": null,
+            "minGap": null,
+            "maxGap": null,
+            "recentAppearances": 0,
+            "recentPct": 0,
+            "trend": 0
+          },
+          "40": {
+            "number": 40,
+            "appearances": 0,
+            "appearancePct": 0,
+            "lastAppearance": null,
+            "drawsSinceLast": null,
+            "currentGap": null,
+            "avgGap": null,
+            "minGap": null,
+            "maxGap": null,
+            "recentAppearances": 0,
+            "recentPct": 0,
+            "trend": 0
+          },
+          "41": {
+            "number": 41,
+            "appearances": 0,
+            "appearancePct": 0,
+            "lastAppearance": null,
+            "drawsSinceLast": null,
+            "currentGap": null,
+            "avgGap": null,
+            "minGap": null,
+            "maxGap": null,
+            "recentAppearances": 0,
+            "recentPct": 0,
+            "trend": 0
+          },
+          "42": {
+            "number": 42,
+            "appearances": 0,
+            "appearancePct": 0,
+            "lastAppearance": null,
+            "drawsSinceLast": null,
+            "currentGap": null,
+            "avgGap": null,
+            "minGap": null,
+            "maxGap": null,
+            "recentAppearances": 0,
+            "recentPct": 0,
+            "trend": 0
+          },
+          "43": {
+            "number": 43,
+            "appearances": 0,
+            "appearancePct": 0,
+            "lastAppearance": null,
+            "drawsSinceLast": null,
+            "currentGap": null,
+            "avgGap": null,
+            "minGap": null,
+            "maxGap": null,
+            "recentAppearances": 0,
+            "recentPct": 0,
+            "trend": 0
+          },
+          "44": {
+            "number": 44,
+            "appearances": 0,
+            "appearancePct": 0,
+            "lastAppearance": null,
+            "drawsSinceLast": null,
+            "currentGap": null,
+            "avgGap": null,
+            "minGap": null,
+            "maxGap": null,
+            "recentAppearances": 0,
+            "recentPct": 0,
+            "trend": 0
+          },
+          "45": {
+            "number": 45,
+            "appearances": 0,
+            "appearancePct": 0,
+            "lastAppearance": null,
+            "drawsSinceLast": null,
+            "currentGap": null,
+            "avgGap": null,
+            "minGap": null,
+            "maxGap": null,
+            "recentAppearances": 0,
+            "recentPct": 0,
+            "trend": 0
+          },
+          "46": {
+            "number": 46,
+            "appearances": 0,
+            "appearancePct": 0,
+            "lastAppearance": null,
+            "drawsSinceLast": null,
+            "currentGap": null,
+            "avgGap": null,
+            "minGap": null,
+            "maxGap": null,
+            "recentAppearances": 0,
+            "recentPct": 0,
+            "trend": 0
+          },
+          "47": {
+            "number": 47,
+            "appearances": 0,
+            "appearancePct": 0,
+            "lastAppearance": null,
+            "drawsSinceLast": null,
+            "currentGap": null,
+            "avgGap": null,
+            "minGap": null,
+            "maxGap": null,
+            "recentAppearances": 0,
+            "recentPct": 0,
+            "trend": 0
+          },
+          "48": {
+            "number": 48,
+            "appearances": 0,
+            "appearancePct": 0,
+            "lastAppearance": null,
+            "drawsSinceLast": null,
+            "currentGap": null,
+            "avgGap": null,
+            "minGap": null,
+            "maxGap": null,
+            "recentAppearances": 0,
+            "recentPct": 0,
+            "trend": 0
+          },
+          "49": {
+            "number": 49,
+            "appearances": 0,
+            "appearancePct": 0,
+            "lastAppearance": null,
+            "drawsSinceLast": null,
+            "currentGap": null,
+            "avgGap": null,
+            "minGap": null,
+            "maxGap": null,
+            "recentAppearances": 0,
+            "recentPct": 0,
+            "trend": 0
+          },
+          "50": {
+            "number": 50,
+            "appearances": 0,
+            "appearancePct": 0,
+            "lastAppearance": null,
+            "drawsSinceLast": null,
+            "currentGap": null,
+            "avgGap": null,
+            "minGap": null,
+            "maxGap": null,
+            "recentAppearances": 0,
+            "recentPct": 0,
+            "trend": 0
+          }
+        }
+      },
+      "stars": {
+        "field": "stars",
+        "disclaimer": "Lottery draws are independent random events. Historical frequency, gaps and patterns are statistical observations only — they do not change the probability of future draws and are not forecasts of future results.",
+        "totalDraws": 7,
+        "window": 7,
+        "numbers": {
+          "1": {
+            "number": 1,
+            "appearances": 3,
+            "appearancePct": 42.86,
+            "lastAppearance": "2026-10-06",
+            "drawsSinceLast": 2,
+            "currentGap": 2,
+            "avgGap": 2,
+            "minGap": 2,
+            "maxGap": 2,
+            "recentAppearances": 0,
+            "recentPct": 0,
+            "trend": 0
+          },
+          "2": {
+            "number": 2,
+            "appearances": 3,
+            "appearancePct": 42.86,
+            "lastAppearance": "2026-10-09",
+            "drawsSinceLast": 1,
+            "currentGap": 1,
+            "avgGap": 2.5,
+            "minGap": 1,
+            "maxGap": 4,
+            "recentAppearances": 0,
+            "recentPct": 0,
+            "trend": 0
+          },
+          "3": {
+            "number": 3,
+            "appearances": 2,
+            "appearancePct": 28.57,
+            "lastAppearance": "2026-09-29",
+            "drawsSinceLast": 4,
+            "currentGap": 4,
+            "avgGap": 1,
+            "minGap": 1,
+            "maxGap": 1,
+            "recentAppearances": 0,
+            "recentPct": 0,
+            "trend": 0
+          },
+          "4": {
+            "number": 4,
+            "appearances": 3,
+            "appearancePct": 42.86,
+            "lastAppearance": "2026-10-12",
+            "drawsSinceLast": 0,
+            "currentGap": 0,
+            "avgGap": 1.5,
+            "minGap": 1,
+            "maxGap": 2,
+            "recentAppearances": 0,
+            "recentPct": 0,
+            "trend": 0
+          },
+          "5": {
+            "number": 5,
+            "appearances": 3,
+            "appearancePct": 42.86,
+            "lastAppearance": "2026-10-12",
+            "drawsSinceLast": 0,
+            "currentGap": 0,
+            "avgGap": 1.5,
+            "minGap": 1,
+            "maxGap": 2,
+            "recentAppearances": 0,
+            "recentPct": 0,
+            "trend": 0
+          },
+          "6": {
+            "number": 6,
+            "appearances": 0,
+            "appearancePct": 0,
+            "lastAppearance": null,
+            "drawsSinceLast": null,
+            "currentGap": null,
+            "avgGap": null,
+            "minGap": null,
+            "maxGap": null,
+            "recentAppearances": 0,
+            "recentPct": 0,
+            "trend": 0
+          },
+          "7": {
+            "number": 7,
+            "appearances": 0,
+            "appearancePct": 0,
+            "lastAppearance": null,
+            "drawsSinceLast": null,
+            "currentGap": null,
+            "avgGap": null,
+            "minGap": null,
+            "maxGap": null,
+            "recentAppearances": 0,
+            "recentPct": 0,
+            "trend": 0
+          },
+          "8": {
+            "number": 8,
+            "appearances": 0,
+            "appearancePct": 0,
+            "lastAppearance": null,
+            "drawsSinceLast": null,
+            "currentGap": null,
+            "avgGap": null,
+            "minGap": null,
+            "maxGap": null,
+            "recentAppearances": 0,
+            "recentPct": 0,
+            "trend": 0
+          },
+          "9": {
+            "number": 9,
+            "appearances": 0,
+            "appearancePct": 0,
+            "lastAppearance": null,
+            "drawsSinceLast": null,
+            "currentGap": null,
+            "avgGap": null,
+            "minGap": null,
+            "maxGap": null,
+            "recentAppearances": 0,
+            "recentPct": 0,
+            "trend": 0
+          },
+          "10": {
+            "number": 10,
+            "appearances": 0,
+            "appearancePct": 0,
+            "lastAppearance": null,
+            "drawsSinceLast": null,
+            "currentGap": null,
+            "avgGap": null,
+            "minGap": null,
+            "maxGap": null,
+            "recentAppearances": 0,
+            "recentPct": 0,
+            "trend": 0
+          },
+          "11": {
+            "number": 11,
+            "appearances": 0,
+            "appearancePct": 0,
+            "lastAppearance": null,
+            "drawsSinceLast": null,
+            "currentGap": null,
+            "avgGap": null,
+            "minGap": null,
+            "maxGap": null,
+            "recentAppearances": 0,
+            "recentPct": 0,
+            "trend": 0
+          },
+          "12": {
+            "number": 12,
+            "appearances": 0,
+            "appearancePct": 0,
+            "lastAppearance": null,
+            "drawsSinceLast": null,
+            "currentGap": null,
+            "avgGap": null,
+            "minGap": null,
+            "maxGap": null,
+            "recentAppearances": 0,
+            "recentPct": 0,
+            "trend": 0
+          }
+        }
+      },
+      "hot-cold": {
+        "field": "main",
+        "disclaimer": "Lottery draws are independent random events. Historical frequency, gaps and patterns are statistical observations only — they do not change the probability of future draws and are not forecasts of future results.",
+        "window": 3,
+        "hot": {
+          "7": 3,
+          "14": 2,
+          "21": 2
+        },
+        "cold": {
+          "4": 0,
+          "6": 0,
+          "8": 0
+        },
+        "observation": "Historical frequency within the last 3 draw(s) only. This does NOT predict future draws — every number keeps its exact probability each draw."
+      },
+      "hot-cold default window": {
+        "field": "main",
+        "disclaimer": "Lottery draws are independent random events. Historical frequency, gaps and patterns are statistical observations only — they do not change the probability of future draws and are not forecasts of future results.",
+        "window": 7,
+        "hot": {
+          "1": 3,
+          "5": 4,
+          "7": 4,
+          "14": 3,
+          "21": 3
+        },
+        "cold": {
+          "6": 0,
+          "8": 0,
+          "9": 0,
+          "11": 0,
+          "12": 0
+        },
+        "observation": "Historical frequency within the last 7 draw(s) only. This does NOT predict future draws — every number keeps its exact probability each draw."
+      },
+      "distribution": {
+        "disclaimer": "Lottery draws are independent random events. Historical frequency, gaps and patterns are statistical observations only — they do not change the probability of future draws and are not forecasts of future results.",
+        "totalDraws": 7,
+        "oddEven": {
+          "3 odd / 2 even": 6,
+          "4 odd / 1 even": 1
+        },
+        "oddEvenPct": {
+          "3 odd / 2 even": 85.71,
+          "4 odd / 1 even": 14.29
+        },
+        "lowHigh": {
+          "5 low / 0 high": 3,
+          "3 low / 2 high": 2,
+          "4 low / 1 high": 2
+        },
+        "lowHighPct": {
+          "5 low / 0 high": 42.86,
+          "3 low / 2 high": 28.57,
+          "4 low / 1 high": 28.57
+        },
+        "lowBound": 25,
+        "sum": {
+          "min": 15,
+          "max": 105,
+          "avg": 69.14,
+          "median": 62
+        },
+        "spread": {
+          "min": 4,
+          "max": 34,
+          "avg": 23.43
+        },
+        "consecutive": {
+          "drawsWithConsecutive": 2,
+          "pct": 28.57,
+          "longestRun": 5,
+          "runLengthDistribution": {
+            "2": 1,
+            "5": 1
+          }
+        }
+      },
+      "pairs": {
+        "field": "main",
+        "disclaimer": "Lottery draws are independent random events. Historical frequency, gaps and patterns are statistical observations only — they do not change the probability of future draws and are not forecasts of future results.",
+        "totalDraws": 7,
+        "k": 2,
+        "groups": {
+          "1-5": {
+            "members": [
+              1,
+              5
+            ],
+            "count": 3,
+            "lastSeen": "2026-10-06",
+            "avgGap": 2,
+            "maxGap": 2
+          },
+          "7-14": {
+            "members": [
+              7,
+              14
+            ],
+            "count": 3,
+            "lastSeen": "2026-10-12",
+            "avgGap": 1.5,
+            "maxGap": 2
+          },
+          "7-21": {
+            "members": [
+              7,
+              21
+            ],
+            "count": 3,
+            "lastSeen": "2026-10-12",
+            "avgGap": 1.5,
+            "maxGap": 2
+          },
+          "7-28": {
+            "members": [
+              7,
+              28
+            ],
+            "count": 3,
+            "lastSeen": "2026-10-12",
+            "avgGap": 1.5,
+            "maxGap": 2
+          },
+          "7-35": {
+            "members": [
+              7,
+              35
+            ],
+            "count": 3,
+            "lastSeen": "2026-10-12",
+            "avgGap": 1.5,
+            "maxGap": 2
+          },
+          "14-35": {
+            "members": [
+              14,
+              35
+            ],
+            "count": 3,
+            "lastSeen": "2026-10-12",
+            "avgGap": 1.5,
+            "maxGap": 2
+          },
+          "21-28": {
+            "members": [
+              21,
+              28
+            ],
+            "count": 3,
+            "lastSeen": "2026-10-12",
+            "avgGap": 1.5,
+            "maxGap": 2
+          },
+          "2-3": {
+            "members": [
+              2,
+              3
+            ],
+            "count": 2,
+            "lastSeen": "2026-10-09",
+            "avgGap": 5,
+            "maxGap": 5
+          },
+          "5-10": {
+            "members": [
+              5,
+              10
+            ],
+            "count": 2,
+            "lastSeen": "2026-09-29",
+            "avgGap": 1,
+            "maxGap": 1
+          },
+          "5-20": {
+            "members": [
+              5,
+              20
+            ],
+            "count": 2,
+            "lastSeen": "2026-09-29",
+            "avgGap": 1,
+            "maxGap": 1
+          },
+          "5-25": {
+            "members": [
+              5,
+              25
+            ],
+            "count": 2,
+            "lastSeen": "2026-09-29",
+            "avgGap": 1,
+            "maxGap": 1
+          },
+          "10-20": {
+            "members": [
+              10,
+              20
+            ],
+            "count": 2,
+            "lastSeen": "2026-09-29",
+            "avgGap": 1,
+            "maxGap": 1
+          },
+          "10-25": {
+            "members": [
+              10,
+              25
+            ],
+            "count": 2,
+            "lastSeen": "2026-09-29",
+            "avgGap": 1,
+            "maxGap": 1
+          },
+          "14-21": {
+            "members": [
+              14,
+              21
+            ],
+            "count": 2,
+            "lastSeen": "2026-10-12",
+            "avgGap": 3,
+            "maxGap": 3
+          },
+          "14-28": {
+            "members": [
+              14,
+              28
+            ],
+            "count": 2,
+            "lastSeen": "2026-10-12",
+            "avgGap": 3,
+            "maxGap": 3
+          },
+          "20-25": {
+            "members": [
+              20,
+              25
+            ],
+            "count": 2,
+            "lastSeen": "2026-09-29",
+            "avgGap": 1,
+            "maxGap": 1
+          },
+          "21-35": {
+            "members": [
+              21,
+              35
+            ],
+            "count": 2,
+            "lastSeen": "2026-10-12",
+            "avgGap": 3,
+            "maxGap": 3
+          },
+          "28-35": {
+            "members": [
+              28,
+              35
+            ],
+            "count": 2,
+            "lastSeen": "2026-10-12",
+            "avgGap": 3,
+            "maxGap": 3
+          },
+          "1-2": {
+            "members": [
+              1,
+              2
+            ],
+            "count": 1,
+            "lastSeen": "2026-09-22",
+            "avgGap": null,
+            "maxGap": null
+          },
+          "1-3": {
+            "members": [
+              1,
+              3
+            ],
+            "count": 1,
+            "lastSeen": "2026-09-22",
+            "avgGap": null,
+            "maxGap": null
+          },
+          "1-4": {
+            "members": [
+              1,
+              4
+            ],
+            "count": 1,
+            "lastSeen": "2026-09-22",
+            "avgGap": null,
+            "maxGap": null
+          },
+          "1-10": {
+            "members": [
+              1,
+              10
+            ],
+            "count": 1,
+            "lastSeen": "2026-09-29",
+            "avgGap": null,
+            "maxGap": null
+          },
+          "1-20": {
+            "members": [
+              1,
+              20
+            ],
+            "count": 1,
+            "lastSeen": "2026-09-29",
+            "avgGap": null,
+            "maxGap": null
+          },
+          "1-25": {
+            "members": [
+              1,
+              25
+            ],
+            "count": 1,
+            "lastSeen": "2026-09-29",
+            "avgGap": null,
+            "maxGap": null
+          },
+          "1-7": {
+            "members": [
+              1,
+              7
+            ],
+            "count": 1,
+            "lastSeen": "2026-10-06",
+            "avgGap": null,
+            "maxGap": null
+          },
+          "1-14": {
+            "members": [
+              1,
+              14
+            ],
+            "count": 1,
+            "lastSeen": "2026-10-06",
+            "avgGap": null,
+            "maxGap": null
+          },
+          "1-35": {
+            "members": [
+              1,
+              35
+            ],
+            "count": 1,
+            "lastSeen": "2026-10-06",
+            "avgGap": null,
+            "maxGap": null
+          },
+          "2-4": {
+            "members": [
+              2,
+              4
+            ],
+            "count": 1,
+            "lastSeen": "2026-09-22",
+            "avgGap": null,
+            "maxGap": null
+          },
+          "2-5": {
+            "members": [
+              2,
+              5
+            ],
+            "count": 1,
+            "lastSeen": "2026-09-22",
+            "avgGap": null,
+            "maxGap": null
+          },
+          "2-7": {
+            "members": [
+              2,
+              7
+            ],
+            "count": 1,
+            "lastSeen": "2026-10-09",
+            "avgGap": null,
+            "maxGap": null
+          },
+          "2-21": {
+            "members": [
+              2,
+              21
+            ],
+            "count": 1,
+            "lastSeen": "2026-10-09",
+            "avgGap": null,
+            "maxGap": null
+          },
+          "2-28": {
+            "members": [
+              2,
+              28
+            ],
+            "count": 1,
+            "lastSeen": "2026-10-09",
+            "avgGap": null,
+            "maxGap": null
+          },
+          "3-4": {
+            "members": [
+              3,
+              4
+            ],
+            "count": 1,
+            "lastSeen": "2026-09-22",
+            "avgGap": null,
+            "maxGap": null
+          },
+          "3-5": {
+            "members": [
+              3,
+              5
+            ],
+            "count": 1,
+            "lastSeen": "2026-09-22",
+            "avgGap": null,
+            "maxGap": null
+          },
+          "3-7": {
+            "members": [
+              3,
+              7
+            ],
+            "count": 1,
+            "lastSeen": "2026-10-09",
+            "avgGap": null,
+            "maxGap": null
+          },
+          "3-21": {
+            "members": [
+              3,
+              21
+            ],
+            "count": 1,
+            "lastSeen": "2026-10-09",
+            "avgGap": null,
+            "maxGap": null
+          },
+          "3-28": {
+            "members": [
+              3,
+              28
+            ],
+            "count": 1,
+            "lastSeen": "2026-10-09",
+            "avgGap": null,
+            "maxGap": null
+          },
+          "4-5": {
+            "members": [
+              4,
+              5
+            ],
+            "count": 1,
+            "lastSeen": "2026-09-22",
+            "avgGap": null,
+            "maxGap": null
+          },
+          "5-15": {
+            "members": [
+              5,
+              15
+            ],
+            "count": 1,
+            "lastSeen": "2026-09-25",
+            "avgGap": null,
+            "maxGap": null
+          },
+          "5-7": {
+            "members": [
+              5,
+              7
+            ],
+            "count": 1,
+            "lastSeen": "2026-10-06",
+            "avgGap": null,
+            "maxGap": null
+          },
+          "5-14": {
+            "members": [
+              5,
+              14
+            ],
+            "count": 1,
+            "lastSeen": "2026-10-06",
+            "avgGap": null,
+            "maxGap": null
+          },
+          "5-35": {
+            "members": [
+              5,
+              35
+            ],
+            "count": 1,
+            "lastSeen": "2026-10-06",
+            "avgGap": null,
+            "maxGap": null
+          },
+          "10-15": {
+            "members": [
+              10,
+              15
+            ],
+            "count": 1,
+            "lastSeen": "2026-09-25",
+            "avgGap": null,
+            "maxGap": null
+          },
+          "15-20": {
+            "members": [
+              15,
+              20
+            ],
+            "count": 1,
+            "lastSeen": "2026-09-25",
+            "avgGap": null,
+            "maxGap": null
+          },
+          "15-25": {
+            "members": [
+              15,
+              25
+            ],
+            "count": 1,
+            "lastSeen": "2026-09-25",
+            "avgGap": null,
+            "maxGap": null
+          }
+        },
+        "top": {
+          "1-5": {
+            "members": [
+              1,
+              5
+            ],
+            "count": 3,
+            "lastSeen": "2026-10-06",
+            "avgGap": 2,
+            "maxGap": 2
+          },
+          "7-14": {
+            "members": [
+              7,
+              14
+            ],
+            "count": 3,
+            "lastSeen": "2026-10-12",
+            "avgGap": 1.5,
+            "maxGap": 2
+          },
+          "7-21": {
+            "members": [
+              7,
+              21
+            ],
+            "count": 3,
+            "lastSeen": "2026-10-12",
+            "avgGap": 1.5,
+            "maxGap": 2
+          },
+          "7-28": {
+            "members": [
+              7,
+              28
+            ],
+            "count": 3,
+            "lastSeen": "2026-10-12",
+            "avgGap": 1.5,
+            "maxGap": 2
+          },
+          "7-35": {
+            "members": [
+              7,
+              35
+            ],
+            "count": 3,
+            "lastSeen": "2026-10-12",
+            "avgGap": 1.5,
+            "maxGap": 2
+          },
+          "14-35": {
+            "members": [
+              14,
+              35
+            ],
+            "count": 3,
+            "lastSeen": "2026-10-12",
+            "avgGap": 1.5,
+            "maxGap": 2
+          },
+          "21-28": {
+            "members": [
+              21,
+              28
+            ],
+            "count": 3,
+            "lastSeen": "2026-10-12",
+            "avgGap": 1.5,
+            "maxGap": 2
+          },
+          "2-3": {
+            "members": [
+              2,
+              3
+            ],
+            "count": 2,
+            "lastSeen": "2026-10-09",
+            "avgGap": 5,
+            "maxGap": 5
+          }
+        }
+      },
+      "triplets": {
+        "field": "main",
+        "disclaimer": "Lottery draws are independent random events. Historical frequency, gaps and patterns are statistical observations only — they do not change the probability of future draws and are not forecasts of future results.",
+        "totalDraws": 7,
+        "k": 3,
+        "groups": {
+          "7-14-35": {
+            "members": [
+              7,
+              14,
+              35
+            ],
+            "count": 3,
+            "lastSeen": "2026-10-12",
+            "avgGap": 1.5,
+            "maxGap": 2
+          },
+          "7-21-28": {
+            "members": [
+              7,
+              21,
+              28
+            ],
+            "count": 3,
+            "lastSeen": "2026-10-12",
+            "avgGap": 1.5,
+            "maxGap": 2
+          },
+          "5-10-20": {
+            "members": [
+              5,
+              10,
+              20
+            ],
+            "count": 2,
+            "lastSeen": "2026-09-29",
+            "avgGap": 1,
+            "maxGap": 1
+          },
+          "5-10-25": {
+            "members": [
+              5,
+              10,
+              25
+            ],
+            "count": 2,
+            "lastSeen": "2026-09-29",
+            "avgGap": 1,
+            "maxGap": 1
+          },
+          "5-20-25": {
+            "members": [
+              5,
+              20,
+              25
+            ],
+            "count": 2,
+            "lastSeen": "2026-09-29",
+            "avgGap": 1,
+            "maxGap": 1
+          },
+          "7-14-21": {
+            "members": [
+              7,
+              14,
+              21
+            ],
+            "count": 2,
+            "lastSeen": "2026-10-12",
+            "avgGap": 3,
+            "maxGap": 3
+          },
+          "7-14-28": {
+            "members": [
+              7,
+              14,
+              28
+            ],
+            "count": 2,
+            "lastSeen": "2026-10-12",
+            "avgGap": 3,
+            "maxGap": 3
+          },
+          "7-21-35": {
+            "members": [
+              7,
+              21,
+              35
+            ],
+            "count": 2,
+            "lastSeen": "2026-10-12",
+            "avgGap": 3,
+            "maxGap": 3
+          },
+          "7-28-35": {
+            "members": [
+              7,
+              28,
+              35
+            ],
+            "count": 2,
+            "lastSeen": "2026-10-12",
+            "avgGap": 3,
+            "maxGap": 3
+          },
+          "10-20-25": {
+            "members": [
+              10,
+              20,
+              25
+            ],
+            "count": 2,
+            "lastSeen": "2026-09-29",
+            "avgGap": 1,
+            "maxGap": 1
+          },
+          "14-21-28": {
+            "members": [
+              14,
+              21,
+              28
+            ],
+            "count": 2,
+            "lastSeen": "2026-10-12",
+            "avgGap": 3,
+            "maxGap": 3
+          },
+          "14-21-35": {
+            "members": [
+              14,
+              21,
+              35
+            ],
+            "count": 2,
+            "lastSeen": "2026-10-12",
+            "avgGap": 3,
+            "maxGap": 3
+          },
+          "14-28-35": {
+            "members": [
+              14,
+              28,
+              35
+            ],
+            "count": 2,
+            "lastSeen": "2026-10-12",
+            "avgGap": 3,
+            "maxGap": 3
+          },
+          "21-28-35": {
+            "members": [
+              21,
+              28,
+              35
+            ],
+            "count": 2,
+            "lastSeen": "2026-10-12",
+            "avgGap": 3,
+            "maxGap": 3
+          },
+          "1-2-3": {
+            "members": [
+              1,
+              2,
+              3
+            ],
+            "count": 1,
+            "lastSeen": "2026-09-22",
+            "avgGap": null,
+            "maxGap": null
+          },
+          "1-2-4": {
+            "members": [
+              1,
+              2,
+              4
+            ],
+            "count": 1,
+            "lastSeen": "2026-09-22",
+            "avgGap": null,
+            "maxGap": null
+          },
+          "1-2-5": {
+            "members": [
+              1,
+              2,
+              5
+            ],
+            "count": 1,
+            "lastSeen": "2026-09-22",
+            "avgGap": null,
+            "maxGap": null
+          },
+          "1-3-4": {
+            "members": [
+              1,
+              3,
+              4
+            ],
+            "count": 1,
+            "lastSeen": "2026-09-22",
+            "avgGap": null,
+            "maxGap": null
+          },
+          "1-3-5": {
+            "members": [
+              1,
+              3,
+              5
+            ],
+            "count": 1,
+            "lastSeen": "2026-09-22",
+            "avgGap": null,
+            "maxGap": null
+          },
+          "1-4-5": {
+            "members": [
+              1,
+              4,
+              5
+            ],
+            "count": 1,
+            "lastSeen": "2026-09-22",
+            "avgGap": null,
+            "maxGap": null
+          },
+          "1-5-10": {
+            "members": [
+              1,
+              5,
+              10
+            ],
+            "count": 1,
+            "lastSeen": "2026-09-29",
+            "avgGap": null,
+            "maxGap": null
+          },
+          "1-5-20": {
+            "members": [
+              1,
+              5,
+              20
+            ],
+            "count": 1,
+            "lastSeen": "2026-09-29",
+            "avgGap": null,
+            "maxGap": null
+          },
+          "1-5-25": {
+            "members": [
+              1,
+              5,
+              25
+            ],
+            "count": 1,
+            "lastSeen": "2026-09-29",
+            "avgGap": null,
+            "maxGap": null
+          },
+          "1-10-20": {
+            "members": [
+              1,
+              10,
+              20
+            ],
+            "count": 1,
+            "lastSeen": "2026-09-29",
+            "avgGap": null,
+            "maxGap": null
+          },
+          "1-10-25": {
+            "members": [
+              1,
+              10,
+              25
+            ],
+            "count": 1,
+            "lastSeen": "2026-09-29",
+            "avgGap": null,
+            "maxGap": null
+          },
+          "1-20-25": {
+            "members": [
+              1,
+              20,
+              25
+            ],
+            "count": 1,
+            "lastSeen": "2026-09-29",
+            "avgGap": null,
+            "maxGap": null
+          },
+          "1-5-7": {
+            "members": [
+              1,
+              5,
+              7
+            ],
+            "count": 1,
+            "lastSeen": "2026-10-06",
+            "avgGap": null,
+            "maxGap": null
+          },
+          "1-5-14": {
+            "members": [
+              1,
+              5,
+              14
+            ],
+            "count": 1,
+            "lastSeen": "2026-10-06",
+            "avgGap": null,
+            "maxGap": null
+          },
+          "1-5-35": {
+            "members": [
+              1,
+              5,
+              35
+            ],
+            "count": 1,
+            "lastSeen": "2026-10-06",
+            "avgGap": null,
+            "maxGap": null
+          },
+          "1-7-14": {
+            "members": [
+              1,
+              7,
+              14
+            ],
+            "count": 1,
+            "lastSeen": "2026-10-06",
+            "avgGap": null,
+            "maxGap": null
+          },
+          "1-7-35": {
+            "members": [
+              1,
+              7,
+              35
+            ],
+            "count": 1,
+            "lastSeen": "2026-10-06",
+            "avgGap": null,
+            "maxGap": null
+          },
+          "1-14-35": {
+            "members": [
+              1,
+              14,
+              35
+            ],
+            "count": 1,
+            "lastSeen": "2026-10-06",
+            "avgGap": null,
+            "maxGap": null
+          },
+          "2-3-4": {
+            "members": [
+              2,
+              3,
+              4
+            ],
+            "count": 1,
+            "lastSeen": "2026-09-22",
+            "avgGap": null,
+            "maxGap": null
+          },
+          "2-3-5": {
+            "members": [
+              2,
+              3,
+              5
+            ],
+            "count": 1,
+            "lastSeen": "2026-09-22",
+            "avgGap": null,
+            "maxGap": null
+          },
+          "2-4-5": {
+            "members": [
+              2,
+              4,
+              5
+            ],
+            "count": 1,
+            "lastSeen": "2026-09-22",
+            "avgGap": null,
+            "maxGap": null
+          },
+          "2-3-7": {
+            "members": [
+              2,
+              3,
+              7
+            ],
+            "count": 1,
+            "lastSeen": "2026-10-09",
+            "avgGap": null,
+            "maxGap": null
+          },
+          "2-3-21": {
+            "members": [
+              2,
+              3,
+              21
+            ],
+            "count": 1,
+            "lastSeen": "2026-10-09",
+            "avgGap": null,
+            "maxGap": null
+          },
+          "2-3-28": {
+            "members": [
+              2,
+              3,
+              28
+            ],
+            "count": 1,
+            "lastSeen": "2026-10-09",
+            "avgGap": null,
+            "maxGap": null
+          },
+          "2-7-21": {
+            "members": [
+              2,
+              7,
+              21
+            ],
+            "count": 1,
+            "lastSeen": "2026-10-09",
+            "avgGap": null,
+            "maxGap": null
+          },
+          "2-7-28": {
+            "members": [
+              2,
+              7,
+              28
+            ],
+            "count": 1,
+            "lastSeen": "2026-10-09",
+            "avgGap": null,
+            "maxGap": null
+          },
+          "2-21-28": {
+            "members": [
+              2,
+              21,
+              28
+            ],
+            "count": 1,
+            "lastSeen": "2026-10-09",
+            "avgGap": null,
+            "maxGap": null
+          },
+          "3-4-5": {
+            "members": [
+              3,
+              4,
+              5
+            ],
+            "count": 1,
+            "lastSeen": "2026-09-22",
+            "avgGap": null,
+            "maxGap": null
+          },
+          "3-7-21": {
+            "members": [
+              3,
+              7,
+              21
+            ],
+            "count": 1,
+            "lastSeen": "2026-10-09",
+            "avgGap": null,
+            "maxGap": null
+          },
+          "3-7-28": {
+            "members": [
+              3,
+              7,
+              28
+            ],
+            "count": 1,
+            "lastSeen": "2026-10-09",
+            "avgGap": null,
+            "maxGap": null
+          },
+          "3-21-28": {
+            "members": [
+              3,
+              21,
+              28
+            ],
+            "count": 1,
+            "lastSeen": "2026-10-09",
+            "avgGap": null,
+            "maxGap": null
+          },
+          "5-10-15": {
+            "members": [
+              5,
+              10,
+              15
+            ],
+            "count": 1,
+            "lastSeen": "2026-09-25",
+            "avgGap": null,
+            "maxGap": null
+          },
+          "5-15-20": {
+            "members": [
+              5,
+              15,
+              20
+            ],
+            "count": 1,
+            "lastSeen": "2026-09-25",
+            "avgGap": null,
+            "maxGap": null
+          },
+          "5-15-25": {
+            "members": [
+              5,
+              15,
+              25
+            ],
+            "count": 1,
+            "lastSeen": "2026-09-25",
+            "avgGap": null,
+            "maxGap": null
+          },
+          "5-7-14": {
+            "members": [
+              5,
+              7,
+              14
+            ],
+            "count": 1,
+            "lastSeen": "2026-10-06",
+            "avgGap": null,
+            "maxGap": null
+          },
+          "5-7-35": {
+            "members": [
+              5,
+              7,
+              35
+            ],
+            "count": 1,
+            "lastSeen": "2026-10-06",
+            "avgGap": null,
+            "maxGap": null
+          },
+          "5-14-35": {
+            "members": [
+              5,
+              14,
+              35
+            ],
+            "count": 1,
+            "lastSeen": "2026-10-06",
+            "avgGap": null,
+            "maxGap": null
+          },
+          "10-15-20": {
+            "members": [
+              10,
+              15,
+              20
+            ],
+            "count": 1,
+            "lastSeen": "2026-09-25",
+            "avgGap": null,
+            "maxGap": null
+          },
+          "10-15-25": {
+            "members": [
+              10,
+              15,
+              25
+            ],
+            "count": 1,
+            "lastSeen": "2026-09-25",
+            "avgGap": null,
+            "maxGap": null
+          },
+          "15-20-25": {
+            "members": [
+              15,
+              20,
+              25
+            ],
+            "count": 1,
+            "lastSeen": "2026-09-25",
+            "avgGap": null,
+            "maxGap": null
+          }
+        },
+        "top": {
+          "7-14-35": {
+            "members": [
+              7,
+              14,
+              35
+            ],
+            "count": 3,
+            "lastSeen": "2026-10-12",
+            "avgGap": 1.5,
+            "maxGap": 2
+          },
+          "7-21-28": {
+            "members": [
+              7,
+              21,
+              28
+            ],
+            "count": 3,
+            "lastSeen": "2026-10-12",
+            "avgGap": 1.5,
+            "maxGap": 2
+          },
+          "5-10-20": {
+            "members": [
+              5,
+              10,
+              20
+            ],
+            "count": 2,
+            "lastSeen": "2026-09-29",
+            "avgGap": 1,
+            "maxGap": 1
+          },
+          "5-10-25": {
+            "members": [
+              5,
+              10,
+              25
+            ],
+            "count": 2,
+            "lastSeen": "2026-09-29",
+            "avgGap": 1,
+            "maxGap": 1
+          },
+          "5-20-25": {
+            "members": [
+              5,
+              20,
+              25
+            ],
+            "count": 2,
+            "lastSeen": "2026-09-29",
+            "avgGap": 1,
+            "maxGap": 1
+          },
+          "7-14-21": {
+            "members": [
+              7,
+              14,
+              21
+            ],
+            "count": 2,
+            "lastSeen": "2026-10-12",
+            "avgGap": 3,
+            "maxGap": 3
+          },
+          "7-14-28": {
+            "members": [
+              7,
+              14,
+              28
+            ],
+            "count": 2,
+            "lastSeen": "2026-10-12",
+            "avgGap": 3,
+            "maxGap": 3
+          },
+          "7-21-35": {
+            "members": [
+              7,
+              21,
+              35
+            ],
+            "count": 2,
+            "lastSeen": "2026-10-12",
+            "avgGap": 3,
+            "maxGap": 3
+          }
+        }
+      },
+      "star-pairs": {
+        "field": "stars",
+        "disclaimer": "Lottery draws are independent random events. Historical frequency, gaps and patterns are statistical observations only — they do not change the probability of future draws and are not forecasts of future results.",
+        "totalDraws": 7,
+        "k": 2,
+        "groups": {
+          "4-5": {
+            "members": [
+              4,
+              5
+            ],
+            "count": 2,
+            "lastSeen": "2026-10-12",
+            "avgGap": 3,
+            "maxGap": 3
+          },
+          "1-2": {
+            "members": [
+              1,
+              2
+            ],
+            "count": 1,
+            "lastSeen": "2026-09-22",
+            "avgGap": null,
+            "maxGap": null
+          },
+          "1-3": {
+            "members": [
+              1,
+              3
+            ],
+            "count": 1,
+            "lastSeen": "2026-09-29",
+            "avgGap": null,
+            "maxGap": null
+          },
+          "1-4": {
+            "members": [
+              1,
+              4
+            ],
+            "count": 1,
+            "lastSeen": "2026-10-06",
+            "avgGap": null,
+            "maxGap": null
+          },
+          "2-3": {
+            "members": [
+              2,
+              3
+            ],
+            "count": 1,
+            "lastSeen": "2026-09-25",
+            "avgGap": null,
+            "maxGap": null
+          },
+          "2-5": {
+            "members": [
+              2,
+              5
+            ],
+            "count": 1,
+            "lastSeen": "2026-10-09",
+            "avgGap": null,
+            "maxGap": null
+          }
+        },
+        "top": {
+          "4-5": {
+            "members": [
+              4,
+              5
+            ],
+            "count": 2,
+            "lastSeen": "2026-10-12",
+            "avgGap": 3,
+            "maxGap": 3
+          },
+          "1-2": {
+            "members": [
+              1,
+              2
+            ],
+            "count": 1,
+            "lastSeen": "2026-09-22",
+            "avgGap": null,
+            "maxGap": null
+          },
+          "1-3": {
+            "members": [
+              1,
+              3
+            ],
+            "count": 1,
+            "lastSeen": "2026-09-29",
+            "avgGap": null,
+            "maxGap": null
+          },
+          "1-4": {
+            "members": [
+              1,
+              4
+            ],
+            "count": 1,
+            "lastSeen": "2026-10-06",
+            "avgGap": null,
+            "maxGap": null
+          },
+          "2-3": {
+            "members": [
+              2,
+              3
+            ],
+            "count": 1,
+            "lastSeen": "2026-09-25",
+            "avgGap": null,
+            "maxGap": null
+          }
+        }
+      },
+      "empty history": {
+        "numbers": {
+          "field": "main",
+          "disclaimer": "Lottery draws are independent random events. Historical frequency, gaps and patterns are statistical observations only — they do not change the probability of future draws and are not forecasts of future results.",
+          "totalDraws": 0,
+          "window": 0,
+          "numbers": {
+            "1": {
+              "number": 1,
+              "appearances": 0,
+              "appearancePct": 0,
+              "lastAppearance": null,
+              "drawsSinceLast": null,
+              "currentGap": null,
+              "avgGap": null,
+              "minGap": null,
+              "maxGap": null,
+              "recentAppearances": 0,
+              "recentPct": 0,
+              "trend": 0
+            },
+            "2": {
+              "number": 2,
+              "appearances": 0,
+              "appearancePct": 0,
+              "lastAppearance": null,
+              "drawsSinceLast": null,
+              "currentGap": null,
+              "avgGap": null,
+              "minGap": null,
+              "maxGap": null,
+              "recentAppearances": 0,
+              "recentPct": 0,
+              "trend": 0
+            },
+            "3": {
+              "number": 3,
+              "appearances": 0,
+              "appearancePct": 0,
+              "lastAppearance": null,
+              "drawsSinceLast": null,
+              "currentGap": null,
+              "avgGap": null,
+              "minGap": null,
+              "maxGap": null,
+              "recentAppearances": 0,
+              "recentPct": 0,
+              "trend": 0
+            },
+            "4": {
+              "number": 4,
+              "appearances": 0,
+              "appearancePct": 0,
+              "lastAppearance": null,
+              "drawsSinceLast": null,
+              "currentGap": null,
+              "avgGap": null,
+              "minGap": null,
+              "maxGap": null,
+              "recentAppearances": 0,
+              "recentPct": 0,
+              "trend": 0
+            },
+            "5": {
+              "number": 5,
+              "appearances": 0,
+              "appearancePct": 0,
+              "lastAppearance": null,
+              "drawsSinceLast": null,
+              "currentGap": null,
+              "avgGap": null,
+              "minGap": null,
+              "maxGap": null,
+              "recentAppearances": 0,
+              "recentPct": 0,
+              "trend": 0
+            },
+            "6": {
+              "number": 6,
+              "appearances": 0,
+              "appearancePct": 0,
+              "lastAppearance": null,
+              "drawsSinceLast": null,
+              "currentGap": null,
+              "avgGap": null,
+              "minGap": null,
+              "maxGap": null,
+              "recentAppearances": 0,
+              "recentPct": 0,
+              "trend": 0
+            },
+            "7": {
+              "number": 7,
+              "appearances": 0,
+              "appearancePct": 0,
+              "lastAppearance": null,
+              "drawsSinceLast": null,
+              "currentGap": null,
+              "avgGap": null,
+              "minGap": null,
+              "maxGap": null,
+              "recentAppearances": 0,
+              "recentPct": 0,
+              "trend": 0
+            },
+            "8": {
+              "number": 8,
+              "appearances": 0,
+              "appearancePct": 0,
+              "lastAppearance": null,
+              "drawsSinceLast": null,
+              "currentGap": null,
+              "avgGap": null,
+              "minGap": null,
+              "maxGap": null,
+              "recentAppearances": 0,
+              "recentPct": 0,
+              "trend": 0
+            },
+            "9": {
+              "number": 9,
+              "appearances": 0,
+              "appearancePct": 0,
+              "lastAppearance": null,
+              "drawsSinceLast": null,
+              "currentGap": null,
+              "avgGap": null,
+              "minGap": null,
+              "maxGap": null,
+              "recentAppearances": 0,
+              "recentPct": 0,
+              "trend": 0
+            },
+            "10": {
+              "number": 10,
+              "appearances": 0,
+              "appearancePct": 0,
+              "lastAppearance": null,
+              "drawsSinceLast": null,
+              "currentGap": null,
+              "avgGap": null,
+              "minGap": null,
+              "maxGap": null,
+              "recentAppearances": 0,
+              "recentPct": 0,
+              "trend": 0
+            },
+            "11": {
+              "number": 11,
+              "appearances": 0,
+              "appearancePct": 0,
+              "lastAppearance": null,
+              "drawsSinceLast": null,
+              "currentGap": null,
+              "avgGap": null,
+              "minGap": null,
+              "maxGap": null,
+              "recentAppearances": 0,
+              "recentPct": 0,
+              "trend": 0
+            },
+            "12": {
+              "number": 12,
+              "appearances": 0,
+              "appearancePct": 0,
+              "lastAppearance": null,
+              "drawsSinceLast": null,
+              "currentGap": null,
+              "avgGap": null,
+              "minGap": null,
+              "maxGap": null,
+              "recentAppearances": 0,
+              "recentPct": 0,
+              "trend": 0
+            },
+            "13": {
+              "number": 13,
+              "appearances": 0,
+              "appearancePct": 0,
+              "lastAppearance": null,
+              "drawsSinceLast": null,
+              "currentGap": null,
+              "avgGap": null,
+              "minGap": null,
+              "maxGap": null,
+              "recentAppearances": 0,
+              "recentPct": 0,
+              "trend": 0
+            },
+            "14": {
+              "number": 14,
+              "appearances": 0,
+              "appearancePct": 0,
+              "lastAppearance": null,
+              "drawsSinceLast": null,
+              "currentGap": null,
+              "avgGap": null,
+              "minGap": null,
+              "maxGap": null,
+              "recentAppearances": 0,
+              "recentPct": 0,
+              "trend": 0
+            },
+            "15": {
+              "number": 15,
+              "appearances": 0,
+              "appearancePct": 0,
+              "lastAppearance": null,
+              "drawsSinceLast": null,
+              "currentGap": null,
+              "avgGap": null,
+              "minGap": null,
+              "maxGap": null,
+              "recentAppearances": 0,
+              "recentPct": 0,
+              "trend": 0
+            },
+            "16": {
+              "number": 16,
+              "appearances": 0,
+              "appearancePct": 0,
+              "lastAppearance": null,
+              "drawsSinceLast": null,
+              "currentGap": null,
+              "avgGap": null,
+              "minGap": null,
+              "maxGap": null,
+              "recentAppearances": 0,
+              "recentPct": 0,
+              "trend": 0
+            },
+            "17": {
+              "number": 17,
+              "appearances": 0,
+              "appearancePct": 0,
+              "lastAppearance": null,
+              "drawsSinceLast": null,
+              "currentGap": null,
+              "avgGap": null,
+              "minGap": null,
+              "maxGap": null,
+              "recentAppearances": 0,
+              "recentPct": 0,
+              "trend": 0
+            },
+            "18": {
+              "number": 18,
+              "appearances": 0,
+              "appearancePct": 0,
+              "lastAppearance": null,
+              "drawsSinceLast": null,
+              "currentGap": null,
+              "avgGap": null,
+              "minGap": null,
+              "maxGap": null,
+              "recentAppearances": 0,
+              "recentPct": 0,
+              "trend": 0
+            },
+            "19": {
+              "number": 19,
+              "appearances": 0,
+              "appearancePct": 0,
+              "lastAppearance": null,
+              "drawsSinceLast": null,
+              "currentGap": null,
+              "avgGap": null,
+              "minGap": null,
+              "maxGap": null,
+              "recentAppearances": 0,
+              "recentPct": 0,
+              "trend": 0
+            },
+            "20": {
+              "number": 20,
+              "appearances": 0,
+              "appearancePct": 0,
+              "lastAppearance": null,
+              "drawsSinceLast": null,
+              "currentGap": null,
+              "avgGap": null,
+              "minGap": null,
+              "maxGap": null,
+              "recentAppearances": 0,
+              "recentPct": 0,
+              "trend": 0
+            },
+            "21": {
+              "number": 21,
+              "appearances": 0,
+              "appearancePct": 0,
+              "lastAppearance": null,
+              "drawsSinceLast": null,
+              "currentGap": null,
+              "avgGap": null,
+              "minGap": null,
+              "maxGap": null,
+              "recentAppearances": 0,
+              "recentPct": 0,
+              "trend": 0
+            },
+            "22": {
+              "number": 22,
+              "appearances": 0,
+              "appearancePct": 0,
+              "lastAppearance": null,
+              "drawsSinceLast": null,
+              "currentGap": null,
+              "avgGap": null,
+              "minGap": null,
+              "maxGap": null,
+              "recentAppearances": 0,
+              "recentPct": 0,
+              "trend": 0
+            },
+            "23": {
+              "number": 23,
+              "appearances": 0,
+              "appearancePct": 0,
+              "lastAppearance": null,
+              "drawsSinceLast": null,
+              "currentGap": null,
+              "avgGap": null,
+              "minGap": null,
+              "maxGap": null,
+              "recentAppearances": 0,
+              "recentPct": 0,
+              "trend": 0
+            },
+            "24": {
+              "number": 24,
+              "appearances": 0,
+              "appearancePct": 0,
+              "lastAppearance": null,
+              "drawsSinceLast": null,
+              "currentGap": null,
+              "avgGap": null,
+              "minGap": null,
+              "maxGap": null,
+              "recentAppearances": 0,
+              "recentPct": 0,
+              "trend": 0
+            },
+            "25": {
+              "number": 25,
+              "appearances": 0,
+              "appearancePct": 0,
+              "lastAppearance": null,
+              "drawsSinceLast": null,
+              "currentGap": null,
+              "avgGap": null,
+              "minGap": null,
+              "maxGap": null,
+              "recentAppearances": 0,
+              "recentPct": 0,
+              "trend": 0
+            },
+            "26": {
+              "number": 26,
+              "appearances": 0,
+              "appearancePct": 0,
+              "lastAppearance": null,
+              "drawsSinceLast": null,
+              "currentGap": null,
+              "avgGap": null,
+              "minGap": null,
+              "maxGap": null,
+              "recentAppearances": 0,
+              "recentPct": 0,
+              "trend": 0
+            },
+            "27": {
+              "number": 27,
+              "appearances": 0,
+              "appearancePct": 0,
+              "lastAppearance": null,
+              "drawsSinceLast": null,
+              "currentGap": null,
+              "avgGap": null,
+              "minGap": null,
+              "maxGap": null,
+              "recentAppearances": 0,
+              "recentPct": 0,
+              "trend": 0
+            },
+            "28": {
+              "number": 28,
+              "appearances": 0,
+              "appearancePct": 0,
+              "lastAppearance": null,
+              "drawsSinceLast": null,
+              "currentGap": null,
+              "avgGap": null,
+              "minGap": null,
+              "maxGap": null,
+              "recentAppearances": 0,
+              "recentPct": 0,
+              "trend": 0
+            },
+            "29": {
+              "number": 29,
+              "appearances": 0,
+              "appearancePct": 0,
+              "lastAppearance": null,
+              "drawsSinceLast": null,
+              "currentGap": null,
+              "avgGap": null,
+              "minGap": null,
+              "maxGap": null,
+              "recentAppearances": 0,
+              "recentPct": 0,
+              "trend": 0
+            },
+            "30": {
+              "number": 30,
+              "appearances": 0,
+              "appearancePct": 0,
+              "lastAppearance": null,
+              "drawsSinceLast": null,
+              "currentGap": null,
+              "avgGap": null,
+              "minGap": null,
+              "maxGap": null,
+              "recentAppearances": 0,
+              "recentPct": 0,
+              "trend": 0
+            },
+            "31": {
+              "number": 31,
+              "appearances": 0,
+              "appearancePct": 0,
+              "lastAppearance": null,
+              "drawsSinceLast": null,
+              "currentGap": null,
+              "avgGap": null,
+              "minGap": null,
+              "maxGap": null,
+              "recentAppearances": 0,
+              "recentPct": 0,
+              "trend": 0
+            },
+            "32": {
+              "number": 32,
+              "appearances": 0,
+              "appearancePct": 0,
+              "lastAppearance": null,
+              "drawsSinceLast": null,
+              "currentGap": null,
+              "avgGap": null,
+              "minGap": null,
+              "maxGap": null,
+              "recentAppearances": 0,
+              "recentPct": 0,
+              "trend": 0
+            },
+            "33": {
+              "number": 33,
+              "appearances": 0,
+              "appearancePct": 0,
+              "lastAppearance": null,
+              "drawsSinceLast": null,
+              "currentGap": null,
+              "avgGap": null,
+              "minGap": null,
+              "maxGap": null,
+              "recentAppearances": 0,
+              "recentPct": 0,
+              "trend": 0
+            },
+            "34": {
+              "number": 34,
+              "appearances": 0,
+              "appearancePct": 0,
+              "lastAppearance": null,
+              "drawsSinceLast": null,
+              "currentGap": null,
+              "avgGap": null,
+              "minGap": null,
+              "maxGap": null,
+              "recentAppearances": 0,
+              "recentPct": 0,
+              "trend": 0
+            },
+            "35": {
+              "number": 35,
+              "appearances": 0,
+              "appearancePct": 0,
+              "lastAppearance": null,
+              "drawsSinceLast": null,
+              "currentGap": null,
+              "avgGap": null,
+              "minGap": null,
+              "maxGap": null,
+              "recentAppearances": 0,
+              "recentPct": 0,
+              "trend": 0
+            },
+            "36": {
+              "number": 36,
+              "appearances": 0,
+              "appearancePct": 0,
+              "lastAppearance": null,
+              "drawsSinceLast": null,
+              "currentGap": null,
+              "avgGap": null,
+              "minGap": null,
+              "maxGap": null,
+              "recentAppearances": 0,
+              "recentPct": 0,
+              "trend": 0
+            },
+            "37": {
+              "number": 37,
+              "appearances": 0,
+              "appearancePct": 0,
+              "lastAppearance": null,
+              "drawsSinceLast": null,
+              "currentGap": null,
+              "avgGap": null,
+              "minGap": null,
+              "maxGap": null,
+              "recentAppearances": 0,
+              "recentPct": 0,
+              "trend": 0
+            },
+            "38": {
+              "number": 38,
+              "appearances": 0,
+              "appearancePct": 0,
+              "lastAppearance": null,
+              "drawsSinceLast": null,
+              "currentGap": null,
+              "avgGap": null,
+              "minGap": null,
+              "maxGap": null,
+              "recentAppearances": 0,
+              "recentPct": 0,
+              "trend": 0
+            },
+            "39": {
+              "number": 39,
+              "appearances": 0,
+              "appearancePct": 0,
+              "lastAppearance": null,
+              "drawsSinceLast": null,
+              "currentGap": null,
+              "avgGap": null,
+              "minGap": null,
+              "maxGap": null,
+              "recentAppearances": 0,
+              "recentPct": 0,
+              "trend": 0
+            },
+            "40": {
+              "number": 40,
+              "appearances": 0,
+              "appearancePct": 0,
+              "lastAppearance": null,
+              "drawsSinceLast": null,
+              "currentGap": null,
+              "avgGap": null,
+              "minGap": null,
+              "maxGap": null,
+              "recentAppearances": 0,
+              "recentPct": 0,
+              "trend": 0
+            },
+            "41": {
+              "number": 41,
+              "appearances": 0,
+              "appearancePct": 0,
+              "lastAppearance": null,
+              "drawsSinceLast": null,
+              "currentGap": null,
+              "avgGap": null,
+              "minGap": null,
+              "maxGap": null,
+              "recentAppearances": 0,
+              "recentPct": 0,
+              "trend": 0
+            },
+            "42": {
+              "number": 42,
+              "appearances": 0,
+              "appearancePct": 0,
+              "lastAppearance": null,
+              "drawsSinceLast": null,
+              "currentGap": null,
+              "avgGap": null,
+              "minGap": null,
+              "maxGap": null,
+              "recentAppearances": 0,
+              "recentPct": 0,
+              "trend": 0
+            },
+            "43": {
+              "number": 43,
+              "appearances": 0,
+              "appearancePct": 0,
+              "lastAppearance": null,
+              "drawsSinceLast": null,
+              "currentGap": null,
+              "avgGap": null,
+              "minGap": null,
+              "maxGap": null,
+              "recentAppearances": 0,
+              "recentPct": 0,
+              "trend": 0
+            },
+            "44": {
+              "number": 44,
+              "appearances": 0,
+              "appearancePct": 0,
+              "lastAppearance": null,
+              "drawsSinceLast": null,
+              "currentGap": null,
+              "avgGap": null,
+              "minGap": null,
+              "maxGap": null,
+              "recentAppearances": 0,
+              "recentPct": 0,
+              "trend": 0
+            },
+            "45": {
+              "number": 45,
+              "appearances": 0,
+              "appearancePct": 0,
+              "lastAppearance": null,
+              "drawsSinceLast": null,
+              "currentGap": null,
+              "avgGap": null,
+              "minGap": null,
+              "maxGap": null,
+              "recentAppearances": 0,
+              "recentPct": 0,
+              "trend": 0
+            },
+            "46": {
+              "number": 46,
+              "appearances": 0,
+              "appearancePct": 0,
+              "lastAppearance": null,
+              "drawsSinceLast": null,
+              "currentGap": null,
+              "avgGap": null,
+              "minGap": null,
+              "maxGap": null,
+              "recentAppearances": 0,
+              "recentPct": 0,
+              "trend": 0
+            },
+            "47": {
+              "number": 47,
+              "appearances": 0,
+              "appearancePct": 0,
+              "lastAppearance": null,
+              "drawsSinceLast": null,
+              "currentGap": null,
+              "avgGap": null,
+              "minGap": null,
+              "maxGap": null,
+              "recentAppearances": 0,
+              "recentPct": 0,
+              "trend": 0
+            },
+            "48": {
+              "number": 48,
+              "appearances": 0,
+              "appearancePct": 0,
+              "lastAppearance": null,
+              "drawsSinceLast": null,
+              "currentGap": null,
+              "avgGap": null,
+              "minGap": null,
+              "maxGap": null,
+              "recentAppearances": 0,
+              "recentPct": 0,
+              "trend": 0
+            },
+            "49": {
+              "number": 49,
+              "appearances": 0,
+              "appearancePct": 0,
+              "lastAppearance": null,
+              "drawsSinceLast": null,
+              "currentGap": null,
+              "avgGap": null,
+              "minGap": null,
+              "maxGap": null,
+              "recentAppearances": 0,
+              "recentPct": 0,
+              "trend": 0
+            },
+            "50": {
+              "number": 50,
+              "appearances": 0,
+              "appearancePct": 0,
+              "lastAppearance": null,
+              "drawsSinceLast": null,
+              "currentGap": null,
+              "avgGap": null,
+              "minGap": null,
+              "maxGap": null,
+              "recentAppearances": 0,
+              "recentPct": 0,
+              "trend": 0
+            }
+          }
+        },
+        "hot-cold": {
+          "field": "main",
+          "disclaimer": "Lottery draws are independent random events. Historical frequency, gaps and patterns are statistical observations only — they do not change the probability of future draws and are not forecasts of future results.",
+          "window": 0,
+          "hot": {
+            "1": 0,
+            "2": 0,
+            "3": 0,
+            "4": 0,
+            "5": 0
+          },
+          "cold": {
+            "1": 0,
+            "2": 0,
+            "3": 0,
+            "4": 0,
+            "5": 0
+          },
+          "observation": "Historical frequency within the last 0 draw(s) only. This does NOT predict future draws — every number keeps its exact probability each draw."
+        },
+        "distribution": {
+          "disclaimer": "Lottery draws are independent random events. Historical frequency, gaps and patterns are statistical observations only — they do not change the probability of future draws and are not forecasts of future results.",
+          "totalDraws": 0,
+          "oddEven": [],
+          "oddEvenPct": [],
+          "lowHigh": [],
+          "lowHighPct": [],
+          "lowBound": 25,
+          "sum": {
+            "min": null,
+            "max": null,
+            "avg": null,
+            "median": null
+          },
+          "spread": {
+            "min": null,
+            "max": null,
+            "avg": null
+          },
+          "consecutive": {
+            "drawsWithConsecutive": 0,
+            "pct": 0,
+            "longestRun": 0,
+            "runLengthDistribution": []
+          }
+        }
+      }
+    },
+    "prng": {
+      "seed42-first10": [
+        0.002643892541527748,
+        0.660311977379024,
+        0.11095708678476512,
+        0.8493769019842148,
+        0.8754393914714456,
+        0.3356109685264528,
+        0.8646088745445013,
+        0.5661613154225051,
+        0.7264821275603026,
+        0.24849261133931577
+      ],
+      "seed1-first5": [
+        0.00006295018829405308,
+        0.015747428173199296,
+        0.6164041024167091,
+        0.07161863497458398,
+        0.5584883580449969
+      ],
+      "seed0-is-seed1": [
+        0.00006295018829405308,
+        0.00006295018829405308
+      ],
+      "seed-negative-masks-like-php": [
+        0.002483685500919819
+      ]
+    },
+    "sandbox": {
+      "health online": {
+        "state": "ONLINE",
+        "licensed": false,
+        "synthetic": true,
+        "message": "Simulated draws for pipeline testing only — NOT official results"
+      },
+      "jackpot info while enabled states the simulation": {
+        "source": "sandbox-simulation",
+        "value": null,
+        "note": "Simulated environment — no real jackpot figure is available or fabricated"
+      },
+      "draw-count-6": 6,
+      "draws stripped of clock fields": [
+        {
+          "externalId": "<NOW>",
+          "drawDate": "<NOW>",
+          "main": [
+            1,
+            6,
+            34,
+            43,
+            44
+          ],
+          "stars": [
+            5,
+            11
+          ],
+          "jackpot": "11757064.00",
+          "rollover": false,
+          "winners": null,
+          "source": "sandbox-simulation",
+          "sourceTimestamp": "<NOW>"
+        },
+        {
+          "externalId": "<NOW>",
+          "drawDate": "<NOW>",
+          "main": [
+            13,
+            23,
+            35,
+            36,
+            40
+          ],
+          "stars": [
+            2,
+            4
+          ],
+          "jackpot": "1193743.00",
+          "rollover": true,
+          "winners": null,
+          "source": "sandbox-simulation",
+          "sourceTimestamp": "<NOW>"
+        },
+        {
+          "externalId": "<NOW>",
+          "drawDate": "<NOW>",
+          "main": [
+            24,
+            28,
+            29,
+            32,
+            38
+          ],
+          "stars": [
+            2,
+            10
+          ],
+          "jackpot": "10758817.00",
+          "rollover": false,
+          "winners": null,
+          "source": "sandbox-simulation",
+          "sourceTimestamp": "<NOW>"
+        },
+        {
+          "externalId": "<NOW>",
+          "drawDate": "<NOW>",
+          "main": [
+            8,
+            14,
+            17,
+            18,
+            46
+          ],
+          "stars": [
+            7,
+            8
+          ],
+          "jackpot": "5022834.00",
+          "rollover": false,
+          "winners": null,
+          "source": "sandbox-simulation",
+          "sourceTimestamp": "<NOW>"
+        },
+        {
+          "externalId": "<NOW>",
+          "drawDate": "<NOW>",
+          "main": [
+            16,
+            19,
+            24,
+            29,
+            45
+          ],
+          "stars": [
+            2,
+            3
+          ],
+          "jackpot": "2331575.00",
+          "rollover": true,
+          "winners": null,
+          "source": "sandbox-simulation",
+          "sourceTimestamp": "<NOW>"
+        },
+        {
+          "externalId": "<NOW>",
+          "drawDate": "<NOW>",
+          "main": [
+            6,
+            10,
+            18,
+            27,
+            38
+          ],
+          "stars": [
+            4,
+            11
+          ],
+          "jackpot": "15148864.00",
+          "rollover": false,
+          "winners": null,
+          "source": "sandbox-simulation",
+          "sourceTimestamp": "<NOW>"
+        }
+      ],
+      "a from-bound stops the walk": [
+        1,
+        [
+          {
+            "externalId": "<NOW>",
+            "drawDate": "<NOW>",
+            "main": [
+              1,
+              6,
+              34,
+              43,
+              44
+            ],
+            "stars": [
+              5,
+              11
+            ],
+            "jackpot": "11757064.00",
+            "rollover": false,
+            "winners": null,
+            "source": "sandbox-simulation",
+            "sourceTimestamp": "<NOW>"
+          }
+        ]
+      ],
+      "limit is capped at 1000": "capped",
+      "disabled health": {
+        "state": "OFFLINE",
+        "licensed": false,
+        "synthetic": true,
+        "message": "SANDBOX_NOT_ENABLED — set WINDELS_LOTTERY_SANDBOX=1 for clearly-labeled simulated draws (pipeline testing only)"
+      },
+      "disabled draws are empty": [],
+      "disabled jackpot is null": null,
+      "jackpot info after the withdrawal is null (the env is read per call)": null
+    },
+    "official": {
+      "disabled by default": {
+        "state": "DISABLED",
+        "licensed": false,
+        "synthetic": false,
+        "message": "Official feed is disabled — set WINDELS_LOTTERY_OFFICIAL_ENABLED=1 only after authorization"
+      },
+      "an explicit url does not enable the feed": {
+        "state": "DISABLED",
+        "licensed": false,
+        "synthetic": false,
+        "message": "Official feed is disabled — set WINDELS_LOTTERY_OFFICIAL_ENABLED=1 only after authorization"
+      },
+      "missing license is unconfigured": {
+        "state": "UNCONFIGURED",
+        "licensed": false,
+        "synthetic": false,
+        "message": "Official feed requires a safe URL, license metadata and a source identifier"
+      },
+      "an insecure url is unconfigured": {
+        "state": "UNCONFIGURED",
+        "licensed": false,
+        "synthetic": false,
+        "message": "Official feed requires a safe URL, license metadata and a source identifier"
+      },
+      "credentials in the url are unsafe": {
+        "state": "UNCONFIGURED",
+        "licensed": false,
+        "synthetic": false,
+        "message": "Official feed requires a safe URL, license metadata and a source identifier"
+      },
+      "an empty url is unconfigured": {
+        "state": "UNCONFIGURED",
+        "licensed": false,
+        "synthetic": false,
+        "message": "Official feed requires a safe URL, license metadata and a source identifier"
+      },
+      "a health endpoint that reports failure is offline": {
+        "state": "OFFLINE",
+        "licensed": true,
+        "synthetic": false,
+        "message": "Authorized feed is configured but unavailable: health endpoint reported failure",
+        "source": "src",
+        "licenseConfigured": true
+      },
+      "an unreachable feed is offline with the reason truncated": {
+        "state": "OFFLINE",
+        "licensed": true,
+        "synthetic": false,
+        "message": "Authorized feed is configured but unavailable: connection refused xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
+        "source": "src",
+        "licenseConfigured": true
+      },
+      "an online feed reports its version and source": {
+        "state": "ONLINE",
+        "licensed": true,
+        "synthetic": false,
+        "message": "Authorized official feed reachable; all imported draws remain subject to validation",
+        "source": "licensed-source",
+        "licenseConfigured": true,
+        "version": "9"
+      },
+      "a non-scalar version is null": {
+        "state": "ONLINE",
+        "licensed": true,
+        "synthetic": false,
+        "message": "Authorized official feed reachable; all imported draws remain subject to validation",
+        "source": "src",
+        "licenseConfigured": true,
+        "version": null
+      },
+      "the url and token travel to the transport": [
+        {
+          "url": "https://feed.example/v1/health",
+          "token": "secret-token"
+        }
+      ],
+      "draws map the vendor aliases": [
+        {
+          "externalId": "D9",
+          "drawDate": "2026-10-09",
+          "main": [
+            1,
+            2,
+            3,
+            4,
+            5
+          ],
+          "stars": [
+            2,
+            5
+          ],
+          "jackpot": "17000000",
+          "rollover": true,
+          "winners": "3",
+          "source": "licensed-source",
+          "sourceTimestamp": "2026-10-09T21:00:00Z"
+        }
+      ],
+      "snake_case aliases map too": [
+        {
+          "externalId": "D10",
+          "drawDate": "2026-10-06",
+          "main": [
+            13,
+            23,
+            35,
+            36,
+            40
+          ],
+          "stars": [
+            2,
+            4
+          ],
+          "jackpot": null,
+          "rollover": false,
+          "winners": null,
+          "source": "src",
+          "sourceTimestamp": "2026-10-06T21:00:00Z"
+        }
+      ],
+      "nested main and stars objects unwrap one level": [
+        {
+          "externalId": "N1",
+          "drawDate": "2026-10-09",
+          "main": [
+            1,
+            2,
+            3,
+            4,
+            5
+          ],
+          "stars": [
+            2,
+            5
+          ],
+          "jackpot": null,
+          "rollover": false,
+          "winners": null,
+          "source": "src",
+          "sourceTimestamp": "2026-10-09T21:00:00Z"
+        }
+      ],
+      "missing fields stay missing so the validator can reject them": [
+        {
+          "externalId": "H1",
+          "drawDate": "",
+          "main": null,
+          "stars": null,
+          "jackpot": null,
+          "rollover": false,
+          "winners": null,
+          "source": "src",
+          "sourceTimestamp": ""
+        }
+      ],
+      "rollover follows PHP truthiness, not JS truthiness": [
+        false,
+        true,
+        false,
+        true
+      ],
+      "the endpoint query carries limit first, then from and to, RFC3986-encoded": [
+        "https://feed.example/v1/draws?limit=1000",
+        "https://feed.example/v1/draws?limit=5&from=2026-10-01&to=2026-10-09"
+      ],
+      "an empty draw list is an empty list, not an error": [],
+      "a non-list payload is refused": {
+        "ok": false,
+        "error": "official lottery feed returned no draw list"
+      },
+      "invalid json is refused": {
+        "ok": false,
+        "error": "official lottery feed returned invalid JSON"
+      },
+      "unconfigured draws are empty, not an error": [],
+      "jackpot info without a jackpot url is null": null,
+      "unconfigured jackpot info is null": null
+    },
+    "unavailable": {
+      "health": {
+        "state": "UNCONFIGURED",
+        "licensed": false,
+        "synthetic": false,
+        "message": "No lottery data provider configured — configure an authorized source (environment-only credentials) to enable ingestion"
+      },
+      "draws": [],
+      "jackpot": null
+    }
+  }
+}

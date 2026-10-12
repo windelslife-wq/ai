@@ -80,7 +80,7 @@ export const MODULE_STATUS = Object.freeze([
   //     so an operator hears about a breach when it happens, not as it approaches.
   //     The tiers live in the paper scan's vocabulary (row 11, already accepted),
   //     and adding them here would have meant a second, divergent set of thresholds.
-  //   * no `sports_cron` or `lottery_cron`; those modules are not ported.
+  //   * no `lottery_cron`; that module's cron is not ported (the sports cron is its own CLI).
   // (Broker transition alerts were added in Phase 14 — `BROKER_CONNECTED` and
   // `BROKER_DISCONNECTED` now come from the same sweep, and `DISABLED` is never
   // counted, so a default host with ten disabled connectors stays silent.)
@@ -105,7 +105,17 @@ export const MODULE_STATUS = Object.freeze([
   // verified against a real vendor. "Sports intelligence: partial" reads as "half a
   // betting engine" — nothing here executes, and the label keeps saying so.
   { key: "sports", label: "Sports data foundation, ingestion, decision chain, ticket engine and the measured half (slice 5): normalized fixture/odds/result contracts, data-quality and freshness gates, the provider boundary (sandbox simulation double-gated and labelled, generic REST provider never verified against a vendor), idempotent ingestion under a unique execution key, derived provider health from stored observations, PHP-parity proven by differential test, the decision chain with immutable predictions, the ticket engine (correlation, exhaustive optimizer, governance, a daily run recorded as PENDING for a person), and slice 5: result verification under sports.settle, settlement from verified results only (RESTITUTE_ODDS by default), calibration fitting on settled outcomes (PENDING until an administrator approves), the point-in-time backtester whose reports are flagged simulation, the drift monitor that publishes SPORTS_MODEL_DRIFT, and measured performance analytics. The sports cron (row 19) runs the nine scheduled jobs — syncs, quality, the daily ticket, the settlement sweep, performance snapshots, monitoring, retention cleanup — from the CLI under window locks, never from an HTTP route. Nothing is executed, no stake is sized, and no stored result is trusted before a person attests to it. Not ported: stake sizing and the console screens (F-29). Nineteen sports.view reads, two sports.manage reads, ten sports.manage writes (sync, configuration patch, evaluate, calibration fit/approve/reject, daily ticket run, backtest run, drift run, stuck-run recovery), one sports.approve write (ticket decision) and two sports.settle writes (result verification, ticket settlement)", state: "partial", tests: "unit + php-parity + http + store" },
-  { key: "lottery", label: "Lottery intelligence", state: "not-ported", tests: null },
+  // Row 15, slice 1: the lottery foundation — the provider boundary (official feed
+  // offline until an explicit, https-only, license-carrying configuration; the sandbox
+  // double-gated and labelled; a default host has NO provider), the rules engine,
+  // full draw validation before storage, idempotent ingestion with VERIFIED-conflict
+  // protection, the statistics engine over stored draws (every output carrying the
+  // DISCLAIMER; no "due" concept), and audited provider health. PHP-parity proven by
+  // differential test (rules, validator, statistics, the PRNG and the sandbox draws).
+  // Still `partial`: combination intelligence, tickets, backtests, model versions,
+  // the lottery cron and the console screens are slice 2/3 or F-29, and the not-ported
+  // matrix travels in /lottery/status.
+  { key: "lottery", label: "Lottery intelligence foundation (row 15, slice 1): provider-neutral draw contracts, the rules engine (EuroMillions as data), draw validation before storage (a failed draw is never inserted), idempotent ingestion that never overwrites a VERIFIED draw, derived provider health from stored observations and audited explicit probes, and the statistics engine (frequency, gaps, hot/cold, distribution, pairs) whose every output carries the independence DISCLAIMER — EuroMillions is a random lottery and nothing here predicts. The official provider is offline until an explicit, https-only, license-carrying configuration; the sandbox is double-gated and labelled; a default host has no provider and fabricates nothing. Combination intelligence, tickets, backtests, model versions, the lottery cron and the console screens are not ported (slice 2/3, F-29). Eight lottery.view reads, one authenticated status read and two lottery.manage writes (probe, sync)", state: "partial", tests: "unit + php-parity + http + store" },
   { key: "languageLearning", label: "Language learning and AI teacher", state: "not-ported", tests: null },
   { key: "leadDiscovery", label: "Lead discovery", state: "not-ported", tests: null },
 ]);

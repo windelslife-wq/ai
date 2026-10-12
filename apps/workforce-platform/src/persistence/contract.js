@@ -214,6 +214,36 @@ export const REPOSITORY_METHODS = Object.freeze([
   "listSportsBacktests",
   "saveSportsPerformanceSnapshot",
   "listSportsPerformanceSnapshots",
+  // ── Lottery Intelligence data foundation (row 15, slice 1, migration 016) ──
+  // The methods SP-18 predicted: legacy's lottery repository declares the very names
+  // (`ensureProvider`, `saveHealth`, `latestHealth`, `listHealth`, `deleteOldHealth`)
+  // that would have collided with the sports ones in one flat namespace. Every name
+  // here is `Lottery`-prefixed, and `deleteOld*` keeps legacy's verb because the
+  // retention decision it serves is this module's own cleanup job (slice 3), unlike
+  // the sports foundation's shared retention read.
+  "ensureLotteryGame",
+  "listLotteryGames",
+  "activeLotteryRules",
+  "saveLotteryRules",
+  "ensureLotteryProvider",
+  "listLotteryProviders",
+  "saveLotteryHealth",
+  "latestLotteryHealth",
+  "listLotteryHealth",
+  "findLotteryDraw",
+  "findLotteryDrawByExternal",
+  "listLotteryDraws",
+  "saveLotteryDraw",
+  "listLotteryDrawNumbers",
+  "saveLotteryDrawNumbers",
+  "lotteryDrawsForStats",
+  "countLotteryDraws",
+  "startLotteryJobRun",
+  "finishLotteryJobRun",
+  "listLotteryJobRuns",
+  "findLotteryJobRunByKey",
+  "deleteOldLotteryJobRuns",
+  "deleteOldLotteryHealth",
   // operational
   "readiness",
 ]);

@@ -147,7 +147,7 @@ test("the eleven Strategy Lab methods are part of the contract, not adapter extr
   // Phase 12 adds one cross-owner execution read, the five job-lock methods and
   // the two job-state methods; slices 4-5 add the 13 settlement methods and row 19
   // the 2 performance-snapshot methods.
-  assert.equal(REPOSITORY_METHODS.length, 144);
+  assert.equal(REPOSITORY_METHODS.length, 167);
   // No method may be declared twice: a duplicate would let one adapter satisfy
   // the count while missing a distinct behaviour.
   assert.equal(new Set(REPOSITORY_METHODS).size, REPOSITORY_METHODS.length);
@@ -294,6 +294,11 @@ test("file adapter survives close and reopen for all three new entities", async 
     // Slice 5: backtests and measured model metrics (migration 014); row 19: the
     // performance snapshots the sports cron writes (migration 015).
     sportsBacktests: 0, sportsModelMetrics: 0, sportsPerformanceSnapshots: 0,
+    // Row 15 slice 1: the seven lottery collections (migration 016), asserted at
+    // zero for the same reason the sports ones are — a WAL replay that resurrected
+    // a row this test did not write would be caught here.
+    lotteries: 0, lotteryRules: 0, lotteryProviders: 0, lotteryHealth: 0,
+    lotteryDraws: 0, lotteryDrawNumbers: 0, lotterySyncRuns: 0,
   });
   // The checksum covers the new entities, so a restore can prove they came back.
   assert.match(await second.checksum(), /^[0-9a-f]{64}$/);

@@ -551,6 +551,33 @@ function loadSportsConfig(env, { production }) {
   });
 }
 
+/**
+ * Lottery Intelligence configuration (module: lottery, row 15).
+ *
+ * The same F-14 discipline as the sports block above: every variable read literally,
+ * no prefix table. The official feed's own factory additionally demands an
+ * `https://` URL with no embedded credentials (legacy's `validUrl`, kept exactly) —
+ * the loader only trims; the *provider* refuses, so a misconfigured URL is visible
+ * as UNCONFIGURED in the health surface rather than as a boot failure.
+ *
+ * A default host has NO provider: the official feed is disabled, the sandbox is
+ * off, and status reports `DISABLED_NO_PROVIDER` — nothing fabricated.
+ */
+function loadLotteryConfig(env) {
+  return Object.freeze({
+    sandboxEnabled: env.WINDELS_LOTTERY_SANDBOX === "1",
+    official: Object.freeze({
+      enabled: env.WINDELS_LOTTERY_OFFICIAL_ENABLED === "1",
+      url: String(env.WINDELS_LOTTERY_OFFICIAL_URL || "").trim(),
+      healthUrl: String(env.WINDELS_LOTTERY_OFFICIAL_HEALTH_URL || "").trim(),
+      token: String(env.WINDELS_LOTTERY_OFFICIAL_TOKEN || "").trim(),
+      license: String(env.WINDELS_LOTTERY_OFFICIAL_LICENSE || "").trim(),
+      source: String(env.WINDELS_LOTTERY_OFFICIAL_SOURCE || "").trim() || "authorized-official-feed",
+      jackpotUrl: String(env.WINDELS_LOTTERY_OFFICIAL_JACKPOT_URL || "").trim(),
+    }),
+  });
+}
+
 function loadMarketDataConfig(env, { production }) {
   const licensed = LICENSED_ASSET_CLASSES.map((entry) => Object.freeze({
     ...entry,
@@ -673,6 +700,7 @@ export function loadConfig(env = process.env) {
     marketData: loadMarketDataConfig(env, { production }),
     brokers: loadBrokerConfig(env, { production }),
     sports: loadSportsConfig(env, { production }),
+    lottery: loadLotteryConfig(env),
     analysis: loadAnalysisConfig(env),
     uploads: loadUploadConfig(env, { production }),
     rateLimit: loadRateLimitConfig(env),

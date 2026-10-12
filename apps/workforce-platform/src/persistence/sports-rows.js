@@ -543,7 +543,7 @@ export function assertRunDate(value) {
   return text;
 }
 
-function nonNegativeInt(value, label) {
+export function nonNegativeInt(value, label) {
   const parsed = toInt(value, 0);
   if (parsed < 0) throw new TypeError(`${label} must not be negative, received ${parsed}`);
   return parsed;

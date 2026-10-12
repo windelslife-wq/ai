@@ -155,7 +155,7 @@ test("F-13 the MySQL row counts cover every table the migrations create, and not
   // NOT counted here would be backed up without this test ever proving it can be
   // restored. The number moving is the point: it forces whoever adds a table to look
   // at whether the restore path covers it.
-  assert.equal(tables.length, 41, `expected the 41 tables the migrations create, got: ${tables.join(", ")}`);
+  assert.equal(tables.length, 48, `expected the 48 tables the migrations create, got: ${tables.join(", ")}`);
   assert.ok(!tables.includes("wf_user_files"), "the phantom table must stay out — counting it broke MySQL backups");
   for (const expected of [
     "wf_analysis_runs",
@@ -177,6 +177,15 @@ test("F-13 the MySQL row counts cover every table the migrations create, and not
     "wf_sports_results",
     "wf_sports_data_quality_assessments",
     "wf_sports_sync_runs",
+    // Migration 016 (row 15 slice 1): the lottery foundation, named for the same
+    // reason the sports tables are.
+    "wf_lotteries",
+    "wf_lottery_rules",
+    "wf_lottery_data_sources",
+    "wf_lottery_provider_health",
+    "wf_lottery_draws",
+    "wf_lottery_draw_numbers",
+    "wf_lottery_sync_runs",
   ]) {
     assert.ok(tables.includes(expected), `${expected} must be counted`);
   }
@@ -241,6 +250,16 @@ test("F-13 the MySQL row counts cover every table the migrations create, and not
       // Row 19 (migration 015): performance snapshots — the table 014 deliberately
       // refused to create until its only writer (the cron's performance job) arrived.
       sportsPerformanceSnapshots: "wf_sports_performance_snapshots",
+      // Row 15 slice 1 (migration 016): the lottery foundation. The provider
+      // registry table is wf_lottery_data_sources — the ENTITY is lotteryProviders,
+      // mirroring legacy's data-source table and the sports entity's own naming.
+      lotteries: "wf_lotteries",
+      lotteryRules: "wf_lottery_rules",
+      lotteryProviders: "wf_lottery_data_sources",
+      lotteryHealth: "wf_lottery_provider_health",
+      lotteryDraws: "wf_lottery_draws",
+      lotteryDrawNumbers: "wf_lottery_draw_numbers",
+      lotterySyncRuns: "wf_lottery_sync_runs",
     };
     const stats = await store.stats();
     for (const collection of Object.keys(stats)) {
