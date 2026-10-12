@@ -25,6 +25,7 @@ import {
   assertEnum,
   assertRowId,
   assertRunDate,
+  assertText,
   assertTicketId,
   dailyRunRow,
   prepareDailyRunClaim,
@@ -139,6 +140,12 @@ export function createSportsTicketRepository(executor) {
         // Tickets carry no run date of their own: they are linked from the daily run row.
         clauses.push("id IN (SELECT ticket_id FROM wf_sports_daily_tickets WHERE run_date = ? AND ticket_id IS NOT NULL)");
         params.push(assertRunDate(f.runDate));
+      }
+      if (f.status !== null && f.status !== undefined) {
+        // The settlement status, which settlement itself writes — the filter the
+        // cron's sweep selects on, exactly as legacy's listTickets(['status' => 'PENDING']) does.
+        clauses.push("status = ?");
+        params.push(assertText(String(f.status).slice(0, 16), 16, "filter.status"));
       }
       const where = clauses.length ? `WHERE ${clauses.join(" AND ")}` : "";
       const [rows] = await executor.query(

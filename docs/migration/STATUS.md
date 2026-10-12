@@ -2,7 +2,44 @@
 
 **Updated:** 2026-10-12 · **Branch:** `arena/653d6218-ai`
 
-## Current Phase 19 status (2026-10-12)
+## Current Phase 20 status (2026-10-12)
+
+**The sports cron is ported** (row 19 — `SportsCronService`, 255 lines, the last code the sports
+module owed). Nine jobs — fixtures, odds and results syncs, quality, the daily ticket, the
+settlement sweep, performance snapshots, monitoring, and the 90-day retention cleanup — run in
+legacy's order from **`tools/sports-jobs.mjs` (`npm run sports:jobs`)**, CLI-only under the host's
+crontab; there is no HTTP route. Idempotency keeps legacy's answer with this platform's arbiter:
+each window-locked job takes a `wf_job_locks` marker whose **expiry is the window** (dots in the
+name — `assertJobName` refuses colons), a re-run inside the window reports `DUPLICATE_SKIPPED`
+naming the holder, the marker is never released (not even on failure — it is the "already ran"
+record, exactly legacy's execution-key semantics), and the sync jobs keep their per-provider
+execution keys. Migration **015** adds `wf_sports_performance_snapshots` — the writer slice 5's
+schema refused to pre-create — taking the schema to **41** tables; the contract reaches **144**
+methods (58 sports); the version is **0.17.0**; routes are unchanged at **115** total, **34**
+sports. `SPORTS_NOT_PORTED` shrinks to **2** (stake sizing, console screens): the cron's entry was
+removed, not re-labelled.
+
+The phase found and fixed two real bugs and two legacy ones: **F-43** — a shadowed import made
+`GET /api/v1/sports/performance` recurse into itself forever (the route had never been exercised
+end to end); **F-44** — the CLI parsed `--now` and then ran on the wall clock (the new CLI test
+caught it); **DV-24** — legacy's `run()` has no `'cleanup'` arm, so every legacy sweep ended
+`FAILED` with a spurious `SPORTS_JOB_FAILED` audit, and the port routes the job (pending user
+confirmation); **DV-25** — legacy's fixtures summary said "no providers configured" even when
+providers synced, and the port says it only when true (pending user confirmation). The quality job
+reads **stored** reliability, never a live probe (the cron-side extension of SP-10). Full record:
+[`PHASE20_SPORTS_CRON.md`](PHASE20_SPORTS_CRON.md).
+
+Gates on this branch: `npm test` **893 / 893** across **53** files, `npm run check` exit 0
+(`verify:install` 29/29, 76 documented variables), PHP oracle **367 / 367**, and the legacy tree
+(`application/`, `system/`, `tests/`) unmodified. The 14 test pins that moved were each read before
+being updated; four looked like behavior failures and were all count pins. **Not run:** a real
+MySQL server, migration 015 against any database, and a crontab.
+
+**Still not ported:** stake sizing (no slice owns it) and the console screens (F-29,
+platform-wide) — the sports module's whole remainder. Platform-wide: row 15 (lottery), F-15 (real
+MySQL), R-30 (file-adapter atomicity), row 22 (cutover).
+
+## Phase 19 status (2026-10-12) — superseded by Phase 20
 
 **The measured half is ported** (row 14, slice 5 of 5 — **all five slices of the sports module have
 landed**). App version is now **0.16.0**; no release was cut, and nothing is deployed. The ledger stays at

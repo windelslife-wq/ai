@@ -66,12 +66,15 @@ import {
   ticketSelectionRow,
   backtestRow,
   modelMetricsRow,
+  performanceSnapshotRow,
   prepareBacktest,
   prepareModelMetrics,
+  preparePerformanceSnapshot,
   prepareSelectionSettlement,
   prepareTicketSettlement,
   predictionOutcomeRow,
   settledSelectionRow,
+  SNAPSHOT_WINDOWS,
 } from "./sports-rows.js";
 import { createHash } from "node:crypto";
 import path from "node:path";
@@ -92,7 +95,10 @@ const ENTITIES = ["users", "profiles", "sessions", "roles", "permissions", "user
   "sportsTickets", "sportsTicketSelections", "sportsDailyTickets",
   // Settlement, measurement and backtests (migration 014, slice 5). Backtests are keyed
   // by their `bt_` id; metrics snapshots are append-only and keyed by id.
-  "sportsBacktests", "sportsModelMetrics"];
+  "sportsBacktests", "sportsModelMetrics",
+  // Performance snapshots (migration 015, row 19). Keyed by (as_of hour, window) — the
+  // migration's UNIQUE key, and what makes a re-run of the same hour REPLACE.
+  "sportsPerformanceSnapshots"];
 const PAPER_TX_ENTITIES = Object.freeze(["tradingState", "paperAccounts", "paperOrders", "paperPositions", "paperTrades", "paperDeployments", "executionProposals", "strategies", "journalEntries", "audit"]);
 const COMPACTION_ENTRIES = 2_000;
 /**
@@ -187,6 +193,9 @@ function keyOf(entity, record) {
   if (entity === "sportsConfigurations") return String(record.version);
   // One daily run per (day, configuration version), the same as the migration's UNIQUE key.
   if (entity === "sportsDailyTickets") return `${record.run_date}|${record.configuration_version}`;
+  // One performance snapshot per (as_of hour, window), the same as the migration's
+  // UNIQUE key — and what makes the cron's re-run of an hour REPLACE, not append.
+  if (entity === "sportsPerformanceSnapshots") return `${record.as_of}|${record.window}`;
   return String(record.id);
 }
 
@@ -1414,6 +1423,8 @@ export async function createFileStore({ dir, logger = console, idFactory = () =>
         ? null : assertEnum(f.approvalStatus, TICKET_APPROVALS, "filter.approvalStatus");
       // Same meaning as the SQL subquery: tickets linked from a daily run on that day.
       const runDate = f.runDate === null || f.runDate === undefined ? null : assertRunDate(f.runDate);
+      const status = f.status === null || f.status === undefined
+        ? null : assertText(String(f.status).slice(0, 16), 16, "filter.status");
       const linked = runDate === null ? null : new Set(
         [...tables.get("sportsDailyTickets").values()]
           .filter((r) => r.run_date === runDate && r.ticket_id !== null && r.ticket_id !== undefined)
@@ -1421,7 +1432,8 @@ export async function createFileStore({ dir, logger = console, idFactory = () =>
       );
       return [...tables.get("sportsTickets").values()]
         .filter((r) => (approval === null || r.approval_status === approval)
-          && (linked === null || linked.has(String(r.id))))
+          && (linked === null || linked.has(String(r.id)))
+          && (status === null || r.status === status))
         .sort((a, b) => String(b.created_at).localeCompare(String(a.created_at)) || String(b.id).localeCompare(String(a.id)))
         .slice(0, bounded)
         .map(ticketRow);
@@ -1660,6 +1672,31 @@ export async function createFileStore({ dir, logger = console, idFactory = () =>
         .sort((a, b) => String(b.created_at).localeCompare(String(a.created_at)) || String(b.id).localeCompare(String(a.id)))
         .slice(0, bounded)
         .map(backtestRow);
+    },
+
+    /**
+     * Store one performance snapshot. No `replace: false`: (as_of, window) is the
+     * identity the keyOf arbiter enforces, and legacy's write REPLACES the window's
+     * snapshot when the same hour runs again — an upsert, not an append.
+     */
+    async saveSportsPerformanceSnapshot(input) {
+      const row = preparePerformanceSnapshot(input ?? {});
+      const key = `${row.as_of}|${row.window}`;
+      await mutate("sportsPerformanceSnapshots", "upsert", row);
+      return performanceSnapshotRow(tables.get("sportsPerformanceSnapshots").get(key));
+    },
+
+    async listSportsPerformanceSnapshots(window, limit = 30) {
+      const w = String(window ?? "").trim();
+      if (!SNAPSHOT_WINDOWS.includes(w)) {
+        throw new TypeError(`snapshot window must be one of ${SNAPSHOT_WINDOWS.join(", ")}, received ${JSON.stringify(w.slice(0, 8))}`);
+      }
+      const bounded = Math.min(366, Math.max(1, toInt(limit, 30)));
+      return [...tables.get("sportsPerformanceSnapshots").values()]
+        .filter((r) => r.window === w)
+        .sort((a, b) => String(b.as_of).localeCompare(String(a.as_of)))
+        .slice(0, bounded)
+        .map(performanceSnapshotRow);
     },
 
     /**

@@ -102,9 +102,9 @@ function odds(overrides = {}) {
 
 // ── contract ─────────────────────────────────────────────────────────────────
 
-test("the sports repository exposes exactly the 56 methods the contract names, and no more", () => {
+test("the sports repository exposes exactly the 58 methods the contract names, and no more", () => {
   const repository = createSportsRepository(recordingExecutor());
-  assert.equal(SPORTS_REPOSITORY_METHODS.length, 56);
+  assert.equal(SPORTS_REPOSITORY_METHODS.length, 58);
   for (const method of SPORTS_REPOSITORY_METHODS) {
     assert.equal(typeof repository[method], "function", `${method} must be implemented`);
   }

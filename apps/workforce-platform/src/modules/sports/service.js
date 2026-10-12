@@ -35,13 +35,19 @@ import { PROVIDER_STATUS } from "./provider-error.js";
 import { assessProviderHealth } from "./health-monitor.js";
 import { createSportsProviderManager } from "./providers/manager.js";
 import { AppError } from "../../http/errors.js";
+import { createSportsCronService } from "./cron.js";
 import { createSportsSyncService } from "./sync.js";
 import { createSportsIntelligenceService } from "./intelligence-service.js";
 import { createTicketService } from "./ticket-service.js";
 import { createSettlementService } from "./settlement.js";
 import { createModelDriftService } from "./drift.js";
 import { runBacktest } from "./backtester.js";
-import { performanceReport } from "./performance-analytics.js";
+// Imported under a distinct name: this service also defines `performanceReport` (the
+// repository-bound assembler), and a bare import of the same name would be shadowed by
+// it here — which is exactly what happened (finding F-43): the assembler called itself
+// through the shadowed name, and the route hung in infinite async recursion. The pure
+// report is `computePerformanceReport`; the assembler is `performanceReport`.
+import { performanceReport as computePerformanceReport } from "./performance-analytics.js";
 import { createSandboxSportsProvider, SANDBOX_PROVIDER_ID } from "./providers/sandbox.js";
 import { createHttpSportsProvider } from "./providers/http.js";
 
@@ -64,7 +70,6 @@ import { createHttpSportsProvider } from "./providers/http.js";
  */
 export const SPORTS_NOT_PORTED = Object.freeze([
   Object.freeze({ area: "stake sizing", legacy: "stake_amount copied onto each ticket (TicketGovernance::record)", state: "not ported", detail: "No stake is sized from bankroll or edge: the configured fixed stake_amount is recorded on each ticket, as legacy does, and settlement's P/L is computed on it. Sizing is not ported, and no slice owns it yet." }),
-  Object.freeze({ area: "scheduled jobs", legacy: "SportsCronService (fixtures, odds, results, quality, ticket, settlement, performance, monitoring, cleanup) and sports_performance_snapshots", state: "not ported", detail: "The settlement sweep, the drift monitor and the performance report are ported and runnable on request, but no scheduler drives them: sports_cron stays with row 19's scheduled-jobs workstream. The performance-snapshot table has no ported writer, so it is not created." }),
   Object.freeze({ area: "console screens", legacy: "Sports::index, Sports::tickets (views/sports/*.php)", state: "not ported", detail: "Both console views aggregate stored tickets and settled results. No ported module has a console screen (F-29, platform-wide); the API reads exist under /sports/performance and /sports/tickets." }),
 ]);
 
@@ -541,14 +546,21 @@ export function createSportsService({ config, store = null, notifications = null
     );
     const outcomes = (await repository.listSportsPredictionOutcomes(f.modelVersionId ?? null, 5000))
       .filter((row) => (f.from ? inWindowFrom(row.created_at, f.from) : true));
-    const report = performanceReport(tickets, windowSelections, outcomes, {
+    // F-43: this is the PURE report from performance-analytics.js, called under its
+    // unshadowed alias. Under the shadowed name this line called this very function.
+    const report = computePerformanceReport(tickets, windowSelections, outcomes, {
       mode: settings.mode ?? "SANDBOX",
       totalPredictions: (await repository.listSportsPredictions({}, 1000)).length,
     });
     return { ...report, filter: f };
   }
 
-  return Object.freeze({
+  /**
+   * The composed service, named so the cron can be handed the very object a caller
+   * gets — the cron drives the same sync, tickets, settlement, drift and measurement
+   * paths the HTTP surface does, never a private copy of them.
+   */
+  const sportsService = Object.freeze({
     status,
     statusSnapshot,
     intelligence,
@@ -579,6 +591,16 @@ export function createSportsService({ config, store = null, notifications = null
     /** `PROVIDER_STATUS`, re-exported so a route does not import two modules. */
     statuses: PROVIDER_STATUS,
   });
+
+  /**
+   * The sports cron (row 19): nine idempotent jobs driving the services above, from
+   * the CLI (`npm run sports:jobs`) and never from an HTTP route. Built only where a
+   * repository exists — every job reads or writes one, and a cron that answered
+   * "done" without a store would be the fabrication the module refuses.
+   */
+  const cron = store ? createSportsCronService({ sports: sportsService, store, now }) : null;
+
+  return Object.freeze({ ...sportsService, cron });
 }
 
 /** Whether a stored instant is at or after a `from` bound, compared as instants. */

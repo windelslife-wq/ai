@@ -23,6 +23,8 @@ export const REQUIRED_MIGRATIONS = Object.freeze([
   "011_sports_foundation",
   "012_sports_intelligence",
   "013_sports_tickets",
+  "014_sports_settlement",
+  "015_sports_snapshots",
 ]);
 
 /** Only driver codes are ever reported; never an SQL statement or credential. */
@@ -153,6 +155,12 @@ export function createStore(pool, { requiredMigrations = REQUIRED_MIGRATIONS } =
     saveSportsBacktest: sports.saveSportsBacktest,
     findSportsBacktest: sports.findSportsBacktest,
     listSportsBacktests: sports.listSportsBacktests,
+    // The performance snapshot (migration 015, row 19). Its only writer is the sports
+    // cron's `performance` job; the read is the history an operator compares windows
+    // with. Upsert on (as_of, window) — a re-run of the same hour replaces, never
+    // appends — exactly as legacy's unique key makes it.
+    saveSportsPerformanceSnapshot: sports.saveSportsPerformanceSnapshot,
+    listSportsPerformanceSnapshots: sports.listSportsPerformanceSnapshots,
     saveJobState: jobs.saveJobState,
     // Notifications are written outside any paper transaction: they are evidence
     // about a change that already committed, and a failed notification must never

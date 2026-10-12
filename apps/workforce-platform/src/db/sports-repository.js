@@ -843,7 +843,7 @@ export function createSportsRepository(executor) {
   };
 }
 
-/** The 47 methods this repository adds to the shared store contract (24 foundation, 12 slice 3, 13 slices 4-5). */
+/** The 58 methods this repository adds to the shared store contract (22 foundation + 12 intelligence + 13 ticket + 11 settlement, measurement and snapshot). */
 export const SPORTS_REPOSITORY_METHODS = Object.freeze([
   "ensureSportsProvider",
   "listSportsProviders",

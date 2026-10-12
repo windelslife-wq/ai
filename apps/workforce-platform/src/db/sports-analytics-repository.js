@@ -19,17 +19,20 @@
 import {
   backtestRow,
   modelMetricsRow,
+  performanceSnapshotRow,
   prepareBacktest,
   prepareModelMetrics,
+  preparePerformanceSnapshot,
   predictionOutcomeRow,
   settledSelectionRow,
   toInt,
 } from "../persistence/sports-rows.js";
 import { assertIsoCutoff } from "../persistence/contract.js";
+import { SNAPSHOT_WINDOWS as SNAPSHOT_WINDOW_VALUES } from "../persistence/sports-rows.js";
 
 const BOUNDED = (limit, fallback = 200) => Math.min(5000, Math.max(1, toInt(limit, fallback)));
 
-/** The seven methods this module adds to the shared store contract. */
+/** The nine methods this module adds to the shared store contract. */
 export const SPORTS_ANALYTICS_METHODS = Object.freeze([
   "listSportsPredictionOutcomes",
   "listSportsSettledSelections",
@@ -38,6 +41,8 @@ export const SPORTS_ANALYTICS_METHODS = Object.freeze([
   "saveSportsBacktest",
   "findSportsBacktest",
   "listSportsBacktests",
+  "saveSportsPerformanceSnapshot",
+  "listSportsPerformanceSnapshots",
 ]);
 
 export function createSportsAnalyticsRepository(executor) {
@@ -187,6 +192,40 @@ export function createSportsAnalyticsRepository(executor) {
         `SELECT * FROM wf_sports_backtests ORDER BY created_at DESC, id DESC LIMIT ${BOUNDED(limit, 20)}`,
       );
       return (rows ?? []).map(backtestRow);
+    },
+
+    /**
+     * Store one performance snapshot, UPSERT on (as_of, window) — the migration's
+     * unique key and legacy's write: a re-run of the same hour REPLACES the window's
+     * snapshot rather than appending a second copy. `asOf` is hour-truncated by the
+     * row preparer, so both halves of the identity are canonical before the SQL runs.
+     */
+    async saveSportsPerformanceSnapshot(input) {
+      const row = preparePerformanceSnapshot(input ?? {});
+      await executor.execute(
+        `INSERT INTO wf_sports_performance_snapshots (as_of, window, payload)
+         VALUES (?, ?, ?)
+         ON DUPLICATE KEY UPDATE payload = VALUES(payload)`,
+        [row.as_of, row.window, row.payload],
+      );
+      const [rows] = await executor.query(
+        "SELECT * FROM wf_sports_performance_snapshots WHERE as_of = ? AND window = ?",
+        [row.as_of, row.window],
+      );
+      return performanceSnapshotRow(rows?.[0] ?? null);
+    },
+
+    /** Newest-first snapshots for one window, bounded at legacy's 366, payloads decoded. */
+    async listSportsPerformanceSnapshots(window, limit = 30) {
+      const w = String(window ?? "").trim();
+      if (!SNAPSHOT_WINDOW_VALUES.includes(w)) {
+        throw new TypeError(`snapshot window must be one of ${SNAPSHOT_WINDOW_VALUES.join(", ")}, received ${JSON.stringify(w.slice(0, 8))}`);
+      }
+      const [rows] = await executor.query(
+        `SELECT * FROM wf_sports_performance_snapshots WHERE window = ? ORDER BY as_of DESC LIMIT ${Math.min(366, Math.max(1, toInt(limit, 30)))}`,
+        [w],
+      );
+      return (rows ?? []).map(performanceSnapshotRow);
     },
   };
   return repo;

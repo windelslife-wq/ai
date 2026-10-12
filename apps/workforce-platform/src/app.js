@@ -568,6 +568,7 @@ export async function buildApp({ config, store, logger = true, publicDir = path.
     concurrency,
     siteDocuments,
     jobs,
+    sports,
     routes: () => router.list(),
     documents: () => siteDocuments.paths(),
     async listen({ host = config.host, port = config.port } = {}) {

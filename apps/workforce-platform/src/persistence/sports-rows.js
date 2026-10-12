@@ -781,6 +781,47 @@ export function backtestRow(row) {
 }
 
 /**
+ * One performance snapshot (`wf_sports_performance_snapshots`), legacy's shape one for
+ * one: identified by (as_of hour, window), the payload the whole report as JSON.
+ *
+ * `asOf` is truncated to the hour here, so a cron that runs twice within the hour
+ * writes the same identity and the upsert replaces — the guarantee legacy's
+ * `uq_sports_perf_snapshot (as_of, window)` makes. `window` is legacy's own spelling:
+ * '7', '30', '90' or 'ALL'.
+ */
+export const SNAPSHOT_WINDOWS = Object.freeze(["7", "30", "90", "ALL"]);
+
+/** `YYYY-MM-DDTHH:00:00.000Z` — the hour containing `instant`, in UTC. */
+export function hourFloorIso(instant) {
+  const at = instant instanceof Date ? instant.getTime() : Date.parse(String(instant));
+  if (Number.isNaN(at)) throw new TypeError(`as_of must be an ISO-8601 instant, received ${JSON.stringify(String(instant).slice(0, 40))}`);
+  return new Date(Math.floor(at / 3_600_000) * 3_600_000).toISOString();
+}
+
+export function preparePerformanceSnapshot({ asOf, window, payload }) {
+  const w = String(window ?? "").trim();
+  if (!SNAPSHOT_WINDOWS.includes(w)) {
+    throw new TypeError(`snapshot window must be one of ${SNAPSHOT_WINDOWS.join(", ")}, received ${JSON.stringify(w.slice(0, 8))}`);
+  }
+  return {
+    as_of: hourFloorIso(asOf ?? new Date()),
+    window: w,
+    payload: encodeJson(payload ?? {}),
+  };
+}
+
+/** Read one snapshot row. `payload` comes back decoded, as legacy's does. */
+export function performanceSnapshotRow(row) {
+  if (!row) return null;
+  return {
+    id: row.id === null || row.id === undefined ? null : Number(row.id),
+    as_of: String(row.as_of),
+    window: String(row.window),
+    payload: decodeJson(row.payload, {}),
+  };
+}
+
+/**
  * One measured model-metrics snapshot (`wf_sports_model_metrics`).
  *
  * `sampleType` is `live` for `ModelPerformanceService::metricsFor` and `drift` for the

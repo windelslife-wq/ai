@@ -638,7 +638,7 @@ test("F-01 the durable file adapter replays its log, survives a torn write, and 
     sportsModelVersions: 0, sportsPredictions: 0, sportsConfigurations: 0, sportsCalibrations: 0,
     // Slice 4: the ticket collections, empty for the same reason.
     sportsTickets: 0, sportsTicketSelections: 0, sportsDailyTickets: 0,
-    sportsBacktests: 0, sportsModelMetrics: 0 });
+    sportsBacktests: 0, sportsModelMetrics: 0, sportsPerformanceSnapshots: 0 });
 
   await reopened.compact();
   const compacted = (await readFile(fileStorePaths(dir).log, "utf8")).trim();
@@ -671,7 +671,7 @@ test("F-01 the file store and the SQL store implement one repository contract, s
     () => assertRepositoryContract({ adapter: "stub", capabilities: {}, readiness: async () => ({}) }, { adapter: "stub" }),
     /does not implement the repository contract.*findUserByIdentifier/s,
   );
-  assert.equal(REPOSITORY_METHODS.length, 142, "8 identity + 6 sessions + 9 RBAC + 2 admin + 4 audit/profile + 2 contact intake + 4 analysis runs + 11 Strategy Lab (including persisted human sign-off) + 23 paper trading + 3 execution proposal reads (2 owner-scoped + 1 cross-owner for the scheduled job) + 6 operator notifications + 5 job locks + 2 job state + 22 sports foundation (3 provider registry + 4 health including retention + 4 fixtures + 4 odds + 2 results + 2 quality + 3 sync runs) + 12 sports intelligence (2 model versions + 4 predictions + 3 configuration + 3 calibration) + 13 ticket writes and reads (9 slice 4 + 4 slice-5 settlement updates and recovery) + 9 settlement-and-measurement methods (2 result attestation + 2 outcome reads + 2 model metrics + 3 backtests) + 1 readiness");
+  assert.equal(REPOSITORY_METHODS.length, 144, "8 identity + 6 sessions + 9 RBAC + 2 admin + 4 audit/profile + 2 contact intake + 4 analysis runs + 11 Strategy Lab (including persisted human sign-off) + 23 paper trading + 3 execution proposal reads (2 owner-scoped + 1 cross-owner for the scheduled job) + 6 operator notifications + 5 job locks + 2 job state + 22 sports foundation (3 provider registry + 4 health including retention + 4 fixtures + 4 odds + 2 results + 2 quality + 3 sync runs) + 12 sports intelligence (2 model versions + 4 predictions + 3 configuration + 3 calibration) + 13 ticket writes and reads (9 slice 4 + 4 slice-5 settlement updates and recovery) + 11 settlement, measurement and snapshot methods (2 result attestation + 2 outcome reads + 2 model metrics + 3 backtests + 2 performance snapshots) + 1 readiness");
 
   // The 22 sports foundation methods, the 12 decision-chain methods (migration 012)
   // and the slice-5 settlement-and-measurement methods (migration 014) are named here
@@ -1105,12 +1105,12 @@ test("F-02 the status surface is honest about unported modules, and F-03 the rou
   for (const pattern of [
     // The absence is stated as one list, so the list is pinned as a list rather than
     // as separate "no X" phrases that the label does not and should not repeat.
-    // Slice 5 shrank it to three: stake sizing, the sports cron (row 19) and the
-    // console screens (F-29). Settlement, calibration fitting, backtests, drift and
+    // Slice 5 shrank it to three and row 19 removed the cron from it: stake sizing
+    // and the console screens (F-29) are what no slice owns. Settlement, calibration fitting, backtests, drift and
     // analytics came OUT of this list, and the assertion that they are gone is as
     // important as the ones that remain: a ledger label is documentation, and a stale
     // one is worse than none because it is read as current.
-    /not ported: stake sizing, the sports cron \(row 19\) and the console screens \(f-29\)/i,
+    /not ported: stake sizing and the console screens \(f-29\)/i,
     /no stored result is trusted before a person attests/i,
     /never verified against a vendor/i,
     /nineteen sports\.view reads, two sports\.manage reads, ten sports\.manage writes/i,

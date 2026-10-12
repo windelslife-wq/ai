@@ -212,6 +212,8 @@ export const REPOSITORY_METHODS = Object.freeze([
   "saveSportsBacktest",
   "findSportsBacktest",
   "listSportsBacktests",
+  "saveSportsPerformanceSnapshot",
+  "listSportsPerformanceSnapshots",
   // operational
   "readiness",
 ]);

@@ -13,7 +13,7 @@ test("database readiness requires every ordered Node identity migration and repo
   };
   const readiness = await createStore(pool).readiness();
   assert.deepEqual(readiness, { database: true, schema: false, adapter: "mysql", detail: null });
-  assert.match(calls[1].sql, /IN \(\?, \?, \?, \?, \?, \?, \?, \?, \?, \?, \?, \?, \?\)/);
+  assert.match(calls[1].sql, /IN \(\?, \?, \?, \?, \?, \?, \?, \?, \?, \?, \?, \?, \?, \?, \?\)/);
   assert.deepEqual(calls[1].values, [
     "001_platform_foundation",
     "002_identity_import_fields",
@@ -37,6 +37,8 @@ test("database readiness requires every ordered Node identity migration and repo
     "012_sports_intelligence",
     // Slice 4: tickets, ticket selections and the daily ticket run.
     "013_sports_tickets",
+        "014_sports_settlement",
+        "015_sports_snapshots",
   ]);
 });
 

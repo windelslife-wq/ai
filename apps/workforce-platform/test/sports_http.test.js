@@ -98,7 +98,7 @@ test("a default host configures no provider, fabricates nothing, and lists what 
   // Slice 5 empties the matrix down to three: settlement, verification, calibration
   // fitting, backtesting, drift monitoring and performance analytics all exist now,
   // and left the matrix rather than being re-labelled.
-  assert.equal(body.notPorted.length, 3, "slice 5 removed settlement, calibration fitting, backtesting, drift and analytics; what remains is sizing, the cron and the consoles");
+  assert.equal(body.notPorted.length, 2, "slice 5 removed settlement, calibration fitting, backtesting, drift and analytics; row 19 removed the cron; what remains is sizing and the consoles");
   for (const entry of body.notPorted) {
     assert.ok(entry.area && entry.legacy && entry.state && entry.detail, JSON.stringify(entry));
     assert.notEqual(entry.state, "ported");
@@ -267,7 +267,7 @@ test("the public status surface reports sports from configuration and contacts n
   const sports = body.modules.find((module) => module.key === "sports");
   assert.equal(sports.state, "partial");
   assert.match(sports.label, /no stored result is trusted before a person attests/i);
-  assert.match(sports.label, /not ported: stake sizing, the sports cron \(row 19\) and the console screens \(f-29\)/i);
+  assert.match(sports.label, /not ported: stake sizing and the console screens \(f-29\)/i);
   assert.ok(!/no persistence/i.test(sports.label), "persistence exists now; a stale label reads as current documentation");
   assert.equal(body.modules.length, 17);
 });

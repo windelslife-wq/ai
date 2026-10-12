@@ -155,7 +155,7 @@ test("F-13 the MySQL row counts cover every table the migrations create, and not
   // NOT counted here would be backed up without this test ever proving it can be
   // restored. The number moving is the point: it forces whoever adds a table to look
   // at whether the restore path covers it.
-  assert.equal(tables.length, 40, `expected the 40 tables the migrations create, got: ${tables.join(", ")}`);
+  assert.equal(tables.length, 41, `expected the 41 tables the migrations create, got: ${tables.join(", ")}`);
   assert.ok(!tables.includes("wf_user_files"), "the phantom table must stay out — counting it broke MySQL backups");
   for (const expected of [
     "wf_analysis_runs",
@@ -238,6 +238,9 @@ test("F-13 the MySQL row counts cover every table the migrations create, and not
       // Slice 5 (migration 014): backtests and measured model metrics.
       sportsBacktests: "wf_sports_backtests",
       sportsModelMetrics: "wf_sports_model_metrics",
+      // Row 19 (migration 015): performance snapshots — the table 014 deliberately
+      // refused to create until its only writer (the cron's performance job) arrived.
+      sportsPerformanceSnapshots: "wf_sports_performance_snapshots",
     };
     const stats = await store.stats();
     for (const collection of Object.keys(stats)) {
