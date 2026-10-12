@@ -496,6 +496,17 @@ To **demo** the full chain, Broker Center has a *Simulated MT5 bridge* toggle:
   post-trade portfolio snapshot. SEMI_AUTONOMOUS still refuses without an
   APPROVED (paper-proven) strategy — by design.
 
+**This toggle is not ported to the Node platform.** Everything above describes
+the PHP application, which remains authoritative. The Node port carries the
+connector boundary and its health/demo gates, so a connector can *report*
+`simulated: true`, but nothing in the Node repository can produce it: the
+simulated bridge is deliberately absent, and there is no order-placing route,
+no connector-enable route and no toggle. Creating the first order-routing path
+in the Node platform deserves its own phase and explicit sign-off, not a side
+effect of porting a health gate — and it needs a long-lived loopback listener,
+which a cPanel/Passenger host offering no persistent worker does not suit.
+See [`docs/migration/PHASE14_BROKER_CENTER.md`](docs/migration/PHASE14_BROKER_CENTER.md).
+
 ## API surface
 
 `/api/auth/{login,me,logout}` · `/api/notifications[/read-all|/:id/read]`

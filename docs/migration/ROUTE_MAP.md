@@ -5,7 +5,7 @@ Source of truth: `application/config/routes.php` (285 explicit rules) + CodeIgni
 
 
 > **Current Node route note (2026-10-11):** Sections 1–13 remain the Phase-0
-> legacy inventory. Sections 14.7–14.10 describe the Node API through Phase 8A;
+> legacy inventory. Sections 14.4 and 14.7–14.12 describe the Node API through Phase 11;
 > 75 API routes are implementation inventory, not a PHP-parity claim. Paper
 > trading and approved proposal submission remain simulation-only and owner-scoped.
 > The full supervisor and all live broker/order routes remain unavailable. See
@@ -244,7 +244,7 @@ returns the 38 routes below; `app.documents()` returns the 22 document routes in
 | `DELETE /api/v1/account/avatar` | session + CSRF | `POST /account/avatar/remove` |
 | `GET /api/v1/files/avatars/:fileId` | public bytes, owner-or-admin policy | legacy served uploads straight from `/assets/uploads/` (§12); Node keeps them outside the static root |
 
-### 14.4 Administration (6)
+### 14.4 Administration (7)
 
 | Method/path | Permission | Legacy relationship |
 |---|---|---|
@@ -254,6 +254,7 @@ returns the 38 routes below; `app.documents()` returns the 22 document routes in
 | `GET /api/v1/admin/roles` | `identity.users.view` | the `tools/rbac.php` seeded matrix, read-only |
 | `GET /api/v1/admin/identity/users` | `identity.users.view` | alias retained from the Phase 1 foundation slice |
 | `GET /api/v1/admin/inquiries` | `system.super_admin` | new working copy of the legacy `CONTACT_INQUIRY` audit entries; super-admin only because a row holds a visitor's name and email |
+| `GET /api/v1/admin/audit` | `identity.users.view` | **Phase 10.** `api/events` · `api/events/(:num)` (`Api_system::events`). The whole trail: `action` (exact key or its dotted children), `entityType`/`entityId`, `actor` (`any` · `system` · a user id), inclusive `from`/`to`, `sort` (`createdAt`/`action`/`id`), `direction`, `limit` 1–200, `offset`. Every event carries a resolved `actor {userId, username, kind}`. **AV-1:** legacy needed only a signed-in user — `events()` makes no `requirePermission` call — so every operator could read every operator's trail; Node requires `identity.users.view`. **AV-2:** `from`/`to` must be canonical ISO-8601 **UTC**; a `+01:00` offset is a 400, because `created_at` is `DATETIME(3)` with no timezone and the two adapters would otherwise disagree about the same window. **AV-3:** an over-large `limit` is a 400, not a silent `min($limit, 500)` clamp. Read-only by construction — no route on either adapter can edit, redact or delete an audit event |
 
 ### 14.5 Public site (1)
 
@@ -318,8 +319,11 @@ no `DELETE` verb at all.
 
 At the Phase-5 cutoff, 5 + 7 + 11 + 6 + 1 + 3 + 5 = **38** API routes. Phase 6 added 11,
 Phase 7 added 19 paper/risk routes and one strategy sign-off route, and Phase 8A adds
-six paper-proposal routes, for **75 current Node API routes**. This is an implementation
-inventory, not a legacy-parity claim.
+six paper-proposal routes; Phase 9 adds three notification routes, Phase 10 the audit browser and Phase 11 the
+portfolio optimizer, for **80 current Node API routes**. This is an implementation inventory, not a legacy-parity claim.
+
+**Phase 12 added none, deliberately.** The scheduled operations job (`tools cron` in
+legacy) is CLI-only — see §14.13.
 
 ### 14.9 Paper trading and persisted portfolio risk controls (19) — Phase 7
 
@@ -384,6 +388,32 @@ possible duplicate. The wider ordered supervisor, its automation envelope, broke
 gates, real MySQL/MariaDB execution and cPanel/Passenger rehearsal all remain
 incomplete. See [`PHASE8_EXECUTION_PROPOSALS.md`](PHASE8_EXECUTION_PROPOSALS.md).
 
+### 14.11 Operator notifications (3) — Phase 9
+
+Ports `Api_system::notifications`, `notification_read` and `notification_read_all`
+(`application/config/routes.php` lines 212–214). All three require the
+`system.authenticated` baseline, exactly as the legacy controller did — an
+operator's own unread alerts are not a privileged surface. Unsafe cookie
+mutations also require the session-bound CSRF token; bearer callers are exempt.
+
+| Method/path | Permission | Scope |
+|---|---|---|
+| `GET /api/v1/notifications` | `system.authenticated` | Broadcast (`user_id IS NULL`) plus the caller's own, newest first. `?unread=1` (legacy flag), `?severity=`, `?type=`, `?limit=` 1–200, default 50. `unread` always counts everything visible, independent of the page filters |
+| `POST /api/v1/notifications/:notificationId/read` | `system.authenticated` + CSRF | Idempotent. A missing, already-read or **foreign** id all answer `404 notification not found or already read`, so the route cannot be used to discover which ids exist |
+| `POST /api/v1/notifications/read-all` | `system.authenticated` + CSRF | Marks the caller's visible unread rows read and reports `markedRead` |
+
+**There is deliberately no publish route.** No create, broadcast or delete
+endpoint exists, so no HTTP caller can inject an alert that appears to come from
+the risk engine or the execution supervisor. Publishing is internal to the
+platform: `paper.setKillSwitch()`, `paper.setTradingMode()` and the execution
+proposal lifecycle publish through the service, always *after* their audit row has
+committed, and a failed alert never fails the governance action that caused it.
+
+The legacy server-rendered console (`/notifications`,
+`views/notifications/index.php`) is **not** ported; it belongs to the app-shell
+workstream (F-29 still stands — no ported module has a workspace console).
+See [`PHASE9_NOTIFICATIONS.md`](PHASE9_NOTIFICATIONS.md).
+
 ## 15. Node rendered document routes (22)
 
 Documents are rendered per request by `src/modules/site/`; **no static copy of any of them is
@@ -404,12 +434,220 @@ a real static file with a non-GET method answers **405** + `Allow: GET, HEAD`. A
 carrying `Accept: text/html` receives the built SPA shell (200); without that header it stays
 **404**, so a missing asset is never masked by HTML.
 
+### 14.12 Research-only portfolio optimization (1) — Phase 11
+
+Ports `POST /api/portfolio/optimize` (`Api_portfolio::optimize` →
+`Aegis\Platform::optimizePortfolio()`). Session-only like its legacy
+`Api_controller` surface, and gated on `trading.view` exactly as legacy was — a
+permission every member role already holds, so this is a "signed-in operator" gate
+rather than an administrative one. The unsafe cookie mutation is CSRF-gated; bearer
+callers are exempt.
+
+| Method/path | Permission | Legacy relationship |
+|---|---|---|
+| `POST /api/v1/portfolio/optimize` | `trading.view` + CSRF | `POST /api/portfolio/optimize`. Body: `assets` (2–12 `{symbol, marketClass}`), `timeframe` (`15m`/`1h`/`4h`/`1d`), `limit` 31–2000 default 500, `objective` (`max_sharpe` default / `min_variance`), `maxWeight`, `riskFreeRate`, `shrinkage`, `periodsPerYear`, `allowSyntheticData`. Response keeps the legacy envelope — the report is under `optimization`. **PO-5:** no alias for the unversioned legacy path. **PO-6:** the `/portfolio/` prefix is shared with the paper module's pre-existing `GET /api/v1/portfolio/risk-scan` (§14.9) — two different concerns, not re-homed because that would break a shipped path |
+
+**It cannot reach an order path**, structurally rather than by comment: the service is
+built with `{store, marketData, log}` and is never given the paper, strategy or
+execution services. `additionalProperties: false` makes `execute`, `amount`,
+`orderId`, `accountId` and `notional` a **400** at both the top level and inside an
+asset. There is no `GET` counterpart — a run is computed and returned, never
+persisted, so there is no history to read back.
+
+Error mapping refines the legacy controller's three catches (**PO-2**): input-shape
+failures answer **400 `INVALID_REQUEST`** (schema) or **400
+`INVALID_PORTFOLIO_REQUEST`** (solver-level input guards such as a `maxWeight` too
+small to be fully invested for the asset count); estimation and data conditions
+answer **422 `PORTFOLIO_OPTIMIZATION_UNAVAILABLE`** (mixed synthetic/live, or
+all-synthetic without the opt-in); provider failures answer **503** through the
+shared `marketDataFailure` mapping, so an outage reads identically here and on
+`/market-data/candles`, and a host with `MARKET_DATA_ALLOW_SYNTHETIC=0` answers
+**503 `SYNTHETIC_DATA_DISABLED`** with a positive `Retry-After`; a missing provider
+chain answers **503 `PORTFOLIO_DATA_UNAVAILABLE`** rather than fabricating prices.
+
+Cost control (risk R-26), applied at birth: its own window limit
+(`RATE_LIMIT_PORTFOLIO_OPTIMIZE_MAX`, default 6 per 10 min) **charged before
+validation**, so a malformed request still counts against the budget, plus a
+per-session in-flight cap (`PORTFOLIO_MAX_CONCURRENT_RUNS`, default **1**, keyed by
+session so a shared office NAT cannot let one colleague starve another's) answered as
+**429 `TOO_MANY_CONCURRENT_OPTIMIZATIONS`**. Assets are fetched sequentially, so one
+request cannot open twelve concurrent provider connections. The slot is released in
+`finally`, so a refused run cannot lock a session out until the process restarts.
+
+Runs are audited as `portfolio.optimization.run` (entity type `portfolio`, legacy
+action preserved in `details.legacyAction`), so they are visible through the Phase 10
+audit browser at `?action=portfolio`. A **refused** run records nothing: nothing was
+computed, so nothing is recorded as computed.
+
+### 14.13 Scheduled operations (0) — Phase 12
+
+| Method & path | Auth | Permission | Rate limit | Validated | Notes |
+|---|---|---|---|---|---|
+| *— none —* | | | | | |
+
+Recorded as an empty section on purpose, because "why is there no route for the cron
+job" is the first question a reader of this map will ask.
+
+Legacy exposed it as `tools/cron`, a public controller method whose only protection was
+that nobody knew the URL. The Node port is `tools/scheduled-jobs.mjs` (`npm run jobs`,
+`npm run jobs:apply`), invoked by the host's cron, and `runOperations` **takes no owner
+argument**: it scans every paper account on the platform and expires every operator's
+stale proposals. Exposing that over HTTP would turn any reachable caller — or any session
+that slipped past a permission check — into a platform-wide actor, which is the same
+mistake AV-1 avoided by requiring `identity.users.view` for the audit trail.
+
+`test/scheduled_jobs.test.js` asserts no route in the whole inventory matches
+`job|cron|schedul|sweep|stale|lock`, so a future phase cannot add one without a test
+failing and someone writing down why. The lock table it coordinates through
+(`wf_job_locks`) is likewise unreachable: there is no route that reads, takes or clears a
+lock, because a client that could clear one could wedge or unwedge the schedule.
+
+See [`PHASE12_SCHEDULED_JOBS.md`](PHASE12_SCHEDULED_JOBS.md), divergence SJ-10.
+
+### 14.14 Broker Center (1) — Phase 14
+
+Ports `GET /api/brokers` (`Api_system::brokers`). **One route, and it is a read.**
+
+| Method & path | Auth | Permission | Rate limit | Validated | Notes |
+|---|---|---|---|---|---|
+| `GET /api/v1/brokers` | session or bearer | `trading.view` | global | — | `GET /api/brokers`. Returns `{brokers, planned, routable, notice}`: every registered connector's state (`DISABLED` · `NOT_CONFIGURED` · `DOWN` · `READY` · `ERROR`) with its capabilities, the nine `PLANNED` adapters in legacy's own wording, and the one boolean that matters — whether any connector may actually route an order. **F-32:** legacy's `brokers()` made no `requirePermission` call, so any signed-in user could read connector health, and its siblings `mt5_account()` / `mt5_quote()` returned the broker login, currency, balance and equity to the same audience; Node requires `trading.view`. **BC-10:** `planned` and `routable` lived only in the legacy console view (`Brokers::index`), and no ported module has a console screen (F-29), so they move into the response rather than being lost |
+
+**No broker write route exists, and `test/brokers_http.test.js` asserts that from the
+route inventory rather than from a comment.** There is no order, modify, cancel or
+close endpoint; there is no connector-enable endpoint; and there is no equivalent of
+legacy's `Brokers::sim_toggle()`, which wrote a marker file that its dev front
+controller translated into `AEGIS_MT5_*` environment variables. Porting a toggle for a
+simulated bridge this platform does not have would advertise a capability that does not
+exist. Every order-shaped route in the inventory belongs to `/api/v1/paper` and reaches
+the simulation engine, never a connector.
+
+Order routing stays where legacy put it — exclusively in the execution supervisor — and
+stays unavailable: `BrokerManager::tradingConnector()` returns `null` unless a connector
+is order-capable **and** its own freshly probed status reports `READY` with
+`orderSubmissionEffective === true`, which requires the local trading flag, a bridge that
+also reports `tradingEnabled`, and a demo account unless live trading was separately and
+explicitly allowed.
+
+The public `/api/v1/system/status` surface reports `brokerConnectorAvailable: false` and
+a config-only `brokerConnectorsConfigured` count **without probing anything** (BC-11):
+that endpoint is unauthenticated, and the invariant it keeps is that an anonymous caller
+cannot make this server reach an outbound host. The probed answer is `routable` here.
+
+Legacy's `GET /api/brokers/mt5/account` and `/api/brokers/mt5/quote` are **not ported**.
+Both read a live bridge, and there is no verified adapter to read; a route that can only
+answer 503 is a worse surface than no route, and the connector methods behind them exist
+and are tested against an injected transport.
+
+### 14.15 Sports Intelligence (1) — Phase 15
+
+> **Superseded by §14.16 for everything except the status route's own semantics.**
+> Slice 1 had one route because migration 011 did not exist; the absence list below is
+> now historical, and six of its entries (`matches`, `providers`, `sync`) are routes that
+> exist as of Phase 16. Kept in full because it records *why* those routes were absent
+> rather than approximated — the reasoning, not the count, is what still applies to the
+> endpoints that remain absent.
+
+Slice 1 of row 14: the data foundation and provider boundary. **One route, and it is a
+read.**
+
+| Method & path | Auth | Permission | Rate limit | Validated | Notes |
+|---|---|---|---|---|---|
+| `GET /api/v1/sports/status` | session or bearer | `sports.view` | global | `querySchema` | Provider configuration, derived health, the ten-entry `notPorted` matrix and a `notice`. Probe-free unless `?probe=1`; a probed response is stamped `persisted: false` |
+
+**Legacy has ~24 `Api_sports` endpoints and none of the others is ported** — not
+approximated, absent. Every one reads or writes the eleven tables this slice does not
+create, and `test/sports_http.test.js` asserts each absence against the route inventory
+rather than against a count, because a count would also pass if a route were renamed:
+`matches`, `odds`, `predictions`, `tickets`, `daily`, `results`, `providers`, `models`,
+`calibration`, `backtest`, `configuration`, `sync`, `settle`, `verify`. No sports route
+of any method other than `GET` exists.
+
+**`?probe` is a coerced boolean** (`{type: "boolean", default: false}`), matching
+`PROVIDERS_QUERY.refresh` in the market-data module. Declaring it is not decoration:
+`validateRequest` **rebuilds `request.query` from the schema**, so an undeclared
+parameter is dropped rather than passed through — the first version of this route had no
+schema and `?probe=1` silently never reached the handler (**D-24**). An unparseable value
+is a `400 INVALID_REQUEST` naming the field, not a silent "off" (**AV-3**'s reasoning),
+while `?probe=` with an empty value counts as absent and takes the default.
+
+**Authorization is not a divergence here.** `Api_sports` is the best-gated controller in
+the legacy application — `sports.view` for every read, `sports.manage` for writes, and
+separate `sports.approve` and `sports.settle`. The gate is reproduced because legacy had
+it, which is the counter-example that makes **F-32** precise: the same codebase gated one
+module's reads correctly and left another's open. Node's permission baseline already
+declared all four permissions and the `sports_admin`/`sports_viewer` roles, so no catalog
+change was needed; only `sports.view` is enforced yet, because only one route exists.
+
+`GET /api/v1/system/status` additionally carries a synchronous, probe-free
+`sports` snapshot (`enabled`, `mode`, `isDemoData`, `providersConfigured`, `providerIds`,
+`simulatedProviders`, `persistence`, `ticketEngine: "NOT_PORTED"`, `reason`). It reports
+**no derived health**, because a field that could only ever hold `UNKNOWN` invites a reader
+to think it was measured — and **F-35** later supplied the evidence for why it could only
+ever hold `UNKNOWN`: legacy never computed one either. `persistence` was hard-coded `false`
+in slice 1 and is `store !== null` from Phase 16; the snapshot stays synchronous and
+I/O-free either way, so it reports whether a repository *exists*, never what it contains.
+See [`PHASE15_SPORTS_FOUNDATION.md`](PHASE15_SPORTS_FOUNDATION.md).
+
+### 14.16 Sports Intelligence — stored reads and ingestion (7) — Phase 16
+
+Slice 2 of row 14. Migration 011 created seven tables, so the routes that read and fill
+them now exist. **Six are new; the status route is unchanged in path and gating but is now
+store-backed.**
+
+| Method & path | Auth | Permission | Rate limit | Validated | Notes |
+|---|---|---|---|---|---|
+| `GET /api/v1/sports/status` | session or bearer | `sports.view` | global | `querySchema` | Unchanged from §14.15, except that `providers[].derivedStatus` is now **measured** from stored health rows and sync runs rather than hard-coded `UNKNOWN`, and each entry also reports `registered`, `enabled`, `observations` and `syncRuns` |
+| `GET /api/v1/sports/providers` | session or bearer | `sports.view` | global | `querySchema` | The **stored** registry (`wf_sports_data_sources`), `?enabledOnly=` a coerced boolean. Distinct from `status().providers`, which lists what *this process* registered from the environment — the two disagreeing is information |
+| `GET /api/v1/sports/providers/:providerCode/health` | session or bearer | `sports.view` | global | `paramsSchema` + `querySchema` | One provider's observation **series**, newest first, bounded to 200. A series rather than a current value, because an outage is visible as a gap and invisible in an overwritten row. Unknown code → `404` |
+| `GET /api/v1/sports/matches` | session or bearer | `sports.view` | global | `querySchema` | Stored fixtures, oldest kickoff first. Filters: `status` (enum), `from`/`to` (inclusive instants), `competition` (**prefix**), `providerId`, `limit` ≤ 200 |
+| `GET /api/v1/sports/matches/:matchId` | session or bearer | `sports.view` | global | `paramsSchema` + `querySchema` | One fixture with its **odds series**, latest quality assessment and result, plus an explicit `verified` flag. Assembled in one response because read separately the four rows can be combined into a picture that never existed. Unknown id → `404` |
+| `GET /api/v1/sports/sync-runs` | session or bearer | `sports.view` | global | `querySchema` | Sync-run evidence, newest first, with `errors` returned **whole** and an `unfinished` count. **The read legacy never had** — see F-35 |
+| `POST /api/v1/sports/sync` | session or bearer + CSRF | **`sports.manage`** | global | `bodySchema` | Runs one ingestion job. Body: `jobType` (`FIXTURES`\|`ODDS`\|`RESULTS`), `providerId` (the registered id, not the row id), `executionKey`, and `fixtureExternalId`/`query` as the job needs |
+
+**`POST /sports/sync` is the module's only write, and it writes only to the seven
+`wf_sports_*` tables.** It cannot place an order, move a stake, verify a result or enable a
+connector. `sports.manage` is enforced here for the first time — the permission and both
+sports roles already existed in `src/db/platform-baseline.js`, declared in anticipation, so
+this is the first caller rather than a new grant. `test/sports_http.test.js` proves a
+`sports.view`-only member gets `403` and that a refused sync opens no run row.
+
+**Idempotency is the property a caller can rely on.** `executionKey` is required *from the
+caller* rather than generated server-side, because a key the server invented would differ on
+every retry and would guarantee nothing. A reused key returns `200` with
+`status: "DUPLICATE_SKIPPED"`, **no `runId`** (no run was opened, so returning an id would
+imply a row that does not exist) and **no audit event** (the original run already has one, and
+a second would double-count every retry in a filter built on these actions). The `UNIQUE`
+constraint is the arbiter, not a preceding check — divergence **SP-12**.
+
+**A malformed filter is a `400 INVALID_SPORTS_QUERY`, never a `500` and never a silently
+empty result.** The repository's validators throw `TypeError`, which the route translates;
+without that, `?from=12345` would report an internal error and invite a retry of a request
+that can never succeed. This is defect **D-12**'s exact shape — `new Date("12345")` is the
+year 12345, and an empty window looks like a working filter. An offset input
+(`?from=2026-03-07T01:00:00+01:00`) is *normalized* rather than refused (**SP-26**), because
+the columns hold one canonical width and comparing an offset string as text would be the
+actual bug.
+
+**Still absent, asserted by name against the route inventory** rather than by count: no
+`prediction`, `ticket`, `settle`, `verify`, `calibrat`, `backtest`, `model`, `daily`,
+`value`, `stake`, `order` or `broker` route under `/sports`. `odds` and `results` are absent
+as standalone paths too, because both are served inside a fixture's detail response rather
+than detached from the fixture they describe — a `/sports/odds` route would invite a caller
+to read a price series with no fixture attached to it.
+
+**A probe is still never persisted** (`persisted: false` on `?probe=1`), even on a host with
+a repository. Making that conditional on `store` was the first thing slice 2 tried and it was
+**D-27**: it reported `persisted: true` for a reading written nowhere, which is a false claim
+about provenance on the one field whose job is to make that claim. Only ingestion appends
+health rows, which also keeps a dashboard load from mutating the history the monitor derives
+from. See [`PHASE16_SPORTS_PERSISTENCE.md`](PHASE16_SPORTS_PERSISTENCE.md).
+
 ### 14.8 Strategies, backtesting and the journal (11) — Phase 6
 
 The Phase-6 routes are session-only with no permission gate, matching their legacy
 `Api_controller` surface; unsafe cookie mutations are CSRF-gated and bearer callers
 are exempt. Phase 7 adds the separately permissioned human sign-off route (shown
-below). Route count: **38 at Phase 5 → 49 at Phase 6 → 69 after Phase 7 → 75 after Phase 8A**.
+below). Route count: **38 at Phase 5 → 49 at Phase 6 → 69 after Phase 7 → 75 after Phase 8A → 78 after Phase 9 → 79 after Phase 10 → 80 after Phase 11 → 80 after Phase 12 (no route added)**.
 
 | Method/path | Auth | Legacy relationship |
 |---|---|---|

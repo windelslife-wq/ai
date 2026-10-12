@@ -515,3 +515,566 @@ MT5-bridge `pytest` (9, unrelated, last recorded 9 passed); and anything needing
 cPanel/Passenger host, a real browser — so the F-29 client change is verified by a successful
 production build and by `verify-install`'s bundle-reference check, **not** by rendering —
 outbound SMTP, provider credentials or a native SDK.
+
+## Re-measured 2026-10-11 — Phase 9 (operator notifications), branch `arena/8de8de2e-ai`, Node v22.22.3
+
+Same machine, same sandbox limits as the rows above: no MySQL/MariaDB server, no outbound
+egress, no cPanel/Passenger host, no real browser, no SMTP, two CPUs. Everything below was
+executed for this phase; nothing is inherited from an earlier row.
+
+| Suite | Exact command | Result |
+|---|---|---|
+| Node platform (**30** files, was 27) | `cd apps/workforce-platform && npm test` | **522 passed, 0 failed** (~58 s) — was 482, **+40** |
+| Install verification | `npm run verify:install` | **29/29 checks**, **64** documented env vars (unchanged — this phase adds no configuration). The migration check now lists `009_notifications.sql` and reports `store requires 9` |
+| AEGIS PHP/WASM (the parity oracle) | `node runtime/run-tests.mjs` | **367 passed, 0 failed**, 18.3 s — unchanged, and `git status --porcelain` returns no path under `application/`, `system/` or `tests/` |
+
+**Total executed in this sandbox for this phase: 889 passed, 0 failed** (522 app + 367 oracle).
+Composition stated because these are two different runners and a bare total invites
+double-counting. Scout (12), football-predictions (29) and the MT5-bridge `pytest` suite were
+**not** re-run: Phase 9 touches no path they exercise.
+
+New files in the platform suite:
+
+| File | Cases | Note |
+|---|---|---|
+| `test/notifications_store.test.js` | **8** (new) | Both adapters against one contract. The file side is executed for real, including WAL replay of a notification across close/reopen and the global dedupe check afterwards; the MySQL side is pinned on SQL text and bound values through a recording executor, asserting that `(user_id IS NULL OR user_id = ?)` is the visibility predicate, that `LIMIT` is a bounded interpolation, that `markRead` is conditional on `read_at IS NULL`, and that the dedupe check contains no `user_id` at all |
+| `test/notifications_service.test.js` | **20** (new) | The legacy `Notifier` rules — unread-dedupe, re-arming on acknowledgement, broadcast/targeted visibility, severity coercion to `info`, 200-character title truncation that does not split a surrogate pair — plus the Node-side bounds: payload size/depth/entry truncation is *stated in the row*, and a function, symbol, circular reference and non-finite number cannot reach storage. Also asserts a failing write is reported as `created:false` with a reason instead of breaking the publisher |
+| `test/notifications_http.test.js` | **12** (new) | The three endpoints over HTTP, and the publishers that make them carry real events. Asserts the *complete* list of registered `/api/v1/notifications*` mutations so a publish route cannot be added quietly; that a targeted alert cannot be read — or discovered — through another operator's session; that CSRF applies to cookie mutations; that engaging the kill switch raises one deduped critical broadcast with the legacy key while re-affirming the boot state raises nothing; and that the governance action **still commits** when the notification write throws |
+
+Ledger assertions updated because the counts they pin genuinely changed, not to make a failure
+pass: `REPOSITORY_METHODS` **72 → 78** (`platform_findings`, `retention`, `strategies_store`),
+migration placeholders **8 → 9** (`store`), migration-created tables **22 → 23** and the
+entity→table map (`backup`), last migration file (`migrator`), file-store `stats()` shapes
+(`platform_findings`, `strategies_store`), and the module-state ledger **ported 6 → 7 /
+not-ported 6 → 5** (`platform_findings`).
+
+One defect found by this phase's own tests and fixed before the row was written, rather than
+re-run until green: publishing from inside `store.withPaperTransaction` **deadlocked** the file
+adapter, whose single mutation queue is held for the whole transaction. The suite hung past a
+600 s timeout instead of failing, which is the only reason it was caught. Recorded as **D-12**
+in [`PHASE9_NOTIFICATIONS.md`](PHASE9_NOTIFICATIONS.md); every call site now queues the alert
+inside the transaction and publishes it after commit, and both publish helpers carry the rule
+in a comment. The same tests caught the inbox filter being destructured as `unreadOnly` while
+the route contract and the legacy query string name it `unread`, so `?unread=1` silently
+returned an unfiltered page.
+
+Still not executed here, and therefore still not claimed: **real MySQL** — now including
+migration `009` and all six methods of `notification-repository.js`, pinned on SQL text and
+bound values through a recording executor (**F-15 stays open and is wider than it was**); any
+**delivery** channel, since none exists (`emailDeliveryAvailable: false`, `deliveryChannels:
+[]`) and the module says so in its own status snapshot; the console **UI**
+(`views/notifications/index.php`, `/notifications`), so **F-29** still stands — no ported
+module has a workspace console; **retention** for `wf_notifications`, which is unbounded with
+no delete path, the same open question as R-27/R-28 and needing one decision rather than three;
+a value-for-value **PHP↔Node diff** of notification behaviour (**F-26**) — the rules were ported
+by reading the PHP and asserting them in Node, not by comparing outputs from both runtimes;
+cross-worker **contention** on the conditional `UPDATE`, which is argued from the SQL rather
+than observed; and anything needing a cPanel/Passenger host, a real browser, outbound SMTP,
+provider credentials or a native SDK.
+
+## Re-measured 2026-10-11 — Phase 10 (audit browser), branch `arena/8de8de2e-ai`, Node v22.22.3
+
+Same machine, same sandbox limits as the rows above: no MySQL/MariaDB server, no outbound
+egress, no cPanel/Passenger host, no real browser, no SMTP, two CPUs. Everything below was
+executed for this phase; nothing is inherited from an earlier row.
+
+| Suite | Exact command | Result |
+|---|---|---|
+| Node platform (**31** files, was 30) | `cd apps/workforce-platform && npm test` | **532 passed, 0 failed** (~64 s) — was 522, **+10** |
+| Install verification | `npm run verify:install` | **29/29 checks**, **64** documented env vars — unchanged. This phase adds **no configuration and no migration**, so the migration check still reports `store requires 9` |
+| AEGIS PHP/WASM (the parity oracle) | `node runtime/run-tests.mjs` | **367 passed, 0 failed**, 19.0 s — unchanged, and `git status --porcelain` reports **0** modified paths under `application/`, `system/` or `tests/` |
+
+**Total executed in this sandbox for this phase: 899 passed, 0 failed** (532 app + 367 oracle).
+Composition stated because these are two different runners and a bare total invites
+double-counting. Scout (12), football-predictions (29) and the MT5-bridge `pytest` suite were
+**not** re-run: Phase 10 touches no path they exercise.
+
+New file in the platform suite:
+
+| File | Cases | Note |
+|---|---|---|
+| `test/audit_browser.test.js` | **10** (new) | Attribution, authority and immutability rather than filter mechanics alone. Asserts every event carries a resolved actor and that a system event says `kind:"system"` instead of borrowing an identity; that a deleted actor keeps its id with a null username; that the endpoint needs `identity.users.view` where legacy needed only a signed-in user (**AV-1**); that `/account/activity` did **not** widen (a member's own view still has exactly one distinct actor while the browser over the same store has two); that an unparseable or inverted window is a 400; and — against the *whole route inventory*, not a written-down path list — that every route matching `/audit` or `/account/activity` is a `GET` and that no non-`GET` route anywhere matches `audit` |
+
+The adapter-parity case in that file executes the file store for real (including WAL replay of
+an audited event across close/reopen, with attribution **re-resolved** after replay rather than
+stored as a stale copy) and pins the SQL adapter on a recording double that applies the `WHERE`
+clause and the `ORDER BY` it is handed — asserting `e.actor_user_id IS NULL` for `actor=system`
+binds nothing, that `from`/`to` bind as `Date` rather than as text, and that attribution comes
+from a `LEFT JOIN wf_users`.
+
+Ledger assertions updated because the counts they pin genuinely changed: admin routes **6 → 7**
+and the module-state ledger **ported 7 → 8 / partial 3 → 2** (`platform_findings`), the latter
+with a new assertion that the `audit` label still names both of its gaps — `no console screen`
+and `no retention policy` — so `ported` cannot be read as a finished workstream.
+`REPOSITORY_METHODS` stays at **78** and the migration set at **001–009**: this phase extends an
+existing method's options and projection rather than adding surface.
+
+Two defects found by this phase's own tests and fixed before the row was written, rather than
+relaxing the assertions to match the code. **D-13:** the first window guard used
+`Number.isFinite(Date.parse(value))`, and `Date.parse("12345")` is the **year 12345**, so
+`?from=12345` was accepted and silently produced an empty window that looked like a filter
+working; replaced by a canonical-UTC validator that also refuses a `+01:00` offset, because
+`created_at` is `DATETIME(3)` with no timezone and the two adapters would otherwise disagree
+about the same window (**AV-2**). **D-14:** the parity double returned every row regardless of
+the `WHERE` clause and in insertion order, so the adapters "agreed" for reasons unrelated to the
+code under test and then disagreed about ordering — it now applies the filters and the ordering
+it is handed, which is what made the comparison mean anything.
+
+Still not executed here, and therefore still not claimed: **real MySQL** — the extended
+`listAuditEvents` is pinned on SQL text and bound values through a recording executor and has
+never run against a server (**F-15 unchanged**), so the `LEFT JOIN wf_users` and the selectivity
+of `ix_wf_audit_entity` are unmeasured and the index is *used by the query text*, not proven
+selective; any **console screen** (`views/admin/index.php` unported, so **F-29 still stands** —
+the SPA's existing `/app/account` activity list is unaffected because it reads named fields and
+the `actor` projection is additive); a **retention policy** for `wf_audit_events`, unbounded with
+no delete path, which is correct for evidence but leaves row 5's retention item undecided and
+needing one policy covering audit, notifications, R-27 and R-28 rather than four; a
+value-for-value **PHP↔Node diff** (**F-26**), where **AV-5** means the legacy `audit_logs`
+(`type`/`summary`/`actor VARCHAR(8)`) and Node `wf_audit_events` (nullable actor FK) hold
+different data models, so a row-level diff would not be meaningful; any **legacy `audit_logs`
+import**, so a cutover starts the Node trail empty unless row 22 covers it; any **load
+measurement** of pagination, which is proven bounded rather than measured under a large trail;
+and anything needing a cPanel/Passenger host, a real browser, outbound SMTP, provider
+credentials or a native SDK.
+
+## Re-measured 2026-10-11 — Phase 11 (research-only portfolio optimization), branch `arena/8de8de2e-ai`, Node v22.22.3
+
+Same machine, same sandbox limits as the rows above: no MySQL/MariaDB server, no outbound
+egress, no cPanel/Passenger host, no real browser, no SMTP, no licensed market-data feed, two
+CPUs. Everything below was executed for this phase; nothing is inherited from an earlier row.
+
+| Suite | Exact command | Result |
+|---|---|---|
+| Node platform (**33** files, was 31) | `cd apps/workforce-platform && npm test` | **582 passed, 0 failed** (~74 s) — was 532, **+50** |
+| Install verification | `npm run verify:install` | **29/29 checks**, **67** documented env vars (was 64 — the three new portfolio rate-limit variables are in `.env.example`). No new migration, so the migration check still reports `store requires 9` |
+| AEGIS PHP/WASM (the parity oracle) | `node runtime/run-tests.mjs` | **367 passed, 0 failed**, 18.8 s — unchanged, and `git status --porcelain` reports **0** modified paths under `application/`, `system/` or `tests/` |
+
+**Total executed in this sandbox for this phase: 949 passed, 0 failed** (582 app + 367 oracle).
+Composition stated because these are two different runners and a bare total invites
+double-counting. Scout (12), football-predictions (29) and the MT5-bridge `pytest` suite were
+**not** re-run: Phase 11 touches no path they exercise.
+
+Three new files, **50** cases:
+
+| File | Cases | Note |
+|---|---|---|
+| `test/portfolio_optimizer.test.js` | **19** (new) | The pure numeric core. Asserts properties that make the output *trustworthy* rather than reproducing a number: every published allocation satisfies the constraints the report advertises (fully invested within 1e-9, long-only, within the cap) including the degenerate zero-variance case; minimum variance beats equal weight on volatility **and** favours the calmer of two assets; maximum Sharpe beats equal weight on the sample it was given; a cap below the concentration the optimum wants is respected and the best asset sits at it; the same input produces the same weights **exactly** (`deepEqual`, not a tolerance, so a future nondeterminism source cannot hide); a flat series yields the analytically derivable ridge artifact `sqrt(EPSILON·252)/√2 ≈ 1.581e-5` rather than `NaN`; alignment excludes unmatched timestamps and discloses it; duplicate timestamps are counted per symbol with first-row-wins; invalid candles are skipped and too few survivors is a refusal naming the symbol; the 12-asset maximum universe completes inside the iteration budget |
+| `test/portfolio_service.test.js` | **18** (new) | The orchestration ported from `Platform::optimizePortfolio()`, against a fake speaking the real `marketData.candles({...})` seam. Both synthetic gates (all-synthetic refused until a **strict-boolean** opt-in, and then still labelled `SIMULATION:`; a **mixed** universe refused with no override — asserted across `undefined`/`false`/`true`); annualization inferred for one calendar and refused for a mixed universe; an explicit `periodsPerYear` overriding the inference; assets fetched with normalized symbol/class and the requested timeframe and limit; an unsupported `marketClass` refused **before any provider call**; a provider failure surfaced rather than swallowed into a smaller universe; no provider chain at all answering 503 rather than fabricating prices; the audit event carrying actor, objective, universe, selected weights and the legacy action key; an audit failure logged and never costing the caller a valid report |
+| `test/portfolio_http.test.js` | **13** (new) | Authority (401 anonymous, 403 without `trading.view`, 403 `CSRF_INVALID` for a cookie session with a missing or wrong token); the legacy `{optimization: …}` envelope; the all-synthetic 422 → opted-in 200 transition; a host with `MARKET_DATA_ALLOW_SYNTHETIC=0` answering **503 `SYNTHETIC_DATA_DISABLED`** with a positive `Retry-After` where the flag cannot override it; `execute`/`amount`/`orderId`/`accountId`/`notional` each refused **by name** as `UNKNOWN_PROPERTY` at the top level and inside an asset; thirteen bound cases at 400; a `maxWeight` too small to be fully invested refused with a message naming the asset count; both objectives selecting the allocation they name; the per-session concurrency gate answering **429 `TOO_MANY_CONCURRENT_OPTIMIZATIONS`** and releasing its slot after both a refusal and a failure; the run visible in the Phase 10 audit browser at `?action=portfolio`; and a **refused** run recording nothing |
+| — | **+1** | `the window limit is charged before validation, so malformed requests still count` — pinned separately because it is a cost-control property, not a convenience: garbage must not buy unlimited free requests just because it never reaches the provider chain |
+
+Ledger assertions updated because the counts they pin genuinely changed: ported **8 → 9** and
+modules **15 → 16** (`platform_findings`), plus three new label regexes requiring the
+`portfolioOptimizer` label to keep saying `research-only`, `no console screen` and `no saved
+reports`, so `ported` cannot be read as a finished workstream. `REPOSITORY_METHODS` stays at
+**78** and the migration set at **001–009**: this phase adds no storage surface.
+
+**A latent defect in shared infrastructure was found and fixed (D-15).**
+`src/http/validate.js` threw a `TypeError` on any object-typed array item, surfacing as a 500:
+the array branch forced `required: true` onto the item schema to mark the item mandatory, and the
+object branch then read `schema.required` as the list of mandatory *keys* and called `.includes()`
+on that boolean. It was **latent, not live** — every `items` node in the platform was a string
+(`analysis/contracts.js` consensus symbols) until this phase declared the first object-typed one.
+It is fixed rather than worked around, because a validator that crashes on a valid schema shape is
+worse than one that rejects it, and the next nested-object schema would have hit the same 500.
+Verified against eight schema shapes (valid, valid-with-options, `null` item, item missing
+`symbol`, item missing `marketClass`, unknown item key, too-few items, no `assets`) **and by the
+full 582-test suite**, since `validate.js` backs every route in the platform — that the count went
+up rather than sideways is the evidence the fix did not weaken an existing contract.
+
+Two further defects found by this phase's own tests and fixed before the row was written, rather
+than relaxing the assertions. **D-16:** three locals in `optimizePortfolio` shadowed the
+module-level solver functions of the same name, so `const f = f(...)` was a runtime
+`ReferenceError` that took down 18 of 19 tests at once — `node --check` cannot see a
+temporal-dead-zone error, only a syntax error. **D-17:** the service called
+`marketData.getCandleSeries(...)`, which exists on the market-data **manager** but not on the
+market-data **service** every other module consumes, so every request answered 503 "no provider
+chain configured" on a host that had one; switched to `marketData.candles({...})`, the house seam
+used by analysis, Strategy Lab and paper, which delegates to the same manager method and returns
+the identical `{candles, provenance, validation}` shape while also applying the symbol floor and
+market-class inference.
+
+Still not executed here, and therefore still not claimed: **real market data** — every HTTP test
+ran with `MARKET_DATA_REAL_PROVIDERS=0` and `MARKET_DATA_ALLOW_SYNTHETIC=1`, so no claim is made
+that a licensed feed produces a well-conditioned covariance, and row 6's provider gaps are what
+stop this module optimizing a real equity universe; a **numerical parity check against the PHP
+implementation** (**F-26**) — the two were ported instruction-for-instruction and the constraints
+are asserted, but no test runs the same candles through both engines and compares weights, which
+is where F-26 bites hardest because divergence **PO-1** (keeping the legacy bisection projection
+rather than the closed-form water filling) exists precisely to hold the numbers aligned and
+nothing currently verifies that it does; a **console screen** (`views/portfolio/optimizer.php`
+unported, so **F-29 still stands** — this is the third ported API with no screen, after
+notifications and the audit browser); **saved reports** — a run is returned, never persisted, so
+there is no history endpoint and a caller cannot read back what the platform told them last week,
+only the audit event records that a run happened; a real **MySQL** server (**F-15 unchanged**,
+though this phase adds no new SQL, writing only to the existing audit table); any **load
+measurement**, the 12-asset bound (20 s on two cores) being a guard against a future change making
+the inner loop quadratic rather than a performance benchmark; and anything needing a
+cPanel/Passenger host, a real browser, outbound SMTP, provider credentials or a native SDK.
+
+## Re-measured 2026-10-11 — Phase 12 (scheduled jobs, DB-backed lock, operations CLI), branch `arena/8de8de2e-ai`, Node v22.22.3
+
+Same machine, same sandbox limits as the rows above, with one addition that matters for this
+phase specifically: **no crontab and no Passenger**. Everything below was executed for this
+phase; nothing is inherited from an earlier row.
+
+| Suite | Exact command | Result |
+|---|---|---|
+| Node platform (**35** files, was 34) | `cd apps/workforce-platform && npm test` | **609 passed, 0 failed** (~78 s) — was 582, **+27** |
+| Install verification | `npm run verify:install` | **29/29 checks**, **67** documented env vars (unchanged — the job’s knobs are CLI flags, not environment variables). Migration list now reports **10** required, `010_job_locks.sql` present on disk |
+| AEGIS PHP/WASM (the parity oracle) | `node runtime/run-tests.mjs` | **367 passed, 0 failed**, 19.9 s — unchanged, and `git status --porcelain` reports **0** modified paths under `application/` or `tests/cases/` |
+| Operations CLI (manual, not in `npm test`) | `STORAGE_DIR=… node tools/scheduled-jobs.mjs` then `--apply` twice | Dry run exit 0 writing nothing; apply exit 0 with the lock acquired and released; second apply exit 0 with 0 expired. All three printed the file-adapter warning that its lock is single-process only |
+
+**Total executed in this sandbox for this phase: 976 passed, 0 failed** (609 app + 367 oracle).
+Composition stated because these are two different runners and a bare total invites
+double-counting. Scout (12), football-predictions (29) and the MT5-bridge `pytest` suite were
+**not** re-run: Phase 12 touches no path they exercise.
+
+Counting note, recorded rather than left to contradict the row above: the Phase 11 block says
+**33** test files, and `git ls-tree eeb4b80 apps/workforce-platform/test/` counts **34** `.test.js`
+files at that commit. The 34 is correct; the earlier row undercounted by one. This row counts
+from the working tree, so 34 + `test/scheduled_jobs.test.js` = **35**.
+
+One new file, **26** cases:
+
+| File | Cases | Note |
+|---|---|---|
+| `test/scheduled_jobs.test.js` | **26** (new) | Locks (acquire / refuse / release / extend, expiry takeover, the overrun run being unable to release, durability across close/reopen); job state (the `'global'` governance key refused in both directions, the governance document byte-identical afterwards including `updatedByUserId`); the expiry sweep (dry run writing nothing, cross-owner expiry with per-proposal dedupe keys, idempotency, storage-failure and ownerless-row isolation); the risk sweep (a **real** `VALUATION_UNAVAILABLE` breach from the real paper service producing a keyed classified alert, per-owner isolation, ownerless accounts, edge-triggered transitions across three runs, clearing and re-raising, the persisted report dropping `key` and `classified`); the run (concurrent skip with no writes, the legacy `CRON_RUN` sentence and system actor, dry run taking no lock, `finally` releasing on a throwing stage); **no HTTP route** exposing any of it; and the MySQL SQL shapes, bindings and bounds against a recording executor |
+| `test/migrator.test.js` | **+1** | Migration 010 creates exactly one statement and one table, keyed by `job_name`, with VARCHAR(32) canonical-UTC timestamps, the expiry index, and **no** `ALTER TABLE`, no `INSERT` and no live/broker/trading/paper/execution table |
+| — | **2 tripwires moved** | `test/store.test.js` readiness now expects **10** placeholders and `010_job_locks` in the list; `test/migrator.test.js`’s last-migration pin moved `009_notifications.sql` → `010_job_locks.sql` |
+| — | **6 counts moved** | Contract **84 → 86** (three pinned assertions); `stats()` deep-equal maps in `strategies_store` and `platform_findings` gained `jobLocks`; `backup.test.js` gained `jobLocks → wf_job_locks` and its F-13 table count moved **23 → 24**; `platform_findings` moved ledger rows **16 → 17** and partial **2 → 3**, and its `operational` script list gained `jobs` and `jobs:apply` |
+
+Two of the 26 exist because they caught defects, and both are recorded as such in the phase
+record: **D-18** (the two adapters returned different shapes for a job lock — `lock.expiresAt`
+was a string on MySQL and `undefined` on the file store) and **D-19** (the scheduled expiry
+audited the *owner* where legacy audited `'system'`). Neither was found by reading the code.
+
+Still not executed here, and therefore still not claimed: **the lock against real MySQL**
+(**F-15 unchanged**, and this phase is the first to make that gap consequential — mutual
+exclusion is proven on the file adapter and the SQL is proven against a recording executor,
+but no two real connections have raced for a row, so the duplicate-key arbiter is reasoned
+rather than observed); **cPanel cron itself** — no crontab was installed, so the documented
+line, the absolute `node` path and the `cd` are reasoned from the host’s behaviour, and the
+requirement that the cron line source the same environment as the web app (`SESSION_SECRET`,
+`DB_*`) because `loadConfig` is one gate for the whole platform was **discovered by running
+the CLI** and seeing it refuse, not by deploying it; an **overlapping run produced by two real
+processes** (the skip path is driven by holding the lock directly); the **500/5 000 batch
+ceilings** (fixtures are small, so `exhausted: false` is asserted only through the SQL bound);
+an **end-to-end run over a populated portfolio**, so the wall-clock duration — and therefore
+whether the default 10-minute TTL is genuinely generous — is reasoned, not measured; and
+anything needing a real browser, outbound SMTP, provider credentials or a native SDK.
+
+## Re-measured 2026-10-12 — Phase 13 (Execution Supervisor reconciliation, blocked-routing evidence), branch `arena/8de8de2e-ai`, Node v22.22.3
+
+Same machine, same sandbox limits as the rows above. Everything below was executed for this
+phase; nothing is inherited from an earlier row.
+
+| Suite | Exact command | Result |
+|---|---|---|
+| Node platform (**36** files, was 35) | `cd apps/workforce-platform && npm test` | **616 passed, 0 failed** (~87 s) — was 609, **+7** |
+| Install verification | `cd apps/workforce-platform && npm run verify:install` | **29/29 checks**, **67** documented env vars (unchanged). Migration list still reports **10** required — `001`–`010`, no new file |
+| AEGIS PHP/WASM (the parity oracle) | `node runtime/run-tests.mjs` | **367 passed, 0 failed**, 20.7 s — unchanged, and `git status --porcelain application/ tests/cases/` reports **0** modified paths |
+
+**Total executed in this sandbox for this phase: 983 passed, 0 failed** (616 app + 367 oracle).
+Composition stated because these are two different runners and a bare total invites
+double-counting. Scout (12), football-predictions (29) and the MT5-bridge `pytest` suite were
+**not** re-run: Phase 13 touches no path they exercise.
+
+One new file, **7** cases, and **no change to any count the suite pins** — no migration, no
+contract method, no route, no table, no ledger row:
+
+| File | Cases | Note |
+|---|---|---|
+| `test/execution_governance.test.js` | **7** (new) | An approval granted while the platform was live cannot become an order after the kill switch is thrown, and the paper engine is never reached; the blocked attempt leaves **exactly one** audit event — not zero (rolled back with the transaction) and not two; **three** refusals on one UTC day produce **one** broadcast alert and the next UTC day produces another, while every attempt is still individually audited; a trading-mode flip blocks identically; **recovery** — the same proposal submits once governance is restored and reaches the paper engine exactly once; owner scoping — a foreign owner gets the owner-scoped **404**, not a governance answer, and records no blocked-submission evidence; and a broken audit writer plus a broken notifier each still surface the real 409 |
+| `test/execution_service.test.js` | **+0** cases, **assertions strengthened** | The pinned audit-action sequence moved **4 → 7** because the three refusals this test already provokes are now recorded. It also asserts each blocked event's `legacyAction`, `code`, `orderCreated: false`, `retryable: true` and `actor_user_id`, and that no `ROUTING_BLOCKED` was published for caller-state refusals |
+| `test/execution_http.test.js` | **+0** cases, **assertions strengthened** | Sequence moved **4 → 5** for the deterministic `pendingSubmit` 409. A **non-vacuity guard** (`assert.ok(inbox.length > 0)`) was added before the "no `ROUTING_BLOCKED` in the inbox" assertion, because an empty inbox would have made that assertion pass for the wrong reason |
+| `test/platform_findings.test.js` | **+0** cases, **assertions added** | The `execution` label is now pinned to `/blocked-submission evidence/`, `/broker-bound/`, `/no live route/` and `/no automated mode/`, matching the convention already applied to `audit`, `portfolioOptimizer` and `scheduledJobs`. `partial` must keep saying *what* is missing, not just hedge |
+
+The label change in `src/modules/platform/health.js` is why `platform_findings` needed touching
+at all; the state stayed **`partial`** and the ledger stayed at 9 ported / 3 partial /
+5 not-ported across 17 modules.
+
+Still not executed here, and therefore still not claimed: **no broker-bound supervisor step was
+exercised**, because none was ported — steps 4–9 and 12–15 have no Node code path, so nothing
+in this row is evidence about them; **the daily dedupe is proven on the file adapter only**
+(`hasUnreadNotificationDedupe` is Phase 9 machinery, pinned on MySQL by a recording executor
+and never run against a server — **F-15 unchanged**); **concurrency was simulated, not raced** —
+the "concurrent submit" case gates one submission in `PAPER_SUBMITTING` and attempts another
+inside a single process, so two real Passenger workers claiming one proposal remains untested
+(**F-24** is the same unresolved question elsewhere); **no legacy `trade_executions` import**,
+because no Node equivalent exists; and **the reconciliation itself is a reading, not a
+differential test** (**F-26 stands**) — every verdict in the Phase 13 step table was reached by
+reading both implementations, not by running one intent through PHP and Node and comparing.
+
+Reproducibility note for this sandbox: `node_modules` does not persist between sessions, so
+`npm ci --no-audit --no-fund` at the repository root (291 packages) and a separate
+`npm ci` inside `runtime/` (29 packages) were both required before the two runners above would
+start. A previously-green test failing with `ERR_MODULE_NOT_FOUND` on `bcryptjs` is that
+condition, not a regression.
+
+## Re-measured 2026-10-12 — Phase 14 (Broker Center: connector boundary, health and demo gates), branch `arena/8de8de2e-ai`, Node v22.22.3
+
+Same machine, same sandbox limits as the rows above. Everything below was executed for this
+phase; nothing is inherited from an earlier row.
+
+| Suite | Exact command | Result |
+|---|---|---|
+| Node platform (**39** files, was 36) | `cd apps/workforce-platform && npm test` | **689 passed, 0 failed** (~105 s) — was 616, **+73** |
+| Install verification | `cd apps/workforce-platform && npm run verify:install` | **29/29 checks**, **69** documented env vars (was 67). Migration list still reports **10** required — `001`–`010`, no new file |
+| AEGIS PHP/WASM (the parity oracle) | `node runtime/run-tests.mjs` | **367 passed, 0 failed**, 23.0 s — unchanged, and `git status --porcelain application/ system/ tests/` reports **0** modified paths |
+
+**Total executed in this sandbox for this phase: 1 056 passed, 0 failed** (689 app + 367 oracle).
+Scout (12), football-predictions (29) and the MT5-bridge `pytest` suite were **not** re-run:
+Phase 14 touches no path they exercise, and the bridge service itself is unchanged — this phase
+ports the *client* of its contract, not the contract.
+
+Three new files, **73** cases. **No new migration, no new contract method, no new table** —
+connector state is configuration plus probe results and neither is persisted. The only new
+persisted field is `brokerStates` inside the existing `PORTFOLIO_RISK_STATE_KEY` job-state
+document, exactly where legacy kept it.
+
+| File | Cases | Note |
+|---|---|---|
+| `test/brokers.test.js` | **57** (new) | The nine normalized data contracts and every refusal in them (negative account values, inverted quote, candle whose high is below its low, non-positive stop, unknown enum, unparseable timestamp, a present-and-null `symbol`, PHP `array_key_exists` semantics on the account row); the four-state ladder; a **nine-row gate table** each asserting the verdict *and* that `capabilities()` disagrees with it where it should — intent versus permission; **every write refused at every gate with an assertion that no order request reached the transport**; the forced re-probe on writes and the 5-second cache on reads; the health probe carrying **no token** while data reads carry one; secret non-leakage from a status or an error; order-body validation, clamping and the `action` wire key; ticket validation before it becomes a path segment; the manager's routing verdict in five configurations; duplicate-registration refusal; per-connector degradation to an `ERROR` entry; the ten-connector registry performing **zero I/O**; and roster↔config agreement including MT5's irregular variable names |
+| `test/brokers_http.test.js` | **6** (new) | The **F-32** permission gate at 401 anonymous / 403 without `trading.view` / 200 with it; the default body — ten `DISABLED` connectors, `routable: false`, nine `PLANNED` rows in legacy's wording — with no token, no loopback address and no `Bearer` anywhere in the serialized response; a route-inventory proof of exactly one broker route, no write route, no simulated-bridge toggle, and **every order-shaped route belonging to `/api/v1/paper`** (scoped with a non-vacuity guard, after an unscoped pattern matched paper's legitimate simulation routes); the probe-free public status surface; a configured-but-unreachable bridge reporting `DOWN` while `routable` stays false; and the config gate refusing a remote plain-HTTP URL, credentials inside a URL, a non-boolean flag and an out-of-range timeout |
+| `test/broker_transitions.test.js` | **10** (new) | Ten disabled connectors silent across two runs; `READY → DOWN` audited, broadcast `critical` and joining the alert list with **both dedupe keys asserted distinct** (the alert key is `broker:<id>:BROKER_DISCONNECTED`, the notification key is `broker:<id>:disconnected`); `DOWN → READY` audited and notified `info` with no alert; the one-cycle alert then reported cleared while still down (**BC-13**, pinned across three runs); unread-dedupe suppressing a second disconnect while both are audited; a dry run probing but writing nothing; **exactly one** `allStatus()` call per sweep (**BC-12**); no registry meaning no broker fields at all, so Phase 12's report shape is byte-identical; a throwing registry degrading to `brokerError` and zero alerts rather than a mass disconnect or a failed sweep; and `NOT_CONFIGURED` / `ERROR` / `DISABLED` never counting as a disconnect |
+
+**Four pre-existing assertions were updated, all of them ledger pins rather than behaviour:**
+the `trading.reason` regex in `test/platform_findings.test.js` and `test/analysis_http.test.js`
+(the reason string now explains that the connector boundary is ported but no order can be
+routed, and points at `routable` for the probed answer); the module-status ledger counts
+(`partial` 3 → **4**, `not-ported` 5 → **4**, 17 rows unchanged); one "other modules
+unaffected" assertion in `test/notifications_http.test.js` re-pointed from `brokers` to
+`sports`, because `brokers` is now legitimately `partial`; and four new label pins requiring
+the `brokers` label to say *all disabled by default*, *no order routing*, *no adapter verified
+against its provider* and *one read-only route*. `adminRoutes.length` stays **7**.
+
+**The strengthened F-33 gate is itself a measurement.** Enumerating prefix × suffix from the
+config's exported tables yields **71 composed variable names** (4 licensed-feed prefixes × 7
+suffixes, plus 10 broker prefixes × 5 suffixes with MT5's two overrides). **21 of them were
+pre-existing undocumented gaps** — `AEGIS_ETF_DATA_*`, `AEGIS_FUTURES_DATA_*`,
+`AEGIS_OPTIONS_DATA_*` — which the old literal-text scan could not see. All 71 are now in
+`.env.example`. Closing a blind spot in a gate should be expected to report pre-existing
+failures; that is the gate working.
+
+**Two defects were found by these tests and fixed before commit**, neither of which was
+visible by reading the port:
+
+| | Defect | How the test caught it |
+|---|---|---|
+| **D-20** | `read()` refused an array `data` payload. Legacy checked PHP's `is_array()`, which is true for a list *and* a map; the four list endpoints return a JSON array as `data` | A test asked for `history` from a bridge answering `{ok: true, data: []}`. The port would have rejected **every successful list read** — positions, orders, history and candles |
+| **D-21** | The config composed MT5's trading flags as `AEGIS_MT5_BRIDGE_TRADING_ENABLED`; legacy reads `AEGIS_MT5_TRADING_ENABLED` and `AEGIS_MT5_LIVE_ALLOWED`, **without** the `_BRIDGE` infix that its URL, token and enabled flag carry | A test set the legacy name and asserted the flag took effect. The uniform composition rule would have left the **only connector that can actually work** permanently switched off, with the documented variable silently doing nothing — F-30's shape, in configuration |
+
+**Not exercised, therefore not claimed.** No adapter has spoken to its provider: every gate
+test runs against an injected transport, which is how legacy tested its own bridge and is why
+the gates are provable here. **No order has been placed by any path** — `placeOrder` is tested
+to refuse, and to build a correct body against a fake transport; the one test that configures a
+connector points it at loopback port 9, where nothing listens. **Row 13's own acceptance
+criterion is unmet and cannot be met in this sandbox:** "verify MT5 against a real demo
+terminal before any real-routing claim" needs a Windows host running MetaTrader 5, and **no
+real-routing claim is made anywhere in this phase**. The PHP↔Node differential harness still
+does not exist (**F-26 stands**), although this phase made it the cheapest it has ever been:
+`BrokerDataNormalizer` is pure on both sides, its messages are byte-identical, and its
+timestamps now match. Concurrency and multi-process behaviour are unchanged (**F-24**), but
+note that broker probing adds an outbound call *inside* the sweep's lock, so a host with slow
+bridges now spends more of its lock TTL waiting; 8 s × 10 connectors is bounded but unmeasured
+against a real deployment. No real MySQL (**F-15**), unchanged rather than widened — this
+phase adds no SQL.
+
+Reproducibility note for this sandbox: `node_modules` does not persist between sessions, so
+`npm ci --no-audit --no-fund` at the repository root and a separate `npm ci` inside `runtime/`
+were both required before the two runners above would start.
+
+## Re-measured 2026-10-12 — Phase 15 (Sports Intelligence: data foundation, provider boundary, differential harness), branch `arena/8de8de2e-ai`, Node v22.22.3
+
+| Measure | Phase 14 | Phase 15 |
+|---|---|---|
+| Node assertions (`npm test`) | 689 | **752** (+63) |
+| Static checks (`npm run check`) | 0 failures | **0 failures** |
+| Install checks (`npm run verify:install`) | 29/29 | **29/29** |
+| Documented environment variables | 69 | **76** (+7) |
+| Composed names enumerated by F-33 | 71 | **71** (unchanged — all seven sports variables are read literally, so F-14 sees them) |
+| PHP oracle (`node runtime/run-tests.mjs`) | 367 passed / 0 failed | **367 passed / 0 failed** |
+| Total assertions executed | 1 056 | **1 119** |
+| Routes | 81 | **82** |
+| Admin routes | 7 | **7** |
+| Storage contract methods | 86 | **86** (unchanged — no persistence in this slice) |
+| Tables / migrations | 24 / 001–010 | **24 / 001–010** (unchanged) |
+| Module ledger | 9 ported / 4 partial / 4 not-ported | **9 ported / 5 partial / 3 not-ported** |
+| App version | 0.13.0 | **0.14.0** |
+| PHP paths modified | 0 | **0** |
+
+New test files: `test/sports_parity.test.js` (**16** tests, 62 captured cases),
+`test/sports.test.js` (**39**), `test/sports_http.test.js` (**8**).
+
+**A new kind of measurement appears in this phase.** Every previous row in this
+document counts assertions the Node suite makes about the Node implementation. The
+parity file is different: its expectations are **PHP's own output**, captured by
+running the legacy classes in WASM PHP 8.2 and written to
+`test/fixtures/sports-parity-golden.json`. That artifact is a measured quantity in its
+own right, so it is recorded as one:
+
+| Parity group | Cases captured from PHP |
+|---|---|
+| fixture normalization (values and refusal messages) | 23 |
+| odds normalization (values and refusal messages) | 13 |
+| data quality (score, band, both eligibility flags, the checks array) | 14 |
+| odds freshness (verdict, `ageSeconds`, score, reason) | 12 |
+| sandbox provider — health, 12 fixtures, odds, results, refusals | 12 fixtures + 9 internal derivations |
+| **Total** | **62** |
+
+This closes **F-26** for the sports foundation and immediately found **F-34** (PHP's
+two different CRC-32 algorithms, used by legacy in one class) and **D-23** (a clock
+convention mismatch that made the Node port refuse a *valid* fixture as
+unparseable). Both would have survived indefinitely: F-34 because the Node
+implementation agreed with itself perfectly, D-23 because a wrong clock convention
+looks like a provider sending bad data.
+
+**Unchanged, and still owed.** No real MySQL server (**F-15**); no multi-process
+Passenger contention test (**F-24**); no live-provider probe — the sports HTTP
+provider is proven entirely against an injected transport, and there is no configured
+vendor to probe (**F-25**); no console UI (**F-29**); `maxCorrelatedPositions` still
+enforced nowhere (**F-30**); legacy `automation_limits` still ungated (**F-31**);
+legacy `Api_system` reads still ungated (**F-32**). **DV-10** must appear in any future
+numeric diff as an *expected* difference. The parity harness covers four sports
+classes and nothing else — the optimizer, indicators, `MathUtils` and the notification
+rules remain un-diffed, and the sports manager and health monitor are deferred to
+slice 2 because their inputs are repository rows that do not exist yet.
+
+Reproducibility note for this sandbox: `node_modules` does not persist between
+sessions, so `npm ci --no-audit --no-fund` at the repository root and a separate
+`npm ci` inside `runtime/` were both required before the runners would start. The
+parity generator additionally needs `runtime/`'s WASM PHP, and takes materially
+longer to boot than the oracle suite does — budget for it when regenerating.
+
+## Re-measured 2026-10-12 — Phase 16 (Sports Intelligence: persistence and ingestion), branch `arena/8de8de2e-ai`, Node v22.22.3
+
+| Measure | Phase 15 | Phase 16 |
+|---|---|---|
+| Node assertions (`npm test`) | 752 | **812** (+60) |
+| Test files | 42 | **44** |
+| Static checks (`npm run check`) | 0 failures | **0 failures** |
+| Install checks (`npm run verify:install`) | 29/29 | **29/29** |
+| Documented environment variables | 76 | **76** (unchanged — slice 2 adds no configuration) |
+| PHP oracle (`node runtime/run-tests.mjs`) | 367 passed / 0 failed | **367 passed / 0 failed** |
+| Total assertions executed | 1 119 | **1 179** |
+| Routes | 82 | **88** (+6) |
+| Sports routes | 1 | **7** |
+| Admin routes | 7 | **7** |
+| Storage contract methods | 86 | **108** (+22) |
+| Tables / migrations | 24 / 001–010 | **31 / 001–011** |
+| Module ledger | 9 ported / 5 partial / 3 not-ported | **9 / 5 / 3** (unchanged — `sports` stays `partial`, and its label changed) |
+| App version | 0.14.0 | **0.15.0** |
+| PHP paths modified | 0 | **0** |
+
+New test files: `test/sports_store.test.js` (**23** tests), `test/sports_sync.test.js`
+(**17**). Extended: `test/sports_http.test.js` (8 → **20**),
+`test/sports_parity.test.js` (16 → **24**).
+
+**The parity artifact grew, and its case count is the measured quantity.**
+
+| Parity group | Phase 15 | Phase 16 |
+|---|---|---|
+| fixture normalization | 23 | 24 |
+| odds normalization | 13 | 13 |
+| data quality | 14 | 14 |
+| odds freshness | 12 | 12 |
+| sandbox provider | 12 fixtures + 9 derivations | unchanged |
+| **result normalization** | — | **29** |
+| **provider health monitor** | — | **32** + 2 constants |
+| **Total comparable cases** | **62** | **124** |
+| Legacy classes under comparison | 6 | **8** |
+
+Slice 2 adds `SportsResultNormalizer` and `ProviderHealthMonitor`, which could not be
+captured earlier because the monitor's inputs are repository rows and migration 011 did
+not exist to define their shape. The result cases concentrate on
+`filter_var(..., FILTER_VALIDATE_INT)`, which is neither `is_int` nor `is_numeric`: a
+quoted integer passes, `"2.5"` fails, a whole float `2.0` stringifies and passes, `true`
+stringifies to `"1"` and passes, `false` to `""` and fails, and hexadecimal is refused.
+Those are exactly the edges a JavaScript port guesses at.
+
+**A coverage hole found in the harness itself.** The generator replaces clock-derived
+fields with a `<NOW>` sentinel so the committed artifact is stable. `sourceTimestamp` was
+in that set — correct for `SportsDataNormalizer::fixture()`, which re-derives it, and
+**wrong for `SportsResultNormalizer::normalize()`**, which merely casts the caller's value
+and returns it. Sentinelizing it blanked a deterministic value both sides could compare,
+and the comparison would still have *passed*, because the Node test applies the identical
+substitution. The field would have looked covered while being ignored — the failure mode a
+differential harness exists to avoid, appearing in the harness. Fixed by threading a `keep`
+list through `strip_clock()` / `outcome()` and their Node mirrors.
+
+**Two defects found and fixed while writing the slice.** **D-27**: `status({probe: true})`
+was first changed to report `persisted: store !== null`, which is false — a probe writes
+nothing, only ingestion appends health rows — so it would have claimed provenance for a
+reading stored nowhere. **D-28**: the 22 methods were first named `ensureProvider`,
+`saveHealth`, `saveMatch`, `findResult` and so on, matching legacy exactly and violating
+the platform's own convention that **every one of the 86 existing contract methods is
+module-prefixed**. The collision is not hypothetical: legacy's *lottery* repository
+declares `ensureProvider`, `saveHealth`, `latestHealth`, `listHealth` and `deleteOldHealth`
+with identical names, so porting row 15 would have overwritten row 14's methods in the
+spread that composes the store, and the last module to load would silently win (SP-18).
+
+**Every predicted tripwire fired**, and each was updated with its intent preserved rather
+than relaxed: the backup table count 24 → 31 and its `counted` collection map; the
+last-migration filename pin; the readiness migration list and its placeholder-count regex;
+the contract length in three files; the WAL-replay `stats()` map in two; and the module
+ledger's `partial` message and sports label. The label is the one worth calling out — it
+asserted `/no persistence/i`, which became **false**, and a stale ledger label is worse
+than none because it is read as current documentation.
+
+**Unchanged, and still owed.** No real MySQL server (**F-15**) — the SQL adapter is proven
+by statement shape, bound parameters and `LIMIT` bounds against a recording executor, and
+`ON DUPLICATE KEY UPDATE` is asserted as text, never executed. No multi-process Passenger
+contention test (**F-24**), which matters more now: the file adapter's uniqueness is
+single-process, so two Node processes on one directory can each believe they opened the
+same sync run. No live-provider probe (**F-25**). No console UI (**F-29**).
+`maxCorrelatedPositions` still enforced nowhere (**F-30**); legacy `automation_limits`
+still ungated (**F-31**); legacy `Api_system` reads still ungated (**F-32**). **F-34**
+stays closed. **NV-6** is unchanged: `SPORTS_MODEL_DRIFT` is still unpublished and
+`ModelDriftMonitor` is slice 5. **DV-10** must appear in any future numeric diff as an
+*expected* difference. The harness still covers only sports classes — the optimizer,
+indicators, `MathUtils`, regime generation and the notification rules remain un-diffed, and
+`SportsProviderManager` stays outside it because it is stateful rather than pure.
+
+**Newly closed: F-35** (legacy wrote sync evidence it could not read, and built a
+provider-health monitor it never called). See
+[`PHASE16_SPORTS_PERSISTENCE.md`](PHASE16_SPORTS_PERSISTENCE.md) §3.
+
+**A flaky test, and a wrong first diagnosis that is recorded here because it was
+committed.** The first push of this phase failed the `javascript` job at step 7
+(`npm run check`). The same command passed **812/812** locally in a pristine clone of
+that exact commit with root-only `npm ci`, at concurrency 2, 4 and 8, under `LC_ALL=C`,
+across seven complete runs. Concluding from that evidence that the failure was *not a
+test failure* — attributing it to the runner truncating an oversized log stream, because
+the failing step ended 30 s in where a complete step takes 42 s — was **wrong**. The
+reasoning is worth keeping visible: an unreproducible failure plus a shorter step
+duration is consistent with an abort, and "this step has been truncated due to its large
+size" was even printed by the runner as an annotation. It was still a guess dressed as a
+diagnosis, and the guess was committed to this file as though it were a finding.
+
+The real cause was found by making CI legible rather than by guessing at it: step 7 now
+writes its output to a file and, on failure, re-emits the failing test names, their
+failure detail and the suite totals as **check annotations**, which are readable through
+the API without signing in to the Actions UI. The next red run named the test directly —
+`saveSportsMatch upserts by (provider, external id) and distinguishes created from
+updated`, `test/sports_store.test.js:243`, **811 pass / 1 fail** — while the parallel
+`pull_request` run of the *same commit* passed 812/812. Intermittent, and therefore a
+race.
+
+The race was in the test, not in the code. `saveSportsMatch` distinguishes a creation from
+an update by comparing `created_at` with `updated_at` — legacy's heuristic, deliberately
+kept (divergence SP-13). An update landing in the **same millisecond** as the insert is
+therefore counted as a creation, and `assert.notEqual(updated.updated_at,
+updated.created_at)` fails. On a 2-core sandbox the two writes were always at least a
+millisecond apart; on a 4-core runner they were not. The same hazard sat unnoticed in
+`sports_sync.test.js`, where a re-sync would have reported `created: 3` instead of
+`updated: 3`. Both now await `afterInstant(...)`, which spins until the clock has moved
+strictly past the first write — deterministic by construction rather than by margin, at a
+cost of about a millisecond.
+
+Two lessons, both about evidence. **A green local run is not evidence of a passing CI
+run**, and seven of them were not enough: the difference was core count, the one variable
+this sandbox cannot reproduce. And **an unreproducible failure should be made
+reproducible or made legible before it is explained** — the explanation committed first
+was plausible, self-consistent, and false.
+

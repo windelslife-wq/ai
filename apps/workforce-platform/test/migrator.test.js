@@ -109,7 +109,38 @@ test("Phase 8A migration creates only the paper-proposal record, with owner and 
   assert.match(sql, /intent_json LONGTEXT NOT NULL/);
   assert.match(sql, /decision_by_user_id BIGINT UNSIGNED NULL/);
   assert.doesNotMatch(sql, /CREATE TABLE IF NOT EXISTS wf_(?:live|broker)_/i);
-  assert.equal((await listMigrationFiles(new URL("../src/db/migrations/", import.meta.url))).at(-1), "008_execution_supervisor.sql");
+  // The last migration in filename order, which is also the one a fresh host applies
+  // last. Pinned so that adding a migration is a deliberate act that shows up in a
+  // diff: an out-of-order or mis-numbered file would change the order migrations run
+  // in, and a migration that runs before the table it references exists is a failure
+  // only on a fresh install — exactly the install nobody tests.
+  assert.equal((await listMigrationFiles(new URL("../src/db/migrations/", import.meta.url))).at(-1), "011_sports_foundation.sql");
+});
+
+test("Phase 12 migration creates only the job-lock table, keyed by job name", async () => {
+  const migrationPath = new URL("../src/db/migrations/010_job_locks.sql", import.meta.url);
+  const sql = await readFile(migrationPath, "utf8");
+  const statements = splitSqlStatements(sql);
+  assert.equal(statements.length, 1, "one table and nothing else — no seed row, because a lock that exists before any job runs would block the first run");
+  assert.match(statements[0], /CREATE TABLE IF NOT EXISTS wf_job_locks/);
+
+  // The primary key IS the mutual-exclusion guarantee: two concurrent acquirers both
+  // attempt an INSERT and the loser gets a duplicate-key error. Without it the arbiter
+  // would be a check-then-act race.
+  assert.match(sql, /job_name VARCHAR\(64\) NOT NULL PRIMARY KEY/);
+  assert.match(sql, /holder VARCHAR\(120\) NOT NULL/);
+  // Canonical-UTC VARCHAR timestamps, as in 007/008/009, so `expires_at <= ?` is a
+  // correct string comparison that no host time_zone setting can reorder.
+  assert.match(sql, /acquired_at VARCHAR\(32\) NOT NULL/);
+  assert.match(sql, /expires_at VARCHAR\(32\) NOT NULL/);
+  assert.match(sql, /KEY ix_wf_job_locks_expiry \(expires_at\)/);
+  assert.match(sql, /ENGINE=InnoDB/);
+
+  // Additive only: a coordination lock must not touch a governance, order or broker
+  // table, and must not introduce any live-execution surface.
+  assert.doesNotMatch(sql, /ALTER TABLE/i);
+  assert.doesNotMatch(sql, /CREATE TABLE IF NOT EXISTS wf_(?:live|broker|trading|paper|execution)_/i);
+  assert.doesNotMatch(sql, /INSERT INTO/i);
 });
 
 test("migration status reports pending, applied and drifted without writing", async (t) => {

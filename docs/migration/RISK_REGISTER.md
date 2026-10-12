@@ -144,4 +144,335 @@ false in the other direction. Building the consoles is a separate, larger piece 
 future phase adds one it should establish the pattern for all three modules rather than for
 itself alone.
 
+### F-30 — `maxCorrelatedPositions` is a declared risk limit with no enforcement (open)
+
+Found in Phase 12 while porting the portfolio risk monitor's alert vocabulary
+([`PHASE12_SCHEDULED_JOBS.md`](PHASE12_SCHEDULED_JOBS.md), divergence SJ-9).
+
+`maxCorrelatedPositions` appears in three places — the RiskEngine defaults
+(`src/modules/analysis/risk-engine.js:42`, value **3**), the paper contract schema
+(`src/modules/paper/contracts.js:106`, integer 1–100) and the paper service's bounds table
+(`src/modules/paper/service.js:59`) — and in **no check anywhere**. Every other risk limit has
+at least one enforcement point: `maxLeverage` at order time (`risk-engine.js:154`),
+`minDataQuality` and `blockStaleData` in the same file, the exposure, drawdown, position-count
+and daily/weekly loss limits in the portfolio scan.
+
+So an operator can set `maxCorrelatedPositions: 3` through the permissioned
+`PATCH /api/v1/risk/limits` route (or the legacy-style `POST /api/v1/risk/limits/update`), be
+told it was saved, see it echoed back by `GET /api/v1/risk/limits` and inside the
+`GET /api/v1/portfolio/risk-scan` report's `limits` block, and nothing will ever act on it. **A limit that reads as enforced and is not is worse than no limit**, because the
+echo is the evidence an operator or an auditor will accept.
+
+Legacy did enforce it, in the monitor: a static disclosed group table
+(`PortfolioRiskMonitor::CORRELATION_GROUPS` — `CRYPTO_MAJORS`, `USD_MAJORS`, `USD_COUNTER`,
+`METALS`, `ENERGY`, `US_EQUITY_INDEX`) raised `CORRELATED_POSITIONS` as a `warning` when two or
+more open positions shared a group, labelled in its own message as a *"static heuristic, not
+statistical"*. Neither the table nor the alert code was ported, and the Node portfolio scan has
+no correlation check of any kind.
+
+Not fixed in Phase 12, deliberately: choosing a correlation heuristic is a risk-modelling
+decision, not a port, and inventing one inside a phase whose rule is to preserve behaviour
+before improving it would be the wrong way to close it. The three options are to port legacy's
+static group table as-is, to compute correlation from the same sample covariance the Phase 11
+optimizer already builds, or to **remove the limit from the API** so it stops reading as
+enforced. The third is the only one that is honest without doing any modelling, and it is the
+minimum acceptable action. Related: R-20 and divergence SJ-9.
+
+### F-31 — legacy `automation_limits` authenticated but never authorized (open, legacy-only)
+
+Found in Phase 13 while reconciling the Execution Supervisor against its controller surface
+([`PHASE13_EXECUTION_GOVERNANCE.md`](PHASE13_EXECUTION_GOVERNANCE.md)).
+
+`Api_system::automation_limits()` (`application/controllers/Api_system.php:266`) is the read
+half of the automation governance envelope — `approvedSymbols`, `maxTradeNotionalUsd`,
+`maxDailyTrades`, `maxRiskPerTradePct`, `updatedAt`. It makes **no `requirePermission` call**:
+
+```php
+public function automation_limits()
+{
+    $this->json(['limits' => \Aegis\ExecutionSupervisor::automationLimits($this->platform->state())]);
+}
+```
+
+`api_system/automation_limits` is not in `MY_Controller::PUBLIC_ACTIONS`
+(`application/core/MY_Controller.php:165`, which lists only `api_auth/login`,
+`api_chat/respond`, `api_system/status` and `api_system/features`), so it is not anonymous —
+but authentication without authorization means **every signed-in user** could read the
+governance envelope. Its sibling `update_automation_limits()` correctly requires
+`trading.control` and catches `InvalidArgumentException`, which makes the omission on the read
+side look like an oversight rather than a decision.
+
+This is the same shape as **AV-1** (Phase 10: `Api_system::events()` exposed the whole audit
+trail to any signed-in operator because it never called `requirePermission`). Lower severity —
+configuration rather than identity and trade history — but the same class, and the pair is
+evidence for a general statement about the legacy API: **it authenticated broadly and
+authorized inconsistently.** A read endpoint sitting next to a correctly gated write endpoint
+in the same controller is exactly the pattern a reviewer should expect to find more of.
+
+Impact on this migration: **none, because the endpoint was never ported.** The Node platform
+has no automation-limits state and no route for it (divergence ES-6 explains why porting the
+document without enforcement would recreate F-30). Recorded so the gap is not inherited:
+**row 13 must port `automation_limits` gated** — `trading.control` for the write and at minimum
+`trading.view` for the read — and must port the limits *with* enforcement from the first
+commit, never as an echoed-back document nothing acts on.
+
+**Phase 14 status: still not ported, and now for a different reason.** Row 13's scope was
+reconciled in [`PHASE14_BROKER_CENTER.md`](PHASE14_BROKER_CENTER.md) and the connector
+boundary and health/demo gates shipped, but `automationLimits` did not. `automationModeGate()`
+is a gate on *enabling `FULLY_AUTOMATED`*, and enabling that mode is meaningless while
+`tradingConnector()` returns `null` — porting it now would produce a gate that always reports
+the same two reasons, which is the same settable-but-inert shape as F-30. It stays unported and
+is blocked on a verified adapter, not on scope. **F-32 below records that `automation_limits()`
+is one of six ungated reads in the same controller**, which upgrades this from an isolated
+omission to a pattern.
+
+The PHP source is authoritative and must not be modified during migration, so this is **not
+fixed in legacy**. If the PHP application remains reachable in production after cutover, the
+gap is live there and belongs in the cutover decision (row 22), not in this port. Related:
+AV-1, F-30, ES-6.
+
+### F-32 — the legacy system API authorized its writes and left its reads open (open, legacy-only)
+
+Found in Phase 14 while reconciling the broker connector surface
+([`PHASE14_BROKER_CENTER.md`](PHASE14_BROKER_CENTER.md)).
+
+`Api_system` gates **every write** and **most reads**, and then leaves a group of reads with
+no `requirePermission` call at all:
+
+| Ungated (any signed-in user) | Gated |
+|---|---|
+| `status`, `features` (**public**, in `PUBLIC_ACTIONS`) | `update_risk_limits`, `kill_switch`, `synthetic_paper`, `update_automation_limits`, `trading_mode` → `trading.control` |
+| `brokers`, `mt5_account`, `mt5_quote` | `execution_approvals`, `execution_recent`, `portfolio_scan` → `trading.view` |
+| `risk_limits`, `execution_preflight`, `automation_limits` | `execution_propose`, `execution_execute` → `trading.execute` |
+| | `notifications`, `notification_read_all` → `system.authenticated` |
+
+The pattern is not random: **writes are consistently gated, reads consistently are not.** This
+is AV-1 (Phase 10, `events()`) and F-31 (Phase 13, `automation_limits()`) generalized, and
+finding the same omission in three consecutive phases is what makes it a property of the
+legacy API rather than a run of oversights.
+
+**Severity varies enormously across the ungated group, and the two worst are broker-related:**
+
+* `mt5_account()` returns the broker `accountId` (**the login**), currency, balance, equity,
+  margin, free margin and leverage to any signed-in user.
+* `status` is **anonymous** and embeds `BrokerManager::allStatus()` plus the kill-switch state,
+  so an unauthenticated caller can enumerate connector health including `bridgeVersion`,
+  `accountType` and `simulated` — the exact fields that say whether a real bridge is live.
+
+The escalation path is trivial and needs no exploit: read `status` anonymously to learn a
+bridge is `READY`, sign in with any account, read the account snapshot. Compare
+`risk_limits()` (returns limits to the same user who cannot write them) and
+`execution_preflight()` (returns a governance verdict for a symbol the caller may not trade)
+— lower impact, same class.
+
+**Mitigated on the Node side in this phase:** `GET /api/v1/brokers` requires `trading.view`,
+and `mt5_account` / `mt5_quote` are **not ported at all** — a route that can only answer 503
+with no verified adapter is a worse surface than no route. The connector methods behind them
+exist and are tested against an injected transport, so they are two thin handlers once a real
+bridge is verified.
+
+**Not fixed in legacy.** The PHP source is authoritative and unmodified, so if the PHP
+application remains reachable in production after cutover, `mt5_account`, `automation_limits`,
+`risk_limits`, `execution_preflight` and `brokers` are still readable by any signed-in user
+there, and `status` still leaks connector health anonymously. **This belongs in the cutover
+decision (row 22): either the legacy API is retired, or these six reads are gated before
+cutover.** Related: AV-1, F-31, F-30, R-20.
+
+### F-33 — the configuration-documentation gate could not see a composed variable name (closed in Phase 14)
+
+Found in Phase 14 while documenting the broker connector settings.
+
+`verify:install` and the F-14 test both establish that every environment variable the config
+reads is documented in `.env.example`. Both do it by scanning `src/config.js` for **literal
+dotted reads** of the environment object. Every licensed-feed and broker setting is instead
+read through a **composed** name built from a prefix table — an array lookup whose key is
+assembled at runtime — which no regex over the source text can see.
+
+The consequence was real, not theoretical: `AEGIS_ETF_DATA_*`, `AEGIS_FUTURES_DATA_*` and
+`AEGIS_OPTIONS_DATA_*` — **21 variables across three licensed feed families** — had shipped
+undocumented with the gate reporting green. The 50 broker variables added by Phase 14 would
+have joined them, taking the blind spot to 71 knobs on a platform where
+**an undocumented knob is an unconfigurable one** (the principle F-14 exists to enforce).
+
+**How it was found matters more than what was found:** not by reading the gate, but by
+strengthening it. The test now enumerates prefix × suffix from the config's own exported
+tables (`LICENSED_ASSET_CLASSES`, `BROKER_CONNECTOR_ENV`, `brokerEnvNames`,
+`LICENSED_DATA_ENV_SUFFIXES`, `BROKER_ENV_SUFFIXES`) and requires each generated name to
+appear in `.env.example`. The strengthened gate immediately reported the 21 pre-existing gaps
+itself. Enumerating from `brokerEnvNames()` rather than a hand-written list is what keeps the
+gate from drifting when a prefix turns out to be irregular — which it did: MT5's trading flags
+are `AEGIS_MT5_TRADING_ENABLED` and `AEGIS_MT5_LIVE_ALLOWED`, **without** the `_BRIDGE`
+infix that its URL, token and enabled flag carry (divergence **D-21**).
+
+**Closed:** all 71 composed names are documented, the gate is derived from the same table the
+loader reads, and a future prefix cannot be documented and read inconsistently.
+
+**Lesson worth carrying forward:** a documentation gate is only as good as its ability to see
+the names the code actually uses. Two other gates in this repository work the same way — the
+route-inventory count and the persistence-contract length — and both enumerate a *live*
+structure rather than scanning source text, which is why neither has a comparable blind spot.
+**F-14 was the only one scanning text.** Related: F-14, F-30, F-31.
+
+### F-26 — no PHP↔Node differential harness (closed in Phase 15 for the sports foundation, extended in Phase 16; coverage still owed elsewhere)
+
+Open since Phase 4 and restated at every phase since: both suites were green and
+**nothing compared the two implementations against each other**, so a port could be
+internally consistent and externally wrong. Every earlier phase preserved legacy's
+error messages, rounding behaviour or timestamp shape *in case* such a harness ever
+existed; none could use them.
+
+**It now exists.** `runtime/parity/sports-golden.php` `require`s **eight** legacy
+class files by path and emits their real output; `runtime/sports-parity.mjs` runs it
+in WASM PHP 8.2 and writes
+`apps/workforce-platform/test/fixtures/sports-parity-golden.json`;
+`test/sports_parity.test.js` recomputes all **124 cases** with the Node port and
+asserts agreement to the last double and the last character of every refusal
+message. The golden file is PHP's own output, not a transcription of what PHP was
+believed to do. Regenerating it is a normal workflow step, and the generator lives
+under `runtime/` so producing parity evidence never touches the authoritative PHP
+tree.
+
+**It paid for itself immediately** — see **F-34**, found on its first run, and
+**D-23**, a clock-convention mismatch that made the Node port refuse a *valid*
+fixture as unparseable.
+
+**Why the sports foundation and not something earlier.** The harness needs pure
+functions: no I/O, no global state, no database, no clock reads beyond an
+injectable `now`. The normalizer, the two engines and the sandbox provider are
+exactly that. Every earlier candidate either touched the database (the risk engine,
+the supervisor) or diverged numerically on purpose — **PO-1** keeps legacy's
+bisection projection precisely so the numbers stay aligned, but nothing had ever
+verified that they were.
+
+**What this closure does *not* cover, stated so the finding is not read as retired:**
+
+- The optimizer, indicators, `MathUtils`, regime/setup/scenario generation and the
+  notification rules are still un-diffed. Each of those references to F-26 in
+  `INVENTORY.md`, `STATUS.md` and `BASELINE_TESTS.md` **stands**.
+- **DV-10** must appear in any future numeric diff as an *expected* difference:
+  Node's `RiskEngine` vetoes zero, negative and non-finite equity where legacy PHP
+  approves it.
+- The sports provider **manager** and **health monitor** are pure enough to capture
+  but are not captured yet: their inputs are repository rows, and the repository
+  does not exist in this slice. Synthesising rows on the PHP side to compare
+  against would test a fiction. Slice 2 captures them against the real thing.
+
+Related: F-34, D-22, D-23, PO-1, DV-10.
+
+### F-34 — PHP exposes two different CRC-32 algorithms under near-identical names, and legacy uses both in one class (found and fixed in Phase 15)
+
+**Severity: high, and silent.** Not a risk that *might* materialise — one that did,
+in the Phase 15 port, and would have survived every test written against the Node
+implementation alone.
+
+| PHP call | Algorithm | `hash("123456789")` |
+| --- | --- | --- |
+| `crc32($s)` ≡ `hash('crc32b', $s)` | reflected CRC-32/ISO-HDLC (`zlib`'s) | `cbf43926` |
+| `hash('crc32', $s)` | non-reflected CRC-32/BZIP2, **rendered little-endian** | `181989fc` |
+
+The two differ in the polynomial direction *and* in byte order, so they agree on
+nothing. `Aegis\Sports\Providers\SandboxSportsProvider` uses **both in the same
+class**: `crc32()` for per-team strength and `hash('crc32', …)` for the league
+component of every generated external id.
+
+**What happened.** The Node port implemented the reflected algorithm once, exported
+it as `crc32()`, and used it for both call sites. The result was stable, plausible,
+self-consistent and wrong: `sim-bc27c7-2026-10-10-0` where PHP produces
+`sim-f3ff5d-…`. Every fixture id belonged to a **different fixture universe** from
+legacy's. Determinism tests passed. Golden-value tests written against the Node
+output passed. The sandbox generated 12 fixtures per day and they all looked right.
+
+**Why it is a finding and not just a fixed bug.** Three reasons:
+
+1. **Nothing downstream would have failed until row 22.** The mismatch only becomes
+   visible when legacy data meets Node data — the cutover — which is the most
+   expensive possible moment to discover that two implementations disagree about
+   the identity of every record.
+2. **The name is the trap.** `crc32` and `crc32b` differ by one character, and the
+   *function* `crc32()` maps to `crc32b` rather than to `hash('crc32')`. A porter
+   reading `hash('crc32', $league)` reasonably concludes it is the same CRC-32
+   everyone means. It is not.
+3. **Any future port that touches a PHP hash name will hit the same wall.** PHP's
+   hash extension has this shape for other algorithms too. The rule to carry
+   forward: *never assume two PHP hash spellings are the same function — capture
+   the digest from PHP and compare.*
+
+**How it was caught.** By the differential harness built in the same phase
+(**F-26**, closed below): `runtime/parity/sports-golden.php` ran the real legacy
+class in WASM PHP 8.2 and emitted its external ids; the Node test compared and
+failed on the first one. This is the finding that justifies the harness existing —
+it paid for itself on its first run.
+
+**Fix.** Two separately-exported, separately-pinned implementations:
+`crc32()` (reflected, verified against the published check value `0xCBF43926`) and
+`crc32HashHex()` (CRC-32/BZIP2 byte-swapped via `Buffer#swap32()`, so the intent is
+stated rather than buried in four shift masks). `test/sports.test.js` asserts
+`crc32BigEndian("123456789") === 0xfc891918` next to
+`crc32HashHex("123456789") === "181989fc"`, because the byte swap is exactly the
+kind of step a later reader would "simplify" away. Related: F-26, D-22.
+
+
+### F-35 — legacy wrote sync evidence it could not read, and built a provider-health monitor it never called (found in Phase 16; closed for the Node port, open in legacy)
+
+Found while looking for the concrete `SportsRepository` implementation, which turned
+out to be an anonymous class inside `application/models/Aegis_model.php` rather than
+anything in the `Persistence` namespace — a navigation fact worth recording on its
+own, because grepping the persistence namespace for behaviour finds only signatures.
+
+Two independent gaps, both verified by grepping every PHP file under `application/`:
+
+1. **`sports_sync_runs` has no reader.** The `SportsRepository` interface declares
+   `startSync` and `finishSync` and nothing else for that table, and no file in the
+   application issues a `SELECT` against it. The only other occurrence of the table
+   name anywhere is a *docblock*. So each run's counters, and the per-record refusal
+   messages `finishSync` stores truncated to 200 characters, were written into a
+   table no operator could query. A row left in `RUNNING` — which is precisely the
+   evidence that a worker died mid-sync — was invisible.
+2. **`ProviderHealthMonitor::assess()` has no caller.** The only references to the
+   class in the whole application are its `use` statement and its construction in
+   `SportsIntelligence`. And its own docblock documents the third parameter as
+   *"newest-first `sports_sync_runs` rows for this provider"* — the table gap 1 says
+   cannot be read.
+
+So the derived provider status, which is the monitor's entire purpose and the value
+the data-quality engine consumes as `providerReliability`, was **never computed in
+the legacy application**. Every quality assessment was scored against a provider
+reliability that came from whatever a provider self-reported in its own `health()`
+payload, and the seven-rule derivation that was supposed to discipline that number
+never ran.
+
+This retroactively justifies a Phase 15 decision. Slice 1 declined to report
+`derivedStatus` on the unauthenticated status surface, on the reasoning that "a field
+that can only ever hold `UNKNOWN` invites a reader to think it was measured". F-35 is
+the evidence for *why* it could only ever hold `UNKNOWN`: legacy never measured it.
+
+**Severity: high, silent.** Nothing fails, nothing logs, and no test in either suite
+could notice — both were green for the whole life of the module. It is the same shape
+as F-30 (`maxCorrelatedPositions` declared and enforced nowhere) and F-31
+(`automation_limits` authenticated but never authorized): a control that exists in
+code and not in behaviour.
+
+**Closed for the Node port.** The fix is not porting the class — Phase 15 already did
+that — but adding the read it needs. `listSportsSyncRuns` has **no legacy
+counterpart** (divergence SP-15) and is what makes `assessProviderHealth` reachable:
+`GET /api/v1/sports/status` now derives each provider's status from stored health
+observations and stored sync runs, `GET /api/v1/sports/sync-runs` exposes the run
+evidence including its refusal messages, and `test/sports_sync.test.js` asserts that
+after one sync the derived status is *not* `UNKNOWN`. Porting the class would not have
+closed this; porting the capability did.
+
+**Open in legacy, and not fixed there.** The PHP application remains authoritative and
+is not modified during migration (master plan §2). Legacy's monitor is still
+unreachable and its sync evidence is still unreadable. Recorded here so the gap is
+visible to anyone comparing the two, and so the Node port's extra method is understood
+as a deliberate extension rather than a porting error.
+
+A smaller observation from the same reading: `assess()`'s first parameter is
+documented as the `sports_data_sources` row and is never read by the implementation.
+The harness captures a case with an empty provider row to pin that, so a future port
+cannot "helpfully" start using it and silently change every derived status.
+
+Related: F-26 (the harness that made the monitor comparable), F-30 and F-31 (the same
+declared-but-inert shape), SP-15, SP-21, SP-22.
+
 — End of Phase 0 risk register.

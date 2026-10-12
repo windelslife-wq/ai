@@ -14,6 +14,8 @@ import { MARKET_CLASSES } from "../market-data/timeframes.js";
 import { normalizeTradingState } from "../paper/service.js";
 
 const MAX_PROPOSAL_AGE_MS = 4 * 60 * 60_000;
+/** Legacy swept a fixed 200 pending proposals per cron minute (`ExecutionSupervisor.php:372`). */
+const STALE_SWEEP_LIMIT = 200;
 const PROPOSAL_ID = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 const SYMBOL = /^[A-Z0-9._-]{2,24}$/;
 const STRATEGY_ID = /^[a-z0-9][a-z0-9_-]{0,59}$/;
@@ -138,7 +140,7 @@ function safeFailure(error) {
   };
 }
 
-export function createExecutionService({ store = null, paper = null, strategies = null, now = () => Date.now() } = {}) {
+export function createExecutionService({ store = null, paper = null, strategies = null, notifications = null, brokers = null, log = null, now = () => Date.now() } = {}) {
   function requireStore() {
     if (!store || typeof store.withPaperTransaction !== "function" || typeof store.findExecutionProposal !== "function") {
       throw AppError.unavailable("Execution proposals require a configured persistence adapter", { code: "EXECUTION_STORE_UNAVAILABLE", retryAfter: 30 });
@@ -149,6 +151,162 @@ export function createExecutionService({ store = null, paper = null, strategies 
     if (!paper || typeof paper.submitOrder !== "function") {
       throw AppError.unavailable("The paper-order service is unavailable; execution is disabled", { code: "PAPER_SERVICE_UNAVAILABLE", retryAfter: 30 });
     }
+  }
+
+  /**
+   * Publish the operator alerts the legacy `ExecutionSupervisor` published, with
+   * its dedupe keys, at the points where this paper-only workflow reaches the same
+   * state.
+   *
+   * **Never call this inside `store.withPaperTransaction`.** The file adapter
+   * serializes every mutation through one queue and holds it for the whole
+   * transaction, so a notification write from inside a transaction waits on the
+   * transaction that is waiting on it — a deadlock, not a slow write. Every call
+   * site here collects a pending alert inside the transaction and publishes it
+   * afterwards through `publishPending`.
+   *
+   * Best-effort by design: `wf_audit_events` is the evidence, the notification is
+   * the nudge. A host without migration 009, or an adapter with no notification
+   * surface, must still be able to approve and submit a proposal, so a failure
+   * here is logged and never propagated — otherwise an alerting outage would look
+   * like a trading outage.
+   */
+  async function publish(type, severity, title, detail = {}, dedupeKey = null, userId = null) {
+    if (!notifications || typeof notifications.notify !== "function") return null;
+    try {
+      const result = await notifications.notify(type, severity, title, detail, dedupeKey, userId);
+      return result?.notification ?? null;
+    } catch (error) {
+      log?.warn?.({ err: error, notificationType: type }, "Operator notification could not be published");
+      return null;
+    }
+  }
+
+  /**
+   * The submission refusals that leave evidence, and what each one records.
+   *
+   * Legacy routed every refusal in `ExecutionSupervisor::route()` through one
+   * `routingBlocked()` helper which audited `EXECUTION_ROUTING_BLOCKED` as `'system'`
+   * and published a `ROUTING_BLOCKED` notification deduped to **one per UTC day**
+   * (`routing-blocked:` . `gmdate('Ymd')`). Until now this port threw a bare 409 for
+   * all three, so an attempt to submit an order while the kill switch was active left
+   * **no trace at all** — and "who tried to route while the platform was stopped, and
+   * when" is the first question a governance review asks.
+   *
+   * The audit event is per attempt for all three, because each is a distinct event
+   * worth reconstructing. The notification is limited to the governance refusal, and
+   * keeps legacy's daily dedupe: `ROUTING_BLOCKED` means "routing is unavailable
+   * today", which is a platform condition. Broadcasting it for a caller who submitted
+   * a proposal that was simply not approved yet would say the platform is down when it
+   * is not — a misleading alert is worse than no alert.
+   *
+   * The proposal's status is deliberately **not** changed, exactly as legacy left it:
+   * a blocked attempt is retryable, and consuming the proposal would punish an
+   * operator for the platform's own state.
+   */
+  const SUBMISSION_REFUSALS = Object.freeze({
+    EXECUTION_GOVERNANCE_BLOCKED: {
+      reason: "trading governance blocks submission (kill switch active, or the mode is not PAPER_TRADING)",
+      notify: true,
+    },
+    PAPER_SUBMISSION_NOT_APPROVED: {
+      reason: "the proposal has not been human-approved",
+      notify: false,
+    },
+    PAPER_SUBMISSION_ALREADY_CLAIMED: {
+      reason: "the proposal was already claimed for submission",
+      notify: false,
+    },
+  });
+
+  /**
+   * Record an audit event **outside** any transaction.
+   *
+   * Every other audit write in this service goes through `tx.recordAudit`, which is
+   * right for events describing a transition that committed. This one describes a
+   * transition that was *refused* and whose transaction therefore rolled back — writing
+   * it inside that transaction would roll the evidence back with it, which is the
+   * silent-failure shape this recorder exists to avoid.
+   *
+   * Best-effort, like `publish`: the refusal itself must reach the caller even when the
+   * evidence write fails.
+   */
+  async function auditOutsideTransaction(event) {
+    if (!store || typeof store.recordAudit !== "function") return;
+    try {
+      await store.recordAudit(event);
+    } catch (error) {
+      log?.warn?.({ err: error, action: event.action }, "refused-submission audit event could not be recorded");
+    }
+  }
+
+  /** The UTC `YYYYMMDD` legacy's `gmdate('Ymd')` produced, for the daily dedupe key. */
+  /** Probe-free count of configured broker connectors; 0 when the registry is absent. */
+function configuredConnectorCount(brokers) {
+  if (!brokers || typeof brokers.configuredCount !== "function") return 0;
+  try {
+    const total = Number(brokers.configuredCount());
+    return Number.isFinite(total) && total > 0 ? Math.trunc(total) : 0;
+  } catch {
+    return 0;
+  }
+}
+
+function utcDayStamp() {
+    return isoNow(now).slice(0, 10).replaceAll("-", "");
+  }
+
+  /**
+   * Record evidence of a refused submission, then let the refusal propagate.
+   *
+   * Called **outside** the transaction that threw, because that transaction rolled
+   * back: an audit event written inside it would have been rolled back with it, and
+   * the evidence would silently not exist. Legacy's `audit->emit` was likewise a
+   * separate write, not part of the proposal transaction.
+   *
+   * Best-effort by construction. The refusal must reach the caller even if the audit
+   * or notification write fails, so nothing here throws.
+   */
+  async function recordSubmissionRefusal(owner, proposal, error) {
+    const code = error?.code;
+    const refusal = SUBMISSION_REFUSALS[code];
+    if (!refusal) return;
+    const proposalId = String(proposal?.id ?? "unknown");
+    const details = {
+      legacyAction: "EXECUTION_ROUTING_BLOCKED",
+      code,
+      reason: refusal.reason,
+      proposalStatus: proposal?.status ?? null,
+      // Legacy answered 200 with `{status: "ROUTING_BLOCKED", brokerOrderCreated:
+      // false}`; this port answers 409 with the same meaning, so the record says
+      // plainly that no order exists.
+      orderCreated: false,
+      retryable: true,
+      summary: `Paper submission refused: ${refusal.reason}`,
+    };
+    await auditOutsideTransaction({
+      actorId: owner,
+      action: "execution.paper-submission.blocked",
+      entityType: "execution_proposal",
+      entityId: proposalId,
+      details,
+    });
+    if (refusal.notify) {
+      await publish(
+        "ROUTING_BLOCKED",
+        "warning",
+        `Routing blocked: ${refusal.reason}`,
+        { proposalId, code, reason: refusal.reason, proposalStatus: proposal?.status ?? null, orderCreated: false },
+        `routing-blocked:${utcDayStamp()}`,
+        null,
+      );
+    }
+  }
+
+  /** Publishes an alert queued by a committed transaction. `null` is a no-op. */
+  async function publishPending(pending) {
+    if (!pending) return null;
+    return publish(pending.type, pending.severity, pending.title, pending.detail, pending.dedupeKey, pending.userId ?? null);
   }
 
   function requireProposalId(value) {
@@ -171,7 +329,20 @@ export function createExecutionService({ store = null, paper = null, strategies 
     return !Number.isFinite(created) || now() - created > MAX_PROPOSAL_AGE_MS;
   }
 
-  async function expireInTransaction(tx, owner, proposal) {
+  /**
+   * Expire one stale proposal inside an open paper transaction.
+   *
+   * `actorId` defaults to the owner, which is correct for the HTTP path: there an
+   * operator's own read or decision found the lapsed window, and the trail should say
+   * so. The scheduled sweep passes `null` instead, because legacy audited
+   * `EXECUTION_PROPOSAL_EXPIRED` with actor `'system'` and the operator did nothing —
+   * the clock did. Phase 10 renders a null actor as `kind: "system"`, so an operator
+   * filtering the audit trail by their own id does not see expiries the platform
+   * performed attributed to themselves.
+   *
+   * @returns {Promise<boolean>} whether THIS call made the transition
+   */
+  async function expireInTransaction(tx, owner, proposal, pendingNotifications = [], { actorId = owner } = {}) {
     const current = await tx.findExecutionProposal(proposal.id, owner);
     if (!current || current.status !== "PENDING_APPROVAL" || !isProposalStale(current)) return false;
     const account = await tx.findPaperAccount(current.account_id, owner);
@@ -180,11 +351,18 @@ export function createExecutionService({ store = null, paper = null, strategies 
     const expired = await tx.expireExecutionProposal(current.id, owner, updatedAt);
     if (!expired) return false;
     await tx.recordAudit({
-      actorId: owner,
+      actorId,
       action: "execution.proposal.expired",
       entityType: "execution_proposal",
       entityId: current.id,
       details: { accountId: Number(current.account_id), summary: "Paper execution approval expired after four hours" },
+    });
+    pendingNotifications.push({
+      type: "PROPOSAL_EXPIRED",
+      severity: "warning",
+      title: `Approval request expired: ${current.intent?.symbol ?? "proposal"} ${current.intent?.side ?? ""}`.trim(),
+      detail: { proposalId: current.id, accountId: Number(current.account_id), expiredAt: updatedAt },
+      dedupeKey: `proposal:${current.id}:expired`,
     });
     return true;
   }
@@ -192,8 +370,148 @@ export function createExecutionService({ store = null, paper = null, strategies 
   async function expireIfStale(ownerUserId, proposal) {
     if (!isProposalStale(proposal)) return proposal;
     const owner = actorIdOf(ownerUserId);
-    await store.withPaperTransaction((tx) => expireInTransaction(tx, owner, proposal));
+    const pending = [];
+    await store.withPaperTransaction((tx) => expireInTransaction(tx, owner, proposal, pending));
+    for (const alert of pending) await publishPending(alert);
     return store.findExecutionProposal(proposal.id, owner);
+  }
+
+  /**
+   * The scheduled cross-owner expiry sweep — legacy
+   * `ExecutionSupervisor::expireStaleProposals()` (`ExecutionSupervisor.php:366`),
+   * which `Tools::cron()` ran every minute.
+   *
+   * **CLI-only. There is deliberately no HTTP route for this.** It writes across
+   * every operator's proposals, so exposing it to a session would hand any caller a
+   * platform-wide mutation; the owner-bound routes above remain the only way to
+   * reach a proposal over HTTP. A test asserts no route can invoke it.
+   *
+   * Expiry itself is *not* re-implemented here. Each stale proposal goes through
+   * the same owner-bound `expireInTransaction` the HTTP path uses, with the owner
+   * read off the listed row. That is what preserves the account-revision invariant,
+   * the `execution.proposal.expired` audit event and the `PROPOSAL_EXPIRED`
+   * notification (dedupe key `proposal:<id>:expired`) — the legacy sweep emitted all
+   * three, and a cron job that silently skipped the notification would stop
+   * operators hearing about approvals that lapsed overnight.
+   *
+   * Divergences from the legacy sweep, all recorded in
+   * `docs/migration/PHASE12_SCHEDULED_JOBS.md`:
+   *  - **SJ-1** per-proposal failure isolation. Legacy had none: one bad row threw
+   *    out of the whole `foreach`, so a deterministic failure on proposal 3 of 200
+   *    left the other 197 pending forever. Failures are collected and reported, and
+   *    the sweep continues.
+   *  - **SJ-2** staleness uses this module's `isProposalStale` (a `Date.parse`
+   *    comparison) rather than legacy's `created_at >= gmdate('c')` string compare.
+   *    `gmdate('c')` emits a `+00:00` offset while this platform stores canonical
+   *    `…Z`, and those two forms do not sort consistently against each other — the
+   *    same hazard as divergence AV-2. Keeping the existing predicate means the
+   *    sweep and the HTTP path can never disagree about what "stale" means.
+   *  - **SJ-3** the sweep reports `scanned`, `staleFound`, `expiredIds`,
+   *    `alreadyExpired` and `failures` instead of legacy's bare array of ids, and a
+   *    bounded batch reports `exhausted` so a partial run is visible rather than
+   *    silent (the row 19 CLI pattern).
+   *
+   * **Dry run.** With `dryRun` the sweep lists and classifies but writes nothing —
+   * no transaction, no audit event, no notification. That is what makes the row 19
+   * CLI safe to schedule as a default: `tools/scheduled-jobs.mjs` measures on every
+   * invocation and only expires with `--apply`. A dry run reports *candidates*
+   * (`wouldExpireIds`), never outcomes: only attempting the transition can say
+   * whether another run already made it, so `alreadyExpired` is necessarily 0 and the
+   * two fields are named differently rather than one standing in for the other.
+   *
+   * @param {{limit?: number, dryRun?: boolean}} [options] batch ceiling (legacy was
+   *   fixed at 200) and whether to measure without writing
+   * @returns {Promise<{scanned:number, staleFound:number, expiredIds:string[], wouldExpireIds?:string[], alreadyExpired:number, failures:Array<{proposalId:string,reason:string}>, exhausted:boolean, dryRun:boolean}>}
+   */
+  async function expireStaleProposals({ limit = STALE_SWEEP_LIMIT, dryRun = false } = {}) {
+    requireStore();
+    if (typeof store.listExecutionProposalsAllOwners !== "function") {
+      throw AppError.unavailable(
+        "The scheduled expiry sweep requires a store that can list proposals across owners",
+        { code: "EXECUTION_STORE_UNAVAILABLE", retryAfter: 30 },
+      );
+    }
+    const bounded = Math.min(Math.max(Number.parseInt(limit, 10) || STALE_SWEEP_LIMIT, 1), 500);
+    // Oldest first, so a bounded batch drains the backlog in the order it accrued:
+    // newest-first would leave the oldest proposals pending forever once the limit
+    // was reached.
+    const pending = await store.listExecutionProposalsAllOwners({ status: "PENDING_APPROVAL", limit: bounded });
+    const stale = pending.filter(isProposalStale);
+
+    if (dryRun) {
+      const wouldExpireIds = [];
+      const unusable = [];
+      for (const proposal of stale) {
+        const owner = Number(proposal.owner_user_id);
+        if (Number.isSafeInteger(owner) && owner > 0) wouldExpireIds.push(String(proposal.id));
+        else unusable.push({
+          proposalId: String(proposal.id),
+          reason: "the proposal has no usable owner, so the owner-bound expiry path cannot run",
+        });
+      }
+      return {
+        scanned: pending.length,
+        staleFound: stale.length,
+        expiredIds: [],
+        wouldExpireIds,
+        alreadyExpired: 0,
+        failures: unusable,
+        exhausted: pending.length < bounded,
+        dryRun: true,
+      };
+    }
+
+    const expiredIds = [];
+    const failures = [];
+    let alreadyExpired = 0;
+
+    for (const proposal of stale) {
+      // The owner comes off the row, and `actorIdOf` throws on anything unusable, so
+      // validate here instead: a row with no owner is a failure to report, not a
+      // reason to abandon the remaining 199.
+      const owner = Number(proposal.owner_user_id);
+      if (!Number.isSafeInteger(owner) || owner <= 0) {
+        failures.push({
+          proposalId: String(proposal.id),
+          reason: "the proposal has no usable owner, so the owner-bound expiry path cannot run",
+        });
+        continue;
+      }
+      try {
+        const notifications = [];
+        // `expireInTransaction` returns whether THIS call made the transition, so a
+        // proposal another run already expired is counted as `alreadyExpired` rather
+        // than claimed. Reading the row back afterwards could not tell the two
+        // apart — both end in status EXPIRED.
+        const transitioned = await store.withPaperTransaction(
+          // `actorId: null` — the system expired this, not its owner. See
+          // `expireInTransaction`.
+          (tx) => expireInTransaction(tx, owner, proposal, notifications, { actorId: null }),
+        );
+        // Published AFTER the commit, never inside: the file adapter holds its
+        // mutation queue for the whole transaction, so notifying from inside
+        // deadlocks. See `publishPending`.
+        for (const alert of notifications) await publishPending(alert);
+        if (transitioned) expiredIds.push(String(proposal.id));
+        else alreadyExpired += 1;
+      } catch (error) {
+        failures.push({ proposalId: String(proposal.id), reason: String(error?.message || error).slice(0, 240) });
+        if (log) log.warn({ err: error, proposalId: proposal.id }, "scheduled proposal expiry failed for one proposal");
+      }
+    }
+
+    return {
+      scanned: pending.length,
+      staleFound: stale.length,
+      expiredIds,
+      alreadyExpired,
+      failures,
+      // `exhausted` false means the batch ceiling was reached and there may be more
+      // to do — the remedy is to re-run, and the CLI says so rather than implying
+      // the backlog is clear.
+      exhausted: pending.length < bounded,
+      dryRun: false,
+    };
   }
 
   async function propose(ownerUserId, input = {}) {
@@ -203,7 +521,8 @@ export function createExecutionService({ store = null, paper = null, strategies 
     const id = randomUUID();
     const createdAt = isoNow(now);
 
-    return store.withPaperTransaction(async (tx) => {
+    const pending = [];
+    const view = await store.withPaperTransaction(async (tx) => {
       // Owner check is first: no strategy lookup, provider call or proposal write
       // occurs for a guessed/foreign account id.
       const account = await tx.findPaperAccount(accountId, owner);
@@ -273,8 +592,27 @@ export function createExecutionService({ store = null, paper = null, strategies 
           summary: rejected ? checks.find((check) => !check.ok)?.detail : "Paper proposal awaits a separately permissioned human decision",
         },
       });
+      // Legacy `ExecutionSupervisor` raised TRADE_APPROVAL_REQUESTED as a
+      // broadcast warning keyed on the proposal id. A proposal rejected by its own
+      // pre-checks raises nothing: it never reached the approval queue, so there
+      // is no decision for an operator to make.
+      // The alert is a side effect only: `propose()` keeps returning exactly the
+      // proposal view it returned before this module existed, so no existing
+      // caller or test observes a shape change. A proposal rejected by its own
+      // pre-checks raises nothing — it never reached the approval queue.
+      if (!rejected) {
+        pending.push({
+          type: "TRADE_APPROVAL_REQUESTED",
+          severity: "warning",
+          title: `Approval required: ${intent.symbol} ${intent.side}`,
+          detail: { proposalId: id, accountId, symbol: intent.symbol, side: intent.side, type: intent.type, price: intent.price, expiresAt: new Date(now() + MAX_PROPOSAL_AGE_MS).toISOString() },
+          dedupeKey: `proposal:${id}`,
+        });
+      }
       return proposalView(proposal);
     });
+    await publishPending(pending[0] ?? null);
+    return view;
   }
 
   async function list(ownerUserId, { status = null, limit = 100 } = {}) {
@@ -285,11 +623,13 @@ export function createExecutionService({ store = null, paper = null, strategies 
     if (current.some(isProposalStale)) {
       // Expire a stale page in one transaction rather than opening one SQL
       // connection per row when an owner has accumulated many old proposals.
+      const pending = [];
       await store.withPaperTransaction(async (tx) => {
         for (const proposal of current) {
-          if (isProposalStale(proposal)) await expireInTransaction(tx, owner, proposal);
+          if (isProposalStale(proposal)) await expireInTransaction(tx, owner, proposal, pending);
         }
       });
+      for (const alert of pending) await publishPending(alert);
     }
     const proposals = await store.listExecutionProposals(owner, { status, limit: bounded });
     return { proposals: proposals.map(proposalView), simulationOnly: true, liveTradingEnabled: false };
@@ -386,6 +726,13 @@ export function createExecutionService({ store = null, paper = null, strategies 
         details: { accountId: Number(proposal.account_id), summary: "Approved proposal claimed for one simulation-only paper submission" },
       });
       return proposal;
+    }).catch(async (error) => {
+      // Recorded OUTSIDE the transaction that just rolled back — see
+      // `auditOutsideTransaction`. Legacy audited every routing refusal and published
+      // a daily-deduped `ROUTING_BLOCKED` alert; a bare 409 leaves no evidence that
+      // anyone tried to submit an order while the platform was stopped.
+      await recordSubmissionRefusal(owner, existing, error);
+      throw error;
     });
 
     let paperResult;
@@ -407,6 +754,7 @@ export function createExecutionService({ store = null, paper = null, strategies 
       }, { actorId: owner });
     } catch (error) {
       const failure = safeFailure(error);
+      const pending = [];
       await store.withPaperTransaction(async (tx) => {
         const proposal = await tx.findExecutionProposal(id, owner);
         if (!proposal) return;
@@ -425,8 +773,21 @@ export function createExecutionService({ store = null, paper = null, strategies 
             entityId: id,
             details: { accountId: Number(proposal.account_id), errorCode: failure.code, summary: failure.message },
           });
+          // Legacy wording named the broker; this workflow has no broker, so the
+          // alert says what actually refused it. `safeFailure` has already
+          // replaced a 5xx message with a non-leaking one.
+          pending.push({
+            type: "EXECUTION_FAILED",
+            severity: "critical",
+            title: `Paper submission failed for ${claimed.intent?.symbol ?? id}`,
+            detail: { proposalId: id, accountId: Number(proposal.account_id), errorCode: failure.code, error: failure.message },
+            dedupeKey: `proposal:${id}:failed`,
+          });
         }
       });
+      // Published before the throw so the operator is told why the request failed;
+      // `publishPending` cannot itself throw.
+      await publishPending(pending[0] ?? null);
       throw error instanceof AppError ? error : AppError.internal("Paper submission failed", { cause: error });
     }
 
@@ -435,6 +796,7 @@ export function createExecutionService({ store = null, paper = null, strategies 
     const status = paperResult?.order?.status === "REJECTED"
       ? "PAPER_REJECTED"
       : paperResult?.filled ? "PAPER_EXECUTED" : "PAPER_PENDING";
+    const pending = [];
     const completed = await store.withPaperTransaction(async (tx) => {
       const proposal = await tx.findExecutionProposal(id, owner);
       if (!proposal) throw AppError.notFound("Execution proposal not found", { code: "EXECUTION_PROPOSAL_NOT_FOUND" });
@@ -448,8 +810,41 @@ export function createExecutionService({ store = null, paper = null, strategies 
         entityId: id,
         details: { accountId: Number(proposal.account_id), paperOrderId: orderId, paperStatus: paperResult?.order?.status ?? null, summary: `Paper-only proposal submission finished as ${status}` },
       });
+      const intent = proposal.intent ?? {};
+      if (status === "PAPER_REJECTED") {
+        pending.push({
+          type: "EXECUTION_FAILED",
+          severity: "critical",
+          title: `Paper risk/governance rejected ${intent.symbol ?? id}`,
+          detail: {
+            proposalId: id,
+            accountId: Number(proposal.account_id),
+            paperOrderId: orderId,
+            rejectReasons: safe.order?.rejectReasons ?? [],
+            riskReasons: safe.riskDecision?.reasons ?? [],
+          },
+          dedupeKey: `proposal:${id}:rejected`,
+        });
+      } else if (status === "PAPER_EXECUTED") {
+        pending.push({
+          type: "ORDER_FILLED",
+          severity: "info",
+          title: `Filled ${intent.side ?? ""} ${intent.symbol ?? id} (paper)`.trim(),
+          detail: { proposalId: id, accountId: Number(proposal.account_id), paperOrderId: orderId, simulationOnly: true },
+          dedupeKey: `proposal:${id}:filled`,
+        });
+      } else {
+        pending.push({
+          type: "ORDER_FILLED",
+          severity: "info",
+          title: `Paper order accepted and pending: ${intent.symbol ?? id}`,
+          detail: { proposalId: id, accountId: Number(proposal.account_id), paperOrderId: orderId, status: "PAPER_PENDING", simulationOnly: true },
+          dedupeKey: `proposal:${id}:pending`,
+        });
+      }
       return row;
     });
+    await publishPending(pending[0] ?? null);
     return { proposal: proposalView(completed), paper: safe };
   }
 
@@ -460,12 +855,20 @@ export function createExecutionService({ store = null, paper = null, strategies 
       simulationOnly: true,
       paperSubmissionAvailable: Boolean(paper && typeof paper.submitOrder === "function"),
       liveTradingEnabled: false,
+      // Row 13 ports the connector boundary and its gates, and this stays `false`
+      // on purpose. It answers "could an order be routed", which needs a bridge
+      // health probe; `statusSnapshot()` is synchronous and this endpoint should not
+      // become as slow as the slowest configured adapter. The probed, authoritative
+      // answer is `routable` on `GET /api/v1/brokers`. The count below is
+      // config-only, so a host that set the env vars can see that they took effect
+      // without this snapshot reaching the network.
       brokerConnectorAvailable: false,
+      brokerConnectorsConfigured: configuredConnectorCount(brokers),
       automatedModesAvailable: false,
       approvalRequired: true,
       proposalExpiryMinutes: MAX_PROPOSAL_AGE_MS / 60_000,
     };
   }
 
-  return { propose, list, find, decide, submitToPaper, statusSnapshot };
+  return { propose, list, find, decide, submitToPaper, expireStaleProposals, statusSnapshot };
 }

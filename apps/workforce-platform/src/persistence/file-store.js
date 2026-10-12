@@ -17,11 +17,45 @@
  */
 
 import { open, mkdir, readFile, rename, stat, writeFile } from "node:fs/promises";
-import { assertIsoCutoff } from "./contract.js";
+import { assertIsoCutoff, assertJobLockHolder, assertJobLockInstant, assertJobName } from "./contract.js";
+import { parseStrictInstant } from "../lib/php-date.js";
+import {
+  HEALTH_STATUSES,
+  MATCH_STATUSES,
+  RESULT_STATUSES,
+  SYNC_JOB_TYPES,
+  SYNC_STATUSES,
+  assertEnum,
+  assertExecutionKey,
+  assertInstant,
+  assertProviderCode,
+  assertProviderName,
+  assertRowId,
+  assertSyncRunId,
+  assertText,
+  encodeJson,
+  healthRow,
+  matchRow,
+  oddsRow,
+  optionalInstant,
+  optionalRowId,
+  providerRow,
+  qualityRow,
+  resultRow,
+  syncRunRow,
+  toInt,
+} from "./sports-rows.js";
 import { createHash } from "node:crypto";
 import path from "node:path";
 
-const ENTITIES = ["users", "profiles", "sessions", "roles", "permissions", "userRoles", "rolePermissions", "audit", "inquiries", "analysisRuns", "strategies", "backtests", "journalEntries", "tradingState", "paperAccounts", "paperOrders", "paperPositions", "paperTrades", "paperDeployments", "executionProposals"];
+const ENTITIES = ["users", "profiles", "sessions", "roles", "permissions", "userRoles", "rolePermissions", "audit", "inquiries", "analysisRuns", "strategies", "backtests", "journalEntries", "tradingState", "paperAccounts", "paperOrders", "paperPositions", "paperTrades", "paperDeployments", "executionProposals", "notifications", "jobLocks",
+  // Sports Intelligence data foundation (migration 011). Seven collections for seven
+  // tables, named for the module so that row 15's lottery provider registry — which
+  // legacy spells with the SAME method names and near-identical tables — cannot
+  // collide with them. Adding an entity here also adds it to `stats()`, which is what
+  // makes `backup.test.js` demand a MySQL counterpart for each one.
+  "sportsProviders", "sportsHealth", "sportsMatches", "sportsOdds", "sportsResults",
+  "sportsQuality", "sportsSyncRuns"];
 const PAPER_TX_ENTITIES = Object.freeze(["tradingState", "paperAccounts", "paperOrders", "paperPositions", "paperTrades", "paperDeployments", "executionProposals", "strategies", "journalEntries", "audit"]);
 const COMPACTION_ENTRIES = 2_000;
 /**
@@ -48,6 +82,44 @@ const JOURNAL_NUMERIC_COLUMNS = Object.freeze([
 ]);
 const USERNAME_PATTERN = /^[a-z][a-z0-9_]{2,19}$/;
 
+/**
+ * The file adapter's copy of `lockRow` in `src/db/job-repository.js`.
+ *
+ * Both adapters must return the SAME shape, because `contract.js` describes one
+ * interface and a caller cannot be expected to branch on which one it got. The SQL
+ * adapter has always mapped its rows to camelCase; returning the raw snake_case row
+ * here would mean `lock.expiresAt` is a string on MySQL and `undefined` on the file
+ * store — the sort of divergence that only shows up when a deployment switches
+ * adapters, which is exactly when it is hardest to debug.
+ */
+function jobLockRow(row) {
+  if (!row) return null;
+  return {
+    jobName: String(row.job_name),
+    holder: String(row.holder),
+    acquiredAt: String(row.acquired_at),
+    expiresAt: String(row.expires_at),
+  };
+}
+
+/**
+ * The file adapter's copy of `assertStateKey` in `src/db/job-repository.js`.
+ *
+ * Duplicated rather than imported because `src/persistence/` must not depend on
+ * `src/db/` — the two adapters are peers that both satisfy `contract.js`. Both
+ * copies refuse the `'global'` governance key, which is the invariant that matters.
+ */
+function assertJobStateKey(value) {
+  const key = typeof value === "string" ? value.trim() : "";
+  if (!/^[a-z][a-z0-9._-]{0,23}$/.test(key)) {
+    throw new TypeError(`job state key must be 1-24 characters of [a-z0-9._-] starting with a letter, received ${JSON.stringify(String(value).slice(0, 40))}`);
+  }
+  if (key === "global") {
+    throw new TypeError(`"${key}" is the trading-governance state key and is not writable through the job state methods`);
+  }
+  return key;
+}
+
 function keyOf(entity, record) {
   if (entity === "sessions") return record.tokenHash;
   if (entity === "userRoles") return `${record.userId}:${record.roleId}`;
@@ -57,11 +129,36 @@ function keyOf(entity, record) {
   // two rows, exactly as the MySQL primary key makes them.
   if (entity === "strategies") return `${record.strategy_id}:${record.version}`;
   if (entity === "tradingState") return String(record.key || "global");
+  // A job lock is identified by its NAME, which is what makes the name itself the
+  // mutual-exclusion guarantee — the file adapter's equivalent of the MySQL primary
+  // key on `wf_job_locks.job_name`.
+  if (entity === "jobLocks") return String(record.job_name);
+  // The sports keys mirror the migration's UNIQUE constraints one for one, because the
+  // key IS this adapter's uniqueness guarantee — it is what `replace: false` checks.
+  // A provider is its code; a fixture is (provider, external id), since two vendors
+  // numbering one match differently is the normal case; a result is (match, provider);
+  // a sync run is keyed by its execution key rather than its UUID, so the idempotency
+  // guarantee is the one that collides. Health, odds and quality are append-only and
+  // keyed by id, which is what makes "one row per observation" true by construction.
+  if (entity === "sportsProviders") return String(record.provider_code);
+  if (entity === "sportsMatches") return `${record.provider_id}:${record.external_id}`;
+  if (entity === "sportsResults") return `${record.match_id}:${record.provider_id}`;
+  if (entity === "sportsSyncRuns") return String(record.execution_key);
   return String(record.id);
 }
 
 function normalizeIdentifier(value) {
   return String(value ?? "").trim().toLowerCase();
+}
+
+/**
+ * The one notification visibility rule, shared by every read and write so the
+ * file adapter cannot drift from the SQL predicate in `notification-repository.js`.
+ */
+function visibleTo(row, userId) {
+  if (row.user_id === null || row.user_id === undefined) return true;
+  if (userId === null || userId === undefined) return false;
+  return Number(row.user_id) === Number(userId);
 }
 
 /**
@@ -98,6 +195,49 @@ export async function createFileStore({ dir, logger = console, idFactory = () =>
     const table = tables.get(entity);
     while (table.has(String(candidate))) candidate += 1;
     return candidate;
+  }
+
+  /**
+   * Allocate a row id for an entity whose key is NOT its id.
+   *
+   * `nextId` above probes `table.has(String(candidate))`, which works when the table
+   * is keyed by id. The sports fixtures, results and providers are keyed by their
+   * unique constraints instead, so their ids have to be minted by scanning. Highest
+   * plus one, never a reused gap: a retired row's id must not be handed to a new one,
+   * or an odds row written earlier would appear to belong to a different fixture.
+   */
+  function nextRowId(entity) {
+    let max = 0;
+    for (const row of tables.get(entity).values()) {
+      const id = Number(row.id);
+      if (Number.isInteger(id) && id > max) max = id;
+    }
+    return max + 1;
+  }
+
+  /**
+   * One provider's health observations, newest first.
+   *
+   * Sorted by `observed_at` as TEXT with the id as a tiebreaker, which is the same
+   * ordering the SQL adapter gets from `ORDER BY observed_at DESC` — and it is
+   * chronological only because `assertInstant` writes one fixed width. The tiebreaker
+   * matters: two observations in the same millisecond must still come back in a stable
+   * order, because `assessProviderHealth` treats element 0 as "the latest report" and
+   * derives the provider's status from it.
+   */
+  function healthFor(providerId) {
+    return [...tables.get("sportsHealth").values()]
+      .filter((row) => toInt(row.provider_id) === providerId)
+      .sort((a, b) => String(b.observed_at).localeCompare(String(a.observed_at)) || toInt(b.id, 0) - toInt(a.id, 0));
+  }
+
+  /** One match's odds observations, newest first, optionally narrowed. */
+  function oddsFor(matchId, market = null, selection = null) {
+    return [...tables.get("sportsOdds").values()]
+      .filter((row) => toInt(row.match_id) === matchId)
+      .filter((row) => (market === null || market === undefined ? true : String(row.market) === String(market)))
+      .filter((row) => (selection === null || selection === undefined ? true : String(row.selection) === String(selection)))
+      .sort((a, b) => String(b.observed_at).localeCompare(String(a.observed_at)) || toInt(b.id, 0) - toInt(a.id, 0));
   }
 
   function ensureUserUid() {
@@ -534,6 +674,528 @@ export async function createFileStore({ dir, logger = console, idFactory = () =>
       crossProcessSafety: false,
       recommendedForProduction: false,
     }),
+    // ------------------------------------------------ job coordination locks
+    /**
+     * The same protocol as `src/db/job-repository.js`, and deliberately so: a job
+     * must behave identically whichever adapter the host is configured with, or a
+     * cron schedule validated on the file adapter would not mean anything on MySQL.
+     *
+     * **This adapter's lock is single-process only.** `capabilities().crossProcessSafety`
+     * is `false` here, and the WAL queue that serializes these mutations does not
+     * span processes — two Node processes on one directory can each believe they
+     * hold the lock. That is a property of the file adapter as a whole, not of this
+     * method, and it is why the file store is never `recommendedForProduction`. A
+     * real cron deployment needs the MySQL adapter, where the primary key on
+     * `wf_job_locks.job_name` is the arbiter. The scheduled-jobs CLI reports the
+     * adapter in its output so a log reader can see which guarantee they got.
+     */
+    async findJobLock(jobName) {
+      return jobLockRow(tables.get("jobLocks").get(assertJobName(jobName)));
+    },
+
+    async listJobLocks(limit = 100) {
+      const bounded = Math.min(Math.max(Number.parseInt(limit, 10) || 100, 1), 500);
+      return [...tables.get("jobLocks").values()]
+        .sort((a, b) => String(a.job_name).localeCompare(String(b.job_name)))
+        .slice(0, bounded)
+        .map(jobLockRow);
+    },
+
+    async acquireJobLock(jobName, { holder, nowIso, expiresAt }) {
+      const name = assertJobName(jobName);
+      const owner = assertJobLockHolder(holder);
+      const now = assertJobLockInstant(nowIso, "nowIso");
+      const expiry = assertJobLockInstant(expiresAt, "expiresAt");
+      if (expiry <= now) {
+        throw new TypeError("a lock must expire after the instant it is acquired at");
+      }
+
+      const table = tables.get("jobLocks");
+      const existing = table.get(name);
+      if (existing && String(existing.expires_at) > now) {
+        const lock = jobLockRow(existing);
+        return { acquired: false, lock, reason: `held by ${lock.holder} until ${lock.expiresAt}` };
+      }
+      const tookOver = Boolean(existing);
+      const record = { job_name: name, holder: owner, acquired_at: now, expires_at: expiry };
+
+      try {
+        // `replace: false` is this adapter's primary-key arbiter: it makes a
+        // concurrent create fail instead of silently overwriting, mirroring the
+        // `ER_DUP_ENTRY` the MySQL adapter catches. `sanitize` strips the flag
+        // before it is persisted, so it never reaches the WAL.
+        await mutate("jobLocks", "upsert", tookOver ? record : { ...record, replace: false });
+      } catch (error) {
+        if (!/already exists/i.test(String(error?.message || error))) throw error;
+        const lock = jobLockRow(table.get(name));
+        return {
+          acquired: false,
+          lock,
+          reason: lock ? `held by ${lock.holder} until ${lock.expiresAt}` : "held by another process",
+        };
+      }
+
+      // Confirm ownership by reading back, exactly as the SQL adapter does, rather
+      // than inferring it from the write having not thrown.
+      const lock = table.get(name);
+      if (!lock || lock.holder !== owner) {
+        const current = jobLockRow(lock);
+        return {
+          acquired: false,
+          lock: current,
+          reason: current ? `held by ${current.holder} until ${current.expiresAt}` : "the lock row vanished before it could be confirmed",
+        };
+      }
+      return { acquired: true, lock: jobLockRow(lock), reason: tookOver ? "took over an expired lock" : "acquired" };
+    },
+
+    async releaseJobLock(jobName, holder) {
+      const name = assertJobName(jobName);
+      const owner = assertJobLockHolder(holder);
+      const existing = tables.get("jobLocks").get(name);
+      // Holder-scoped: a run whose lock expired and was taken over must not delete
+      // the new holder's row on its way out.
+      if (!existing || existing.holder !== owner) return false;
+      await mutate("jobLocks", "delete", { job_name: name });
+      return true;
+    },
+
+    /**
+     * Persisted job state, mirroring `src/db/job-repository.js`.
+     *
+     * Stored in the SAME `tradingState` collection under a different `key`, exactly
+     * as the SQL adapter stores it in the same `wf_trading_state` table under a
+     * different `state_key` — the two adapters must describe the same world. The
+     * governance document lives at key `"global"` and `loadTradingState` reads only
+     * that key, so a job state row is invisible to it and vice versa.
+     */
+    async loadJobState(stateKey) {
+      const key = assertJobStateKey(stateKey);
+      const stored = tables.get("tradingState").get(key);
+      if (!stored || !stored.state || typeof stored.state !== "object") return null;
+      return { ...structuredClone(stored.state), updatedAt: stored.updatedAt ?? null };
+    },
+
+    async saveJobState(stateKey, state, { updatedAt = nowIso() } = {}) {
+      const key = assertJobStateKey(stateKey);
+      const { updatedAt: _ignored, ...stateJson } = state && typeof state === "object" ? state : {};
+      // `mutate` rather than `withPaperTransaction`: this is not paper state, and
+      // routing it through the paper transaction would make a cron write contend
+      // with an operator's order for no reason.
+      await mutate("tradingState", "upsert", {
+        key,
+        state: stateJson,
+        updatedByUserId: null,
+        updatedAt: String(updatedAt),
+      });
+      return { ...stateJson, updatedAt: String(updatedAt) };
+    },
+
+    async extendJobLock(jobName, holder, expiresAt) {
+      const name = assertJobName(jobName);
+      const owner = assertJobLockHolder(holder);
+      const expiry = assertJobLockInstant(expiresAt, "expiresAt");
+      const existing = tables.get("jobLocks").get(name);
+      if (!existing || existing.holder !== owner) return false;
+      await mutate("jobLocks", "upsert", { ...existing, expires_at: expiry });
+      return true;
+    },
+
+    // ------------------------------------------------ sports data foundation
+    /**
+     * The same 22 methods as `src/db/sports-repository.js`, over the same row shapes
+     * — the validators and mappers are imported from `./sports-rows.js` precisely so
+     * that "the same" is a property of the code rather than an intention.
+     *
+     * **Two guarantees this adapter cannot make, both of which the SQL adapter can.**
+     *
+     *  1. `capabilities().crossProcessSafety` is `false`. The unique keys that make
+     *     `startSportsSync`, `saveSportsMatch` and `saveSportsResult` idempotent are
+     *     enforced here by the WAL queue, which serializes mutations *within one
+     *     process*. Two Node processes on one directory can each believe they opened
+     *     the same sync run. That is a property of the file adapter as a whole (see
+     *     `findJobLock` above for the same caveat about locks) and it is why a real
+     *     cron deployment needs MySQL, where `uq_wf_sports_sync_runs_execution_key`
+     *     is the arbiter.
+     *  2. There is no referential engine. `provider_id`, `match_id` and the odds
+     *     rows hanging off a match are plain integers here, as they are in the
+     *     migration — deliberately, because this adapter has to implement the
+     *     identical contract and it has no foreign keys to implement it with.
+     *
+     * Records are stored with JSON columns as *strings*, so the shared mappers decode
+     * them on the way out exactly as they decode a MySQL `LONGTEXT`. Storing parsed
+     * objects instead would make this adapter return a different shape from the SQL
+     * one for the same call.
+     */
+    async ensureSportsProvider(code, name) {
+      const providerCode = assertProviderCode(code);
+      const displayName = assertProviderName(name);
+      const table = tables.get("sportsProviders");
+      const existing = table.get(providerCode);
+      if (existing) return providerRow(existing);
+
+      const now = nowIso();
+      const record = {
+        id: nextRowId("sportsProviders"),
+        provider_code: providerCode,
+        display_name: displayName,
+        enabled: 0,
+        created_at: now,
+        updated_at: now,
+      };
+      try {
+        // `replace: false` is this adapter's unique-key arbiter, mirroring the
+        // `ER_DUP_ENTRY` the SQL adapter catches.
+        await mutate("sportsProviders", "upsert", { ...record, replace: false });
+      } catch (error) {
+        if (!/already exists/i.test(String(error?.message || error))) throw error;
+      }
+      return providerRow(table.get(providerCode) ?? null);
+    },
+
+    async listSportsProviders(enabledOnly = false) {
+      return [...tables.get("sportsProviders").values()]
+        .filter((row) => !enabledOnly || toInt(row.enabled, 0) === 1)
+        .sort((a, b) => toInt(a.id, 0) - toInt(b.id, 0))
+        .map(providerRow);
+    },
+
+    async setSportsProviderEnabled(id, enabled) {
+      const providerId = assertRowId(id, "provider id");
+      const table = tables.get("sportsProviders");
+      const existing = [...table.values()].find((row) => toInt(row.id) === providerId);
+      if (!existing) return;
+      await mutate("sportsProviders", "upsert", {
+        ...existing,
+        enabled: enabled ? 1 : 0,
+        updated_at: nowIso(),
+      });
+    },
+
+    async saveSportsHealth(providerId, health) {
+      const h = health && typeof health === "object" ? health : {};
+      const record = {
+        id: nextRowId("sportsHealth"),
+        provider_id: assertRowId(providerId, "provider_id"),
+        status: assertEnum(h.status, HEALTH_STATUSES, "health status"),
+        response_ms: h.responseMs === null || h.responseMs === undefined ? null : toInt(h.responseMs),
+        error_rate: h.errorRate === null || h.errorRate === undefined ? null : Number(h.errorRate),
+        rate_limit_remaining: h.rateLimitRemaining === null || h.rateLimitRemaining === undefined ? null : toInt(h.rateLimitRemaining),
+        last_success_at: optionalInstant(h.lastSuccessAt, "lastSuccessAt"),
+        last_failure_at: optionalInstant(h.lastFailureAt, "lastFailureAt"),
+        last_fixture_sync_at: optionalInstant(h.lastFixtureSyncAt, "lastFixtureSyncAt"),
+        last_odds_sync_at: optionalInstant(h.lastOddsSyncAt, "lastOddsSyncAt"),
+        last_result_sync_at: optionalInstant(h.lastResultSyncAt, "lastResultSyncAt"),
+        data_freshness_seconds: h.dataFreshnessSeconds === null || h.dataFreshnessSeconds === undefined ? null : toInt(h.dataFreshnessSeconds),
+        records_received: toInt(h.recordsReceived, 0),
+        invalid_records: toInt(h.invalidRecords, 0),
+        missing_fields: encodeJson(Array.isArray(h.missingFields) ? h.missingFields : []),
+        // Stamped here rather than taken from the payload, as the SQL adapter does:
+        // this is when THIS PLATFORM saw the report, and a provider's own clock is not
+        // authoritative for staleness.
+        observed_at: nowIso(),
+      };
+      await mutate("sportsHealth", "upsert", record);
+    },
+
+    async latestSportsHealth(providerId) {
+      const id = assertRowId(providerId, "provider_id");
+      const rows = healthFor(id);
+      return rows.length ? healthRow(rows[0]) : null;
+    },
+
+    async listSportsHealth(providerId, limit = 20) {
+      const id = assertRowId(providerId, "provider_id");
+      const bounded = Math.min(200, Math.max(1, toInt(limit, 20)));
+      return healthFor(id).slice(0, bounded).map(healthRow);
+    },
+
+    async pruneSportsHealth(cutoff) {
+      const boundary = assertIsoCutoff(cutoff);
+      const doomed = [...tables.get("sportsHealth").values()].filter(
+        (row) => String(row.observed_at) < boundary,
+      );
+      for (const row of doomed) {
+        await mutate("sportsHealth", "delete", { id: row.id });
+      }
+      return doomed.length;
+    },
+
+    async findSportsMatchById(id) {
+      const matchId = assertRowId(id, "match id");
+      const row = [...tables.get("sportsMatches").values()].find((entry) => toInt(entry.id) === matchId);
+      return matchRow(row ?? null);
+    },
+
+    async listSportsMatches(filter = {}, limit = 200) {
+      const f = filter && typeof filter === "object" ? filter : {};
+      const bounded = Math.min(1000, Math.max(1, toInt(limit, 200)));
+      const status = f.status === null || f.status === undefined || String(f.status).trim() === ""
+        ? null
+        : assertEnum(f.status, MATCH_STATUSES, "match status");
+      const from = f.from === null || f.from === undefined || String(f.from).trim() === ""
+        ? null
+        : assertInstant(f.from, "filter.from");
+      const to = f.to === null || f.to === undefined || String(f.to).trim() === ""
+        ? null
+        : assertInstant(f.to, "filter.to");
+      const providerId = f.providerId === null || f.providerId === undefined || String(f.providerId).trim() === ""
+        ? null
+        : assertRowId(f.providerId, "filter.providerId");
+      // A PREFIX match, as legacy's CodeIgniter `like(..., 'after')` was — but
+      // case-sensitively, because MySQL's default `utf8mb4_unicode_ci` collation makes
+      // `LIKE 'pre%'` case-insensitive while a JS `startsWith` is not. Lowercasing both
+      // sides keeps the two adapters answering the same question (divergence SP-20).
+      const competition = f.competition === null || f.competition === undefined || String(f.competition).trim() === ""
+        ? null
+        : String(f.competition).toLowerCase();
+
+      return [...tables.get("sportsMatches").values()]
+        .filter((row) => (status === null ? true : String(row.status) === status))
+        .filter((row) => (from === null ? true : String(row.kickoff_at) >= from))
+        .filter((row) => (to === null ? true : String(row.kickoff_at) <= to))
+        .filter((row) => (providerId === null ? true : toInt(row.provider_id) === providerId))
+        .filter((row) => (competition === null ? true : String(row.competition).toLowerCase().startsWith(competition)))
+        // A string sort, which is chronological because every kickoff is one fixed
+        // width — the property `assertInstant` exists to guarantee.
+        .sort((a, b) => String(a.kickoff_at).localeCompare(String(b.kickoff_at)) || toInt(a.id, 0) - toInt(b.id, 0))
+        .slice(0, bounded)
+        .map(matchRow);
+    },
+
+    async saveSportsMatch(providerId, match) {
+      const provider = assertRowId(providerId, "provider_id");
+      const m = match && typeof match === "object" ? match : {};
+      const externalId = assertText(String(m.externalId ?? "").trim(), 128, "external_id");
+      if (!externalId) throw new TypeError("external_id must be 1-128 characters");
+      const key = `${provider}:${externalId}`;
+      const table = tables.get("sportsMatches");
+      const existing = table.get(key);
+      const now = nowIso();
+
+      const record = {
+        // Preserved on update, minted on insert — and returned on BOTH paths. Legacy's
+        // insert branch omitted `created_at` from its return value, so the sync
+        // service's `created_at === updated_at` test could never be true and every new
+        // fixture was counted as an update (divergence SP-13).
+        id: existing ? toInt(existing.id) : nextRowId("sportsMatches"),
+        provider_id: provider,
+        external_id: externalId,
+        sport: assertText(String(m.sport ?? ""), 32, "sport"),
+        competition: assertText(String(m.competition ?? ""), 160, "competition"),
+        home_team: assertText(String(m.homeTeam ?? ""), 160, "home_team"),
+        away_team: assertText(String(m.awayTeam ?? ""), 160, "away_team"),
+        kickoff_at: assertInstant(m.kickoff, "match kickoff"),
+        status: assertEnum(m.status, MATCH_STATUSES, "match status"),
+        source_timestamp: assertInstant(m.sourceTimestamp, "match sourceTimestamp"),
+        payload: encodeJson(m),
+        created_at: existing ? String(existing.created_at) : now,
+        updated_at: now,
+      };
+
+      try {
+        await mutate("sportsMatches", "upsert", existing ? record : { ...record, replace: false });
+      } catch (error) {
+        if (!/already exists/i.test(String(error?.message || error))) throw error;
+      }
+      return matchRow(table.get(key) ?? null);
+    },
+
+    async findSportsMatch(providerId, externalId) {
+      const provider = assertRowId(providerId, "provider_id");
+      const id = assertText(String(externalId ?? "").trim(), 128, "external_id");
+      return matchRow(tables.get("sportsMatches").get(`${provider}:${id}`) ?? null);
+    },
+
+    async saveSportsOdds(matchId, providerId, odds) {
+      const o = odds && typeof odds === "object" ? odds : {};
+      const market = assertText(String(o.market ?? ""), 96, "market");
+      const selection = assertText(String(o.selection ?? ""), 160, "selection");
+      const decimal = Number(o.decimalOdds);
+      if (!Number.isFinite(decimal) || decimal <= 1.0) {
+        throw new TypeError(`decimal_odds must be a finite number greater than 1.0, received ${JSON.stringify(o.decimalOdds)}`);
+      }
+      const record = {
+        id: nextRowId("sportsOdds"),
+        match_id: assertRowId(matchId, "match_id"),
+        provider_id: assertRowId(providerId, "provider_id"),
+        market,
+        selection,
+        decimal_odds: decimal,
+        observed_at: assertInstant(o.observedAt, "odds observedAt"),
+        payload: encodeJson(o),
+      };
+      // No uniqueness check: every observation is a new row, and overwriting would
+      // destroy the point-in-time history `findSportsOddsBefore` exists to answer.
+      await mutate("sportsOdds", "upsert", record);
+      return oddsRow(record);
+    },
+
+    async latestSportsOdds(matchId, market = null, selection = null) {
+      const rows = oddsFor(assertRowId(matchId, "match_id"), market, selection);
+      return rows.length ? oddsRow(rows[0]) : null;
+    },
+
+    async listSportsOdds(matchId, limit = 50) {
+      const bounded = Math.min(500, Math.max(1, toInt(limit, 50)));
+      return oddsFor(assertRowId(matchId, "match_id")).slice(0, bounded).map(oddsRow);
+    },
+
+    async findSportsOddsBefore(matchId, timestamp) {
+      const limitDate = parseStrictInstant(timestamp);
+      // An unparseable instant means "no odds known before an instant we cannot
+      // place", not "all odds" — the fail-closed answer, and legacy's
+      // `strtotime(...) === false` branch.
+      if (!limitDate) return null;
+      const limit = Math.floor(limitDate.getTime() / 1000);
+      // Bounded to the newest 500 rows, as legacy is, so a match with more than 500
+      // observations has the same reachable history through either adapter.
+      for (const row of oddsFor(assertRowId(matchId, "match_id")).slice(0, 500)) {
+        const observed = parseStrictInstant(row.observed_at);
+        if (observed && Math.floor(observed.getTime() / 1000) < limit) return oddsRow(row);
+      }
+      return null;
+    },
+
+    async saveSportsResult(matchId, providerId, result) {
+      const r = result && typeof result === "object" ? result : {};
+      const match = assertRowId(matchId, "match_id");
+      const provider = assertRowId(providerId, "provider_id");
+      const key = `${match}:${provider}`;
+      const table = tables.get("sportsResults");
+      const existing = table.get(key);
+      const record = {
+        id: existing ? toInt(existing.id) : nextRowId("sportsResults"),
+        match_id: match,
+        provider_id: provider,
+        home_score: r.homeScore === null || r.homeScore === undefined ? null : toInt(r.homeScore),
+        away_score: r.awayScore === null || r.awayScore === undefined ? null : toInt(r.awayScore),
+        status: assertEnum(r.status, RESULT_STATUSES, "result status"),
+        // Re-ingesting clears the attestation (divergence SP-14, preserved from
+        // legacy): a provider that changes a scoreline invalidates the human
+        // verification made about the old one, so the safe direction is to require a
+        // human to look again.
+        verified: 0,
+        source_timestamp: assertInstant(r.sourceTimestamp, "result sourceTimestamp"),
+        verified_at: null,
+        payload: encodeJson(r.payload ?? r),
+      };
+      try {
+        await mutate("sportsResults", "upsert", existing ? record : { ...record, replace: false });
+      } catch (error) {
+        if (!/already exists/i.test(String(error?.message || error))) throw error;
+      }
+      return resultRow(table.get(key) ?? null);
+    },
+
+    async findSportsResult(matchId, providerId) {
+      const key = `${assertRowId(matchId, "match_id")}:${assertRowId(providerId, "provider_id")}`;
+      return resultRow(tables.get("sportsResults").get(key) ?? null);
+    },
+
+    async saveSportsQuality(matchId, assessment) {
+      const a = assessment && typeof assessment === "object" ? assessment : {};
+      const record = {
+        id: nextRowId("sportsQuality"),
+        match_id: assertRowId(matchId, "match_id"),
+        score: toInt(a.score, 0),
+        band: assertEnum(a.band, ["EXCELLENT", "GOOD", "LIMITED", "REJECT"], "quality band"),
+        freshness_score: toInt(a.freshnessScore, 0),
+        provider_reliability_score: toInt(a.providerReliabilityScore, 0),
+        eligible_prediction: a.eligibleForPrediction ? 1 : 0,
+        eligible_ticket: a.eligibleForTicket ? 1 : 0,
+        missing_fields: encodeJson(Array.isArray(a.missing) ? a.missing : []),
+        checks_payload: encodeJson(a.checks ?? null),
+        assessed_at: nowIso(),
+      };
+      // Append-only, so "was this fixture eligible when we acted on it" stays
+      // answerable after the next sync re-scores it.
+      await mutate("sportsQuality", "upsert", record);
+      return qualityRow(record);
+    },
+
+    async latestSportsQuality(matchId) {
+      const id = assertRowId(matchId, "match_id");
+      const rows = [...tables.get("sportsQuality").values()]
+        .filter((row) => toInt(row.match_id) === id)
+        .sort((a, b) => String(b.assessed_at).localeCompare(String(a.assessed_at)) || toInt(b.id, 0) - toInt(a.id, 0));
+      return rows.length ? qualityRow(rows[0]) : null;
+    },
+
+    async startSportsSync(run) {
+      const r = run && typeof run === "object" ? run : {};
+      const id = assertSyncRunId(r.id);
+      const executionKey = assertExecutionKey(r.executionKey);
+      const jobType = assertEnum(r.jobType, SYNC_JOB_TYPES, "sync job_type");
+      const providerId = optionalRowId(r.providerId, "sync provider_id");
+      const record = {
+        id,
+        provider_id: providerId,
+        job_type: jobType,
+        status: "RUNNING",
+        started_at: nowIso(),
+        ended_at: null,
+        records_processed: 0,
+        records_created: 0,
+        records_updated: 0,
+        errors: null,
+        execution_key: executionKey,
+      };
+      try {
+        // Keyed by `execution_key`, so `replace: false` is the arbiter — the file
+        // adapter's equivalent of `uq_wf_sports_sync_runs_execution_key`. A collision
+        // becomes the same `null` the SQL adapter returns, so a double-fired cron job
+        // reports DUPLICATE_SKIPPED rather than ingesting twice.
+        await mutate("sportsSyncRuns", "upsert", { ...record, replace: false });
+      } catch (error) {
+        if (!/already exists/i.test(String(error?.message || error))) throw error;
+        return null;
+      }
+      return syncRunRow(record);
+    },
+
+    async finishSportsSync(id, result) {
+      const runId = assertSyncRunId(id);
+      const r = result && typeof result === "object" ? result : {};
+      const table = tables.get("sportsSyncRuns");
+      const existing = [...table.values()].find((row) => String(row.id) === runId);
+      if (!existing) return;
+      await mutate("sportsSyncRuns", "upsert", {
+        ...existing,
+        status: assertEnum(r.status, SYNC_STATUSES, "sync status"),
+        ended_at: nowIso(),
+        records_processed: toInt(r.processed, 0),
+        records_created: toInt(r.created, 0),
+        records_updated: toInt(r.updated, 0),
+        // Truncated to 200 characters each, as legacy does and as the SQL adapter
+        // does: a run must be able to name what it refused, but one provider's stack
+        // trace must not be able to fill the column.
+        errors: encodeJson((Array.isArray(r.errors) ? r.errors : []).map((entry) => String(entry).slice(0, 200))),
+      });
+    },
+
+    async listSportsSyncRuns(filter = {}, limit = 20) {
+      const f = filter && typeof filter === "object" ? filter : {};
+      const bounded = Math.min(500, Math.max(1, toInt(limit, 20)));
+      const providerId = f.providerId === null || f.providerId === undefined || String(f.providerId).trim() === ""
+        ? null
+        : assertRowId(f.providerId, "filter.providerId");
+      const jobType = f.jobType === null || f.jobType === undefined || String(f.jobType).trim() === ""
+        ? null
+        : assertEnum(f.jobType, SYNC_JOB_TYPES, "filter.jobType");
+      const status = f.status === null || f.status === undefined || String(f.status).trim() === ""
+        ? null
+        : assertEnum(f.status, SYNC_STATUSES, "filter.status");
+
+      return [...tables.get("sportsSyncRuns").values()]
+        .filter((row) => (providerId === null ? true : toInt(row.provider_id) === providerId))
+        .filter((row) => (jobType === null ? true : String(row.job_type) === jobType))
+        .filter((row) => (status === null ? true : String(row.status) === status))
+        .sort((a, b) => String(b.started_at).localeCompare(String(a.started_at)) || String(b.id).localeCompare(String(a.id)))
+        .slice(0, bounded)
+        .map(syncRunRow);
+    },
+
     /**
      * For a schema-less store, "schema" means the log is loadable in the current
      * format — not that seed data exists. An unseeded install is therefore ready to
@@ -826,21 +1488,58 @@ export async function createFileStore({ dir, logger = console, idFactory = () =>
         created_at: nowIso(),
       });
     },
-    async listAuditEvents({ userId = null, limit = 50, offset = 0, action = null } = {}) {
+    /**
+     * Mirrors `account-repository.js` filter for filter, including the `actor`
+     * vocabulary (`"system"` = no actor, `"any"` = no filter, a number = that
+     * user) and the actor projection. The file adapter has no join, so the
+     * username is resolved from the users table; a missing user yields null
+     * exactly as the LEFT JOIN does, never a substituted label.
+     */
+    async listAuditEvents({ userId = null, actor = null, limit = 50, offset = 0, action = null, entityType = null, entityId = null, from = null, to = null, sort = "createdAt", direction = "desc" } = {}) {
+      const boundedLimit = Math.min(Math.max(Number.parseInt(limit, 10) || 50, 1), 200);
+      const boundedOffset = Math.min(Math.max(Number.parseInt(offset, 10) || 0, 0), 1_000_000);
       let rows = [...tables.get("audit").values()];
       if (userId !== null) rows = rows.filter((row) => String(row.actor_user_id) === String(userId));
+      if (actor !== null && actor !== undefined && actor !== "any") {
+        rows = actor === "system"
+          ? rows.filter((row) => row.actor_user_id === null || row.actor_user_id === undefined)
+          : rows.filter((row) => String(row.actor_user_id) === String(actor));
+      }
       if (action) rows = rows.filter((row) => row.action_key === action || row.action_key.startsWith(`${action}.`));
-      rows.sort((a, b) => String(b.created_at).localeCompare(String(a.created_at)));
+      if (entityType) rows = rows.filter((row) => row.entity_type === String(entityType));
+      if (entityId !== null && entityId !== undefined && entityId !== "") rows = rows.filter((row) => String(row.entity_id ?? "") === String(entityId));
+      if (from) rows = rows.filter((row) => Date.parse(row.created_at) >= Date.parse(from));
+      if (to) rows = rows.filter((row) => Date.parse(row.created_at) <= Date.parse(to));
+
+      const descending = String(direction).toLowerCase() !== "asc";
+      const by = sort === "id" ? "id" : sort === "action" ? "action" : "createdAt";
+      rows.sort((a, b) => {
+        const left = by === "id" ? Number(a.id) - Number(b.id)
+          : by === "action" ? String(a.action_key).localeCompare(String(b.action_key))
+            : String(a.created_at).localeCompare(String(b.created_at));
+        if (left !== 0) return descending ? -left : left;
+        // A stable tie-break on id, matching the SQL `ORDER BY … , id DESC`.
+        return descending ? Number(b.id) - Number(a.id) : Number(a.id) - Number(b.id);
+      });
+
+      const users = tables.get("users");
+      const usernameOf = (id) => {
+        const user = id === null || id === undefined ? null : users.get(String(id));
+        return user ? user.username : null;
+      };
       const total = rows.length;
       return {
         total,
-        events: rows.slice(offset, offset + limit).map((row) => ({
+        events: rows.slice(boundedOffset, boundedOffset + boundedLimit).map((row) => ({
           id: row.id,
           action: row.action_key,
           entityType: row.entity_type,
           entityId: row.entity_id,
           details: row.detail_json,
           createdAt: row.created_at,
+          actor: row.actor_user_id === null || row.actor_user_id === undefined
+            ? { userId: null, username: null, kind: "system" }
+            : { userId: Number(row.actor_user_id), username: usernameOf(row.actor_user_id), kind: "user" },
         })),
       };
     },
@@ -1163,6 +1862,22 @@ export async function createFileStore({ dir, logger = console, idFactory = () =>
         .slice(0, bounded)
         .map((row) => structuredClone(row));
     },
+    /**
+     * Every pending proposal across **all** owners, for the scheduled expiry job.
+     *
+     * The SQL adapter orders oldest-first so a bounded batch drains the backlog in
+     * the order it accrued; this mirrors that exactly, because a job that expired
+     * the newest proposals first would leave the oldest ones pending forever once
+     * the batch limit was reached.
+     */
+    async listExecutionProposalsAllOwners({ status = null, limit = 100 } = {}) {
+      const bounded = Math.min(Math.max(Number.parseInt(limit, 10) || 100, 1), 500);
+      return [...tables.get("executionProposals").values()]
+        .filter((row) => !status || row.status === String(status))
+        .sort((a, b) => String(a.created_at).localeCompare(String(b.created_at)) || String(a.id).localeCompare(String(b.id)))
+        .slice(0, bounded)
+        .map((row) => structuredClone(row));
+    },
     async withPaperTransaction(work) {
       return withPaperTransaction(work);
     },
@@ -1285,6 +2000,64 @@ export async function createFileStore({ dir, logger = console, idFactory = () =>
     },
     async findAvatarPath(userId) {
       return tables.get("profiles").get(String(userId))?.profile_image ?? null;
+    },
+
+    // ---- operator notifications (row 5) ---------------------------------
+    /**
+     * Visibility and read state follow `notification-repository.js` exactly:
+     * `user_id === null` is a broadcast, `read_at` is global to the row, and the
+     * dedupe check is global rather than per recipient.
+     */
+    async createNotification({ userId = null, type, severity, title, detail = {}, dedupeKey = null, createdAt }) {
+      const id = nextId("notifications");
+      const record = {
+        id,
+        user_id: userId === null || userId === undefined ? null : Number(userId),
+        type: String(type),
+        severity: String(severity),
+        title: String(title),
+        detail: detail && typeof detail === "object" ? structuredClone(detail) : {},
+        dedupe_key: dedupeKey === null || dedupeKey === undefined ? null : String(dedupeKey),
+        read_at: null,
+        created_at: String(createdAt),
+      };
+      await mutate("notifications", "upsert", record);
+      return structuredClone(record);
+    },
+    async listNotifications(userId = null, { unreadOnly = false, limit = 50 } = {}) {
+      const bounded = Math.min(Math.max(Number.parseInt(limit, 10) || 50, 1), 200);
+      return [...tables.get("notifications").values()]
+        .filter((row) => (userId === null || userId === undefined ? row.user_id === null : row.user_id === null || Number(row.user_id) === Number(userId)))
+        .filter((row) => (unreadOnly ? row.read_at === null : true))
+        .sort((a, b) => (String(b.created_at).localeCompare(String(a.created_at)) || Number(b.id) - Number(a.id)))
+        .slice(0, bounded)
+        .map((row) => structuredClone(row));
+    },
+    async markNotificationRead(id, userId = null, readAt) {
+      const row = tables.get("notifications").get(String(id));
+      if (!row || row.read_at !== null) return false;
+      if (!visibleTo(row, userId)) return false;
+      await mutate("notifications", "upsert", { ...row, read_at: String(readAt) });
+      return true;
+    },
+    async markAllNotificationsRead(userId = null, readAt) {
+      let marked = 0;
+      for (const row of [...tables.get("notifications").values()]) {
+        if (row.read_at !== null || !visibleTo(row, userId)) continue;
+        await mutate("notifications", "upsert", { ...row, read_at: String(readAt) });
+        marked += 1;
+      }
+      return marked;
+    },
+    async countUnreadNotifications(userId = null) {
+      return [...tables.get("notifications").values()]
+        .filter((row) => row.read_at === null && visibleTo(row, userId))
+        .length;
+    },
+    async hasUnreadNotificationDedupe(dedupeKey) {
+      const key = String(dedupeKey);
+      return [...tables.get("notifications").values()]
+        .some((row) => row.dedupe_key === key && row.read_at === null);
     },
 
     // ---- maintenance ----------------------------------------------------

@@ -819,7 +819,7 @@ test("status surface: analysis remains proposal-only while paper and persisted r
     assert.equal(moduleState.risk, "ported", "Phase 7 adds persisted limits, kill switch and a paper portfolio scan");
     assert.equal(moduleState.marketData, "ported");
     assert.equal(moduleState.execution, "partial", "Phase 8A adds paper proposals, not the full supervisor");
-    assert.equal(moduleState.brokers, "not-ported");
+    assert.equal(moduleState.brokers, "partial", "Phase 14 ports the connector boundary and its demo-only order gates; no adapter is verified and no order can be routed");
     assert.equal(moduleState.paperTrading, "ported");
 
     assert.deepEqual(body.analysis.agents, ["technical", "market-structure", "forex", "crypto", "sentiment", "fundamentals"]);
@@ -834,7 +834,7 @@ test("status surface: analysis remains proposal-only while paper and persisted r
     assert.equal(body.trading.simulationOnly, true);
     assert.equal(body.trading.liveTradingEnabled, false);
     assert.match(body.trading.reason, /simulation-only/i);
-    assert.match(body.trading.reason, /broader execution supervisor and every live broker\/order route remain unavailable/i);
+    assert.match(body.trading.reason, /no adapter is verified and no order can be routed/i);
     assert.equal(body.trading.paperProposalWorkflowAvailable, true);
 
     const features = await instance.app.inject({ method: "GET", url: "/api/v1/system/features" });

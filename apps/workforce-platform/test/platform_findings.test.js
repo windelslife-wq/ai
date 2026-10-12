@@ -18,6 +18,7 @@ import { validateRequest, validationDetails, validationMessage } from "../src/ht
 import { contentTypeOf, boundaryOf, parseMultipart, readRawBody } from "../src/http/bodies.js";
 import { cacheControlFor, staticAssetPath } from "../src/http/static.js";
 import { AppError } from "../src/http/errors.js";
+import { brokerEnvNames, BROKER_CONNECTOR_ENV, LICENSED_ASSET_CLASSES, LICENSED_DATA_ENV_SUFFIXES } from "../src/config.js";
 import { buildCsp, isCrossSiteMutation, parseAllowedOrigins, resolveCors, securityHeaders } from "../src/security/headers.js";
 import { createLoginGuard, createRateLimiter } from "../src/security/ratelimit.js";
 import { avatarFileName, inspectImage, parseAvatarFileId, removeAvatarFile, validateImageUpload } from "../src/security/uploads.js";
@@ -627,7 +628,12 @@ test("F-01 the durable file adapter replays its log, survives a torn write, and 
   const { total, events } = await reopened.listAuditEvents({ userId: user.id });
   assert.equal(total, 1);
   assert.equal(events[0].action, "identity.test");
-  assert.deepEqual(await reopened.stats(), { users: 1, profiles: 1, sessions: 1, roles: 0, permissions: 0, userRoles: 0, rolePermissions: 0, audit: 1, inquiries: 0, analysisRuns: 0, strategies: 0, backtests: 0, journalEntries: 0, tradingState: 0, paperAccounts: 0, paperOrders: 0, paperPositions: 0, paperTrades: 0, paperDeployments: 0, executionProposals: 0 });
+  assert.deepEqual(await reopened.stats(), { users: 1, profiles: 1, sessions: 1, roles: 0, permissions: 0, userRoles: 0, rolePermissions: 0, audit: 1, inquiries: 0, analysisRuns: 0, strategies: 0, backtests: 0, journalEntries: 0, tradingState: 0, paperAccounts: 0, paperOrders: 0, paperPositions: 0, paperTrades: 0, paperDeployments: 0, executionProposals: 0, notifications: 0, jobLocks: 0,
+    // Phase 16: the seven sports collections. A torn-write recovery that resurrected
+    // a sports row this test never wrote would show up here as a non-zero count, which
+    // is the point of asserting them rather than letting `deepEqual` discover them.
+    sportsProviders: 0, sportsHealth: 0, sportsMatches: 0, sportsOdds: 0,
+    sportsResults: 0, sportsQuality: 0, sportsSyncRuns: 0 });
 
   await reopened.compact();
   const compacted = (await readFile(fileStorePaths(dir).log, "utf8")).trim();
@@ -660,7 +666,26 @@ test("F-01 the file store and the SQL store implement one repository contract, s
     () => assertRepositoryContract({ adapter: "stub", capabilities: {}, readiness: async () => ({}) }, { adapter: "stub" }),
     /does not implement the repository contract.*findUserByIdentifier/s,
   );
-  assert.equal(REPOSITORY_METHODS.length, 72, "8 identity + 6 sessions + 9 RBAC + 2 admin + 4 audit/profile + 2 contact intake + 4 analysis runs + 11 Strategy Lab (including persisted human sign-off) + 23 paper trading + 2 owner-scoped execution proposal reads + 1 readiness");
+  assert.equal(REPOSITORY_METHODS.length, 108, "8 identity + 6 sessions + 9 RBAC + 2 admin + 4 audit/profile + 2 contact intake + 4 analysis runs + 11 Strategy Lab (including persisted human sign-off) + 23 paper trading + 3 execution proposal reads (2 owner-scoped + 1 cross-owner for the scheduled job) + 6 operator notifications + 5 job locks + 2 job state + 22 sports foundation (3 provider registry + 4 health including retention + 4 fixtures + 4 odds + 2 results + 2 quality + 3 sync runs) + 1 readiness");
+
+  // The 22 sports methods are named here rather than only counted, because this is the
+  // assertion that both adapters implement the same one. Two of them matter enough to
+  // call out: `listSportsSyncRuns` has no legacy counterpart at all (legacy wrote
+  // `sports_sync_runs` and could not read it — finding F-35), and `verifySportsResult`
+  // is deliberately ABSENT, because ingestion reports a result and must not get to
+  // attest to one. That absence is slice 5's boundary, stated in the contract.
+  for (const method of [
+    "ensureSportsProvider", "listSportsProviders", "setSportsProviderEnabled",
+    "saveSportsHealth", "latestSportsHealth", "listSportsHealth", "pruneSportsHealth",
+    "findSportsMatchById", "listSportsMatches", "saveSportsMatch", "findSportsMatch",
+    "saveSportsOdds", "latestSportsOdds", "listSportsOdds", "findSportsOddsBefore",
+    "saveSportsResult", "findSportsResult", "saveSportsQuality", "latestSportsQuality",
+    "startSportsSync", "finishSportsSync", "listSportsSyncRuns",
+  ]) {
+    assert.ok(REPOSITORY_METHODS.includes(method), `${method} must be in the contract, not an adapter extra`);
+  }
+  assert.ok(!REPOSITORY_METHODS.includes("verifySportsResult"), "verifying a result is settlement (slice 5), not ingestion");
+  assert.ok(!REPOSITORY_METHODS.includes("ensureProvider"), "sports methods are module-prefixed: legacy's lottery repository declares the same unprefixed names, and one flat contract namespace cannot hold both (divergence SP-18)");
   assert.equal(file.adapter, "file");
   assert.equal(file.capabilities.durable, true);
   assert.equal(file.capabilities.transactions, false);
@@ -1000,20 +1025,100 @@ test("F-02 the status surface is honest about unported modules, and F-03 the rou
   assert.equal(body.trading.enabled, true, "paper trading is available but remains simulation-only");
   assert.equal(body.trading.simulationOnly, true);
   assert.equal(body.trading.liveTradingEnabled, false);
-  assert.match(body.trading.reason, /broader execution supervisor and every live broker\/order route remain unavailable/i);
+  assert.match(body.trading.reason, /no adapter is verified and no order can be routed/i);
   assert.equal(body.trading.paperProposalWorkflowAvailable, true);
   assert.equal(body.modules.find((module) => module.key === "identity").state, "ported");
   assert.equal(body.modules.find((module) => module.key === "marketData").state, "ported", "market data was ported in Phase 4");
   assert.equal(body.modules.find((module) => module.key === "analysis").state, "ported", "the analysis engines were ported in Phase 5");
-  assert.equal(body.modules.filter((module) => module.state === "ported").length, 6, "identity, market data, analysis, strategies, paper trading and risk have tested Node surfaces");
-  assert.equal(body.modules.find((module) => module.key === "audit").state, "partial");
+  assert.equal(body.modules.filter((module) => module.state === "ported").length, 9, "identity, market data, analysis, the portfolio optimizer, strategies, paper trading, risk, notifications and the audit browser have tested Node surfaces");
+  // Notifications are stored and read in-product only; the module says so itself
+  // rather than implying an alert reached a device or an email inbox.
+  assert.equal(body.modules.find((module) => module.key === "notifications").state, "ported");
+  assert.equal(body.notifications.emailDeliveryAvailable, false, "no outbound delivery channel is ported");
+  assert.deepEqual(body.notifications.deliveryChannels, []);
+  // Phase 10 ports the audit browser API: attribution, filtering and pagination
+  // over the whole trail, permissioned and read-only. The console SCREEN is
+  // app-shell work (row 3) and retention is still undecided, so the label says
+  // both rather than letting `ported` imply a finished workstream.
+  assert.equal(body.modules.find((module) => module.key === "audit").state, "ported");
+  assert.match(body.modules.find((module) => module.key === "audit").label, /no console screen/i);
+  assert.match(body.modules.find((module) => module.key === "audit").label, /no retention policy/i);
+  // Phase 11 ports the research-only portfolio optimizer (row 9). It computes
+  // weights and nothing else: no console screen (views/portfolio/optimizer.php is
+  // app-shell work, row 3) and no saved reports — a run is returned, not persisted,
+  // so the label must not let `ported` imply a history a caller could read back.
+  assert.equal(body.modules.find((module) => module.key === "portfolioOptimizer").state, "ported");
+  assert.match(body.modules.find((module) => module.key === "portfolioOptimizer").label, /research-only/i);
+  assert.match(body.modules.find((module) => module.key === "portfolioOptimizer").label, /no console screen/i);
+  assert.match(body.modules.find((module) => module.key === "portfolioOptimizer").label, /no saved reports/i);
   // Phase 7 adds persisted governance and account-scoped paper risk. Phase 8A
   // adds human-reviewed paper proposals, not the full supervisor or a live route.
   assert.equal(body.modules.find((module) => module.key === "paperTrading").state, "ported");
   assert.equal(body.modules.find((module) => module.key === "risk").state, "ported");
-  assert.equal(body.modules.filter((module) => module.state === "partial").length, 3, "public site, audit and execution remain partial");
-  assert.equal(body.modules.filter((module) => module.state === "not-ported").length, 6);
-  assert.equal(body.modules.length, 15, "the ledger keeps listing every module, ported or not");
+  // Phase 13 reconciles the execution module against `ExecutionSupervisor.php` step by
+  // step. It stays `partial`, and the label must carry *why* — nine of fifteen steps
+  // read broker state that does not exist here — so that `partial` is not read as
+  // "the governance work is unfinished". It must also name the evidence this phase
+  // added: a submission refused by the kill switch used to leave no trace at all.
+  assert.equal(body.modules.find((module) => module.key === "execution").state, "partial");
+  assert.match(body.modules.find((module) => module.key === "execution").label, /blocked-submission evidence/i);
+  assert.match(body.modules.find((module) => module.key === "execution").label, /broker-bound/i);
+  assert.match(body.modules.find((module) => module.key === "execution").label, /no live route/i);
+  assert.match(body.modules.find((module) => module.key === "execution").label, /no automated mode/i);
+  // Phase 14 ports the broker connector boundary. `partial` must say that what is
+  // missing is a *verified adapter and an order path*, not the boundary itself, or a
+  // reader cannot tell "half-built" from "built and switched off" — which is the
+  // whole distinction this module exists to make.
+  assert.equal(body.modules.find((module) => module.key === "brokers").state, "partial");
+  assert.match(body.modules.find((module) => module.key === "brokers").label, /all disabled by default/i);
+  assert.match(body.modules.find((module) => module.key === "brokers").label, /no order routing/i);
+  assert.match(body.modules.find((module) => module.key === "brokers").label, /no adapter verified against its provider/i);
+  assert.match(body.modules.find((module) => module.key === "brokers").label, /one read-only route/i);
+  // Phase 15 moved `sports` from not-ported to partial, and Phase 16 gives it
+  // persistence — but this is still the label that has to work hardest in the whole
+  // ledger, because "sports intelligence: partial" reads as "half a betting engine".
+  // What is actually ported is a data layer: the normalized contracts, two
+  // conservative gates, the provider boundary, and ingestion into seven tables.
+  // The label must say what is missing, not what is present, because the risk here is
+  // a reader inferring capability — and slice 2 raises that risk, since a module that
+  // now stores fixtures, odds and results looks much more like a working betting
+  // system than one that stored nothing. The two things that keep it honest are in
+  // the label: nothing downstream of ingestion exists, and NO STORED RESULT IS
+  // VERIFIED, so nothing here can settle anything.
+  assert.equal(body.modules.find((module) => module.key === "sports").state, "partial");
+  const sportsLabel = body.modules.find((module) => module.key === "sports").label;
+  for (const pattern of [
+    // The absence is stated as one list, so the list is pinned as a list rather than
+    // as six separate "no X" phrases that the label does not and should not repeat.
+    // "no persistence" came OUT of this list in Phase 16, and the assertion that it
+    // is gone is as important as the ones that remain: a ledger label is documentation,
+    // and a stale one is worse than none because it is read as current.
+    /no prediction, ticket, settlement, calibration, backtest or monitoring/i,
+    /no stored result is verified/i,
+    /never verified against a vendor/i,
+    /five read routes and one write route gated sports\.manage/i,
+    // The one positive claim the label makes, and the only one this slice can
+    // support with evidence rather than assertion.
+    /PHP-parity proven by differential test/i,
+    /sandbox simulation double-gated and labelled/i,
+  ]) {
+    assert.match(sportsLabel, pattern);
+  }
+  // Phase 12 ports `Tools::cron()` as a scheduled-jobs module. It is `partial` and
+  // the label must carry the gap: legacy alerted at 80/70/60% of a limit as a
+  // `warning` and at the limit as `critical`, while this port alerts only on the
+  // paper scan's at-limit breaches. Without that in the label, `partial` would be a
+  // vague hedge instead of a statement of what is missing.
+  assert.equal(body.modules.find((module) => module.key === "scheduledJobs").state, "partial");
+  assert.match(body.modules.find((module) => module.key === "scheduledJobs").label, /no HTTP route/i);
+  assert.match(body.modules.find((module) => module.key === "scheduledJobs").label, /no early-warning tiers/i);
+  assert.match(body.modules.find((module) => module.key === "scheduledJobs").label, /CLI only/i);
+  // Phase 14 moves `brokers` from not-ported to partial: the connector boundary, the
+  // normalized data contracts and the demo-only order gates are ported and tested,
+  // while no adapter is verified against its provider and no order can be routed.
+  assert.equal(body.modules.filter((module) => module.state === "partial").length, 5, "the public site (chat widget), execution (the remaining supervisor steps are broker-bound, no live route, no automated mode), scheduled jobs (no early-warning tiers, no sports/lottery cron), brokers (no verified adapter, no order routing) and sports (ingestion and persistence only — no prediction, ticket, settlement, calibration, backtest or monitoring, and no stored result verified) remain partial");
+  assert.equal(body.modules.filter((module) => module.state === "not-ported").length, 3, "lottery, language learning and lead discovery remain legacy-only");
+  assert.equal(body.modules.length, 17, "the ledger keeps listing every module, ported or not");
   // The public status surface carries a market-data snapshot that must not have
   // probed an external host to produce it.
   assert.ok(body.marketData && Array.isArray(body.marketData.providers), "status reports the provider registry");
@@ -1027,7 +1132,10 @@ test("F-02 the status surface is honest about unported modules, and F-03 the rou
   // operator command in the cPanel instructions, so the script has to exist. The
   // tool's syntax is already covered by `verify:install` check 1, which walks
   // `src/` and `tools/`.
-  const operational = ["backup", "restore", "prune:analysis", "verify:install", "verify:data", "seed:platform", "migrate", "import:identity", "start"];
+  // `jobs`/`jobs:apply` join with Phase 12: the cPanel cron instructions name the
+  // scheduled-operations CLI, so the script has to exist for the documented command
+  // to work.
+  const operational = ["backup", "restore", "prune:analysis", "jobs", "jobs:apply", "verify:install", "verify:data", "seed:platform", "migrate", "import:identity", "start"];
   const missing = operational.filter((name) => !(name in manifest.scripts));
   assert.deepEqual(missing, [], "the documented operational commands must exist as scripts");
   assert.equal(Object.keys(manifest.scripts).filter((name) => operational.includes(name)).length, operational.length);
@@ -1035,7 +1143,7 @@ test("F-02 the status surface is honest about unported modules, and F-03 the rou
   const routes = await app.app.inject({ method: "GET", url: "/api/v1/system/routes" });
   const inventory = routes.json().routes;
   const adminRoutes = inventory.filter((entry) => entry.path.startsWith("/api/v1/admin/"));
-  assert.equal(adminRoutes.length, 6, "account-admin routes, the inquiry listing, the deprecated identity listing — and no admin route is unguarded");
+  assert.equal(adminRoutes.length, 7, "account-admin routes, the audit browser, the inquiry listing, the deprecated identity listing — and no admin route is unguarded");
   for (const route of adminRoutes) {
     assert.ok(["identity.users.view", "identity.users.manage", "system.super_admin"].includes(route.permission), `${route.method} ${route.path} must report its permission in the ledger, got ${route.permission}`);
   }
@@ -1182,6 +1290,24 @@ test("F-14 the example environment documents every variable and never defaults t
   const documented = new Set([...example.matchAll(/^#?\s*([A-Z][A-Z0-9_]{2,})=/gm)].map((match) => match[1]));
   const missing = [...referenced].filter((name) => !documented.has(name));
   assert.deepEqual(missing, [], "every variable the config reads must be documented");
+  // The scan above matches literal `env.NAME`, so a name composed at runtime —
+  // `env[`${prefix}_URL`]` — is invisible to it. That blind spot is F-33: all four
+  // licensed-feed prefixes and all ten broker connectors read their settings that
+  // way, so 110 real knobs could ship undocumented with this gate still green.
+  // Enumerate them from the config's own tables rather than trusting the scan.
+  const composed = new Set();
+  for (const entry of LICENSED_ASSET_CLASSES) {
+    for (const suffix of LICENSED_DATA_ENV_SUFFIXES) composed.add(`${entry.envPrefix}_${suffix}`);
+  }
+  for (const entry of BROKER_CONNECTOR_ENV) {
+    // Derived from the config's own name resolver, not recomposed here, because one
+    // connector (mt5-bridge) reads two irregular legacy names and a second rule
+    // would document variables the config never reads.
+    for (const name of Object.values(brokerEnvNames(entry))) composed.add(name);
+  }
+  assert.ok(composed.size >= 70, `expected the composed names to be enumerated, found ${composed.size}`);
+  const missingComposed = [...composed].filter((name) => !documented.has(name));
+  assert.deepEqual(missingComposed, [], "every composed variable the config reads must be documented");
   assert.match(example, /^NODE_ENV=development$/m, "an example file headed for development must not set NODE_ENV=production");
   for (const name of ["LEGACY_DB_HOST", "LEGACY_DB_NAME", "LEGACY_DB_USER", "LEGACY_DB_PASSWORD", "SESSION_SECRET", "STORAGE_DIR", "UPLOAD_DIR", "RATE_LIMIT_API_MAX", "LOGIN_LOCKOUT_FAILURES", "CORS_ALLOWED_ORIGINS", "PASSWORD_MIN_LENGTH"]) {
     assert.ok(documented.has(name), `${name} was the specific gap: undocumented knobs are unconfigurable`);

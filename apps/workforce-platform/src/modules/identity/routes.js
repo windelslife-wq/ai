@@ -284,6 +284,86 @@ export function identityRoutes(app, { store, config, loginGuard }) {
     status: request.body.status,
   }));
 
+  /**
+   * A canonical ISO-8601 **UTC** instant, the same convention
+   * `assertIsoCutoff` enforces for retention cutoffs.
+   *
+   * Two failure modes this rejects that `Date.parse` accepts:
+   *  - `Date.parse("12345")` is the year 12345, and `Date.parse("yesterday")` is
+   *    NaN only by luck of the engine. Guessing here would silently widen or
+   *    empty an operator's audit window.
+   *  - a `+01:00` offset is a real instant, but `wf_audit_events.created_at` is
+   *    `DATETIME(3)` with no timezone, so the SQL adapter would bind it through
+   *    the connection's session timezone while the file adapter compares it as an
+   *    absolute instant. The two could disagree about the same window, so offsets
+   *    are refused with the reason stated rather than converted by guesswork.
+   *
+   * @returns {string|null} the canonical instant, or null when absent.
+   * @throws {AppError} 400 when present but not canonical UTC.
+   */
+  function parseAuditInstant(label, value) {
+    if (value === null || value === undefined || value === "") return null;
+    const candidate = String(value).trim();
+    const canonical = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d{1,3})?Z$/;
+    if (!canonical.test(candidate) || !Number.isFinite(Date.parse(candidate))) {
+      const hasOffset = /[+-]\d{2}:\d{2}$/.test(candidate);
+      throw AppError.badRequest(
+        hasOffset
+          ? `${label} must be an ISO-8601 UTC instant ending in "Z"; a timezone offset is refused because the audit timestamp column carries no timezone`
+          : `${label} must be an ISO-8601 UTC instant ending in "Z" (e.g. 2026-10-11T00:00:00.000Z)`,
+        { code: "INVALID_AUDIT_WINDOW" },
+      );
+    }
+    return candidate;
+  }
+
+  /**
+   * The audit browser (Phase 10): the whole platform trail, filterable by actor,
+   * action prefix, entity and time window.
+   *
+   * Gated on `identity.users.view`, NOT on bare authentication. The legacy
+   * `api/events` endpoint required only a signed-in user (`api_system/events` is
+   * not in `Api_controller::PUBLIC_ACTIONS` and has no `requirePermission` call),
+   * so every operator could read every other operator's trail. Node narrows that
+   * deliberately — divergence AV-1 — because the rows carry account, governance
+   * and execution detail, and "any signed-in user" is not a review surface.
+   *
+   * Read-only by construction: there is no route here that edits, redacts or
+   * deletes an audit event, on either adapter. An audit trail an API can prune is
+   * not evidence.
+   */
+  app.get("/admin/audit", { preHandler: [guarded("identity.users.view")], querySchema: contracts.AUDIT_QUERY }, async (request) => {
+    // Validated here rather than in SQL: `new Date(garbage)` is Invalid Date, which
+    // mysql2 would bind as NULL and silently widen the window to "everything".
+    const from = parseAuditInstant("from", request.query.from);
+    const to = parseAuditInstant("to", request.query.to);
+    if (from && to && Date.parse(from) > Date.parse(to)) {
+      throw AppError.badRequest("from must not be later than to", { code: "INVALID_AUDIT_WINDOW" });
+    }
+    const result = await store.listAuditEvents({ ...request.query, from, to });
+    return {
+      events: result.events,
+      meta: {
+        total: result.total,
+        limit: request.query.limit,
+        offset: request.query.offset,
+        sort: request.query.sort,
+        direction: request.query.direction,
+        filters: {
+          action: request.query.action ?? null,
+          entityType: request.query.entityType ?? null,
+          entityId: request.query.entityId ?? null,
+          actor: request.query.actor ?? null,
+          from: from ?? null,
+          to: to ?? null,
+        },
+        // Stated on every page rather than in a docs page nobody reads: this
+        // endpoint can filter the trail but can never alter it.
+        mutable: false,
+      },
+    };
+  });
+
   app.get("/admin/roles", { preHandler: [guarded("identity.users.view")] }, async () => {
     const roles = await store.listRoles();
     const permissions = await store.listPermissions();

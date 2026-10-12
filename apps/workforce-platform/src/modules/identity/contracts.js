@@ -149,6 +149,30 @@ export const LIST_USERS_QUERY = {
   direction: { type: "string", values: ["asc", "desc"], default: "asc" },
 };
 
+/**
+ * The audit browser query (Phase 10).
+ *
+ * `actor` deliberately does not reuse `userId`: `userId: null` means "do not
+ * filter" in the storage contract, and the account-activity route depends on that,
+ * so "events with no actor" needs its own word. `"system"` is that word.
+ *
+ * Sort keys are the three columns migration 001/003 actually index
+ * (`ix_wf_audit_actor_time`, `ix_wf_audit_action_time`, `ix_wf_audit_entity`);
+ * offering a fourth would advertise a sort the host cannot serve cheaply.
+ */
+export const AUDIT_QUERY = {
+  limit: { type: "integer", min: 1, max: 200, default: 50 },
+  offset: { type: "integer", min: 0, max: 1_000_000, default: 0 },
+  action: { type: "string", maxLength: 96, nullable: true },
+  entityType: { type: "string", maxLength: 64, nullable: true },
+  entityId: { type: "string", maxLength: 96, nullable: true },
+  actor: { type: "string", maxLength: 20, pattern: /^(?:any|system|[1-9][0-9]{0,15})$/, nullable: true },
+  from: { type: "string", maxLength: 40, nullable: true },
+  to: { type: "string", maxLength: 40, nullable: true },
+  sort: { type: "string", values: ["createdAt", "action", "id"], default: "createdAt" },
+  direction: { type: "string", values: ["asc", "desc"], default: "desc" },
+};
+
 export const ACTIVITY_QUERY = {
   limit: { type: "integer", min: 1, max: 200, default: 50 },
   offset: { type: "integer", min: 0, max: 1_000_000, default: 0 },

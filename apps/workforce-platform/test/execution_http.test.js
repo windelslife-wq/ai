@@ -205,10 +205,24 @@ test("HTTP proposals are owner-scoped, require a permissioned human decision and
   assert.equal(syntheticJournal[0].synthetic, true, "closing a synthetic paper position cannot launder it into non-synthetic evidence");
 
   const audits = (await instance.store.snapshot()).audit.filter((entry) => entry.entity_id === proposal.id);
+  // The second entry is the 409 asserted above, when `paper-submit` was called before
+  // any decision. Legacy audited every routing refusal through `routingBlocked()`; a
+  // bare 409 left no trace that an operator had tried to submit an undecided proposal,
+  // which is exactly the sort of attempt a governance review asks about.
   assert.deepEqual(audits.map((entry) => entry.action_key), [
     "execution.proposal.created",
+    "execution.paper-submission.blocked",
     "execution.proposal.approved",
     "execution.paper-submission.started",
     "execution.paper-submission.completed",
   ]);
+
+  const blocked = audits.find((entry) => entry.action_key === "execution.paper-submission.blocked");
+  assert.equal(blocked.detail_json.code, "PAPER_SUBMISSION_NOT_APPROVED");
+  assert.equal(blocked.detail_json.orderCreated, false);
+  // `ROUTING_BLOCKED` means the platform cannot route. Broadcasting it because a caller
+  // submitted an undecided proposal would say the platform is down when it is not.
+  const inbox = await instance.store.listNotifications(Number(root.userId ?? 1), { limit: 100 });
+  assert.ok(inbox.length > 0, `the inbox must be readable for this assertion to mean anything, got ${JSON.stringify(inbox.length)}`);
+  assert.equal(inbox.filter((row) => row.type === "ROUTING_BLOCKED").length, 0);
 });

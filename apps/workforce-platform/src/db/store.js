@@ -5,6 +5,9 @@ import { createSiteRepository } from "./site-repository.js";
 import { createStrategyRepository } from "./strategy-repository.js";
 import { createPaperRepository } from "./paper-repository.js";
 import { createExecutionRepository } from "./execution-repository.js";
+import { createNotificationRepository } from "./notification-repository.js";
+import { createJobRepository } from "./job-repository.js";
+import { createSportsRepository } from "./sports-repository.js";
 
 export const REQUIRED_MIGRATIONS = Object.freeze([
   "001_platform_foundation",
@@ -15,6 +18,9 @@ export const REQUIRED_MIGRATIONS = Object.freeze([
   "006_strategies",
   "007_paper_trading",
   "008_execution_supervisor",
+  "009_notifications",
+  "010_job_locks",
+  "011_sports_foundation",
 ]);
 
 /** Only driver codes are ever reported; never an SQL statement or credential. */
@@ -35,6 +41,9 @@ export function createStore(pool, { requiredMigrations = REQUIRED_MIGRATIONS } =
   const strategies = createStrategyRepository(pool);
   const paper = createPaperRepository(pool);
   const execution = createExecutionRepository(pool);
+  const notifications = createNotificationRepository(pool);
+  const jobs = createJobRepository(pool);
+  const sports = createSportsRepository(pool);
   return {
     ...repository,
     ...site,
@@ -45,6 +54,62 @@ export function createStore(pool, { requiredMigrations = REQUIRED_MIGRATIONS } =
     // only on the pinned paper transaction view below.
     findExecutionProposal: execution.findExecutionProposal,
     listExecutionProposals: execution.listExecutionProposals,
+    // Cross-owner READ for the scheduled expiry job only. Still read-only: expiry
+    // itself goes through the owner-bound transactional path above, so this adds no
+    // unscoped write to the public contract. See `job-repository.js` and
+    // `src/jobs/scheduled.js` for who is allowed to call it.
+    listExecutionProposalsAllOwners: execution.listExecutionProposalsAllOwners,
+    // Job coordination locks (migration 010). These write, but only to
+    // `wf_job_locks` — they can never touch a proposal, order or account row.
+    findJobLock: jobs.findJobLock,
+    listJobLocks: jobs.listJobLocks,
+    acquireJobLock: jobs.acquireJobLock,
+    releaseJobLock: jobs.releaseJobLock,
+    extendJobLock: jobs.extendJobLock,
+    // Persisted job state (the portfolio-risk monitor's transition memory). Same
+    // table as trading governance, different `state_key`, and the job repository
+    // refuses the `'global'` key outright — so a cron run cannot rewrite the kill
+    // switch. See `PORTFOLIO_RISK_STATE_KEY`.
+    loadJobState: jobs.loadJobState,
+    // Sports Intelligence data foundation (migration 011). Listed explicitly rather
+    // than spread, matching the job block above, so the boundary is stated instead of
+    // implied: these 22 methods read and write ONLY the seven `wf_sports_*` tables.
+    // None of them can reach a proposal, order, position, account or broker row, and
+    // none of them places a bet — this is observed sporting data and the evidence of
+    // how it was obtained. `verifySportsResult` is deliberately absent: ingestion
+    // reports a result, it does not get to attest to one.
+    ensureSportsProvider: sports.ensureSportsProvider,
+    listSportsProviders: sports.listSportsProviders,
+    setSportsProviderEnabled: sports.setSportsProviderEnabled,
+    saveSportsHealth: sports.saveSportsHealth,
+    latestSportsHealth: sports.latestSportsHealth,
+    listSportsHealth: sports.listSportsHealth,
+    pruneSportsHealth: sports.pruneSportsHealth,
+    findSportsMatchById: sports.findSportsMatchById,
+    listSportsMatches: sports.listSportsMatches,
+    saveSportsMatch: sports.saveSportsMatch,
+    findSportsMatch: sports.findSportsMatch,
+    saveSportsOdds: sports.saveSportsOdds,
+    latestSportsOdds: sports.latestSportsOdds,
+    listSportsOdds: sports.listSportsOdds,
+    findSportsOddsBefore: sports.findSportsOddsBefore,
+    saveSportsResult: sports.saveSportsResult,
+    findSportsResult: sports.findSportsResult,
+    saveSportsQuality: sports.saveSportsQuality,
+    latestSportsQuality: sports.latestSportsQuality,
+    startSportsSync: sports.startSportsSync,
+    finishSportsSync: sports.finishSportsSync,
+    listSportsSyncRuns: sports.listSportsSyncRuns,
+    saveJobState: jobs.saveJobState,
+    // Notifications are written outside any paper transaction: they are evidence
+    // about a change that already committed, and a failed notification must never
+    // roll back a governance decision (see `modules/notifications/service.js`).
+    createNotification: notifications.createNotification,
+    listNotifications: notifications.listNotifications,
+    markNotificationRead: notifications.markNotificationRead,
+    markAllNotificationsRead: notifications.markAllNotificationsRead,
+    countUnreadNotifications: notifications.countUnreadNotifications,
+    hasUnreadNotificationDedupe: notifications.hasUnreadNotificationDedupe,
     adapter: "mysql",
     capabilities: Object.freeze({
       adapter: "mysql",

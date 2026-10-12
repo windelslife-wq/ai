@@ -141,7 +141,16 @@ test("F-13 the MySQL row counts cover every table the migrations create, and not
   assert.equal(new Set(tables).size, tables.length, "no duplicates across migrations");
   for (const table of tables) assert.match(table, /^wf_[a-z_]+$/, `${table} is interpolated into a COUNT query, so it must be a plain identifier`);
 
-  assert.equal(tables.length, 22, `expected the 22 tables the migrations create, got: ${tables.join(", ")}`);
+  // Phase 12 added `wf_job_locks` (migration 010), taking the schema to 24 tables.
+  // Phase 16 adds the seven `wf_sports_*` tables (migration 011), taking it to 31.
+  //
+  // This count is the assertion that a backup covers the schema: `backup.mjs` derives
+  // its table list by parsing `CREATE TABLE` out of the migrations, so a table added
+  // by a migration is backed up automatically — but a table added to a migration and
+  // NOT counted here would be backed up without this test ever proving it can be
+  // restored. The number moving is the point: it forces whoever adds a table to look
+  // at whether the restore path covers it.
+  assert.equal(tables.length, 31, `expected the 31 tables the migrations create, got: ${tables.join(", ")}`);
   assert.ok(!tables.includes("wf_user_files"), "the phantom table must stay out — counting it broke MySQL backups");
   for (const expected of [
     "wf_analysis_runs",
@@ -149,9 +158,20 @@ test("F-13 the MySQL row counts cover every table the migrations create, and not
     "wf_contact_inquiries",
     "wf_data_imports",
     "wf_execution_proposals",
+    "wf_job_locks",
     "wf_journal_entries",
+    "wf_notifications",
     "wf_schema_migrations",
     "wf_strategies",
+    // Migration 011. Listed individually rather than by a prefix loop, so that a
+    // renamed or dropped table fails here by name.
+    "wf_sports_data_sources",
+    "wf_sports_provider_health",
+    "wf_sports_matches",
+    "wf_sports_odds",
+    "wf_sports_results",
+    "wf_sports_data_quality_assessments",
+    "wf_sports_sync_runs",
   ]) {
     assert.ok(tables.includes(expected), `${expected} must be counted`);
   }
@@ -184,6 +204,23 @@ test("F-13 the MySQL row counts cover every table the migrations create, and not
       paperTrades: "wf_paper_trades",
       paperDeployments: "wf_paper_deployments",
       executionProposals: "wf_execution_proposals",
+      notifications: "wf_notifications",
+      // Phase 12: discovered automatically, because `backup.mjs` derives its table
+      // list by parsing `CREATE TABLE` out of the migrations rather than keeping a
+      // second list that can drift. This mapping is the assertion that the new
+      // file-store collection really does have a MySQL counterpart being counted.
+      jobLocks: "wf_job_locks",
+      // Phase 16: one entry per sports collection. This map is what makes "the two
+      // adapters describe the same world" checkable — a file-store collection with no
+      // MySQL counterpart would be backed up as a directory and silently missing from
+      // a SQL restore.
+      sportsProviders: "wf_sports_data_sources",
+      sportsHealth: "wf_sports_provider_health",
+      sportsMatches: "wf_sports_matches",
+      sportsOdds: "wf_sports_odds",
+      sportsResults: "wf_sports_results",
+      sportsQuality: "wf_sports_data_quality_assessments",
+      sportsSyncRuns: "wf_sports_sync_runs",
     };
     const stats = await store.stats();
     for (const collection of Object.keys(stats)) {

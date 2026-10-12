@@ -16,7 +16,35 @@ jobs:
       - run: npm ci
       - run: npm run typecheck
       - run: npm run test:contracts
-      - run: npm run check --workspace=@windels/workforce-platform
+      # On a failure, re-emit the failing test names, their failure detail, the suite
+      # totals and the log tail as check ANNOTATIONS, which are readable through the API
+      # without signing in to the Actions UI. Runner logs are not reachable from every
+      # environment that has to debug them, and an intermittent failure with no readable
+      # log invites a confident wrong diagnosis — which is what happened here before this
+      # step existed (see BASELINE_TESTS.md, Phase 16).
+      #
+      # Writing to a file first is what makes the grep possible; it fixes nothing by
+      # itself. The exit code is preserved exactly, so a failure still fails the job.
+      - name: Run npm run check --workspace=@windels/workforce-platform
+        run: |
+          set +e
+          npm run check --workspace=@windels/workforce-platform > /tmp/check.log 2>&1
+          status=$?
+          if [ "$status" -ne 0 ]; then
+            grep -E "^not ok" /tmp/check.log | head -8 | while IFS= read -r line; do
+              echo "::error title=failing-test::${line}"
+            done
+            grep -E "^\s+(error|failureType|code|location):" /tmp/check.log | head -24 | while IFS= read -r line; do
+              echo "::error title=failure-detail::${line}"
+            done
+            grep -E "^# (tests|pass|fail)" /tmp/check.log | while IFS= read -r line; do
+              echo "::error title=totals::${line}"
+            done
+            tail -25 /tmp/check.log | while IFS= read -r line; do
+              echo "::error title=log-tail::${line}"
+            done
+          fi
+          exit $status
       - run: npm ci --prefix apps/workforce-platform/client
       - run: npm run build --prefix apps/workforce-platform/client
       - run: npm ci --prefix apps/workforce-platform/native

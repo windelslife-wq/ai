@@ -39,6 +39,15 @@ import { paperRoutes } from "./modules/paper/routes.js";
 import { createPaperService } from "./modules/paper/service.js";
 import { executionRoutes } from "./modules/execution/routes.js";
 import { createExecutionService } from "./modules/execution/service.js";
+import { createScheduledJobs } from "./jobs/scheduled.js";
+import { notificationRoutes } from "./modules/notifications/routes.js";
+import { createNotificationService } from "./modules/notifications/service.js";
+import { portfolioRoutes } from "./modules/portfolio/routes.js";
+import { createPortfolioService } from "./modules/portfolio/service.js";
+import { brokerRoutes } from "./modules/brokers/routes.js";
+import { sportsRoutes } from "./modules/sports/routes.js";
+import { createSportsService } from "./modules/sports/service.js";
+import { createBrokerRegistry } from "./modules/brokers/registry.js";
 
 const JSON_TYPE = "application/json; charset=utf-8";
 
@@ -140,7 +149,41 @@ export async function buildApp({ config, store, logger = true, publicDir = path.
   // must see the same caches, breakers and provenance stamps as the API does.
   const analysis = createAnalysisService({ store, marketData, log: app.log });
 
-  await app.register(healthRoutes, { prefix: "/api/v1", store, config, adapter, router, marketData, analysis });
+  // One broker registry per app (row 13). All ten connectors legacy registered are
+  // registered here too, and all ten are disabled unless the host configured them.
+  // Registering is not enabling: an unconfigured connector reports DISABLED without
+  // performing any I/O, and `tradingConnector()` returns null unless a bridge is
+  // reachable, reports tradingEnabled, and holds a demo account (or live trading was
+  // separately and explicitly allowed). Nothing in this process is given a connector
+  // directly — the execution supervisor asks the manager, exactly as legacy did.
+  const brokers = createBrokerRegistry({ brokers: config.brokers });
+
+  // One sports service per app (row 14). Providers come from the environment only,
+  // and a default host registers none at all: the sandbox provider needs
+  // WINDELS_SPORTS_MODE=SANDBOX *and* WINDELS_SPORTS_SANDBOX=1, and the HTTP
+  // provider needs a valid base URL.
+  //
+  // Slice 2 hands it the store, which is what changes the module's reach: with a
+  // repository it can ingest fixtures, odds and results into the seven
+  // `wf_sports_*` tables, read that history back, and derive a provider's health
+  // from stored observations instead of reporting UNKNOWN for want of any. Without
+  // one — a host whose migration 011 has not been applied — every stored read
+  // refuses with 503 rather than returning an empty list that would look like an
+  // empty database, and `/api/v1/sports/status` still answers, because configuration
+  // is not something a missing table can make unknown.
+  const sports = createSportsService({ config, store });
+
+  // One notification service per app. It is built before the paper service
+  // because governance transitions publish through it, and it is handed to that
+  // service as an *optional* collaborator: a host whose migration 009 has not
+  // been applied must still be able to move the kill switch, so the publisher
+  // degrades to a logged no-op instead of failing the governance action.
+  const notifications = createNotificationService({ store, log: app.log });
+
+  // The status surface reports the notification module alongside market data and
+  // analysis, so an operator can see that alerts are stored-and-read only and that
+  // no outbound delivery channel exists.
+  await app.register(healthRoutes, { prefix: "/api/v1", store, config, adapter, router, marketData, analysis, notifications, brokers, sports });
   if (config.auth !== false) {
     await app.register(identityRoutes, { prefix: "/api/v1", store, config, loginGuard });
   }
@@ -167,10 +210,43 @@ export async function buildApp({ config, store, logger = true, publicDir = path.
   // The same tracker backs the platform-wide ceiling; this module keys its slots
   // `strategies:session:<id>` so they never collide with `analysis:` ones (R-26).
   await app.register(strategyRoutes, { prefix: "/api/v1", store, config, service: strategies, marketData, concurrency });
-  const paper = createPaperService({ store, marketData, strategies, log: app.log });
+  // Research-only portfolio optimization (row 9). Built on the SAME market-data
+  // service as analysis and the Strategy Lab, so a series it labels synthetic is
+  // labelled synthetic here too — the gates that refuse a synthetic/live mix depend
+  // on that shared provenance rather than on a second opinion. Deliberately not
+  // given `paper`, `strategies` or `execution`: it cannot reach an order path.
+  const portfolio = createPortfolioService({ store, marketData, log: app.log });
+  // The same tracker backs the platform-wide ceiling; this module keys its slots
+  // `portfolio:session:<id>` so they never collide with `analysis:` or `strategies:`
+  // ones (R-26).
+  await app.register(portfolioRoutes, { prefix: "/api/v1", store, config, service: portfolio, marketData, concurrency });
+  const paper = createPaperService({ store, marketData, strategies, notifications, log: app.log });
   await app.register(paperRoutes, { prefix: "/api/v1", store, config, service: paper, marketData, strategies, log: app.log });
-  const execution = createExecutionService({ store, paper, strategies });
-  await app.register(executionRoutes, { prefix: "/api/v1", store, config, service: execution, paper, strategies, log: app.log });
+  const execution = createExecutionService({ store, paper, strategies, notifications, brokers, log: app.log });
+  await app.register(executionRoutes, { prefix: "/api/v1", store, config, service: execution, paper, strategies, notifications, log: app.log });
+  await app.register(notificationRoutes, { prefix: "/api/v1", store, config, service: notifications, log: app.log });
+  // Broker Center (row 13): one read-only route. There is no order endpoint and no
+  // connector-enable endpoint here — routing stays in the execution supervisor.
+  await app.register(brokerRoutes, { prefix: "/api/v1", store, config, brokers });
+  // Sports Intelligence (row 14, slice 1): one read-only status route. Legacy's
+  // twenty-odd sports endpoints all read the eleven tables this slice does not
+  // create, so none of them is ported; a matches endpoint that answered from a live
+  // provider call would return a different thing under a familiar name.
+  await app.register(sportsRoutes, { prefix: "/api/v1", store, config, sports });
+
+  /**
+   * Scheduled operations (row 19): the portfolio risk sweep and the cross-owner
+   * stale-proposal expiry that legacy ran from `Tools::cron()`.
+   *
+   * Deliberately **not registered as a route**. `runOperations` takes no owner
+   * argument: it scans every paper account on the platform and expires proposals
+   * belonging to every operator. Exposing that over HTTP would turn any reachable
+   * caller — or any session with the wrong permission check — into a platform-wide
+   * actor, which is the same mistake AV-1 avoided by requiring `identity.users.view`
+   * for the audit trail. The host's cron drives it through
+   * `tools/scheduled-jobs.mjs`, which holds a `wf_job_locks` row for the duration.
+   */
+  const jobs = createScheduledJobs({ store, paper, execution, notifications, brokers, log: app.log });
   const siteDocuments = createSiteDocuments({ config, store, log: app.log, rateLimiter, publicDir });
   for (const extra of config.modules || []) await app.register(extra, { prefix: "/api/v1", store, config, loginGuard });
 
@@ -487,6 +563,7 @@ export async function buildApp({ config, store, logger = true, publicDir = path.
     rateLimiter,
     concurrency,
     siteDocuments,
+    jobs,
     routes: () => router.list(),
     documents: () => siteDocuments.paths(),
     async listen({ host = config.host, port = config.port } = {}) {

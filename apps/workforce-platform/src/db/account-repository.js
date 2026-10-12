@@ -346,27 +346,67 @@ export function createAccountRepository(pool) {
       return { expiresAt: expiresAt instanceof Date ? expiresAt.toISOString() : expiresAt, deviceLabel };
     },
 
-    async listAuditEvents({ userId = null, limit = 50, offset = 0, action = null, sort = "createdAt", direction = "desc" } = {}) {
+    /**
+     * The audit browser query (Phase 10).
+     *
+     * `actor` supersedes `userId` and can express the one thing `userId` cannot:
+     * events with NO actor. `userId: null` has always meant "do not filter" — the
+     * account-activity route relies on that — so "system events only" needs its own
+     * vocabulary rather than a reinterpretation of null.
+     *
+     * Every filter is additive and optional; the `/account/activity` route passes
+     * only `userId`, `limit`, `offset` and `action`, so its behaviour is unchanged.
+     * The `entityType`/`entityId` pair is served by `ix_wf_audit_entity`, created in
+     * migration 003 and unused until now.
+     */
+    async listAuditEvents({ userId = null, actor = null, limit = 50, offset = 0, action = null, entityType = null, entityId = null, from = null, to = null, sort = "createdAt", direction = "desc" } = {}) {
       const boundedLimit = boundedInteger(limit, { fallback: 50, max: 200 });
       const boundedOffset = boundedInteger(offset, { fallback: 0, min: 0, max: 1_000_000 });
       const orderBy = AUDIT_SORT_COLUMNS[sort] || AUDIT_SORT_COLUMNS.createdAt;
       const where = [];
       const values = [];
       if (userId !== null) {
-        where.push("actor_user_id = ?");
+        where.push("e.actor_user_id = ?");
         values.push(userId);
       }
+      if (actor !== null && actor !== undefined) {
+        if (actor === "system") where.push("e.actor_user_id IS NULL");
+        else if (actor !== "any") {
+          where.push("e.actor_user_id = ?");
+          values.push(Number(actor));
+        }
+      }
       if (action) {
-        where.push("(action_key = ? OR action_key LIKE ?)");
+        where.push("(e.action_key = ? OR e.action_key LIKE ?)");
         values.push(action, likeTerm(`${action}.`));
       }
+      if (entityType) {
+        where.push("e.entity_type = ?");
+        values.push(String(entityType));
+      }
+      if (entityId !== null && entityId !== undefined && entityId !== "") {
+        where.push("e.entity_id = ?");
+        values.push(String(entityId));
+      }
+      // `created_at` is DATETIME(3), so a caller's ISO instant is bound as a Date
+      // and compared by the server rather than as text.
+      if (from) {
+        where.push("e.created_at >= ?");
+        values.push(new Date(from));
+      }
+      if (to) {
+        where.push("e.created_at <= ?");
+        values.push(new Date(to));
+      }
       const clause = where.length ? `WHERE ${where.join(" AND ")}` : "";
-      const [[countRow]] = await pool.query(`SELECT COUNT(*) AS total FROM wf_audit_events ${clause}`, values);
+      const [[countRow]] = await pool.query(`SELECT COUNT(*) AS total FROM wf_audit_events e ${clause}`, values);
       const [rows] = await pool.query(
-        `SELECT id, action_key, entity_type, entity_id, detail_json, created_at
-           FROM wf_audit_events
+        `SELECT e.id, e.actor_user_id, e.action_key, e.entity_type, e.entity_id, e.detail_json, e.created_at,
+                u.username AS actor_username
+           FROM wf_audit_events e
+           LEFT JOIN wf_users u ON u.id = e.actor_user_id
           ${clause}
-          ORDER BY ${orderBy} ${directionOf(direction)}, id DESC
+          ORDER BY ${orderBy === "id" ? "e.id" : orderBy === "action_key" ? "e.action_key" : "e.created_at"} ${directionOf(direction)}, e.id DESC
           LIMIT ${boundedLimit} OFFSET ${boundedOffset}`,
         values,
       );
@@ -379,6 +419,12 @@ export function createAccountRepository(pool) {
           entityId: row.entity_id,
           details: safeParseJson(row.detail_json),
           createdAt: row.created_at,
+          // An audit browser that cannot say WHO acted is not an audit browser.
+          // A deleted user resolves to null rather than falling back to a
+          // misleading label: the id is still there, the name is genuinely gone.
+          actor: row.actor_user_id === null || row.actor_user_id === undefined
+            ? { userId: null, username: null, kind: "system" }
+            : { userId: Number(row.actor_user_id), username: row.actor_username ?? null, kind: "user" },
         })),
       };
     },
