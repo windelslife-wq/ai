@@ -80,8 +80,12 @@ import {
   LOTTERY_VERIFICATION_STATUSES,
   assertDrawDate,
   assertLotteryCode,
+  prepareLotteryCombination,
+  prepareLotteryAiDecision,
   lotteryDrawNumberRow,
   lotteryDrawRow,
+  lotteryCombinationRow,
+  lotteryAiDecisionRow,
   lotteryGameRow,
   lotteryHealthRow,
   lotteryProviderRow,
@@ -118,7 +122,10 @@ const ENTITIES = ["users", "profiles", "sessions", "roles", "permissions", "user
   // stored rule version is (lottery, version); numbers are (draw, kind, position);
   // health and sync runs follow the sports collections' shapes.
   "lotteries", "lotteryRules", "lotteryProviders", "lotteryHealth", "lotteryDraws",
-  "lotteryDrawNumbers", "lotterySyncRuns"];
+  "lotteryDrawNumbers", "lotterySyncRuns",
+  // Slice 2 (migration 017): the generated-combination record and its AI
+  // decision report (spec §14/§26/§33).
+  "lotteryCombinations", "lotteryAiDecisions"];
 const PAPER_TX_ENTITIES = Object.freeze(["tradingState", "paperAccounts", "paperOrders", "paperPositions", "paperTrades", "paperDeployments", "executionProposals", "strategies", "journalEntries", "audit"]);
 const COMPACTION_ENTRIES = 2_000;
 /**
@@ -228,6 +235,8 @@ function keyOf(entity, record) {
   if (entity === "lotteryDraws") return `${record.lottery_code}:${record.external_id}`;
   if (entity === "lotteryDrawNumbers") return `${record.draw_id}|${record.kind}|${record.position}`;
   if (entity === "lotterySyncRuns") return String(record.execution_key);
+  // Combinations and AI decisions are auto-increment rows: the insert path below
+  // assigns the next id, so the default `String(record.id)` branch is theirs.
   return String(record.id);
 }
 
@@ -2077,6 +2086,73 @@ export async function createFileStore({ dir, logger = console, idFactory = () =>
         await mutate("lotteryHealth", "delete", { id: row.id });
       }
       return doomed.length;
+    },
+
+    // ── combinations + AI decisions (slice 2) ────────────────────────────────
+    // Legacy's Aegis_model inserts and re-reads through find* so the JSON columns
+    // come back decoded; this adapter does the same via the shared row mappers.
+
+    async saveLotteryCombination(input) {
+      const i = input && typeof input === "object" ? input : {};
+      const record = prepareLotteryCombination({
+        lotteryCode: i.lotteryCode,
+        mode: i.mode,
+        modelVersion: i.modelVersion,
+        seed: i.seed ?? null,
+        lineCount: i.lineCount,
+        lines: i.lines,
+        constraints: i.constraints,
+        scoreSummary: i.scoreSummary,
+        createdBy: i.createdBy ?? null,
+        createdAt: i.createdAt,
+      });
+      const row = { id: nextRowId("lotteryCombinations"), ...record };
+      await mutate("lotteryCombinations", "upsert", row);
+      return { row: lotteryCombinationRow(tables.get("lotteryCombinations").get(String(row.id))), created: true };
+    },
+
+    async findLotteryCombination(id) {
+      const row = tables.get("lotteryCombinations").get(String(assertRowId(id, "id")));
+      return lotteryCombinationRow(row ?? null);
+    },
+
+    async listLotteryCombinations(limit = 50, offset = 0) {
+      const bounded = Math.min(200, Math.max(1, toInt(limit, 50)));
+      const safeOffset = Math.max(0, toInt(offset, 0));
+      return [...tables.get("lotteryCombinations").values()]
+        .sort((a, b) => toInt(b.id, 0) - toInt(a.id, 0))
+        .slice(safeOffset, safeOffset + bounded)
+        .map((row) => lotteryCombinationRow(row));
+    },
+
+    async saveLotteryAiDecision(input) {
+      const i = input && typeof input === "object" ? input : {};
+      const record = prepareLotteryAiDecision({
+        lotteryCode: i.lotteryCode,
+        combinationId: i.combinationId ?? null,
+        modelVersion: i.modelVersion,
+        mode: i.mode ?? null,
+        decision: i.decision,
+        createdAt: i.createdAt,
+      });
+      const row = { id: nextRowId("lotteryAiDecisions"), ...record };
+      await mutate("lotteryAiDecisions", "upsert", row);
+      return { row: lotteryAiDecisionRow(tables.get("lotteryAiDecisions").get(String(row.id))), created: true };
+    },
+
+    async findLotteryAiDecision(id) {
+      const row = tables.get("lotteryAiDecisions").get(String(assertRowId(id, "id")));
+      return lotteryAiDecisionRow(row ?? null);
+    },
+
+    async listLotteryAiDecisions(combinationId = null, limit = 50) {
+      const bounded = Math.min(500, Math.max(1, toInt(limit, 50)));
+      const byCombination = combinationId === null || combinationId === undefined ? null : assertRowId(combinationId, "combination_id");
+      return [...tables.get("lotteryAiDecisions").values()]
+        .filter((row) => (byCombination === null ? true : toInt(row.combination_id, 0) === byCombination))
+        .sort((a, b) => toInt(b.id, 0) - toInt(a.id, 0))
+        .slice(0, bounded)
+        .map((row) => lotteryAiDecisionRow(row));
     },
 
     /**

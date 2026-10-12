@@ -20,6 +20,7 @@
  */
 
 import { AppError } from "../../http/errors.js";
+import { SYNC_LINE_LIMIT } from "./system.js";
 import { createAuthenticator, requirePermission } from "../platform/guards.js";
 
 const DRAW_PARAMS = Object.freeze({
@@ -55,6 +56,87 @@ const SYNC_BODY = Object.freeze({
 });
 
 const EMPTY_BODY = Object.freeze({ type: "object" });
+
+// ── slice 2 schemas ───────────────────────────────────────────────────────────
+
+const ANALYZE_QUERY = Object.freeze({
+  mains: Object.freeze({ type: "string", maxLength: 400 }),
+  stars: Object.freeze({ type: "string", maxLength: 100 }),
+});
+
+const COMBINATIONS_QUERY = Object.freeze({
+  limit: Object.freeze({ type: "integer", min: 0, max: 10_000 }),
+  offset: Object.freeze({ type: "integer", min: 0, max: 1_000_000 }),
+});
+
+const DECISIONS_QUERY = Object.freeze({
+  // Legacy: numeric scalars clamp to 1..200; anything else falls back to 50 —
+  // the numeric test happens in the handler so "?limit=abc" is 50, not a 400.
+  limit: Object.freeze({ type: "string", maxLength: 16 }),
+  combinationId: Object.freeze({ type: "string", maxLength: 16 }),
+});
+
+const DECISION_PARAMS = Object.freeze({
+  decisionId: Object.freeze({ type: "integer", required: true, min: 1 }),
+});
+
+const COMBINATION_PARAMS = Object.freeze({
+  combinationId: Object.freeze({ type: "integer", required: true, min: 1 }),
+});
+
+const GENERATE_BODY = Object.freeze({
+  type: "object",
+  properties: Object.freeze({
+    mode: Object.freeze({ type: "string", maxLength: 32 }),
+    count: Object.freeze({ type: "integer", min: 1, max: 1000 }),
+    seed: Object.freeze({ type: "integer", nullable: true, min: -2_147_483_648, max: 2_147_483_647 }),
+    locks: Object.freeze({ type: "object" }),
+    excludes: Object.freeze({ type: "object" }),
+    contextLines: Object.freeze({ type: "array" }),
+  }),
+});
+
+const DIVERSITY_BODY = Object.freeze({
+  type: "object",
+  properties: Object.freeze({
+    lines: Object.freeze({ type: "array" }),
+  }),
+});
+
+const SYSTEM_BODY = Object.freeze({
+  type: "object",
+  properties: Object.freeze({
+    mains: Object.freeze({ type: "array" }),
+    stars: Object.freeze({ type: "array" }),
+    page: Object.freeze({ type: "integer", min: 0, max: 1_000_000 }),
+    limit: Object.freeze({ type: "integer", min: 1, max: 500 }),
+  }),
+});
+
+const SYSTEM_BUILD_BODY = Object.freeze({
+  type: "object",
+  properties: Object.freeze({
+    mains: Object.freeze({ type: "array" }),
+    stars: Object.freeze({ type: "array" }),
+  }),
+});
+
+/**
+ * Turn an engine refusal (legacy `InvalidArgumentException`) into a 400. The
+ * analyzer, generator, diversification engine and system builder throw
+ * `TypeError` with legacy's exact message; a storage-layer refusal uses the
+ * same translation the sports routes justify at length on `guarded` there.
+ */
+async function guarded(promise) {
+  try {
+    return await promise;
+  } catch (error) {
+    if (error instanceof TypeError) {
+      throw AppError.badRequest(error.message, { code: "LOTTERY_INVALID_ARGUMENT" });
+    }
+    throw error;
+  }
+}
 
 /**
  * @param {import("http").Server} app
@@ -145,6 +227,127 @@ export function lotteryRoutes(app, { config, store, lottery = null }) {
   app.get("/lottery/jobs", { preHandler: view, querySchema: JOBS_QUERY }, async (request) => {
     const q = request.query ?? {};
     return { jobs: await store.listLotteryJobRuns(q.jobType ?? null, q.limit ?? 50) };
+  });
+
+  // ── combination intelligence (slice 2, lottery.view) ─────────────────────────
+
+  /** Full statistical profile of one line (spec §13) — a historical observation only. */
+  app.get("/lottery/analyze", { preHandler: view, querySchema: ANALYZE_QUERY }, async (request) => {
+    const q = request.query ?? {};
+    const toInts = (raw) => String(raw ?? "").split(",").filter((piece) => piece !== "").map((piece) => Number.parseInt(piece, 10));
+    return guarded(service().analyzeLine(toInts(q.mains), toInts(q.stars)));
+  });
+
+  /** Persisted generations (spec §14/§16/§33), newest first. */
+  app.get("/lottery/combinations", { preHandler: view, querySchema: COMBINATIONS_QUERY }, async (request) => {
+    const q = request.query ?? {};
+    // Legacy: `(int)($g['limit'] ?: 50)` — an explicit 0 IS the default here.
+    return { combinations: await service().listCombinations(q.limit ?? 50, q.offset ?? 0) };
+  });
+
+  app.get("/lottery/combinations/:combinationId", { preHandler: view, paramsSchema: COMBINATION_PARAMS }, async (request) => {
+    const row = await service().combinationDetail(request.params.combinationId);
+    if (!row) throw new AppError(404, "LOTTERY_COMBINATION_NOT_FOUND", "combination not found");
+    return { combination: row };
+  });
+
+  /** Persisted AI decision reports — the recorded inputs (spec §26/§33). */
+  app.get("/lottery/ai-decisions", { preHandler: view, querySchema: DECISIONS_QUERY }, async (request) => {
+    const q = request.query ?? {};
+    const rawLimit = q.limit ?? 50;
+    // Legacy: numeric scalar -> clamp 1..200; anything else -> 50 (NOT a 400).
+    const limit = typeof rawLimit === "string" && rawLimit.trim() !== "" && Number.isFinite(Number(rawLimit))
+      ? Math.min(200, Math.max(1, Math.trunc(Number(rawLimit))))
+      : typeof rawLimit === "number"
+        ? Math.min(200, Math.max(1, Math.trunc(rawLimit)))
+        : 50;
+    let combinationId = null;
+    const rawCombination = q.combinationId;
+    if (rawCombination !== undefined && rawCombination !== "") {
+      if (typeof rawCombination !== "string" && typeof rawCombination !== "number") {
+        throw new AppError(400, "LOTTERY_INVALID_ARGUMENT", "combinationId must be a positive integer");
+      }
+      const parsed = Number(rawCombination);
+      if (!Number.isInteger(parsed) || parsed < 1) {
+        throw new AppError(400, "LOTTERY_INVALID_ARGUMENT", "combinationId must be a positive integer");
+      }
+      combinationId = parsed;
+    }
+    return guarded({ decisions: await service().listDecisions(combinationId, limit), limit, combinationId });
+  });
+
+  app.get("/lottery/ai-decisions/:decisionId", { preHandler: view, paramsSchema: DECISION_PARAMS }, async (request) => {
+    const row = await service().decisionDetail(request.params.decisionId);
+    if (!row) throw new AppError(404, "LOTTERY_DECISION_NOT_FOUND", "AI decision report not found");
+    return { decision: row };
+  });
+
+  // ── combination writes: POST + CSRF. generate/diversity/system sit behind
+  // `lottery.view` exactly as legacy's requirePostPermission('lottery.view')
+  // does — they create ANALYSIS RECORDS, not managed ingestion; only the
+  // background system build needs `lottery.manage` (it writes job-run rows).
+
+  /** Generate + persist one report: combination row + decision row + audit (spec §14–§17). */
+  app.post("/lottery/generate", { preHandler: view, bodySchema: GENERATE_BODY }, async (request) => {
+    const body = request.body ?? {};
+    return guarded((async () => {
+      const report = await service().generate({
+        mode: String(body.mode ?? "RANDOM"),
+        count: body.count ?? 1,
+        seed: body.seed === undefined || body.seed === null ? null : Number(body.seed),
+        locks: body.locks && typeof body.locks === "object" ? body.locks : {},
+        excludes: body.excludes && typeof body.excludes === "object" ? body.excludes : {},
+        contextLines: Array.isArray(body.contextLines) ? body.contextLines : [],
+      });
+      const saved = await service().saveGeneration(report, String(actorOf(request) ?? "system"));
+      return { ...report, saved };
+    })());
+  });
+
+  /** Diversification score for a posted set of lines (spec §22). Nothing is stored. */
+  app.post("/lottery/diversity", { preHandler: view, bodySchema: DIVERSITY_BODY }, async (request) => {
+    const body = request.body ?? {};
+    return guarded(service().diversity(Array.isArray(body.lines) ? body.lines : []));
+  });
+
+  /**
+   * The system plan + one paginated window of lines (spec §18/§19). A system
+   * above the synchronous limit is a 409 that names the limit and points at
+   * the background build, exactly as legacy's controller did.
+   */
+  app.post("/lottery/system", { preHandler: view, bodySchema: SYSTEM_BODY }, async (request) => {
+    const body = request.body ?? {};
+    return guarded((async () => {
+      const lotteryService = service();
+      const plan = await lotteryService.systemPlan(
+        Array.isArray(body.mains) ? body.mains : [],
+        Array.isArray(body.stars) ? body.stars : [],
+      );
+      if (plan.requiresBackground) {
+        throw new AppError(
+          409,
+          "LOTTERY_SYSTEM_TOO_LARGE",
+          `system has ${plan.totalLines} lines — above the synchronous limit (${SYNC_LINE_LIMIT}); use POST api/lottery/system-build for a background build`,
+        );
+      }
+      const page = Math.max(0, body.page ?? 0);
+      const limit = Math.min(500, Math.max(1, body.limit ?? 50));
+      const window = await lotteryService.systemPage(plan.mainPool, plan.starPool, page * limit, limit);
+      return { plan, page, limit, lines: window };
+    })());
+  });
+
+  /**
+   * The background system build (spec §18): idempotent per pool (execution
+   * key). Small systems build inline; large ones queue for the lottery cron —
+   * which is slice 3, and the response note says so.
+   */
+  app.post("/lottery/system-build", { preHandler: manage, bodySchema: SYSTEM_BUILD_BODY }, async (request) => {
+    const body = request.body ?? {};
+    return guarded(service().buildSystem(
+      { mains: Array.isArray(body.mains) ? body.mains : [], stars: Array.isArray(body.stars) ? body.stars : [] },
+      String(actorOf(request) ?? "system"),
+    ));
   });
 
   // ── writes (lottery.manage + POST + CSRF) ────────────────────────────────────

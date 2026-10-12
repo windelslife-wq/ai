@@ -25,6 +25,11 @@ require_once __DIR__ . '/../../application/libraries/Aegis/Lottery/LotteryProvid
 require_once __DIR__ . '/../../application/libraries/Aegis/Lottery/LotteryResultValidator.php';
 require_once __DIR__ . '/../../application/libraries/Aegis/Lottery/LotteryStatisticsEngine.php';
 require_once __DIR__ . '/../../application/libraries/Aegis/Lottery/OfficialLotteryProvider.php';
+require_once __DIR__ . '/../../application/libraries/Aegis/Lottery/LotteryIntelligence.php';
+require_once __DIR__ . '/../../application/libraries/Aegis/Lottery/CombinationAnalyzer.php';
+require_once __DIR__ . '/../../application/libraries/Aegis/Lottery/CombinationGenerator.php';
+require_once __DIR__ . '/../../application/libraries/Aegis/Lottery/DiversificationEngine.php';
+require_once __DIR__ . '/../../application/libraries/Aegis/Lottery/SystemBuilder.php';
 
 use Aegis\Lottery\EuroMillionsRules;
 use Aegis\Lottery\LotteryResultValidator;
@@ -32,6 +37,10 @@ use Aegis\Lottery\LotteryStatisticsEngine;
 use Aegis\Lottery\OfficialLotteryProvider;
 use Aegis\Lottery\SandboxLotteryProvider;
 use Aegis\Lottery\UnavailableLotteryProvider;
+use Aegis\Lottery\CombinationAnalyzer;
+use Aegis\Lottery\CombinationGenerator;
+use Aegis\Lottery\DiversificationEngine;
+use Aegis\Lottery\SystemBuilder;
 
 const SENTINEL = '<NOW>';
 
@@ -350,6 +359,173 @@ $unavailableCases = [
     'jackpot' => $unavailable->jackpotInfo(),
 ];
 
+// ── the combination engines (slice 2) ─────────────────────────────────────────
+//
+// Analyzer, generator (all five modes, seeded), diversification and the system
+// builder are pure over the same seven crafted draws. Every case is tie-free at
+// every sort boundary (LT-3), and the generator reports are sentinel-stripped of
+// `generatedAt` (the only clock-derived field) so the rest — lines, scores,
+// inputs, factors — is exact.
+
+$analyzer = new CombinationAnalyzer($rules);
+$generator = new CombinationGenerator($rules, $analyzer);
+$diversification = new DiversificationEngine($rules);
+$systemBuilder = new SystemBuilder($rules);
+
+$combinationCases = [];
+
+// ── the analyzer ──
+$combinationCases['analyze: a balanced line over the seven draws'] = $analyzer->analyze([5, 14, 21, 28, 35], [2, 4], $draws);
+$combinationCases['analyze: empty history is the neutral score'] = $analyzer->analyze([1, 2, 3, 4, 5], [1, 2], []);
+$combinationCases['analyze: an invalid line is refused with the rules errors'] = outcome(function () use ($analyzer, $draws) {
+    return $analyzer->analyze([1, 1, 3, 4, 5], [2, 4], $draws);
+});
+$combinationCases['analyze: input order does not matter'] = (function () use ($analyzer, $draws) {
+    $a = $analyzer->analyze([5, 14, 21, 28, 35], [2, 4], $draws);
+    $b = $analyzer->analyze([35, 28, 21, 14, 5], [4, 2], $draws);
+    return ['sameScore' => $a['balanceScore'] === $b['balanceScore'], 'sameSum' => $a['composition']['sum']['value'] === $b['composition']['sum']['value']];
+})();
+
+// ── the generator ──
+$combinationCases['generate: RANDOM seed 42, three lines'] = (function () use ($generator, $draws) {
+    $r = $generator->generate($draws, ['mode' => 'RANDOM', 'count' => 3, 'seed' => 42]);
+    return strip_clock($r, ['generatedAt']);
+})();
+$combinationCases['generate: RANDOM is reproducible for the same seed'] = (function () use ($generator, $draws) {
+    $a = $generator->generate($draws, ['mode' => 'RANDOM', 'count' => 1, 'seed' => 7]);
+    $b = $generator->generate($draws, ['mode' => 'RANDOM', 'count' => 1, 'seed' => 7]);
+    return $a['lines'] === $b['lines'];
+})();
+$combinationCases['generate: locks are always present, excludes never'] = (function () use ($generator, $draws) {
+    $r = $generator->generate($draws, ['mode' => 'RANDOM', 'count' => 5, 'seed' => 42,
+        'locks' => ['mains' => [7, 50], 'stars' => [12]],
+        'excludes' => ['mains' => [1, 2, 3], 'stars' => [1]]]);
+    $allMains = [];
+    $allStars = [];
+    foreach ($r['lines'] as $l) { $allMains = array_merge($allMains, $l['mains']); $allStars = array_merge($allStars, $l['stars']); }
+    return [
+        'locksPresent' => in_array(7, $r['lines'][0]['mains'], true) && in_array(50, $r['lines'][0]['mains'], true) && in_array(12, $r['lines'][0]['stars'], true),
+        'excludedAbsent' => !in_array(1, $allMains, true) && !in_array(2, $allMains, true) && !in_array(3, $allMains, true) && !in_array(1, $allStars, true),
+        'inputsLocks' => $r['inputs']['locks'],
+        'inputsExcludes' => $r['inputs']['excludes'],
+    ];
+})();
+$combinationCases['generate: HISTORICAL seed 42 weights by appearances'] = (function () use ($generator, $draws) {
+    $r = $generator->generate($draws, ['mode' => 'HISTORICAL', 'count' => 2, 'seed' => 42]);
+    return ['lines' => $r['lines'], 'factorsMethod' => $r['factors']['method'], 'topMainNumbers' => $r['factors']['topMainNumbers'], 'topStars' => $r['factors']['topStars']];
+})();
+$combinationCases['generate: BALANCED seed 42 filters to the historical profile'] = (function () use ($generator, $draws) {
+    $r = $generator->generate($draws, ['mode' => 'BALANCED', 'count' => 2, 'seed' => 42]);
+    return ['lines' => $r['lines'], 'factors' => $r['factors']];
+})();
+$combinationCases['generate: BALANCED with no history samples unconstrained and records no targets'] = (function () use ($generator) {
+    $r = $generator->generate([], ['mode' => 'BALANCED', 'count' => 1, 'seed' => 42]);
+    return ['factors' => $r['factors'], 'line' => $r['lines'][0]['mains']];
+})();
+$combinationCases['generate: DIVERSIFIED seed 42 sorts candidates by overlap penalty'] = (function () use ($generator, $draws) {
+    $r = $generator->generate($draws, ['mode' => 'DIVERSIFIED', 'count' => 3, 'seed' => 42,
+        'contextLines' => [['mains' => [7, 14, 21, 28, 35], 'stars' => [4, 5]]]]);
+    return strip_clock($r, ['generatedAt']);
+})();
+$combinationCases['generate: ANTI-POPULAR seed 42 refuses birthday-heavy lines'] = (function () use ($generator, $draws) {
+    $r = $generator->generate($draws, ['mode' => 'ANTI-POPULAR', 'count' => 2, 'seed' => 42]);
+    return ['lines' => $r['lines'], 'factors' => $r['factors']];
+})();
+$combinationCases['generate: an unknown mode is refused'] = outcome(function () use ($generator, $draws) {
+    return $generator->generate($draws, ['mode' => 'TEA-LEAVES']);
+});
+$combinationCases['generate: more than five locked mains is refused'] = outcome(function () use ($generator, $draws) {
+    return $generator->generate($draws, ['mode' => 'RANDOM', 'locks' => ['mains' => [1, 2, 3, 4, 5, 6]]]);
+});
+$combinationCases['generate: a number both locked and excluded is refused'] = outcome(function () use ($generator, $draws) {
+    return $generator->generate($draws, ['mode' => 'RANDOM', 'locks' => ['mains' => [7]], 'excludes' => ['mains' => [7]]]);
+});
+$combinationCases['generate: a locked number outside the allowed pool is refused'] = outcome(function () use ($generator, $draws) {
+    return $generator->generate($draws, ['mode' => 'RANDOM', 'locks' => ['mains' => [7]], 'excludes' => ['mains' => [7]]]);
+});
+$combinationCases['generate: excluding down to four remaining mains starves the pool'] = outcome(function () use ($generator, $draws) {
+    $excluded = [];
+    for ($n = 5; $n <= 50; $n++) $excluded[] = $n;
+    return $generator->generate($draws, ['mode' => 'RANDOM', 'excludes' => ['mains' => $excluded]]);
+});
+$combinationCases['generate: count clamps at MAX_LINES'] = (function () use ($generator, $draws) {
+    $r = $generator->generate($draws, ['mode' => 'RANDOM', 'count' => 500, 'seed' => 42]);
+    return ['requested' => 500, 'lineCount' => $r['lineCount'], 'actualLines' => count($r['lines'])];
+})();
+$combinationCases['generate: a float seed truncates like (int)'] = (function () use ($generator, $draws) {
+    $whole = $generator->generate($draws, ['mode' => 'RANDOM', 'count' => 1, 'seed' => 42]);
+    $fractional = $generator->generate($draws, ['mode' => 'RANDOM', 'count' => 1, 'seed' => 42.9]);
+    return ['whole' => $whole['lines'], 'fractional' => $fractional['lines'], 'recordedSeeds' => [$whole['inputs']['seed'], $fractional['inputs']['seed']]];
+})();
+
+// ── diversification ──
+$combinationCases['diversify: two far-apart lines score high'] = $diversification->score([
+    ['mains' => [1, 2, 3, 4, 5], 'stars' => [1, 2]],
+    ['mains' => [46, 47, 48, 49, 50], 'stars' => [11, 12]],
+]);
+$combinationCases['diversify: identical lines are duplicates with a heavy penalty'] = $diversification->score([
+    ['mains' => [1, 2, 3, 4, 5], 'stars' => [1, 2]],
+    ['mains' => [5, 4, 3, 2, 1], 'stars' => [2, 1]],
+]);
+$combinationCases['diversify: three mixed lines'] = $diversification->score([
+    ['mains' => [1, 2, 3, 4, 5], 'stars' => [1, 2]],
+    ['mains' => [1, 2, 3, 44, 45], 'stars' => [1, 3]],
+    ['mains' => [30, 35, 40, 45, 50], 'stars' => [11, 12]],
+]);
+$combinationCases['diversify: no lines is refused'] = outcome(function () use ($diversification) {
+    return $diversification->score([]);
+});
+$combinationCases['diversify: an invalid line names its position'] = outcome(function () use ($diversification) {
+    return $diversification->score([
+        ['mains' => [1, 2, 3, 4, 5], 'stars' => [1, 2]],
+        ['mains' => [1, 2, 3, 4], 'stars' => [1, 2]],
+    ]);
+});
+
+// ── system builder ──
+$combinationCases['system: plan C(7,5) x C(3,2)'] = $systemBuilder->plan([7, 1, 3, 5, 2, 4, 6], [3, 1, 2]);
+$combinationCases['system: the first page is lexicographic with stars nested'] = (function () use ($systemBuilder) {
+    return $systemBuilder->page([1, 2, 3, 4, 5, 6], [1, 2, 3], 0, 4);
+})();
+$combinationCases['system: page windows offset correctly'] = (function () use ($systemBuilder) {
+    return [
+        'first' => $systemBuilder->page([1, 2, 3, 4, 5, 6], [1, 2], 4, 3),
+        'last' => $systemBuilder->page([1, 2, 3, 4, 5, 6], [1, 2], 12, 10),
+        'pastEnd' => $systemBuilder->page([1, 2, 3, 4, 5, 6], [1, 2], 99, 10),
+    ];
+})();
+$combinationCases['system: C(50,5) and C(12,2) are computed, never hardcoded'] = [
+    'C(50,5)' => SystemBuilder::comb(50, 5),
+    'C(12,2)' => SystemBuilder::comb(12, 2),
+    'C(7,0)' => SystemBuilder::comb(7, 0),
+    'C(7,8)' => SystemBuilder::comb(7, 8),
+    'C(60,5)' => SystemBuilder::comb(60, 5),
+];
+$combinationCases['system: a pool over the synchronous limit requires background'] = (function () use ($systemBuilder) {
+    $plan = $systemBuilder->plan(range(1, 29), [1, 2]);
+    return ['totalLines' => $plan['totalLines'], 'requiresBackground' => $plan['requiresBackground'], 'formula' => $plan['formula']];
+})();
+$combinationCases['system: a pool below five mains is refused'] = outcome(function () use ($systemBuilder) {
+    return $systemBuilder->plan([1, 2, 3, 4], [1, 2]);
+});
+$combinationCases['system: a duplicate pool number is refused'] = outcome(function () use ($systemBuilder) {
+    return $systemBuilder->plan([1, 1, 2, 3, 4, 5], [1, 2]);
+});
+$combinationCases['system: an out-of-range pool number is refused'] = outcome(function () use ($systemBuilder) {
+    return $systemBuilder->plan([1, 2, 3, 4, 51], [1, 2]);
+});
+$combinationCases['system: a string pool number is refused as invalid'] = outcome(function () use ($systemBuilder) {
+    return $systemBuilder->plan([1, 2, 3, 4, '5'], [1, 2]);
+});
+$combinationCases['system: combinationsOf is lexicographic'] = (function () use ($systemBuilder) {
+    $out = [];
+    foreach ($systemBuilder->combinationsOf([10, 20, 30, 40], 2) as $combo) { $out[] = $combo; }
+    return $out;
+})();
+$combinationCases['system: allLines materialises the whole small system'] = (function () use ($systemBuilder) {
+    return ['count' => count($systemBuilder->allLines([1, 2, 3, 4, 5, 6], [1, 2])), 'first' => ['mains' => [1, 2, 3, 4, 5], 'stars' => [1, 2]]];
+})();
+
 // ── emit ──────────────────────────────────────────────────────────────────────
 
 echo json_encode([
@@ -363,5 +539,6 @@ echo json_encode([
         'sandbox' => $sandboxCases,
         'official' => $officialCases,
         'unavailable' => $unavailableCases,
+        'combinations' => $combinationCases,
     ],
 ], JSON_UNESCAPED_SLASHES | JSON_PRESERVE_ZERO_FRACTION), PHP_EOL;

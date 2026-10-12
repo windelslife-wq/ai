@@ -27,6 +27,8 @@ export const REQUIRED_MIGRATIONS = Object.freeze([
   "014_sports_settlement",
   "015_sports_snapshots",
   "016_lottery_foundation",
+  // Slice 2: the generated-combination record and its AI decision report.
+  "017_lottery_combinations",
 ]);
 
 /** Only driver codes are ever reported; never an SQL statement or credential. */
@@ -194,6 +196,13 @@ export function createStore(pool, { requiredMigrations = REQUIRED_MIGRATIONS } =
     findLotteryJobRunByKey: lottery.findLotteryJobRunByKey,
     deleteOldLotteryJobRuns: lottery.deleteOldLotteryJobRuns,
     deleteOldLotteryHealth: lottery.deleteOldLotteryHealth,
+    // Slice 2 (migration 017): combinations + AI decisions (F-41: the explicit list).
+    saveLotteryCombination: lottery.saveLotteryCombination,
+    findLotteryCombination: lottery.findLotteryCombination,
+    listLotteryCombinations: lottery.listLotteryCombinations,
+    saveLotteryAiDecision: lottery.saveLotteryAiDecision,
+    findLotteryAiDecision: lottery.findLotteryAiDecision,
+    listLotteryAiDecisions: lottery.listLotteryAiDecisions,
     saveJobState: jobs.saveJobState,
     // Notifications are written outside any paper transaction: they are evidence
     // about a change that already committed, and a failed notification must never

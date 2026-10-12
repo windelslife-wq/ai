@@ -640,7 +640,8 @@ test("F-01 the durable file adapter replays its log, survives a torn write, and 
     sportsTickets: 0, sportsTicketSelections: 0, sportsDailyTickets: 0,
     sportsBacktests: 0, sportsModelMetrics: 0, sportsPerformanceSnapshots: 0,
     lotteries: 0, lotteryRules: 0, lotteryProviders: 0, lotteryHealth: 0,
-    lotteryDraws: 0, lotteryDrawNumbers: 0, lotterySyncRuns: 0 });
+    lotteryDraws: 0, lotteryDrawNumbers: 0, lotterySyncRuns: 0,
+      lotteryCombinations: 0, lotteryAiDecisions: 0 });
 
   await reopened.compact();
   const compacted = (await readFile(fileStorePaths(dir).log, "utf8")).trim();
@@ -673,7 +674,7 @@ test("F-01 the file store and the SQL store implement one repository contract, s
     () => assertRepositoryContract({ adapter: "stub", capabilities: {}, readiness: async () => ({}) }, { adapter: "stub" }),
     /does not implement the repository contract.*findUserByIdentifier/s,
   );
-  assert.equal(REPOSITORY_METHODS.length, 167, "8 identity + 6 sessions + 9 RBAC + 2 admin + 4 audit/profile + 2 contact intake + 4 analysis runs + 11 Strategy Lab (including persisted human sign-off) + 23 paper trading + 3 execution proposal reads (2 owner-scoped + 1 cross-owner for the scheduled job) + 6 operator notifications + 5 job locks + 2 job state + 22 sports foundation (3 provider registry + 4 health including retention + 4 fixtures + 4 odds + 2 results + 2 quality + 3 sync runs) + 12 sports intelligence (2 model versions + 4 predictions + 3 configuration + 3 calibration) + 13 ticket writes and reads (9 slice 4 + 4 slice-5 settlement updates and recovery) + 11 settlement, measurement and snapshot methods (2 result attestation + 2 outcome reads + 2 model metrics + 3 backtests + 2 performance snapshots) + 23 lottery foundation (1 game registry + 2 rules + 2 provider registry + 3 health + 5 draws + 4 draw numbers + 3 sync runs + 2 stats reads + 1 audit) + 1 readiness");
+  assert.equal(REPOSITORY_METHODS.length, 173, "8 identity + 6 sessions + 9 RBAC + 2 admin + 4 audit/profile + 2 contact intake + 4 analysis runs + 11 Strategy Lab (including persisted human sign-off) + 23 paper trading + 3 execution proposal reads (2 owner-scoped + 1 cross-owner for the scheduled job) + 6 operator notifications + 5 job locks + 2 job state + 22 sports foundation (3 provider registry + 4 health including retention + 4 fixtures + 4 odds + 2 results + 2 quality + 3 sync runs) + 12 sports intelligence (2 model versions + 4 predictions + 3 configuration + 3 calibration) + 13 ticket writes and reads (9 slice 4 + 4 slice-5 settlement updates and recovery) + 11 settlement, measurement and snapshot methods (2 result attestation + 2 outcome reads + 2 model metrics + 3 backtests + 2 performance snapshots) + 23 lottery foundation (1 game registry + 2 rules + 2 provider registry + 3 health + 5 draws + 4 draw numbers + 3 sync runs + 2 stats reads + 1 audit) + 6 lottery combinations and AI decisions (slice 2, migration 017) + 1 readiness");
 
   // The 22 sports foundation methods, the 12 decision-chain methods (migration 012)
   // and the slice-5 settlement-and-measurement methods (migration 014) are named here
@@ -1152,9 +1153,11 @@ test("F-02 the status surface is honest about unported modules, and F-03 the rou
     /never overwrites a VERIFIED draw/i,
     /independence DISCLAIMER/i,
     /a default host has no provider and fabricates nothing/i,
-    /not ported \(slice 2\/3, f-29\)/i,
-    /eight lottery\.view reads/i,
-    /two lottery\.manage writes/i,
+    /later slices, f-29/i,
+    /the queued background system builds have no consumer until the cron lands/i,
+    /thirteen lottery\.view reads/i,
+    /three lottery\.view POST analysis routes/i,
+    /three lottery\.manage writes/i,
   ]) {
     assert.match(lotteryLabel, pattern);
   }

@@ -65,8 +65,8 @@ const DRAW = {
   payload: { main: [1, 6, 34, 43, 44], stars: [5, 11], source: "sandbox-simulation" },
 };
 
-test("the lottery repository exposes exactly the 23 methods the contract names, and no more", () => {
-  assert.equal(LOTTERY_REPOSITORY_METHODS.length, 23);
+test("the lottery repository exposes exactly the 29 methods the contract names, and no more", () => {
+  assert.equal(LOTTERY_REPOSITORY_METHODS.length, 29, "slice 1's 23 + slice 2's 6 combination/decision methods");
   const repo = createLotteryRepository(recordingExecutor());
   for (const method of LOTTERY_REPOSITORY_METHODS) {
     assert.equal(typeof repo[method], "function", `${method} must exist on the MySQL adapter`);

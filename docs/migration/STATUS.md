@@ -2,7 +2,40 @@
 
 **Updated:** 2026-10-12 · **Branch:** `arena/653d6218-ai`
 
-## Current Phase 21 status (2026-10-12)
+## Current Phase 22 status (2026-10-12)
+
+**The lottery combination engines are ported** (row 15, slice 2 — the intelligence on slice 1's
+foundation). The five-mode generator (RANDOM, BALANCED, HISTORICAL, DIVERSIFIED, ANTI-POPULAR —
+locked/excluded numbers respected, seeded and reproducible), the per-line analyzer (STATISTICAL
+BALANCE SCORE, never a probability), the diversification engine (DIVERSITY SCORE), and the system
+builder (line counts computed as C(N,5) × C(S,2), never hardcoded; lazy enumeration; a pool above
+10 000 lines queues idempotently under an md5 execution key). Migration **017** adds
+`wf_lottery_combinations` + `wf_lottery_ai_decisions` (schema **50**); the contract reaches **173**
+methods (29 lottery); routes are **135** (20 lottery); the version is **0.19.0**. The status
+matrix's lottery entry shrank **six areas → four** (removed, never re-labelled); `lottery` stays
+`partial` with tickets, backtests/model versions, the cron and the console screens remaining.
+
+The permission split is legacy's own and is pinned from both sides: `generate`, `diversity` and
+`system` POST behind **`lottery.view`** (analysis records are not managed ingestion), only
+`system-build` needs **`lottery.manage`** (it writes a job-run row). Queued system builds are
+honest about having **no consumer** — the lottery cron is a later slice, and both the response
+note and the matrix say so instead of pointing at a command this platform does not have. The
+35-case `cases.combinations` golden group — every mode seeded, all four engines, every refusal
+string — **passed on the first run with zero port fixes**, the xorshift32 PRNG's proven identity
+doing exactly what it was proven for. Full record:
+[`PHASE22_LOTTERY_COMBINATIONS.md`](PHASE22_LOTTERY_COMBINATIONS.md).
+
+Gates on this branch: `npm test` **938 / 938** across **59** files, `npm run check` exit 0
+(`verify:install` 29/29, 84 documented variables), PHP oracle **367 / 367**, and the legacy tree
+(`application/`, `system/`, `tests/`) unmodified. **Not run:** a real MySQL server, migration 017
+against any database, any official feed, and a crontab.
+
+**Still not ported (lottery):** tickets and checking; backtests, model versions and measured
+performance; the lottery cron (the queued system builds' consumer); the console screens (F-29).
+Platform-wide: F-15 (real MySQL), R-30 (file-adapter atomicity), row 22 (cutover), and the sports
+remainder (stake sizing, console screens).
+
+## Phase 21 status (2026-10-12) — superseded by Phase 22
 
 **The lottery foundation is ported** (row 15, slice 1 — the layer every later lottery slice stands
 on). The provider boundary lands with all three implementations: the unavailable default, the

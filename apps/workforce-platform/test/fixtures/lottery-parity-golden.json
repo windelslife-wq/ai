@@ -3698,6 +3698,1193 @@
       },
       "draws": [],
       "jackpot": null
+    },
+    "combinations": {
+      "analyze: a balanced line over the seven draws": {
+        "mains": [
+          5,
+          14,
+          21,
+          28,
+          35
+        ],
+        "stars": [
+          2,
+          4
+        ],
+        "composition": {
+          "oddEven": {
+            "odd": 3,
+            "even": 2,
+            "label": "3 odd / 2 even"
+          },
+          "lowHigh": {
+            "low": 3,
+            "high": 2,
+            "lowBound": 25,
+            "label": "3 low / 2 high"
+          },
+          "sum": {
+            "value": 103,
+            "historical": {
+              "min": 15,
+              "max": 105,
+              "avg": 69.14,
+              "percentile": 71.43
+            }
+          },
+          "spread": {
+            "value": 30,
+            "historical": {
+              "min": 4,
+              "max": 34,
+              "avg": 23.43,
+              "percentile": 85.71
+            }
+          },
+          "consecutives": {
+            "adjacentPairs": 0,
+            "longestRun": 1,
+            "runsOf3Plus": 0
+          }
+        },
+        "patternCharacteristics": {
+          "allSameLastDigit": false,
+          "withinSingleDecade": false,
+          "birthdayCount": 4,
+          "birthdayNote": "4 of 5 mains fall in the 1-31 birthday range",
+          "multiplesOf5": 2,
+          "note": "Pattern traits describe how selections with these characteristics appear in historical draws. They do not change the odds of this line being drawn."
+        },
+        "numberProfile": [
+          {
+            "number": 5,
+            "appearances": 4,
+            "appearancePct": 57.14,
+            "lastAppearance": "2026-10-06",
+            "drawsSinceLast": 2,
+            "currentGap": 2,
+            "avgGap": 1.33,
+            "minGap": 1,
+            "maxGap": 2,
+            "recentAppearances": 0,
+            "recentPct": 0,
+            "trend": 0
+          },
+          {
+            "number": 14,
+            "appearances": 3,
+            "appearancePct": 42.86,
+            "lastAppearance": "2026-10-12",
+            "drawsSinceLast": 0,
+            "currentGap": 0,
+            "avgGap": 1.5,
+            "minGap": 1,
+            "maxGap": 2,
+            "recentAppearances": 0,
+            "recentPct": 0,
+            "trend": 0
+          },
+          {
+            "number": 21,
+            "appearances": 3,
+            "appearancePct": 42.86,
+            "lastAppearance": "2026-10-12",
+            "drawsSinceLast": 0,
+            "currentGap": 0,
+            "avgGap": 1.5,
+            "minGap": 1,
+            "maxGap": 2,
+            "recentAppearances": 0,
+            "recentPct": 0,
+            "trend": 0
+          },
+          {
+            "number": 28,
+            "appearances": 3,
+            "appearancePct": 42.86,
+            "lastAppearance": "2026-10-12",
+            "drawsSinceLast": 0,
+            "currentGap": 0,
+            "avgGap": 1.5,
+            "minGap": 1,
+            "maxGap": 2,
+            "recentAppearances": 0,
+            "recentPct": 0,
+            "trend": 0
+          },
+          {
+            "number": 35,
+            "appearances": 3,
+            "appearancePct": 42.86,
+            "lastAppearance": "2026-10-12",
+            "drawsSinceLast": 0,
+            "currentGap": 0,
+            "avgGap": 1.5,
+            "minGap": 1,
+            "maxGap": 2,
+            "recentAppearances": 0,
+            "recentPct": 0,
+            "trend": 0
+          }
+        ],
+        "starProfile": [
+          {
+            "number": 2,
+            "appearances": 3,
+            "appearancePct": 42.86,
+            "lastAppearance": "2026-10-09",
+            "drawsSinceLast": 1,
+            "currentGap": 1,
+            "avgGap": 2.5,
+            "minGap": 1,
+            "maxGap": 4,
+            "recentAppearances": 0,
+            "recentPct": 0,
+            "trend": 0
+          },
+          {
+            "number": 4,
+            "appearances": 3,
+            "appearancePct": 42.86,
+            "lastAppearance": "2026-10-12",
+            "drawsSinceLast": 0,
+            "currentGap": 0,
+            "avgGap": 1.5,
+            "minGap": 1,
+            "maxGap": 2,
+            "recentAppearances": 0,
+            "recentPct": 0,
+            "trend": 0
+          }
+        ],
+        "historicalSimilarity": {
+          "bestNumberOverlap": 4,
+          "bestMatch": {
+            "drawDate": "2026-10-02",
+            "overlap": 4
+          },
+          "drawsSharing3PlusNumbers": 3,
+          "sameOddEvenDraws": 6,
+          "sameOddEvenPct": 85.71,
+          "sumWithin10": {
+            "draws": 2,
+            "pct": 28.57
+          },
+          "note": "Similarity with past draws is a historical observation only — past draws do not influence future draws."
+        },
+        "balanceScore": 70,
+        "scoreBreakdown": {
+          "sumFit": 40.8,
+          "oddEvenFit": 100,
+          "lowHighFit": 60,
+          "spreadFit": 72,
+          "consecutivesFit": 100
+        },
+        "scoreLabel": "STATISTICAL BALANCE SCORE: 70/100",
+        "scoreMeaning": "How closely this line matches typical historical draw composition (sum, odd/even, low/high, spread, consecutive patterns). It is NOT a probability and it does not indicate how likely the line is to be drawn.",
+        "disclaimer": "Lottery draws are independent random events. Historical frequency, gaps and patterns are statistical observations only — they do not change the probability of future draws and are not forecasts of future results."
+      },
+      "analyze: empty history is the neutral score": {
+        "mains": [
+          1,
+          2,
+          3,
+          4,
+          5
+        ],
+        "stars": [
+          1,
+          2
+        ],
+        "composition": {
+          "oddEven": {
+            "odd": 3,
+            "even": 2,
+            "label": "3 odd / 2 even"
+          },
+          "lowHigh": {
+            "low": 5,
+            "high": 0,
+            "lowBound": 25,
+            "label": "5 low / 0 high"
+          },
+          "sum": {
+            "value": 15,
+            "historical": {
+              "min": null,
+              "max": null,
+              "avg": null,
+              "percentile": null
+            }
+          },
+          "spread": {
+            "value": 4,
+            "historical": {
+              "min": null,
+              "max": null,
+              "avg": null,
+              "percentile": null
+            }
+          },
+          "consecutives": {
+            "adjacentPairs": 4,
+            "longestRun": 5,
+            "runsOf3Plus": 1
+          }
+        },
+        "patternCharacteristics": {
+          "allSameLastDigit": false,
+          "withinSingleDecade": true,
+          "birthdayCount": 5,
+          "birthdayNote": "5 of 5 mains fall in the 1-31 birthday range",
+          "multiplesOf5": 1,
+          "note": "Pattern traits describe how selections with these characteristics appear in historical draws. They do not change the odds of this line being drawn."
+        },
+        "numberProfile": [
+          {
+            "number": 1,
+            "appearances": 0,
+            "appearancePct": 0,
+            "lastAppearance": null,
+            "drawsSinceLast": null,
+            "currentGap": null,
+            "avgGap": null,
+            "minGap": null,
+            "maxGap": null,
+            "recentAppearances": 0,
+            "recentPct": 0,
+            "trend": 0
+          },
+          {
+            "number": 2,
+            "appearances": 0,
+            "appearancePct": 0,
+            "lastAppearance": null,
+            "drawsSinceLast": null,
+            "currentGap": null,
+            "avgGap": null,
+            "minGap": null,
+            "maxGap": null,
+            "recentAppearances": 0,
+            "recentPct": 0,
+            "trend": 0
+          },
+          {
+            "number": 3,
+            "appearances": 0,
+            "appearancePct": 0,
+            "lastAppearance": null,
+            "drawsSinceLast": null,
+            "currentGap": null,
+            "avgGap": null,
+            "minGap": null,
+            "maxGap": null,
+            "recentAppearances": 0,
+            "recentPct": 0,
+            "trend": 0
+          },
+          {
+            "number": 4,
+            "appearances": 0,
+            "appearancePct": 0,
+            "lastAppearance": null,
+            "drawsSinceLast": null,
+            "currentGap": null,
+            "avgGap": null,
+            "minGap": null,
+            "maxGap": null,
+            "recentAppearances": 0,
+            "recentPct": 0,
+            "trend": 0
+          },
+          {
+            "number": 5,
+            "appearances": 0,
+            "appearancePct": 0,
+            "lastAppearance": null,
+            "drawsSinceLast": null,
+            "currentGap": null,
+            "avgGap": null,
+            "minGap": null,
+            "maxGap": null,
+            "recentAppearances": 0,
+            "recentPct": 0,
+            "trend": 0
+          }
+        ],
+        "starProfile": [
+          {
+            "number": 1,
+            "appearances": 0,
+            "appearancePct": 0,
+            "lastAppearance": null,
+            "drawsSinceLast": null,
+            "currentGap": null,
+            "avgGap": null,
+            "minGap": null,
+            "maxGap": null,
+            "recentAppearances": 0,
+            "recentPct": 0,
+            "trend": 0
+          },
+          {
+            "number": 2,
+            "appearances": 0,
+            "appearancePct": 0,
+            "lastAppearance": null,
+            "drawsSinceLast": null,
+            "currentGap": null,
+            "avgGap": null,
+            "minGap": null,
+            "maxGap": null,
+            "recentAppearances": 0,
+            "recentPct": 0,
+            "trend": 0
+          }
+        ],
+        "historicalSimilarity": {
+          "bestNumberOverlap": 0,
+          "bestMatch": null,
+          "drawsSharing3PlusNumbers": 0,
+          "sameOddEvenDraws": 0,
+          "sameOddEvenPct": 0,
+          "sumWithin10": {
+            "draws": 0,
+            "pct": 0
+          },
+          "note": "Similarity with past draws is a historical observation only — past draws do not influence future draws."
+        },
+        "balanceScore": 50,
+        "scoreBreakdown": {
+          "note": "no historical data — neutral score"
+        },
+        "scoreLabel": "STATISTICAL BALANCE SCORE: 50/100",
+        "scoreMeaning": "How closely this line matches typical historical draw composition (sum, odd/even, low/high, spread, consecutive patterns). It is NOT a probability and it does not indicate how likely the line is to be drawn.",
+        "disclaimer": "Lottery draws are independent random events. Historical frequency, gaps and patterns are statistical observations only — they do not change the probability of future draws and are not forecasts of future results."
+      },
+      "analyze: an invalid line is refused with the rules errors": {
+        "ok": false,
+        "error": "invalid line: duplicate main numbers"
+      },
+      "analyze: input order does not matter": {
+        "sameScore": true,
+        "sameSum": true
+      },
+      "generate: RANDOM seed 42, three lines": {
+        "model": "WINDELS Lottery Model v1.0",
+        "lottery": "EUROMILLIONS",
+        "mode": "RANDOM",
+        "lineCount": 3,
+        "lines": [
+          {
+            "mains": [
+              1,
+              8,
+              34,
+              43,
+              45
+            ],
+            "stars": [
+              5,
+              11
+            ],
+            "score": 45,
+            "scoreLabel": "STATISTICAL BALANCE SCORE: 45/100",
+            "profile": {
+              "sum": 131,
+              "spread": 44,
+              "oddEven": "3 odd / 2 even",
+              "lowHigh": "2 low / 3 high",
+              "adjacentPairs": 0
+            }
+          },
+          {
+            "mains": [
+              14,
+              29,
+              36,
+              37,
+              41
+            ],
+            "stars": [
+              4,
+              9
+            ],
+            "score": 48,
+            "scoreLabel": "STATISTICAL BALANCE SCORE: 48/100",
+            "profile": {
+              "sum": 157,
+              "spread": 27,
+              "oddEven": "3 odd / 2 even",
+              "lowHigh": "1 low / 4 high",
+              "adjacentPairs": 1
+            }
+          },
+          {
+            "mains": [
+              4,
+              9,
+              14,
+              23,
+              42
+            ],
+            "stars": [
+              8,
+              10
+            ],
+            "score": 71,
+            "scoreLabel": "STATISTICAL BALANCE SCORE: 71/100",
+            "profile": {
+              "sum": 92,
+              "spread": 38,
+              "oddEven": "2 odd / 3 even",
+              "lowHigh": "4 low / 1 high",
+              "adjacentPairs": 0
+            }
+          }
+        ],
+        "averageBalanceScore": 54.7,
+        "inputs": {
+          "seed": 42,
+          "rulesVersion": "1.0",
+          "drawsUsed": 7,
+          "lastDrawDate": "2026-10-12",
+          "datasetVersion": "n=7;last=2026-10-12",
+          "locks": {
+            "mains": [],
+            "stars": []
+          },
+          "excludes": {
+            "mains": [],
+            "stars": []
+          },
+          "contextLines": 0
+        },
+        "factors": {
+          "method": "uniform seeded sampling without replacement",
+          "note": "No historical factors applied. A random baseline is intentionally always available (spec §25)."
+        },
+        "generatedAt": "<NOW>",
+        "disclaimer": "Lottery draws are independent random events. Historical frequency, gaps and patterns are statistical observations only — they do not change the probability of future draws and are not forecasts of future results.",
+        "honestyNote": "Every valid EuroMillions combination has exactly the same mathematical chance of being drawn. No generation mode increases that chance; the modes only shape the statistical profile, the diversity or the pattern avoidance of the selections."
+      },
+      "generate: RANDOM is reproducible for the same seed": true,
+      "generate: locks are always present, excludes never": {
+        "locksPresent": true,
+        "excludedAbsent": true,
+        "inputsLocks": {
+          "mains": [
+            7,
+            50
+          ],
+          "stars": [
+            12
+          ]
+        },
+        "inputsExcludes": {
+          "mains": [
+            1,
+            2,
+            3
+          ],
+          "stars": [
+            1
+          ]
+        }
+      },
+      "generate: HISTORICAL seed 42 weights by appearances": {
+        "lines": [
+          {
+            "mains": [
+              1,
+              5,
+              28,
+              40,
+              42
+            ],
+            "stars": [
+              3,
+              9
+            ],
+            "score": 48,
+            "scoreLabel": "STATISTICAL BALANCE SCORE: 48/100",
+            "profile": {
+              "sum": 116,
+              "spread": 41,
+              "oddEven": "2 odd / 3 even",
+              "lowHigh": "2 low / 3 high",
+              "adjacentPairs": 0
+            }
+          },
+          {
+            "mains": [
+              7,
+              22,
+              29,
+              31,
+              35
+            ],
+            "stars": [
+              2,
+              5
+            ],
+            "score": 52,
+            "scoreLabel": "STATISTICAL BALANCE SCORE: 52/100",
+            "profile": {
+              "sum": 124,
+              "spread": 28,
+              "oddEven": "4 odd / 1 even",
+              "lowHigh": "2 low / 3 high",
+              "adjacentPairs": 0
+            }
+          }
+        ],
+        "factorsMethod": "frequency-weighted sampling (weight = 1 + historical appearances)",
+        "topMainNumbers": [
+          {
+            "number": 5,
+            "appearances": 4
+          },
+          {
+            "number": 7,
+            "appearances": 4
+          },
+          {
+            "number": 1,
+            "appearances": 3
+          },
+          {
+            "number": 14,
+            "appearances": 3
+          },
+          {
+            "number": 21,
+            "appearances": 3
+          }
+        ],
+        "topStars": [
+          {
+            "number": 1,
+            "appearances": 3
+          },
+          {
+            "number": 2,
+            "appearances": 3
+          },
+          {
+            "number": 4,
+            "appearances": 3
+          }
+        ]
+      },
+      "generate: BALANCED seed 42 filters to the historical profile": {
+        "lines": [
+          {
+            "mains": [
+              4,
+              9,
+              14,
+              23,
+              42
+            ],
+            "stars": [
+              8,
+              10
+            ],
+            "score": 71,
+            "scoreLabel": "STATISTICAL BALANCE SCORE: 71/100",
+            "profile": {
+              "sum": 92,
+              "spread": 38,
+              "oddEven": "2 odd / 3 even",
+              "lowHigh": "4 low / 1 high",
+              "adjacentPairs": 0
+            }
+          },
+          {
+            "mains": [
+              8,
+              9,
+              11,
+              24,
+              29
+            ],
+            "stars": [
+              4,
+              11
+            ],
+            "score": 84,
+            "scoreLabel": "STATISTICAL BALANCE SCORE: 84/100",
+            "profile": {
+              "sum": 81,
+              "spread": 21,
+              "oddEven": "3 odd / 2 even",
+              "lowHigh": "4 low / 1 high",
+              "adjacentPairs": 1
+            }
+          }
+        ],
+        "factors": {
+          "method": "profile-filtered sampling against the historical distribution",
+          "targets": {
+            "sumRange": [
+              40.6,
+              97.7
+            ],
+            "oddRange": [
+              2,
+              4
+            ],
+            "lowRange": [
+              4,
+              5
+            ],
+            "maxAdjacentPairs": 1,
+            "lowBound": 25
+          },
+          "historicalBasis": {
+            "drawsUsed": 7,
+            "sumAvg": 69.14,
+            "sumStd": 28.59,
+            "mostCommonOddEven": "3 odd / 2 even",
+            "mostCommonLowHigh": "5 low / 0 high"
+          },
+          "note": "Targets describe the typical historical composition. Matching a typical composition does not improve the odds of any specific line."
+        }
+      },
+      "generate: BALANCED with no history samples unconstrained and records no targets": {
+        "factors": {
+          "method": "profile-filtered sampling against the historical distribution",
+          "note": "Targets describe the typical historical composition. Matching a typical composition does not improve the odds of any specific line."
+        },
+        "line": [
+          1,
+          8,
+          34,
+          43,
+          45
+        ]
+      },
+      "generate: DIVERSIFIED seed 42 sorts candidates by overlap penalty": {
+        "model": "WINDELS Lottery Model v1.0",
+        "lottery": "EUROMILLIONS",
+        "mode": "DIVERSIFIED",
+        "lineCount": 3,
+        "lines": [
+          {
+            "mains": [
+              1,
+              8,
+              25,
+              29,
+              30
+            ],
+            "stars": [
+              7,
+              10
+            ],
+            "score": 72,
+            "scoreLabel": "STATISTICAL BALANCE SCORE: 72/100",
+            "profile": {
+              "sum": 93,
+              "spread": 29,
+              "oddEven": "3 odd / 2 even",
+              "lowHigh": "3 low / 2 high",
+              "adjacentPairs": 1
+            }
+          },
+          {
+            "mains": [
+              9,
+              11,
+              22,
+              38,
+              50
+            ],
+            "stars": [
+              8,
+              12
+            ],
+            "score": 47,
+            "scoreLabel": "STATISTICAL BALANCE SCORE: 47/100",
+            "profile": {
+              "sum": 130,
+              "spread": 41,
+              "oddEven": "2 odd / 3 even",
+              "lowHigh": "3 low / 2 high",
+              "adjacentPairs": 0
+            }
+          },
+          {
+            "mains": [
+              8,
+              19,
+              31,
+              34,
+              48
+            ],
+            "stars": [
+              6,
+              9
+            ],
+            "score": 43,
+            "scoreLabel": "STATISTICAL BALANCE SCORE: 43/100",
+            "profile": {
+              "sum": 140,
+              "spread": 40,
+              "oddEven": "2 odd / 3 even",
+              "lowHigh": "2 low / 3 high",
+              "adjacentPairs": 0
+            }
+          }
+        ],
+        "averageBalanceScore": 54,
+        "inputs": {
+          "seed": 42,
+          "rulesVersion": "1.0",
+          "drawsUsed": 7,
+          "lastDrawDate": "2026-10-12",
+          "datasetVersion": "n=7;last=2026-10-12",
+          "locks": {
+            "mains": [],
+            "stars": []
+          },
+          "excludes": {
+            "mains": [],
+            "stars": []
+          },
+          "contextLines": 1
+        },
+        "factors": {
+          "method": "minimum-overlap greedy selection (10 points per shared main, 20 per shared star)",
+          "contextLines": 1,
+          "note": "Diversification makes the lines more different from each other. It does not change the odds of any line."
+        },
+        "generatedAt": "<NOW>",
+        "disclaimer": "Lottery draws are independent random events. Historical frequency, gaps and patterns are statistical observations only — they do not change the probability of future draws and are not forecasts of future results.",
+        "honestyNote": "Every valid EuroMillions combination has exactly the same mathematical chance of being drawn. No generation mode increases that chance; the modes only shape the statistical profile, the diversity or the pattern avoidance of the selections."
+      },
+      "generate: ANTI-POPULAR seed 42 refuses birthday-heavy lines": {
+        "lines": [
+          {
+            "mains": [
+              1,
+              8,
+              34,
+              43,
+              45
+            ],
+            "stars": [
+              5,
+              11
+            ],
+            "score": 45,
+            "scoreLabel": "STATISTICAL BALANCE SCORE: 45/100",
+            "profile": {
+              "sum": 131,
+              "spread": 44,
+              "oddEven": "3 odd / 2 even",
+              "lowHigh": "2 low / 3 high",
+              "adjacentPairs": 0
+            }
+          },
+          {
+            "mains": [
+              14,
+              29,
+              36,
+              37,
+              41
+            ],
+            "stars": [
+              4,
+              9
+            ],
+            "score": 48,
+            "scoreLabel": "STATISTICAL BALANCE SCORE: 48/100",
+            "profile": {
+              "sum": 157,
+              "spread": 27,
+              "oddEven": "3 odd / 2 even",
+              "lowHigh": "1 low / 4 high",
+              "adjacentPairs": 1
+            }
+          }
+        ],
+        "factors": {
+          "method": "constrained sampling avoiding common human selection patterns",
+          "constraints": [
+            "at least 3 of 5 mains above the 1-31 birthday range",
+            "no ascending runs of 3 or more",
+            "at most 1 adjacent pair",
+            "not all mains share the same last digit",
+            "mains not confined to a single decade"
+          ],
+          "note": "Avoiding popular patterns may reduce the chance of sharing a prize if a line happens to win. It never changes the chance of winning."
+        }
+      },
+      "generate: an unknown mode is refused": {
+        "ok": false,
+        "error": "unknown generation mode: TEA-LEAVES (expected RANDOM, BALANCED, HISTORICAL, DIVERSIFIED, ANTI-POPULAR)"
+      },
+      "generate: more than five locked mains is refused": {
+        "ok": false,
+        "error": "cannot lock more than 5 main numbers"
+      },
+      "generate: a number both locked and excluded is refused": {
+        "ok": false,
+        "error": "a main number is both locked and excluded"
+      },
+      "generate: a locked number outside the allowed pool is refused": {
+        "ok": false,
+        "error": "a main number is both locked and excluded"
+      },
+      "generate: excluding down to four remaining mains starves the pool": {
+        "ok": false,
+        "error": "not enough main numbers remain after exclusions"
+      },
+      "generate: count clamps at MAX_LINES": {
+        "requested": 500,
+        "lineCount": 100,
+        "actualLines": 100
+      },
+      "generate: a float seed truncates like (int)": {
+        "whole": [
+          {
+            "mains": [
+              1,
+              8,
+              34,
+              43,
+              45
+            ],
+            "stars": [
+              5,
+              11
+            ],
+            "score": 45,
+            "scoreLabel": "STATISTICAL BALANCE SCORE: 45/100",
+            "profile": {
+              "sum": 131,
+              "spread": 44,
+              "oddEven": "3 odd / 2 even",
+              "lowHigh": "2 low / 3 high",
+              "adjacentPairs": 0
+            }
+          }
+        ],
+        "fractional": [
+          {
+            "mains": [
+              1,
+              8,
+              34,
+              43,
+              45
+            ],
+            "stars": [
+              5,
+              11
+            ],
+            "score": 45,
+            "scoreLabel": "STATISTICAL BALANCE SCORE: 45/100",
+            "profile": {
+              "sum": 131,
+              "spread": 44,
+              "oddEven": "3 odd / 2 even",
+              "lowHigh": "2 low / 3 high",
+              "adjacentPairs": 0
+            }
+          }
+        ],
+        "recordedSeeds": [
+          42,
+          42
+        ]
+      },
+      "diversify: two far-apart lines score high": {
+        "lineCount": 2,
+        "duplicates": 0,
+        "overlaps": {
+          "linePairs": 1,
+          "averageMain": 0,
+          "maxMain": 0,
+          "averageStar": 0,
+          "maxStar": 0,
+          "averageMainPairs": 0,
+          "maxMainPairs": 0,
+          "averageMainTriplets": 0,
+          "maxMainTriplets": 0
+        },
+        "distributionSimilarity": {
+          "sameOddEvenPct": 0,
+          "sameLowHighPct": 0,
+          "avgAbsSumDiff": 225
+        },
+        "pairReuse": {
+          "totalPairInstances": 20,
+          "uniquePairs": 20,
+          "reusedSharePct": 0
+        },
+        "diversityScore": 100,
+        "scoreLabel": "DIVERSITY SCORE: 100/100",
+        "scoreMeaning": "How different the combinations are from each other (number, pair, triplet and star overlap plus distribution similarity). It is NOT a measure of how likely any line is to be drawn.",
+        "disclaimer": "Lottery draws are independent random events. Historical frequency, gaps and patterns are statistical observations only — they do not change the probability of future draws and are not forecasts of future results."
+      },
+      "diversify: identical lines are duplicates with a heavy penalty": {
+        "lineCount": 2,
+        "duplicates": 1,
+        "overlaps": {
+          "linePairs": 1,
+          "averageMain": 5,
+          "maxMain": 5,
+          "averageStar": 2,
+          "maxStar": 2,
+          "averageMainPairs": 10,
+          "maxMainPairs": 10,
+          "averageMainTriplets": 10,
+          "maxMainTriplets": 10
+        },
+        "distributionSimilarity": {
+          "sameOddEvenPct": 100,
+          "sameLowHighPct": 100,
+          "avgAbsSumDiff": 0
+        },
+        "pairReuse": {
+          "totalPairInstances": 20,
+          "uniquePairs": 10,
+          "reusedSharePct": 50
+        },
+        "diversityScore": 0,
+        "scoreLabel": "DIVERSITY SCORE: 0/100",
+        "scoreMeaning": "How different the combinations are from each other (number, pair, triplet and star overlap plus distribution similarity). It is NOT a measure of how likely any line is to be drawn.",
+        "disclaimer": "Lottery draws are independent random events. Historical frequency, gaps and patterns are statistical observations only — they do not change the probability of future draws and are not forecasts of future results."
+      },
+      "diversify: three mixed lines": {
+        "lineCount": 3,
+        "duplicates": 0,
+        "overlaps": {
+          "linePairs": 3,
+          "averageMain": 1.333,
+          "maxMain": 3,
+          "averageStar": 0.333,
+          "maxStar": 1,
+          "averageMainPairs": 1,
+          "maxMainPairs": 3,
+          "averageMainTriplets": 0.333,
+          "maxMainTriplets": 1
+        },
+        "distributionSimilarity": {
+          "sameOddEvenPct": 33.33,
+          "sameLowHighPct": 0,
+          "avgAbsSumDiff": 123.33
+        },
+        "pairReuse": {
+          "totalPairInstances": 30,
+          "uniquePairs": 27,
+          "reusedSharePct": 10
+        },
+        "diversityScore": 82,
+        "scoreLabel": "DIVERSITY SCORE: 82/100",
+        "scoreMeaning": "How different the combinations are from each other (number, pair, triplet and star overlap plus distribution similarity). It is NOT a measure of how likely any line is to be drawn.",
+        "disclaimer": "Lottery draws are independent random events. Historical frequency, gaps and patterns are statistical observations only — they do not change the probability of future draws and are not forecasts of future results."
+      },
+      "diversify: no lines is refused": {
+        "ok": false,
+        "error": "no lines provided"
+      },
+      "diversify: an invalid line names its position": {
+        "ok": false,
+        "error": "line 2 invalid: line must contain 5 main numbers (got 4)"
+      },
+      "system: plan C(7,5) x C(3,2)": {
+        "lottery": "EUROMILLIONS",
+        "mainPool": [
+          1,
+          2,
+          3,
+          4,
+          5,
+          6,
+          7
+        ],
+        "starPool": [
+          1,
+          2,
+          3
+        ],
+        "mainCombos": 21,
+        "starCombos": 3,
+        "totalLines": 63,
+        "formula": "C(7,5) x C(3,2) = 21 x 3",
+        "estimatedCost": null,
+        "costNote": "Official line pricing is not available in this environment — no cost is fabricated.",
+        "coverage": {
+          "mainNumbersPct": 100,
+          "mainPairsPct": 100,
+          "starPairsPct": 100,
+          "note": "A full system contains every 5-subset of the main pool and every 2-subset of the star pool: 100% coverage of the chosen pool (numbers, main pairs and star pairs). Coverage of the pool is not a statement about winning."
+        },
+        "requiresBackground": false,
+        "disclaimer": "Lottery draws are independent random events. Historical frequency, gaps and patterns are statistical observations only — they do not change the probability of future draws and are not forecasts of future results."
+      },
+      "system: the first page is lexicographic with stars nested": [
+        {
+          "mains": [
+            1,
+            2,
+            3,
+            4,
+            5
+          ],
+          "stars": [
+            1,
+            2
+          ]
+        },
+        {
+          "mains": [
+            1,
+            2,
+            3,
+            4,
+            5
+          ],
+          "stars": [
+            1,
+            3
+          ]
+        },
+        {
+          "mains": [
+            1,
+            2,
+            3,
+            4,
+            5
+          ],
+          "stars": [
+            2,
+            3
+          ]
+        },
+        {
+          "mains": [
+            1,
+            2,
+            3,
+            4,
+            6
+          ],
+          "stars": [
+            1,
+            2
+          ]
+        }
+      ],
+      "system: page windows offset correctly": {
+        "first": [
+          {
+            "mains": [
+              1,
+              3,
+              4,
+              5,
+              6
+            ],
+            "stars": [
+              1,
+              2
+            ]
+          },
+          {
+            "mains": [
+              2,
+              3,
+              4,
+              5,
+              6
+            ],
+            "stars": [
+              1,
+              2
+            ]
+          }
+        ],
+        "last": [],
+        "pastEnd": []
+      },
+      "system: C(50,5) and C(12,2) are computed, never hardcoded": {
+        "C(50,5)": 2118760,
+        "C(12,2)": 66,
+        "C(7,0)": 1,
+        "C(7,8)": 0,
+        "C(60,5)": 5461512
+      },
+      "system: a pool over the synchronous limit requires background": {
+        "totalLines": 118755,
+        "requiresBackground": true,
+        "formula": "C(29,5) x C(2,2) = 118755 x 1"
+      },
+      "system: a pool below five mains is refused": {
+        "ok": false,
+        "error": "a system needs at least 5 main numbers in the pool (got 4)"
+      },
+      "system: a duplicate pool number is refused": {
+        "ok": false,
+        "error": "duplicate pool main number: 1"
+      },
+      "system: an out-of-range pool number is refused": {
+        "ok": false,
+        "error": "pool main number out of range 1-50: 51"
+      },
+      "system: a string pool number is refused as invalid": {
+        "ok": false,
+        "error": "pool main number out of range 1-50: 5"
+      },
+      "system: combinationsOf is lexicographic": [
+        [
+          10,
+          20
+        ],
+        [
+          10,
+          30
+        ],
+        [
+          10,
+          40
+        ],
+        [
+          20,
+          30
+        ],
+        [
+          20,
+          40
+        ],
+        [
+          30,
+          40
+        ]
+      ],
+      "system: allLines materialises the whole small system": {
+        "count": 6,
+        "first": {
+          "mains": [
+            1,
+            2,
+            3,
+            4,
+            5
+          ],
+          "stars": [
+            1,
+            2
+          ]
+        }
+      }
     }
   }
 }

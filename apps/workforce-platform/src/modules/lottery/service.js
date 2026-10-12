@@ -11,7 +11,9 @@
  * full validation), the stored reads, the statistics endpoints and the provider
  * health surface. The combination intelligence, tickets, backtests and model
  * versions are slice 2, the cron slice 3 — and the not-ported matrix travels in
- * `status()` so the gap is stated, not silent (the BC-10 rule).
+ * `status()` so the gap is stated, not silent (the BC-10 rule). Slice 2 (this
+ * record's combination intelligence) landed the four engines and their two
+ * persistence tables; the matrix shrinks accordingly.
  *
  * Legacy's honesty contract, unchanged: EuroMillions is a random lottery — this
  * module provides STATISTICAL intelligence, never a claim of prediction.
@@ -28,6 +30,11 @@ import { createLotteryResultValidator, STATUS_FAILED } from "./validator.js";
 import { createLotteryStatisticsEngine, DISCLAIMER } from "./statistics.js";
 import { createEuroMillionsRules, euroMillionsRulesFromArray } from "./rules.js";
 import { chooseLotteryProvider } from "./providers.js";
+import { createCombinationAnalyzer } from "./combinations.js";
+import { createCombinationGenerator } from "./generator.js";
+import { createDiversificationEngine } from "./diversification.js";
+import { createSystemBuilder, SYNC_LINE_LIMIT } from "./system.js";
+import { createHash, randomUUID } from "node:crypto";
 import { AppError } from "../../http/errors.js";
 
 export const MODEL_VERSION = "1.0";
@@ -43,11 +50,12 @@ export const ENGINE_ACTIVE = "ACTIVE";
  * become untrue.
  */
 export const LOTTERY_NOT_PORTED = Object.freeze([
-  Object.freeze({ area: "combination intelligence", legacy: "CombinationGenerator, CombinationAnalyzer, SystemBuilder, DiversificationEngine", state: "not ported", detail: "Generation, per-line analysis, full-system building and diversification scoring are statistical balance tooling over stored draws. They land in slice 2, against the draws this slice stores." }),
-  Object.freeze({ area: "tickets and checking", legacy: "createTicket/checkTicket/archiveTicket, lottery_tickets + lottery_ticket_lines", state: "not ported", detail: "A lottery ticket on this platform is a record of number lines, never a purchase; slice 2 ports the record and its draw checking." }),
-  Object.freeze({ area: "backtests and model versions", legacy: "LotteryBacktester, lottery_backtests + lottery_model_versions", state: "not ported", detail: "Strategy replay over stored history without look-ahead, persisted as historical simulation reports. Slice 2." }),
-  Object.freeze({ area: "generation persistence", legacy: "lottery_combinations + lottery_ai_decisions, /lottery/combinations and /lottery/ai-decisions", state: "not ported", detail: "Generated reports and their decision records, persisted with model version and audit trail. Slice 2." }),
-  Object.freeze({ area: "scheduled jobs", legacy: "LotteryCronService (sync, health, statistics, systems, tickets, backtests, cleanup)", state: "not ported", detail: "The lottery cron is slice 3, on the same wf_job_locks pattern as the sports cron (row 19). Until then nothing here runs on a schedule." }),
+  // Slice 2 removed the combination-intelligence and generation-persistence
+  // entries: they became untrue, and untrue entries are removed, never
+  // re-labelled. What remains is what no slice has landed yet.
+  Object.freeze({ area: "tickets and checking", legacy: "createTicket/checkTicket/archiveTicket, lottery_tickets + lottery_ticket_lines", state: "not ported", detail: "A lottery ticket on this platform is a record of number lines, never a purchase; the record and its draw checking are the next slice." }),
+  Object.freeze({ area: "backtests and model versions", legacy: "LotteryBacktester, lottery_backtests + lottery_model_versions", state: "not ported", detail: "Strategy replay over stored history without look-ahead, persisted as historical simulation reports." }),
+  Object.freeze({ area: "scheduled jobs", legacy: "LotteryCronService (sync, health, statistics, systems, tickets, backtests, cleanup)", state: "not ported", detail: "The lottery cron is a later slice, on the same wf_job_locks pattern as the sports cron (row 19). Until then nothing here runs on a schedule — and the queued background system builds have no consumer yet." }),
   Object.freeze({ area: "console screens", legacy: "Lottery::index (views/lottery/*.php)", state: "not ported", detail: "No ported module has a console screen (F-29, platform-wide); the API reads exist under /lottery/*." }),
 ]);
 
@@ -68,6 +76,24 @@ export function createLotteryService({ store, config, now = () => Date.now(), pr
 
   const chosenProvider = provider ?? chooseLotteryProvider({ lotteryConfig: config.lottery, now });
   const statistics = createLotteryStatisticsEngine();
+  // Slice 2: the four combination engines. Legacy wires them in its constructor
+  // around `storedRules() ?? new EuroMillionsRules()`; the port builds them
+  // lazily around the same resolved rules (LT-4 — nothing at construction).
+  let combinationEngines = null;
+  async function engines() {
+    if (!combinationEngines) {
+      const rules = await resolveRules();
+      const lineAnalyzer = createCombinationAnalyzer(rules, statistics);
+      combinationEngines = {
+        rules,
+        analyzer: lineAnalyzer,
+        generator: createCombinationGenerator(rules, lineAnalyzer, statistics, MODEL_VERSION),
+        diversification: createDiversificationEngine(rules),
+        systemBuilder: createSystemBuilder(rules),
+      };
+    }
+    return combinationEngines;
+  }
   /** The resolved rules: explicit → stored → code default (lazy, LT-4 — no reads at construction). */
   let rulesInstance = rules;
   let ensured = false;
@@ -124,6 +150,18 @@ export function createLotteryService({ store, config, now = () => Date.now(), pr
 
   /** Read-only registry listing (GET /lottery/providers) — through the lazy store guard. */
   const registry = async () => ({ providers: await requireStore().listLotteryProviders() });
+
+  /** PHP's (int) cast: numeric strings truncate, anything else is 0. */
+  function phpIntval(value) {
+    const n = Math.trunc(Number(value));
+    return Number.isNaN(n) ? 0 : n;
+  }
+
+  /** PHP is_numeric for the string ids the routes pass through. */
+  function isNumeric(value) {
+    if (typeof value === "number") return Number.isFinite(value);
+    return typeof value === "string" && value.trim() !== "" && Number.isFinite(Number(value));
+  }
 
   function recordAudit(actorId, action, message, details = {}) {
     return store.recordAudit({
@@ -405,6 +443,204 @@ export function createLotteryService({ store, config, now = () => Date.now(), pr
     return { provider: chosenProvider.id(), live: health, latest, history };
   }
 
+  // ---------------------------------------------------- combination intelligence
+  //
+  // Slice 2: legacy `LotteryIntelligence` analyzeLine / generate /
+  // saveGeneration / diversity / buildSystem / combination reads. Every output
+  // keeps legacy's honesty contract: balance scores, never probabilities.
+
+  /** Full statistical profile of one line against stored history (GET /lottery/analyze). */
+  async function analyzeLine(mainsIn, starsIn) {
+    await ensureRegistered();
+    const active = await engines();
+    const draws = await requireStore().lotteryDrawsForStats(LOTTERY, 10_000);
+    const profile = active.analyzer.analyze(mainsIn.map(phpIntval), starsIn.map(phpIntval), draws);
+    const last = draws.length !== 0 ? String(draws[draws.length - 1].drawDate) : null;
+    return {
+      ...profile,
+      lottery: LOTTERY,
+      modelVersion: MODEL_VERSION,
+      datasetVersion: `n=${draws.length};last=${last ?? "none"}`,
+    };
+  }
+
+  /**
+   * Generate combination lines (spec §14–§17). Returns the full AI combination
+   * report + decision report. NOT persisted until saveGeneration is called —
+   * the route does both, exactly like legacy's controller.
+   */
+  async function generate(opts = {}) {
+    await ensureRegistered();
+    const active = await engines();
+    const draws = await requireStore().lotteryDrawsForStats(LOTTERY, 10_000);
+    return active.generator.generate(draws, opts);
+  }
+
+  /**
+   * Persist a generated report: one combination row (lines + constraints) and
+   * one AI-decision row (the full report), plus an audit event. Historical
+   * results stay connected to their model version (spec §33).
+   * @returns {Promise<{combinationId: number, decisionId: number}>}
+   */
+  async function saveGeneration(report, actor = "system") {
+    const store = requireStore();
+    const at = nowIso();
+    const model = String(report?.model ?? `WINDELS Lottery Model v${MODEL_VERSION}`);
+    const mode = String(report?.mode ?? "RANDOM");
+    const lines = (Array.isArray(report?.lines) ? report.lines : []).map((l) => ({
+      mains: (Array.isArray(l?.mains) ? l.mains : []).map(phpIntval),
+      stars: (Array.isArray(l?.stars) ? l.stars : []).map(phpIntval),
+      score: l?.score ?? null,
+    }));
+    const saved = await store.saveLotteryCombination({
+      lotteryCode: LOTTERY,
+      mode,
+      modelVersion: model,
+      seed: report?.inputs?.seed !== undefined && report?.inputs?.seed !== null ? String(report.inputs.seed) : null,
+      lineCount: lines.length,
+      lines,
+      constraints: {
+        locks: report?.inputs?.locks ?? { mains: [], stars: [] },
+        excludes: report?.inputs?.excludes ?? { mains: [], stars: [] },
+      },
+      scoreSummary: { averageBalanceScore: report?.averageBalanceScore ?? null },
+      createdBy: isNumeric(actor) ? Number(actor) : null,
+      createdAt: at,
+    });
+    const combinationId = Number(saved.row.id);
+    const decision = await store.saveLotteryAiDecision({
+      lotteryCode: LOTTERY,
+      combinationId,
+      modelVersion: model,
+      mode,
+      decision: report,
+      createdAt: at,
+    });
+    const decisionId = Number(decision.row.id);
+    await recordAudit(
+      isNumeric(actor) ? Number(actor) : null,
+      "lottery.combination.generated",
+      `Generated ${lines.length} combination line(s), mode ${mode}, model ${model}`,
+      { combinationId, decisionId, mode, lineCount: lines.length, seed: report?.inputs?.seed ?? null, modelVersion: model },
+    );
+    return { combinationId, decisionId };
+  }
+
+  /** Diversification score for a set of lines (spec §22). */
+  async function diversity(lines) {
+    const active = await engines();
+    return active.diversification.score(Array.isArray(lines) ? lines : []);
+  }
+
+  /**
+   * Build a system from a main/star pool. Small systems build inline and save;
+   * larger ones queue idempotently (execution key) for the lottery cron —
+   * which is slice 3, and the queue note says so rather than pointing at a
+   * command that does not exist on this platform.
+   */
+  async function buildSystem(pools, actor = "system") {
+    const store = requireStore();
+    const active = await engines();
+    const plan = active.systemBuilder.plan(pools?.mains ?? [], pools?.stars ?? []);
+    if (plan.totalLines <= SYNC_LINE_LIMIT) {
+      const lines = active.systemBuilder.allLines(plan.mainPool, plan.starPool);
+      return { plan, queued: false, saved: await saveSystem(plan, lines, actor) };
+    }
+    const key = `system:${LOTTERY}:${createHash("md5").update(`${plan.mainPool.join(",")}|${plan.starPool.join(",")}`).digest("hex")}`;
+    const existing = await store.findLotteryJobRunByKey(key);
+    if (existing) {
+      return { plan, queued: true, run: existing, note: `a system build for this pool is already ${String(existing.status)} (idempotent)` };
+    }
+    const run = await store.startLotteryJobRun({
+      id: randomUUID(),
+      jobType: "system",
+      executionKey: key,
+      payload: { mains: plan.mainPool, stars: plan.starPool, totalLines: plan.totalLines },
+    });
+    await recordAudit(
+      isNumeric(actor) ? Number(actor) : null,
+      "lottery.system.queued",
+      `System build queued: ${plan.totalLines} lines (${plan.formula})`,
+      { executionKey: key, totalLines: plan.totalLines },
+    );
+    return {
+      plan,
+      queued: true,
+      run,
+      note: "background build queued — the lottery cron that processes it is not ported yet (slice 3); nothing consumes this queue today",
+    };
+  }
+
+  /** Persist a built system (inline or from a future background job) as a SYSTEM combination row. */
+  async function saveSystem(plan, lines, actor = "system") {
+    const store = requireStore();
+    const row = await store.saveLotteryCombination({
+      lotteryCode: LOTTERY,
+      mode: "SYSTEM",
+      modelVersion: `WINDELS Lottery Model v${MODEL_VERSION}`,
+      seed: null,
+      lineCount: lines.length,
+      lines,
+      constraints: { type: "system", mainPool: plan.mainPool, starPool: plan.starPool },
+      scoreSummary: { totalLines: lines.length, formula: plan.formula },
+      createdBy: isNumeric(actor) ? Number(actor) : null,
+      createdAt: nowIso(),
+    });
+    const combinationId = Number(row.row.id);
+    await recordAudit(
+      isNumeric(actor) ? Number(actor) : null,
+      "lottery.system.built",
+      `System built and saved: ${lines.length} lines (${plan.formula})`,
+      { combinationId, totalLines: lines.length },
+    );
+    return { combinationId };
+  }
+
+  /**
+   * The raw system plan (spec §19) — what the controller route exposes per page.
+   * Separated from buildSystem so a paginated interactive read never writes.
+   */
+  async function systemPlan(mainPoolIn, starPoolIn) {
+    const active = await engines();
+    return active.systemBuilder.plan(mainPoolIn, starPoolIn);
+  }
+
+  /** One paginated window over the lazy line enumeration (spec §18). */
+  async function systemPage(mains, stars, offset, limit) {
+    const active = await engines();
+    return active.systemBuilder.page(mains, stars, offset, limit);
+  }
+
+  /** Persisted generations, newest first. */
+  async function listCombinations(limit = 50, offset = 0) {
+    return requireStore().listLotteryCombinations(limit, offset);
+  }
+
+  /** One combination with its (latest five) decision reports. */
+  async function combinationDetail(id) {
+    const store = requireStore();
+    const row = await store.findLotteryCombination(id);
+    if (!row || row.lottery_code !== LOTTERY) return null;
+    row.decisions = await store.listLotteryAiDecisions(Number(row.id), 5);
+    return row;
+  }
+
+  /** Persisted decision reports, newest first, this lottery only. */
+  async function listDecisions(combinationId = null, limit = 50) {
+    const store = requireStore();
+    const bounded = Math.min(200, Math.max(1, Math.trunc(Number(limit)) || 50));
+    const rows = await store.listLotteryAiDecisions(combinationId, 500);
+    return rows.filter((row) => (row.lottery_code ?? null) === LOTTERY).slice(0, bounded);
+  }
+
+  /** Full persisted decision report. */
+  async function decisionDetail(id) {
+    const store = requireStore();
+    const row = await store.findLotteryAiDecision(id);
+    if (!row || (row.lottery_code ?? null) !== LOTTERY) return null;
+    return row;
+  }
+
   return Object.freeze({
     status,
     drawCount,
@@ -416,6 +652,18 @@ export function createLotteryService({ store, config, now = () => Date.now(), pr
     probeProvider,
     providerHealth,
     registry,
+    analyzeLine,
+    generate,
+    saveGeneration,
+    diversity,
+    buildSystem,
+    saveSystem,
+    systemPlan,
+    systemPage,
+    listCombinations,
+    combinationDetail,
+    listDecisions,
+    decisionDetail,
     rules: () => resolveRules().then((r) => ({
       code: r.code(), version: r.version(),
       main: { count: r.mainCount(), min: r.mainMin(), max: r.mainMax() },

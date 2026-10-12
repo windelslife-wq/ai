@@ -78,6 +78,7 @@ const counts = {
   sandbox: Object.keys(cases.sandbox ?? {}).length,
   official: Object.keys(cases.official ?? {}).length,
   unavailable: Object.keys(cases.unavailable ?? {}).length,
+  combinations: Object.keys(cases.combinations ?? {}).length,
 };
 console.log(`wrote ${path.relative(APP_ROOT, OUT)}`);
 console.log(`cases: ${JSON.stringify(counts)}`);

@@ -20,6 +20,7 @@ import { parseStrictInstant } from "../lib/php-date.js";
 import {
   assertEnum,
   assertExecutionKey,
+  assertInstant,
   assertProviderCode,
   assertProviderName,
   assertRowId,
@@ -33,6 +34,10 @@ import {
   toDecimal,
   toInt,
 } from "./sports-rows.js";
+
+// The generation modes (legacy `CombinationGenerator::MODES`) plus `SYSTEM`, the
+// mode a saved full-system build is stamped with.
+const GENERATION_MODES = Object.freeze(["RANDOM", "BALANCED", "HISTORICAL", "DIVERSIFIED", "ANTI-POPULAR"]);
 
 // ── lottery-specific validators ───────────────────────────────────────────────
 
@@ -291,5 +296,76 @@ export function lotterySyncRunRow(row) {
     errors: decodeJson(row.errors, []),
     payload: decodeJson(row.payload, null),
     execution_key: String(row.execution_key),
+  };
+}
+
+// ── combinations (slice 2) ────────────────────────────────────────────────────
+
+/**
+ * A generated-combination row: the lines, their constraints and the score
+ * summary travel as JSON, decoded on read (legacy `findCombination`).
+ * `mode` is the generation mode (`RANDOM`…`ANTI-POPULAR`) or `SYSTEM`;
+ * `created_by` is the acting user id or null when the actor was the system.
+ */
+export function prepareLotteryCombination({ lotteryCode, mode, modelVersion, seed, lineCount, lines, constraints, scoreSummary, createdBy, createdAt }) {
+  return {
+    lottery_code: assertLotteryCode(lotteryCode),
+    mode: assertEnum(mode, [...GENERATION_MODES, "SYSTEM"], "mode"),
+    model_version: assertText(modelVersion, 64, "model_version"),
+    seed: seed === null || seed === undefined ? null : assertText(String(seed), 32, "seed"),
+    line_count: nonNegativeInt(lineCount, "line_count"),
+    lines: encodeJson(lines),
+    constraints: encodeJson(constraints),
+    score_summary: encodeJson(scoreSummary),
+    created_by: optionalRowId(createdBy, "created_by"),
+    created_at: assertInstant(createdAt, "created_at"),
+  };
+}
+
+export function lotteryCombinationRow(row) {
+  if (!row) return null;
+  return {
+    id: Number(row.id),
+    lottery_code: String(row.lottery_code),
+    mode: String(row.mode),
+    model_version: String(row.model_version),
+    seed: row.seed === null || row.seed === undefined ? null : String(row.seed),
+    line_count: Number(row.line_count),
+    lines: decodeJson(row.lines, []),
+    constraints: decodeJson(row.constraints, {}),
+    score_summary: decodeJson(row.score_summary, {}),
+    created_by: row.created_by === null || row.created_by === undefined ? null : Number(row.created_by),
+    created_at: String(row.created_at),
+  };
+}
+
+// ── AI decisions (slice 2) ────────────────────────────────────────────────────
+
+/**
+ * The persisted decision report: the FULL generation report as JSON, tied to
+ * its combination row and model version (spec §26/§33 — the inputs are the
+ * recorded truth, never invented after the fact).
+ */
+export function prepareLotteryAiDecision({ lotteryCode, combinationId, modelVersion, mode, decision, createdAt }) {
+  return {
+    lottery_code: assertLotteryCode(lotteryCode),
+    combination_id: optionalRowId(combinationId, "combination_id"),
+    model_version: assertText(modelVersion, 64, "model_version"),
+    mode: mode === null || mode === undefined ? null : assertEnum(mode, [...GENERATION_MODES, "SYSTEM"], "mode"),
+    decision: encodeJson(decision),
+    created_at: assertInstant(createdAt, "created_at"),
+  };
+}
+
+export function lotteryAiDecisionRow(row) {
+  if (!row) return null;
+  return {
+    id: Number(row.id),
+    lottery_code: String(row.lottery_code),
+    combination_id: row.combination_id === null || row.combination_id === undefined ? null : Number(row.combination_id),
+    model_version: String(row.model_version),
+    mode: row.mode === null || row.mode === undefined ? null : String(row.mode),
+    decision: decodeJson(row.decision, {}),
+    created_at: String(row.created_at),
   };
 }

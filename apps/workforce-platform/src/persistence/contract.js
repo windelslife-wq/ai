@@ -244,6 +244,16 @@ export const REPOSITORY_METHODS = Object.freeze([
   "findLotteryJobRunByKey",
   "deleteOldLotteryJobRuns",
   "deleteOldLotteryHealth",
+  // ── Lottery combination intelligence (row 15, slice 2, migration 017) ──
+  // Generated combination lines (spec §14/§16) and their AI decision reports
+  // (spec §26/§33), exactly legacy's Persistence interface block: the save
+  // methods return {row, created} with the JSON columns decoded on read.
+  "saveLotteryCombination",
+  "findLotteryCombination",
+  "listLotteryCombinations",
+  "saveLotteryAiDecision",
+  "findLotteryAiDecision",
+  "listLotteryAiDecisions",
   // operational
   "readiness",
 ]);

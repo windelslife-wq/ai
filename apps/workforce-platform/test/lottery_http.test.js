@@ -92,11 +92,15 @@ test("a default host: status answers with the honest empty state and the not-por
   assert.deepEqual(body.rules.main, { count: 5, min: 1, max: 50 });
   assert.deepEqual(body.rules.stars, { count: 2, min: 1, max: 12 });
 
-  // The gap is stated, not silent (BC-10): six areas, each named, none re-labelled.
-  assert.equal(body.notPorted.length, 6);
+  // The gap is stated, not silent (BC-10): four areas since slice 2 landed the
+  // combination engines and their persistence — removed, never re-labelled.
+  assert.equal(body.notPorted.length, 4);
   const areas = body.notPorted.map((entry) => entry.area).join(" | ");
-  for (const expected of ["combination intelligence", "tickets and checking", "backtests and model versions", "generation persistence", "scheduled jobs", "console screens"]) {
+  for (const expected of ["tickets and checking", "backtests and model versions", "scheduled jobs", "console screens"]) {
     assert.ok(areas.includes(expected), `the matrix names ${expected}`);
+  }
+  for (const gone of ["combination intelligence", "generation persistence"]) {
+    assert.ok(!areas.includes(gone), `slice 2 removed "${gone}" from the matrix`);
   }
   // The registries read back empty rather than pretending.
   const lotteries = await instance.app.inject({ method: "GET", url: "/api/v1/lottery/lotteries", headers });

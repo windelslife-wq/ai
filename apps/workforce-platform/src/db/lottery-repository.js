@@ -37,12 +37,17 @@ import {
   lotteryProviderRow,
   lotteryRulesRow,
   lotterySyncRunRow,
+  lotteryCombinationRow,
+  lotteryAiDecisionRow,
+  prepareLotteryCombination,
+  prepareLotteryAiDecision,
   prepareLotteryDraw,
 } from "../persistence/lottery-rows.js";
 import {
   assertRowId,
   assertText,
   optionalRowId,
+  toInt,
 } from "../persistence/sports-rows.js";
 
 /**
@@ -68,6 +73,24 @@ const numberToInt = (value) => {
 };
 
 export function createLotteryRepository(executor) {
+  /** One combination by id — a closure, because the store reassigns these methods
+   * and a `this.`-based helper would not survive the explicit assignment list. */
+  async function findLotteryCombinationById(id) {
+    const [rows] = await executor.query(
+      `SELECT * FROM wf_lottery_combinations WHERE id = ? LIMIT 1`,
+      [id],
+    );
+    return lotteryCombinationRow(rows?.[0] ?? null);
+  }
+
+  async function findLotteryAiDecisionById(id) {
+    const [rows] = await executor.query(
+      `SELECT * FROM wf_lottery_ai_decisions WHERE id = ? LIMIT 1`,
+      [id],
+    );
+    return lotteryAiDecisionRow(rows?.[0] ?? null);
+  }
+
   const repo = {
     // ── the game and its rules ─────────────────────────────────────────────────
 
@@ -454,11 +477,100 @@ export function createLotteryRepository(executor) {
       );
       return Number(result?.affectedRows ?? 0);
     },
+
+    // ── combinations + AI decisions (slice 2) ────────────────────────────────
+    // `constraints` is a MySQL reserved word: legacy backticked it and so does
+    // every statement here. The save methods insert and re-read through find*
+    // so the JSON columns come back decoded, exactly legacy's Aegis_model.
+
+    async saveLotteryCombination(input) {
+      const i = input && typeof input === "object" ? input : {};
+      const record = prepareLotteryCombination({
+        lotteryCode: i.lotteryCode,
+        mode: i.mode,
+        modelVersion: i.modelVersion,
+        seed: i.seed ?? null,
+        lineCount: i.lineCount,
+        lines: i.lines,
+        constraints: i.constraints,
+        scoreSummary: i.scoreSummary,
+        createdBy: i.createdBy ?? null,
+        createdAt: i.createdAt,
+      });
+      const [result] = await executor.execute(
+        `INSERT INTO wf_lottery_combinations
+           (lottery_code, mode, model_version, seed, line_count, lines, \`constraints\`, score_summary, created_by, created_at)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+        [
+          record.lottery_code, record.mode, record.model_version, record.seed,
+          record.line_count, record.lines, record.constraints, record.score_summary,
+          record.created_by, record.created_at,
+        ],
+      );
+      return { row: await findLotteryCombinationById(result.insertId), created: true };
+    },
+
+    async findLotteryCombination(id) {
+      return findLotteryCombinationById(assertRowId(id, "id"));
+    },
+
+    async listLotteryCombinations(limit = 50, offset = 0) {
+      const bounded = Math.min(200, Math.max(1, toInt(limit, 50)));
+      const safeOffset = Math.max(0, toInt(offset, 0));
+      const [rows] = await executor.query(
+        `SELECT * FROM wf_lottery_combinations ORDER BY id DESC LIMIT ${bounded} OFFSET ${safeOffset}`,
+        [],
+      );
+      return (rows ?? []).map(lotteryCombinationRow);
+    },
+
+    async saveLotteryAiDecision(input) {
+      const i = input && typeof input === "object" ? input : {};
+      const record = prepareLotteryAiDecision({
+        lotteryCode: i.lotteryCode,
+        combinationId: i.combinationId ?? null,
+        modelVersion: i.modelVersion,
+        mode: i.mode ?? null,
+        decision: i.decision,
+        createdAt: i.createdAt,
+      });
+      const [result] = await executor.execute(
+        `INSERT INTO wf_lottery_ai_decisions
+           (lottery_code, combination_id, model_version, mode, decision, created_at)
+         VALUES (?, ?, ?, ?, ?, ?)`,
+        [
+          record.lottery_code, record.combination_id, record.model_version,
+          record.mode, record.decision, record.created_at,
+        ],
+      );
+      return { row: await findLotteryAiDecisionById(result.insertId), created: true };
+    },
+
+    async findLotteryAiDecision(id) {
+      return findLotteryAiDecisionById(assertRowId(id, "id"));
+    },
+
+    async listLotteryAiDecisions(combinationId = null, limit = 50) {
+      const bounded = Math.min(500, Math.max(1, toInt(limit, 50)));
+      const byCombination = combinationId === null || combinationId === undefined ? null : assertRowId(combinationId, "combination_id");
+      if (byCombination !== null) {
+        const [rows] = await executor.query(
+          `SELECT * FROM wf_lottery_ai_decisions WHERE combination_id = ? ORDER BY id DESC LIMIT ${bounded}`,
+          [byCombination],
+        );
+        return (rows ?? []).map(lotteryAiDecisionRow);
+      }
+      const [rows] = await executor.query(
+        `SELECT * FROM wf_lottery_ai_decisions ORDER BY id DESC LIMIT ${bounded}`,
+        [],
+      );
+      return (rows ?? []).map(lotteryAiDecisionRow);
+    },
   };
   return repo;
 }
 
-/** The 23 methods this repository adds to the shared store contract (slice 1 of row 15). */
+/** The 29 methods this repository adds to the shared store contract (slices 1–2 of row 15). */
 export const LOTTERY_REPOSITORY_METHODS = Object.freeze([
   "ensureLotteryGame",
   "listLotteryGames",
@@ -483,4 +595,11 @@ export const LOTTERY_REPOSITORY_METHODS = Object.freeze([
   "findLotteryJobRunByKey",
   "deleteOldLotteryJobRuns",
   "deleteOldLotteryHealth",
+  // Slice 2 (migration 017): generated combinations + their AI decision reports.
+  "saveLotteryCombination",
+  "findLotteryCombination",
+  "listLotteryCombinations",
+  "saveLotteryAiDecision",
+  "findLotteryAiDecision",
+  "listLotteryAiDecisions",
 ]);
