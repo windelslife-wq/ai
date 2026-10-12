@@ -37,6 +37,7 @@ import { createSportsProviderManager } from "./providers/manager.js";
 import { AppError } from "../../http/errors.js";
 import { createSportsSyncService } from "./sync.js";
 import { createSportsIntelligenceService } from "./intelligence-service.js";
+import { createTicketService } from "./ticket-service.js";
 import { createSandboxSportsProvider, SANDBOX_PROVIDER_ID } from "./providers/sandbox.js";
 import { createHttpSportsProvider } from "./providers/http.js";
 
@@ -57,8 +58,7 @@ import { createHttpSportsProvider } from "./providers/http.js";
  * ported" must not look the same from the outside.
  */
 export const SPORTS_NOT_PORTED = Object.freeze([
-  Object.freeze({ area: "correlation and staking", legacy: "CorrelationEngine, stake sizing in TicketOptimizer", state: "not ported", detail: "No correlation between selections is measured: every stored decision carries `UNKNOWN`, never a placeholder class. No stake is sized. Both are row 14 slice 4." }),
-  Object.freeze({ area: "ticket governance and optimization", legacy: "TicketGovernance, TicketOptimizer, DailyTicketService", state: "not ported", detail: "No ticket can be generated, and `ticketEngine` stays NOT_PORTED rather than DISABLED, because there is no engine to disable. Row 14 slice 4." }),
+  Object.freeze({ area: "stake sizing", legacy: "stake_amount copied onto each ticket (TicketGovernance::record)", state: "not ported", detail: "Correlation is measured (slice 4). No stake is sized from bankroll or edge: the configured fixed stake_amount is recorded on each ticket, as legacy does. Sizing is not ported, and no slice owns it yet." }),
   Object.freeze({ area: "settlement and result verification", legacy: "TicketSettlementService, ResultVerificationEngine, PersistedResultVerifier", state: "not ported", detail: "No result can be verified, so no decision has an outcome and `verified` stays false everywhere. Row 14 slice 5." }),
   Object.freeze({ area: "calibration", legacy: "CalibrationEngine::fit", state: "not ported", detail: "A calibration cannot be fitted yet, because a fit needs settled outcomes. Approving and rejecting a fitted calibration are ported; `POST /sports/calibrations/fit` returns 422 and stores nothing until settlement exists. Row 14 slice 5." }),
   Object.freeze({ area: "backtesting", legacy: "SportsBacktester", state: "not ported", detail: "Point-in-time backtesting is UNBLOCKED but not written: migration 011 stores odds as one row per observation, so `findSportsOddsBefore` can answer what was known at a time. It needs settled outcomes, so it is row 14 slice 5." }),
@@ -209,10 +209,11 @@ export function createSportsService({ config, store = null, now = () => Date.now
       persistence: store !== null,
       notPorted: SPORTS_NOT_PORTED,
       // Legacy's ticket-engine field reported the active configuration's engine
-      // mode, or `DISABLED_NO_PROVIDER`. The configuration service is not ported,
-      // so the honest value is that there is no engine at all — not that it is
-      // disabled, which would imply one exists and was switched off.
-      ticketEngine: "NOT_PORTED",
+      // mode, or `DISABLED_NO_PROVIDER`. This surface is synchronous and reads no
+      // configuration, so it cannot report the mode. `ON_REQUEST` says what is true
+      // without reading it: the engine exists (slice 4) and runs only when an operator
+      // asks. Whether it is enabled is in GET /sports/configuration.
+      ticketEngine: "ON_REQUEST",
       message: configured
         ? (store
           ? "Sports data providers are configured and ingestion is persisted: fixtures, odds observations, results, quality assessments, provider health and sync runs are stored. Derived provider health is computed from those rows. No prediction, ticket, settlement, calibration or backtest can be produced, and no stored result is verified."
@@ -297,7 +298,7 @@ export function createSportsService({ config, store = null, now = () => Date.now
       // reports whether a repository EXISTS, never what it contains.
       persistence: store !== null,
       notPortedAreas: SPORTS_NOT_PORTED.length,
-      ticketEngine: "NOT_PORTED",
+      ticketEngine: "ON_REQUEST",
       reason: configured
         ? (store
           ? "Providers are configured from the environment and ingestion is persisted. Decisions are recorded for fixtures that have a quality assessment, but no ticket, settlement, backtest or model drift can be produced, and no stored result is verified. This snapshot reports configuration only: derived health is computed from stored observations and is available on the authenticated GET /api/v1/sports/status, never here, because this surface is unauthenticated and must not trigger a read of provider history or an outbound call."
@@ -465,10 +466,17 @@ export function createSportsService({ config, store = null, now = () => Date.now
    */
   const intelligence = createSportsIntelligenceService({ store, now });
 
+  /**
+   * The ticket engine (slice 4): the daily run, ticket reads and decisions. It reads the
+   * decision chain through `intelligence` and does not reimplement any of it.
+   */
+  const tickets = createTicketService({ store, intelligence, now });
+
   return Object.freeze({
     status,
     statusSnapshot,
     intelligence,
+    tickets,
     readFixtures,
     readOdds,
     readResults,

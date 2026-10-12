@@ -171,6 +171,18 @@ export const REPOSITORY_METHODS = Object.freeze([
   "findSportsCalibration",
   "listSportsCalibrations",
   "decideSportsCalibration",
+  // ── Tickets and the daily ticket run (row 14, slice 4, migration 013) ─────
+  // A ticket is decided once, by compare-and-set on PENDING_USER_APPROVAL. Nothing here can
+  // place a bet or reach an execution, paper or broker row.
+  "saveSportsTicket",
+  "findSportsTicket",
+  "listSportsTickets",
+  "listSportsTicketSelections",
+  "decideSportsTicket",
+  "claimSportsDailyTicketRun",
+  "finishSportsDailyTicketRun",
+  "findSportsDailyTicketRun",
+  "listSportsDailyTicketRuns",
   // operational
   "readiness",
 ]);

@@ -89,3 +89,6 @@ const counts = {
 };
 console.log(`wrote ${path.relative(APP_ROOT, OUT)}`);
 console.log(`cases: ${JSON.stringify(counts)}`);
+// The PHP WASM runtime keeps the event loop alive after the payload is written, so the
+// process must exit explicitly. Without it the run hangs until the caller's timeout kills it.
+process.exit(0);

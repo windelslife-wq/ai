@@ -146,7 +146,7 @@ test("the eleven Strategy Lab methods are part of the contract, not adapter extr
   assert.equal(STRATEGY_METHODS.length, 11);
   // Phase 12 adds one cross-owner execution read, the five job-lock methods and
   // the two job-state methods.
-  assert.equal(REPOSITORY_METHODS.length, 120);
+  assert.equal(REPOSITORY_METHODS.length, 129);
   // No method may be declared twice: a duplicate would let one adapter satisfy
   // the count while missing a distinct behaviour.
   assert.equal(new Set(REPOSITORY_METHODS).size, REPOSITORY_METHODS.length);
@@ -289,6 +289,7 @@ test("file adapter survives close and reopen for all three new entities", async 
     sportsProviders: 0, sportsHealth: 0, sportsMatches: 0, sportsOdds: 0,
     sportsResults: 0, sportsQuality: 0, sportsSyncRuns: 0,
     sportsModelVersions: 0, sportsPredictions: 0, sportsConfigurations: 0, sportsCalibrations: 0,
+    sportsTickets: 0, sportsTicketSelections: 0, sportsDailyTickets: 0,
   });
   // The checksum covers the new entities, so a restore can prove they came back.
   assert.match(await second.checksum(), /^[0-9a-f]{64}$/);

@@ -236,10 +236,14 @@ export function createSportsIntelligenceService({ store = null, now = () => Date
    * that is not in the store is a 404, from `loadInputs`. There is no refusal for a missing
    * stored assessment, because none is read.
    */
-  async function evaluateMatch({ matchId, actorId = null }) {
+  /**
+   * Store one decision: the model version it was made under, then the immutable prediction,
+   * then (when `audit` is true) an audit event. `evaluateMatch` audits each decision. The
+   * daily ticket run persists many decisions and audits the run once, so it passes
+   * `audit: false`. Both paths therefore write the same row shape.
+   */
+  async function persistDecision(inputs, result, { actorId = null, audit = true } = {}) {
     const repository = requireStore();
-    const inputs = await loadInputs(matchId);
-    const result = runChain(inputs);
     const model = await repository.ensureSportsModelVersion({
       modelName: MODEL_NAME,
       modelVersion: MODEL_VERSION,
@@ -273,20 +277,33 @@ export function createSportsIntelligenceService({ store = null, now = () => Date
       createdAt: nowIso(),
     });
 
-    await repository.recordAudit({
-      actorId,
-      action: "sports.decision.recorded",
-      entityType: "sports_prediction",
-      entityId: prediction.id,
-      details: {
-        matchId: inputs.matchId,
-        modelVersionId: model.id,
-        decision: prediction.decision,
-        gate: gateOf(prediction.rejection_reasons).decision,
-        rejectionReasons: prediction.rejection_reasons,
-      },
-    });
+    if (audit) {
+      await repository.recordAudit({
+        actorId,
+        action: "sports.decision.recorded",
+        entityType: "sports_prediction",
+        entityId: prediction.id,
+        details: {
+          matchId: inputs.matchId,
+          modelVersionId: model.id,
+          decision: prediction.decision,
+          gate: gateOf(prediction.rejection_reasons).decision,
+          rejectionReasons: prediction.rejection_reasons,
+        },
+      });
+    }
+    return Object.freeze({ prediction, modelVersionId: model.id });
+  }
 
+  /**
+   * Record a decision for one fixture, from the quality re-assessed now (F-38). A fixture
+   * that is not in the store is a 404, from `loadInputs`. There is no refusal for a missing
+   * stored assessment, because none is read.
+   */
+  async function evaluateMatch({ matchId, actorId = null }) {
+    const inputs = await loadInputs(matchId);
+    const result = runChain(inputs);
+    const { prediction } = await persistDecision(inputs, result, { actorId });
     return Object.freeze({
       persisted: true,
       prediction,
@@ -437,6 +454,11 @@ export function createSportsIntelligenceService({ store = null, now = () => Date
   return Object.freeze({
     matchIntelligence,
     evaluateMatch,
+    // Exposed for the daily ticket run (slice 4), which must read and persist the same way a
+    // single evaluation does. It must not reimplement either step.
+    loadInputs,
+    runChain,
+    persistDecision,
     listPredictions,
     predictionDecision,
     configuration,

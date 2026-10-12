@@ -294,6 +294,9 @@ $healthCases = [
 // included file for the cases and for why two of them are recorded as evidence.
 $slice3 = require __DIR__ . '/sports-intelligence-golden.php';
 
+// Slice 4: correlation, the class of a selection set, and the ticket optimizer.
+$slice4 = require __DIR__ . '/sports-tickets-golden.php';
+
 $payload = [
     'generator' => 'runtime/parity/sports-golden.php',
     'php' => ['version' => PHP_VERSION, 'sapi' => PHP_SAPI],
@@ -330,6 +333,7 @@ $payload = [
             return $out;
         })(),
         'slice3' => $slice3,
+        'slice4' => $slice4,
         'sandbox' => [
             'health' => strip_clock($sandbox->health()),
             'fixtureCount' => count($fixtures),

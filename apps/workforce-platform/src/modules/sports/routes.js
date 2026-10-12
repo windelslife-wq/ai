@@ -165,6 +165,41 @@ const CALIBRATIONS_QUERY = Object.freeze({
   limit: Object.freeze({ type: "integer", default: 50, min: 1, max: 200 }),
 });
 
+// ── ticket schemas (slice 4) ─────────────────────────────────────────────────
+
+const TICKET_APPROVALS = ["PENDING_USER_APPROVAL", "APPROVED_NOT_EXECUTED", "REJECTED"];
+
+const TICKET_PARAMS = Object.freeze({
+  ticketId: Object.freeze({ type: "string", required: true, minLength: 1, maxLength: 40 }),
+});
+
+const TICKETS_QUERY = Object.freeze({
+  approvalStatus: Object.freeze({ type: "string", values: TICKET_APPROVALS }),
+  runDate: Object.freeze({ type: "string", maxLength: 10 }),
+  limit: Object.freeze({ type: "integer", default: 50, min: 1, max: 200 }),
+});
+
+const DAILY_RUNS_QUERY = Object.freeze({
+  limit: Object.freeze({ type: "integer", default: 50, min: 1, max: 200 }),
+});
+
+const DAILY_RUN_BODY = Object.freeze({
+  type: "object",
+  properties: Object.freeze({
+    // The UTC day to generate for. Omitted means today (UTC), as legacy's `gmdate('Y-m-d')`.
+    date: Object.freeze({ type: "string", maxLength: 10 }),
+  }),
+});
+
+const TICKET_DECISION_BODY = Object.freeze({
+  type: "object",
+  required: ["approve"],
+  properties: Object.freeze({
+    approve: Object.freeze({ type: "boolean", required: true }),
+    reason: Object.freeze({ type: "string", maxLength: 500 }),
+  }),
+});
+
 const PREDICTIONS_QUERY = Object.freeze({
   matchId: Object.freeze({ type: "integer", min: 1 }),
   modelVersionId: Object.freeze({ type: "integer", min: 1 }),
@@ -552,4 +587,54 @@ export function sportsRoutes(app, { config, store, sports = null }) {
     preHandler: view,
     paramsSchema: PREDICTION_PARAMS,
   }, async (request) => guarded(intel.predictionDecision(request.params.predictionId)));
+
+  // ── tickets (slice 4) ─────────────────────────────────────────────────────
+  // Generating a run is an operator's action (`sports.manage`). Reading is `sports.view`.
+  // Deciding a ticket is `sports.approve`, the permission legacy's `Api_sports` checks, and
+  // it records a decision only: nothing is executed.
+
+  /**
+   * Run the daily ticket generation for one UTC day over the fixtures already stored. A
+   * second run for the same day and configuration version is DUPLICATE_SKIPPED.
+   */
+  app.post("/sports/daily-tickets/run", {
+    preHandler: manage,
+    bodySchema: DAILY_RUN_BODY,
+  }, async (request) => guarded(sports.tickets.runDaily({
+    date: request.body?.date ?? null,
+    actorId: actorOf(request),
+  })));
+
+  app.get("/sports/daily-tickets", {
+    preHandler: view,
+    querySchema: DAILY_RUNS_QUERY,
+  }, async (request) => {
+    const runs = await guarded(sports.tickets.listDailyRuns(request.query.limit));
+    return { runs, count: runs.length };
+  });
+
+  app.get("/sports/tickets", {
+    preHandler: view,
+    querySchema: TICKETS_QUERY,
+  }, async (request) => {
+    const { limit, ...filter } = request.query;
+    const tickets = await guarded(sports.tickets.listTickets(filter, limit));
+    return { tickets, count: tickets.length };
+  });
+
+  app.get("/sports/tickets/:ticketId", {
+    preHandler: view,
+    paramsSchema: TICKET_PARAMS,
+  }, async (request) => guarded(sports.tickets.getTicket(request.params.ticketId)));
+
+  app.post("/sports/tickets/:ticketId/decision", {
+    preHandler: guardFor("sports.approve"),
+    paramsSchema: TICKET_PARAMS,
+    bodySchema: TICKET_DECISION_BODY,
+  }, async (request) => guarded(sports.tickets.decideTicket({
+    id: request.params.ticketId,
+    approve: request.body.approve,
+    reason: request.body.reason ?? "",
+    actorId: actorOf(request),
+  })));
 }

@@ -2,7 +2,30 @@
 
 **Updated:** 2026-10-12 · **Branch:** `arena/8de8de2e-ai`
 
-## Current Phase 17 status (2026-10-12)
+## Current Phase 18 status (2026-10-12)
+
+**The ticket engine is ported** (row 14, slice 4 of 5). App version is still **0.15.0**; no release was
+cut, and nothing is deployed. The branch `arena/7577d922-ai` is not merged. The ledger stays at **9 ported /
+5 partial / 3 not-ported** across **17** modules, and `sports` remains `partial`. Migration **013** adds three
+`wf_sports_*` tables, taking the schema to **38**. The repository grows from 120 to **129** methods. Five
+routes are added, and the sports surface reaches **25**. The total route count is **106**. Full record:
+[`PHASE18_SPORTS_TICKETS.md`](PHASE18_SPORTS_TICKETS.md).
+
+A daily run over stored fixtures records one ticket per day and configuration version, as
+`PENDING_USER_APPROVAL`. A person approves or rejects it. Nothing is executed, and a simulated candidate never
+reaches a ticket (DV-20, user-chosen). Two findings: **F-39**, legacy's team and competition correlation checks
+never fire, and the port follows the documented intent, pending your confirmation. **F-40**, the file adapter gave
+concurrent inserts the same id, is fixed.
+
+Gates on this branch: `npm test` **875 / 875** across **51** files, `npm run check` exit 0 (`verify:install` 29/29,
+76 documented variables), PHP oracle **367 / 367**, and the legacy tree (`application/`, `system/`, `tests/`)
+unmodified. The golden regenerator now exits on its own, and re-running it reproduced the golden byte for byte.
+**Not run:** a real MySQL server, and migration 013 against any database.
+
+**Still not ported:** stake sizing, settlement, verification, the backtester, drift and analytics (slice 5);
+calibration fitting; and cron.
+
+## Phase 17 status (2026-10-12) — superseded by Phase 18
 
 **The sports decision chain is ported** (row 14, slice 3 of 5). App version is still **0.15.0**;
 no release was cut. The ledger stays at **9 ported / 5 partial / 3 not-ported** across **17**

@@ -513,3 +513,192 @@ export function calibrationRow(row) {
     approved_at: row.approved_at === null || row.approved_at === undefined ? null : String(row.approved_at),
   };
 }
+
+// ── row 14, slice 4: tickets and the daily run (migration 013) ───────────────────────
+
+export const TICKET_STATUSES = Object.freeze(["PENDING", "APPROVED", "CANCELLED"]);
+export const TICKET_APPROVALS = Object.freeze(["PENDING_USER_APPROVAL", "APPROVED_NOT_EXECUTED", "REJECTED"]);
+export const TICKET_RISK_LEVELS = Object.freeze(["LOW", "MEDIUM", "HIGH"]);
+export const DAILY_RUN_STATUSES = Object.freeze(["RUNNING", "NO_QUALIFIED_TICKET", "PENDING_USER_APPROVAL", "FAILED"]);
+
+/** A ticket id is `tkt_` and sixteen lowercase hex characters, as legacy generates. */
+export function assertTicketId(value) {
+  const id = String(value ?? "");
+  if (!/^tkt_[0-9a-f]{16}$/.test(id)) {
+    throw new TypeError(`ticket id must be 'tkt_' and 16 hex characters, received ${JSON.stringify(id.slice(0, 40))}`);
+  }
+  return id;
+}
+
+/** A UTC calendar day, `YYYY-MM-DD`, that exists (2026-02-30 is refused, not normalized). */
+export function assertRunDate(value) {
+  const text = String(value ?? "");
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(text)) {
+    throw new TypeError(`run date must be YYYY-MM-DD, received ${JSON.stringify(text.slice(0, 20))}`);
+  }
+  const parsed = new Date(`${text}T00:00:00.000Z`);
+  if (Number.isNaN(parsed.getTime()) || parsed.toISOString().slice(0, 10) !== text) {
+    throw new TypeError(`run date ${text} is not a calendar day`);
+  }
+  return text;
+}
+
+function nonNegativeInt(value, label) {
+  const parsed = toInt(value, 0);
+  if (parsed < 0) throw new TypeError(`${label} must not be negative, received ${parsed}`);
+  return parsed;
+}
+
+/**
+ * The storage rows for one ticket and its selections, from `buildTicket` (governance).
+ * Validation happens here so that both adapters refuse the same inputs.
+ */
+export function prepareTicket(built) {
+  const t = built.ticket;
+  const ticket = {
+    id: assertTicketId(t.id),
+    model_version_id: optionalRowId(t.modelVersionId, "model_version_id"),
+    configuration_version: nonNegativeInt(t.configurationVersion, "configuration_version"),
+    total_odds: optionalNumber(t.totalOdds),
+    selection_count: nonNegativeInt(t.selectionCount, "selection_count"),
+    combined_probability: optionalNumber(t.combinedProbability),
+    confidence: optionalNumber(t.confidence),
+    risk: assertEnum(t.risk, TICKET_RISK_LEVELS, "risk"),
+    correlation: assertEnum(t.correlation, TICKET_RISK_LEVELS, "correlation"),
+    data_quality_score: toInt(t.dataQualityScore, 0),
+    status: assertEnum(t.status, TICKET_STATUSES, "status"),
+    approval_status: assertEnum(t.approvalStatus, TICKET_APPROVALS, "approval_status"),
+    settlement_status: assertText(t.settlementStatus ?? "PENDING", 16, "settlement_status"),
+    stake: optionalNumber(t.stake),
+    reason: t.reason === null || t.reason === undefined ? null : assertText(t.reason, 500, "reason"),
+    optimization_score: optionalNumber(t.optimizationScore),
+    pool_size: nonNegativeInt(t.poolSize, "pool_size"),
+    decided_by: null,
+    decided_at: null,
+    created_at: assertInstant(t.createdAt, "created_at"),
+  };
+  const selections = built.selections.map((s) => ({
+    ticket_id: ticket.id,
+    prediction_id: assertText(s.predictionId ?? "unlinked", 40, "prediction_id"),
+    match_id: assertRowId(s.matchId, "match_id"),
+    market: assertText(s.market ?? "UNSPECIFIED", 40, "market"),
+    selection: assertText(s.selection ?? "UNSPECIFIED", 40, "selection"),
+    odds: optionalNumber(s.odds),
+    odds_timestamp: optionalInstant(s.oddsTimestamp, "odds_timestamp"),
+    model_probability: optionalNumber(s.modelProbability),
+    calibrated_probability: optionalNumber(s.calibratedProbability),
+    expected_value: optionalNumber(s.expectedValue),
+    risk: assertEnum(s.risk, TICKET_RISK_LEVELS, "risk"),
+    result: null,
+    status: assertEnum(s.status ?? "PENDING", ["PENDING"], "selection status"),
+    correlation_reasons: encodeJson(Array.isArray(s.correlationReasons) ? s.correlationReasons : []),
+  }));
+  return { ticket, selections };
+}
+
+export function ticketRow(row) {
+  if (!row) return null;
+  return {
+    id: String(row.id),
+    model_version_id: toInt(row.model_version_id),
+    configuration_version: toInt(row.configuration_version, 0),
+    total_odds: toDecimal(row.total_odds),
+    selection_count: toInt(row.selection_count, 0),
+    combined_probability: toDecimal(row.combined_probability),
+    confidence: toDecimal(row.confidence),
+    risk: String(row.risk),
+    correlation: String(row.correlation),
+    data_quality_score: toInt(row.data_quality_score, 0),
+    status: String(row.status),
+    approval_status: String(row.approval_status),
+    settlement_status: String(row.settlement_status),
+    stake: toDecimal(row.stake),
+    reason: row.reason === null || row.reason === undefined ? null : String(row.reason),
+    optimization_score: toDecimal(row.optimization_score),
+    pool_size: toInt(row.pool_size, 0),
+    decided_by: row.decided_by === null || row.decided_by === undefined ? null : String(row.decided_by),
+    decided_at: row.decided_at === null || row.decided_at === undefined ? null : String(row.decided_at),
+    created_at: String(row.created_at),
+  };
+}
+
+export function ticketSelectionRow(row) {
+  if (!row) return null;
+  return {
+    id: toInt(row.id),
+    ticket_id: String(row.ticket_id),
+    prediction_id: String(row.prediction_id),
+    match_id: toInt(row.match_id),
+    market: String(row.market),
+    selection: String(row.selection),
+    odds: toDecimal(row.odds),
+    odds_timestamp: row.odds_timestamp === null || row.odds_timestamp === undefined ? null : String(row.odds_timestamp),
+    model_probability: toDecimal(row.model_probability),
+    calibrated_probability: toDecimal(row.calibrated_probability),
+    expected_value: toDecimal(row.expected_value),
+    risk: String(row.risk),
+    result: row.result === null || row.result === undefined ? null : String(row.result),
+    status: String(row.status),
+    correlation_reasons: decodeJson(row.correlation_reasons, []),
+  };
+}
+
+/** The claim row: written first, before any work, so a second request for the day finds it. */
+export function prepareDailyRunClaim({ runDate, configurationVersion, requestedBy = null, createdAt }) {
+  return {
+    run_date: assertRunDate(runDate),
+    configuration_version: nonNegativeInt(configurationVersion, "configuration_version"),
+    status: "RUNNING",
+    ticket_id: null,
+    fixtures_read: 0,
+    candidates_evaluated: 0,
+    predictions_recorded: 0,
+    rejections: 0,
+    simulated_refused: 0,
+    rejection_summary: encodeJson({}),
+    message: "",
+    errors: encodeJson([]),
+    requested_by: requestedBy === null || requestedBy === undefined ? null : assertText(requestedBy, 64, "requested_by"),
+    created_at: assertInstant(createdAt, "created_at"),
+    updated_at: assertInstant(createdAt, "updated_at"),
+  };
+}
+
+/** The outcome patch written when a claimed run finishes. */
+export function prepareDailyRunFinish(outcome, updatedAt) {
+  return {
+    status: assertEnum(outcome.status, DAILY_RUN_STATUSES, "daily run status"),
+    ticket_id: outcome.ticketId === null || outcome.ticketId === undefined ? null : assertTicketId(outcome.ticketId),
+    fixtures_read: nonNegativeInt(outcome.fixturesRead, "fixtures_read"),
+    candidates_evaluated: nonNegativeInt(outcome.candidatesEvaluated, "candidates_evaluated"),
+    predictions_recorded: nonNegativeInt(outcome.predictionsRecorded, "predictions_recorded"),
+    rejections: nonNegativeInt(outcome.rejections, "rejections"),
+    simulated_refused: nonNegativeInt(outcome.simulatedRefused, "simulated_refused"),
+    rejection_summary: encodeJson(outcome.rejectionSummary ?? {}),
+    message: assertText(String(outcome.message ?? "").slice(0, 500), 500, "message"),
+    errors: encodeJson(Array.isArray(outcome.errors) ? outcome.errors.map((e) => String(e).slice(0, 500)) : []),
+    updated_at: assertInstant(updatedAt, "updated_at"),
+  };
+}
+
+export function dailyRunRow(row) {
+  if (!row) return null;
+  return {
+    id: toInt(row.id),
+    run_date: String(row.run_date),
+    configuration_version: toInt(row.configuration_version, 0),
+    status: String(row.status),
+    ticket_id: row.ticket_id === null || row.ticket_id === undefined ? null : String(row.ticket_id),
+    fixtures_read: toInt(row.fixtures_read, 0),
+    candidates_evaluated: toInt(row.candidates_evaluated, 0),
+    predictions_recorded: toInt(row.predictions_recorded, 0),
+    rejections: toInt(row.rejections, 0),
+    simulated_refused: toInt(row.simulated_refused, 0),
+    rejection_summary: decodeJson(row.rejection_summary, {}),
+    message: String(row.message ?? ""),
+    errors: decodeJson(row.errors, []),
+    requested_by: row.requested_by === null || row.requested_by === undefined ? null : String(row.requested_by),
+    created_at: String(row.created_at),
+    updated_at: String(row.updated_at),
+  };
+}

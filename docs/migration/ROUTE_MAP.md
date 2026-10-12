@@ -668,6 +668,24 @@ the engine mode and its limits. `AUTOMATED_EXECUTION` is refused in every case (
 Audit actions: `sports.decision.recorded`, `sports.configuration.updated`, `sports.calibration.approved`,
 `sports.calibration.rejected`. See [`PHASE17_SPORTS_DECISION_CHAIN.md`](PHASE17_SPORTS_DECISION_CHAIN.md).
 
+### 14.18 Sports Intelligence — the ticket engine (5) — Phase 18
+
+Slice 4 of row 14. Migration 013 created three tables, so these routes read and write them. Every route is session
+or bearer, rate-limited globally, and validated where it takes input. Running the daily ticket is `sports.manage`.
+Deciding a ticket is `sports.approve`, the permission legacy's `Api_sports` checks. Reads are `sports.view`.
+Nothing here executes a ticket (`externalExecution` is always `false`).
+
+| Method/path | Permission | Validation | Notes |
+|---|---|---|---|
+| `POST /api/v1/sports/daily-tickets/run` | `sports.manage` | `bodySchema` (`date`, UTC day, default today) | Claims the day and version, then generates at most one ticket. A second request is `DUPLICATE_SKIPPED`. Simulated candidates are refused (DV-20). Reads stored fixtures, not a provider (DV-21). |
+| `GET /api/v1/sports/daily-tickets` | `sports.view` | `querySchema` (`limit`) | Run outcomes, newest first |
+| `GET /api/v1/sports/tickets` | `sports.view` | `querySchema` (`approvalStatus`, `runDate`, `limit`) | Newest first. `runDate` finds tickets through their run |
+| `GET /api/v1/sports/tickets/:ticketId` | `sports.view` | `paramsSchema` | The ticket with its selections. Malformed or unknown ids are 404 |
+| `POST /api/v1/sports/tickets/:ticketId/decision` | `sports.approve` | `paramsSchema` + `bodySchema` (`approve` boolean, required; `reason`) | Compare-and-set on `PENDING_USER_APPROVAL`. A second decision is 409 `SPORTS_TICKET_ALREADY_DECIDED` |
+
+Audit actions: `sports.daily_ticket.run`, `sports.ticket.approved`, `sports.ticket.rejected`. See
+[`PHASE18_SPORTS_TICKETS.md`](PHASE18_SPORTS_TICKETS.md).
+
 ### 14.8 Strategies, backtesting and the journal (11) — Phase 6
 
 The Phase-6 routes are session-only with no permission gate, matching their legacy

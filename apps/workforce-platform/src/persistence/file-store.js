@@ -54,6 +54,16 @@ import {
   prepareModelVersion,
   preparePrediction,
   CALIBRATION_STATUSES,
+  TICKET_APPROVALS,
+  TICKET_STATUSES,
+  assertRunDate,
+  assertTicketId,
+  dailyRunRow,
+  prepareDailyRunClaim,
+  prepareDailyRunFinish,
+  prepareTicket,
+  ticketRow,
+  ticketSelectionRow,
 } from "./sports-rows.js";
 import { createHash } from "node:crypto";
 import path from "node:path";
@@ -68,7 +78,10 @@ const ENTITIES = ["users", "profiles", "sessions", "roles", "permissions", "user
   "sportsQuality", "sportsSyncRuns",
   // Sports decision chain (migration 012): model registry, immutable predictions,
   // append-only configuration and PENDING-until-decided calibrations.
-  "sportsModelVersions", "sportsPredictions", "sportsConfigurations", "sportsCalibrations"];
+  "sportsModelVersions", "sportsPredictions", "sportsConfigurations", "sportsCalibrations",
+  // Tickets and the daily ticket run (migration 013, slice 4). A ticket's selections are a
+  // separate collection, as the table is, and a daily run is keyed by its day and version.
+  "sportsTickets", "sportsTicketSelections", "sportsDailyTickets"];
 const PAPER_TX_ENTITIES = Object.freeze(["tradingState", "paperAccounts", "paperOrders", "paperPositions", "paperTrades", "paperDeployments", "executionProposals", "strategies", "journalEntries", "audit"]);
 const COMPACTION_ENTRIES = 2_000;
 /**
@@ -161,6 +174,8 @@ function keyOf(entity, record) {
     return [record.model_name, record.model_version, record.feature_version, record.calibration_version].join("|");
   }
   if (entity === "sportsConfigurations") return String(record.version);
+  // One daily run per (day, configuration version), the same as the migration's UNIQUE key.
+  if (entity === "sportsDailyTickets") return `${record.run_date}|${record.configuration_version}`;
   return String(record.id);
 }
 
@@ -185,6 +200,8 @@ function visibleTo(row, userId) {
 export async function createFileStore({ dir, logger = console, idFactory = () => null, syncWrites = true } = {}) {
   let sequence = 0;
   const tables = new Map(ENTITIES.map((entity) => [entity, new Map()]));
+  /** The highest id issued per entity, so `nextRowId` never reissues one (F-40). */
+  const lastIssuedRowId = new Map();
   let appendCount = 0;
   let queue = Promise.resolve();
 
@@ -223,12 +240,19 @@ export async function createFileStore({ dir, logger = console, idFactory = () =>
    * plus one, never a reused gap: a retired row's id must not be handed to a new one,
    * or an odds row written earlier would appear to belong to a different fixture.
    */
+  /**
+   * The next id for an entity. Monotonic: an id handed out is never handed out again, even
+   * before its write has been applied. Without that, two inserts that start in the same tick
+   * (`Promise.all`) both read the same table maximum and both get the same id (F-40). The
+   * table scan alone cannot see a write still waiting in the queue.
+   */
   function nextRowId(entity) {
-    let max = 0;
+    let max = lastIssuedRowId.get(entity) ?? 0;
     for (const row of tables.get(entity).values()) {
       const id = Number(row.id);
       if (Number.isInteger(id) && id > max) max = id;
     }
+    lastIssuedRowId.set(entity, max + 1);
     return max + 1;
   }
 
@@ -1329,6 +1353,107 @@ export async function createFileStore({ dir, logger = console, idFactory = () =>
         approved_at: decidedAt,
       });
       return calibrationRow(tables.get("sportsCalibrations").get(calibrationId));
+    },
+
+    // ── tickets and the daily run (row 14, slice 4, migration 013) ──────────────────────
+    // The same nine methods as `src/db/sports-ticket-repository.js`. The file adapter is one
+    // process behind one queue, so a ticket's two collections are written in order rather
+    // than in a transaction. The same caveat applies to calibration decisions (SP-28).
+
+    async saveSportsTicket(built) {
+      const { ticket, selections } = prepareTicket(built ?? {});
+      await mutate("sportsTickets", "upsert", { ...ticket, replace: false });
+      for (const selection of selections) {
+        const id = nextRowId("sportsTicketSelections");
+        await mutate("sportsTicketSelections", "upsert", { id, ...selection });
+      }
+      return ticketRow(tables.get("sportsTickets").get(ticket.id));
+    },
+
+    async findSportsTicket(id) {
+      return ticketRow(tables.get("sportsTickets").get(assertTicketId(id)) ?? null);
+    },
+
+    async listSportsTickets(filter = {}, limit = 50) {
+      const f = filter && typeof filter === "object" ? filter : {};
+      const bounded = Math.min(500, Math.max(1, toInt(limit, 50)));
+      const approval = f.approvalStatus === null || f.approvalStatus === undefined
+        ? null : assertEnum(f.approvalStatus, TICKET_APPROVALS, "filter.approvalStatus");
+      // Same meaning as the SQL subquery: tickets linked from a daily run on that day.
+      const runDate = f.runDate === null || f.runDate === undefined ? null : assertRunDate(f.runDate);
+      const linked = runDate === null ? null : new Set(
+        [...tables.get("sportsDailyTickets").values()]
+          .filter((r) => r.run_date === runDate && r.ticket_id !== null && r.ticket_id !== undefined)
+          .map((r) => String(r.ticket_id)),
+      );
+      return [...tables.get("sportsTickets").values()]
+        .filter((r) => (approval === null || r.approval_status === approval)
+          && (linked === null || linked.has(String(r.id))))
+        .sort((a, b) => String(b.created_at).localeCompare(String(a.created_at)) || String(b.id).localeCompare(String(a.id)))
+        .slice(0, bounded)
+        .map(ticketRow);
+    },
+
+    async listSportsTicketSelections(ticketId) {
+      const id = assertTicketId(ticketId);
+      return [...tables.get("sportsTicketSelections").values()]
+        .filter((r) => r.ticket_id === id)
+        .sort((a, b) => toInt(a.id, 0) - toInt(b.id, 0))
+        .map(ticketSelectionRow);
+    },
+
+    /** Compare-and-set on PENDING. Returns the decided row, or `null` when not pending. */
+    async decideSportsTicket(id, decision) {
+      const ticketId = assertTicketId(id);
+      const current = tables.get("sportsTickets").get(ticketId);
+      if (!current || current.approval_status !== "PENDING_USER_APPROVAL") return null;
+      await mutate("sportsTickets", "upsert", {
+        ...current,
+        approval_status: assertEnum(decision.approvalStatus, TICKET_APPROVALS, "approval_status"),
+        status: assertEnum(decision.status, TICKET_STATUSES, "status"),
+        reason: decision.reason === null || decision.reason === undefined ? null : String(decision.reason).slice(0, 500),
+        decided_by: decision.decidedBy === null || decision.decidedBy === undefined ? null : String(decision.decidedBy).slice(0, 64),
+        decided_at: decision.decidedAt,
+      });
+      return ticketRow(tables.get("sportsTickets").get(ticketId));
+    },
+
+    /** Claim the day and version. `null` when a run already exists for them, whatever its status. */
+    async claimSportsDailyTicketRun(input) {
+      const row = prepareDailyRunClaim(input ?? {});
+      const key = `${row.run_date}|${row.configuration_version}`;
+      if (tables.get("sportsDailyTickets").has(key)) return null;
+      const id = nextRowId("sportsDailyTickets");
+      try {
+        await mutate("sportsDailyTickets", "upsert", { id, ...row, replace: false });
+      } catch (error) {
+        if (String(error?.message ?? "") === "Already exists") return null;
+        throw error;
+      }
+      return dailyRunRow(tables.get("sportsDailyTickets").get(key));
+    },
+
+    /** Finish a RUNNING run. A run is finished once. `null` when it was not RUNNING. */
+    async finishSportsDailyTicketRun(id, outcome, updatedAt) {
+      const runId = assertRowId(id, "daily run id");
+      const current = [...tables.get("sportsDailyTickets").values()].find((r) => toInt(r.id, 0) === runId);
+      if (!current || current.status !== "RUNNING") return null;
+      await mutate("sportsDailyTickets", "upsert", { ...current, ...prepareDailyRunFinish(outcome ?? {}, updatedAt) });
+      return dailyRunRow([...tables.get("sportsDailyTickets").values()].find((r) => toInt(r.id, 0) === runId));
+    },
+
+    async findSportsDailyTicketRun(runDate, configurationVersion) {
+      const version = toInt(configurationVersion, -1);
+      if (version < 0) throw new TypeError("configuration version must be a non-negative integer");
+      return dailyRunRow(tables.get("sportsDailyTickets").get(`${assertRunDate(runDate)}|${version}`) ?? null);
+    },
+
+    async listSportsDailyTicketRuns(limit = 50) {
+      const bounded = Math.min(500, Math.max(1, toInt(limit, 50)));
+      return [...tables.get("sportsDailyTickets").values()]
+        .sort((a, b) => String(b.run_date).localeCompare(String(a.run_date)) || toInt(b.id, 0) - toInt(a.id, 0))
+        .slice(0, bounded)
+        .map(dailyRunRow);
     },
 
     /**

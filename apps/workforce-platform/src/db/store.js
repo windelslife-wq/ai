@@ -22,6 +22,7 @@ export const REQUIRED_MIGRATIONS = Object.freeze([
   "010_job_locks",
   "011_sports_foundation",
   "012_sports_intelligence",
+  "013_sports_tickets",
 ]);
 
 /** Only driver codes are ever reported; never an SQL statement or credential. */
@@ -118,6 +119,18 @@ export function createStore(pool, { requiredMigrations = REQUIRED_MIGRATIONS } =
     findSportsCalibration: sports.findSportsCalibration,
     listSportsCalibrations: sports.listSportsCalibrations,
     decideSportsCalibration: sports.decideSportsCalibration,
+    // Tickets and the daily ticket run (migration 013, slice 4). These write only the three
+    // `wf_sports_*ticket*` tables. A ticket is a record of a proposal and a person's
+    // decision on it. Nothing here reaches a paper, order or broker path.
+    saveSportsTicket: sports.saveSportsTicket,
+    findSportsTicket: sports.findSportsTicket,
+    listSportsTickets: sports.listSportsTickets,
+    listSportsTicketSelections: sports.listSportsTicketSelections,
+    decideSportsTicket: sports.decideSportsTicket,
+    claimSportsDailyTicketRun: sports.claimSportsDailyTicketRun,
+    finishSportsDailyTicketRun: sports.finishSportsDailyTicketRun,
+    findSportsDailyTicketRun: sports.findSportsDailyTicketRun,
+    listSportsDailyTicketRuns: sports.listSportsDailyTicketRuns,
     saveJobState: jobs.saveJobState,
     // Notifications are written outside any paper transaction: they are evidence
     // about a change that already committed, and a failed notification must never

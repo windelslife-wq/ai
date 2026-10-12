@@ -60,7 +60,7 @@ test("the MySQL intelligence repository implements exactly the twelve names the 
   for (const name of SPORTS_INTELLIGENCE_METHODS) {
     assert.ok(SPORTS_REPOSITORY_METHODS.includes(name), `${name} is in the sports contract`);
   }
-  assert.equal(SPORTS_REPOSITORY_METHODS.length, 34, "22 foundation + 12 decision chain");
+  assert.equal(SPORTS_REPOSITORY_METHODS.length, 43, "22 foundation + 12 decision chain + 9 tickets");
   assert.equal(typeof createSportsRepository(scriptedExecutor()).decideSportsCalibration, "function");
 });
 

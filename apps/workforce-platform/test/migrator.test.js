@@ -114,7 +114,7 @@ test("Phase 8A migration creates only the paper-proposal record, with owner and 
   // diff: an out-of-order or mis-numbered file would change the order migrations run
   // in, and a migration that runs before the table it references exists is a failure
   // only on a fresh install — exactly the install nobody tests.
-  assert.equal((await listMigrationFiles(new URL("../src/db/migrations/", import.meta.url))).at(-1), "012_sports_intelligence.sql");
+  assert.equal((await listMigrationFiles(new URL("../src/db/migrations/", import.meta.url))).at(-1), "013_sports_tickets.sql");
 });
 
 test("Phase 12 migration creates only the job-lock table, keyed by job name", async () => {

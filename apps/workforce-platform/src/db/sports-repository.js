@@ -39,6 +39,7 @@
 
 import { assertIsoCutoff } from "../persistence/contract.js";
 import { createSportsIntelligenceRepository, SPORTS_INTELLIGENCE_METHODS } from "./sports-intelligence-repository.js";
+import { createSportsTicketRepository, SPORTS_TICKET_METHODS } from "./sports-ticket-repository.js";
 import { parseStrictInstant } from "../lib/php-date.js";
 import {
   HEALTH_STATUSES,
@@ -118,6 +119,8 @@ export function createSportsRepository(executor) {
   return {
     // ── slice 3: decisions, model registry, configuration, calibration (migration 012) ──
     ...createSportsIntelligenceRepository(executor),
+    // ── slice 4: tickets and the daily ticket run (migration 013) ──
+    ...createSportsTicketRepository(executor),
     // ── providers ──────────────────────────────────────────────────────────────
 
     /**
@@ -819,4 +822,5 @@ export const SPORTS_REPOSITORY_METHODS = Object.freeze([
   "finishSportsSync",
   "listSportsSyncRuns",
   ...SPORTS_INTELLIGENCE_METHODS,
+  ...SPORTS_TICKET_METHODS,
 ]);
