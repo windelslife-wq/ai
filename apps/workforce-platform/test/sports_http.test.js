@@ -93,8 +93,9 @@ test("a default host configures no provider, fabricates nothing, and lists what 
   assert.equal(body.message, "No sports provider is configured. No fixtures, odds, predictions, or tickets are fabricated.");
   assert.match(body.notice, /nothing is fabricated/i);
 
-  // The honesty matrix travels in the response because no ported module has a
-  // console screen (F-29) — the same decision as BC-10 in the broker port.
+  // The honesty matrix travels in the response because the sports console screens
+  // are not ported (F-29, narrowed by Phase 27 to the sports and lottery consoles)
+  // — the same decision as BC-10 in the broker port.
   // Slice 5 empties the matrix down to three: settlement, verification, calibration
   // fitting, backtesting, drift monitoring and performance analytics all exist now,
   // and left the matrix rather than being re-labelled.
@@ -267,7 +268,8 @@ test("the public status surface reports sports from configuration and contacts n
   const sports = body.modules.find((module) => module.key === "sports");
   assert.equal(sports.state, "partial");
   assert.match(sports.label, /no stored result is trusted before a person attests/i);
-  assert.match(sports.label, /not ported: stake sizing and the console screens \(f-29\)/i);
+  assert.match(sports.label, /not ported: stake sizing and the two sports console screens/i);
+  assert.match(sports.label, /f-29, narrowed by phase 27 to the sports and lottery consoles/i);
   assert.ok(!/no persistence/i.test(sports.label), "persistence exists now; a stale label reads as current documentation");
   assert.equal(body.modules.length, 17);
 });

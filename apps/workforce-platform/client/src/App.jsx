@@ -19,6 +19,7 @@ import {
   AccountView, AdminUsersView, Brand, InquiriesView, LoginPanel, ModuleCards,
   NotFoundView, RegisterPanel, StatusPill, StatusView, WorkspaceNav,
 } from "./views.jsx";
+import { AuditBrowserView, NotificationsView, PortfolioOptimizerView } from "./screens.jsx";
 
 const NATIVE_BUILD = __NATIVE_BUILD__;
 
@@ -30,8 +31,11 @@ const NATIVE_BUILD = __NATIVE_BUILD__;
 const ROUTES = [
   { path: "/app", view: "workspace", requiresAuth: true },
   { path: "/app/account", view: "account", requiresAuth: true },
+  { path: "/app/notifications", view: "notifications", requiresAuth: true },
+  { path: "/app/portfolio/optimizer", view: "portfolio-optimizer", requiresAuth: true, permission: "trading.view" },
   { path: "/app/status", view: "status" },
   { path: "/app/admin/users", view: "admin-users", requiresAuth: true, permission: "identity.users.view" },
+  { path: "/app/admin/audit", view: "audit", requiresAuth: true, permission: "identity.users.view" },
   { path: "/app/admin/inquiries", view: "inquiries", requiresAuth: true, permission: "system.super_admin" },
   { path: "/app/login", view: "login", guestOnly: true },
   { path: "/app/register", view: "register", guestOnly: true },
@@ -358,6 +362,9 @@ function SessionApp() {
       account: <AccountView user={user} permissions={permissions} onSessionChanged={applySession} />,
       status: <StatusView />,
       "admin-users": <AdminUsersView permissions={permissions} />,
+      audit: <AuditBrowserView />,
+      notifications: <NotificationsView />,
+      "portfolio-optimizer": <PortfolioOptimizerView />,
       inquiries: <InquiriesView />,
     }[route.view]
   );

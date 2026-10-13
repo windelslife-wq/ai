@@ -2,7 +2,48 @@
 
 **Updated:** 2026-10-13 · **Branch:** `arena/653d6218-ai`
 
-## Current Phase 26 status (2026-10-13)
+## Current Phase 27 status (2026-10-13)
+
+**F-29 is narrowed to the sports and lottery consoles.** The three ported APIs that had no screen —
+`GET /api/v1/notifications` (Phase 9), `GET /api/v1/admin/audit` (Phase 10) and
+`POST /api/v1/portfolio/optimize` (Phase 11) — now have workspace screens at `/app/notifications`,
+`/app/admin/audit` and `/app/portfolio/optimizer`. No HTTP route, migration, table or contract
+method was added: this phase renders what was already served and tested.
+
+Three things make the screens evidence rather than decoration. **They bind to the server's own
+facts**: the inbox states the absence of a delivery channel by reading `deliveryChannels` from
+`/api/v1/system/status`; the audit browser renders the server's `meta.mutable: false` and echoes
+`meta.filters` (what the server applied, not what the form holds); the optimizer renders the
+server's research-only `notice` and each asset's provenance, labelling a synthetic series
+SIMULATION beside the weights it produced. **The module grid stopped keeping its own copy**: it
+used to hardcode states and had gone false (sports and lottery still read "Not yet ported to Node"
+after Phases 19–25 ported them), so it now renders `MODULE_STATUS` from the ledger and keeps only
+presentation text — asserted, along with "no card carries a hardcoded state". **The claims the
+phase made untrue were removed, not softened**: `audit` and `portfolioOptimizer` lost their "no
+console screen" clauses, and the sports/lottery labels now say F-29 was *narrowed* to those two
+consoles. Five module files and four test files carry the correction, and the tests assert the old
+phrase is gone as well as the new one present.
+
+`test/console_screens.test.js` (6 tests) is the ledger: the client's pick-lists are compared entry
+for entry against the server vocabularies; all 26 `api(...)` calls in `client/src/api.js` must
+resolve — path **and method** — to routes in the live inventory; each screen's declared permission
+must equal the one its endpoint enforces (or be absent exactly when the endpoint needs only
+`system.authenticated`), and every permission the shell names must exist in the seeded catalogue.
+
+Version **0.23.0**, unchanged — no package surface moved.
+
+Gates on this branch: `npm test` **981 / 981** across **68** files, `npm run verify:install`
+**29 / 29**, `npm --prefix client run build` clean, PHP tree untouched (oracle **367 / 367**). Live
+rehearsal on the file adapter with the Vite dev server: login, inbox, one audit page and a
+`allowSyntheticData: true` optimization, all through the SPA's own proxy path. **Not run:** a real
+browser DOM suite, a real MySQL server, any official feed, a crontab.
+
+**Still not claimed:** settings screens and per-domain dashboards (row 3's remainder), the sports
+and lottery consoles, any retention policy, any notification delivery channel, saved optimizer
+reports, browser-level verification, PHP↔Node numeric parity (F-26) and cutover (row 22).
+
+## Phase 26 status (2026-10-13) — superseded by Phase 27
+
 
 **R-30 is closed**: the file adapter's aggregate writes are single-record atomic. A new internal
 `mutateBatch` appends one `{"op":"batch","changes":[…]}` WAL record — applied whole on replay, a

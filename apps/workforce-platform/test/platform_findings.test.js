@@ -1059,21 +1059,26 @@ test("F-02 the status surface is honest about unported modules, and F-03 the rou
   assert.equal(body.modules.find((module) => module.key === "notifications").state, "ported");
   assert.equal(body.notifications.emailDeliveryAvailable, false, "no outbound delivery channel is ported");
   assert.deepEqual(body.notifications.deliveryChannels, []);
-  // Phase 10 ports the audit browser API: attribution, filtering and pagination
-  // over the whole trail, permissioned and read-only. The console SCREEN is
-  // app-shell work (row 3) and retention is still undecided, so the label says
-  // both rather than letting `ported` imply a finished workstream.
+  // Phase 10 ported the audit browser API: attribution, filtering and pagination
+  // over the whole trail, permissioned and read-only. Phase 27 gave it the
+  // workspace screen, so "no console screen" is no longer assertable — it was
+  // removed from the label rather than softened, because a stale label is read as
+  // current. Retention is still undecided, so that half of the label stays.
   assert.equal(body.modules.find((module) => module.key === "audit").state, "ported");
-  assert.match(body.modules.find((module) => module.key === "audit").label, /no console screen/i);
+  assert.match(body.modules.find((module) => module.key === "audit").label, /its workspace screen/i);
   assert.match(body.modules.find((module) => module.key === "audit").label, /no retention policy/i);
-  // Phase 11 ports the research-only portfolio optimizer (row 9). It computes
-  // weights and nothing else: no console screen (views/portfolio/optimizer.php is
-  // app-shell work, row 3) and no saved reports — a run is returned, not persisted,
-  // so the label must not let `ported` imply a history a caller could read back.
+  assert.ok(!/no console screen/i.test(body.modules.find((module) => module.key === "audit").label), "the screen exists since Phase 27");
+  // Phase 11 ported the research-only portfolio optimizer (row 9). It computes
+  // weights and nothing else. Phase 27 landed the screen (views/portfolio/optimizer.php
+  // equivalent), so the "no console screen" clause went with it; what must still be
+  // said is that the screen cannot reach an order path and that a run is returned,
+  // not persisted — `ported` must not imply a history a caller could read back.
   assert.equal(body.modules.find((module) => module.key === "portfolioOptimizer").state, "ported");
   assert.match(body.modules.find((module) => module.key === "portfolioOptimizer").label, /research-only/i);
-  assert.match(body.modules.find((module) => module.key === "portfolioOptimizer").label, /no console screen/i);
+  assert.match(body.modules.find((module) => module.key === "portfolioOptimizer").label, /its workspace screen/i);
+  assert.match(body.modules.find((module) => module.key === "portfolioOptimizer").label, /no order path/i);
   assert.match(body.modules.find((module) => module.key === "portfolioOptimizer").label, /no saved reports/i);
+  assert.ok(!/no console screen/i.test(body.modules.find((module) => module.key === "portfolioOptimizer").label), "the screen exists since Phase 27");
   // Phase 7 adds persisted governance and account-scoped paper risk. Phase 8A
   // adds human-reviewed paper proposals, not the full supervisor or a live route.
   assert.equal(body.modules.find((module) => module.key === "paperTrading").state, "ported");
@@ -1113,11 +1118,15 @@ test("F-02 the status surface is honest about unported modules, and F-03 the rou
     // The absence is stated as one list, so the list is pinned as a list rather than
     // as separate "no X" phrases that the label does not and should not repeat.
     // Slice 5 shrank it to three and row 19 removed the cron from it: stake sizing
-    // and the console screens (F-29) are what no slice owns. Settlement, calibration fitting, backtests, drift and
+    // and the two sports console screens are what no slice owns. Phase 27 narrowed
+    // F-29 to those consoles but did not lift it, so the phrase names them
+    // specifically instead of claiming the platform has no console at all.
+    // Settlement, calibration fitting, backtests, drift and
     // analytics came OUT of this list, and the assertion that they are gone is as
     // important as the ones that remain: a ledger label is documentation, and a stale
     // one is worse than none because it is read as current.
-    /not ported: stake sizing and the console screens \(f-29\)/i,
+    /not ported: stake sizing and the two sports console screens/i,
+    /f-29, narrowed by phase 27 to the sports and lottery consoles/i,
     /no stored result is trusted before a person attests/i,
     /never verified against a vendor/i,
     /nineteen sports\.view reads, two sports\.manage reads, ten sports\.manage writes/i,
@@ -1148,8 +1157,10 @@ test("F-02 the status surface is honest about unported modules, and F-03 the rou
   // while no adapter is verified against its provider and no order can be routed.
   // Row 15 slice 1 moves `lottery` from not-ported to partial: the foundation
   // (providers, rules, validation, ingestion, derived health, statistics) is ported
-  // and PHP-parity proven, while combination intelligence, tickets, backtests, the
-  // lottery cron and the console screens are not (F-29 keeps that list).
+  // and PHP-parity proven; combination intelligence, tickets, backtests and the cron
+  // have since landed too, leaving the two console screens as F-29's remainder —
+  // narrowed by Phase 27, which ported the notification inbox, audit browser and
+  // portfolio optimizer screens.
   const lotteryLabel = body.modules.find((module) => module.key === "lottery").label;
   assert.equal(body.modules.find((module) => module.key === "lottery").state, "partial");
   for (const pattern of [
@@ -1157,7 +1168,8 @@ test("F-02 the status surface is honest about unported modules, and F-03 the rou
     /never overwrites a VERIFIED draw/i,
     /independence DISCLAIMER/i,
     /a default host has no provider and fabricates nothing/i,
-    /the console screens are not ported \(f-29, platform-wide\)/i,
+    /the two lottery console screens are not ported/i,
+    /f-29, narrowed by phase 27 to the sports and lottery consoles/i,
     /systems consumer that finally drains the queued background builds/i,
     /nineteen lottery\.view reads/i,
     /eight lottery\.view POSTs/i,
@@ -1165,7 +1177,7 @@ test("F-02 the status surface is honest about unported modules, and F-03 the rou
   ]) {
     assert.match(lotteryLabel, pattern);
   }
-  assert.equal(body.modules.filter((module) => module.state === "partial").length, 6, "the public site (chat widget), execution (the remaining supervisor steps are broker-bound, no live route, no automated mode), scheduled jobs (no early-warning tiers, no sports/lottery cron), brokers (no verified adapter, no order routing), sports (measured but person-gated: nothing executed, no stake sized, no stored result trusted before a person attests, no verified vendor, no cron and no console screens) and lottery (slices 1–5 ported and proven for parity; only the console screens are missing, F-29) remain partial");
+  assert.equal(body.modules.filter((module) => module.state === "partial").length, 6, "the public site (chat widget), execution (the remaining supervisor steps are broker-bound, no live route, no automated mode), scheduled jobs (no early-warning tiers, no HTTP route), brokers (no verified adapter, no order routing), sports (measured but person-gated: nothing executed, no stake sized, no stored result trusted before a person attests, no verified vendor, and the two sports console screens are not ported) and lottery (slices 1–5 ported and proven for parity; only its two console screens are missing, F-29 narrowed by Phase 27) remain partial");
   assert.equal(body.modules.filter((module) => module.state === "not-ported").length, 2, "language learning and lead discovery remain legacy-only");
   assert.equal(body.modules.length, 17, "the ledger keeps listing every module, ported or not");
   // The public status surface carries a market-data snapshot that must not have

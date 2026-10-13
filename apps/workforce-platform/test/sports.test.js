@@ -591,7 +591,8 @@ test("the not-ported matrix names every slice row 14 still owes", async () => {
   // Two, down from six at slice 4's end. Slice 5 removed settlement and verification,
   // calibration fitting, backtesting, model monitoring and performance analytics, and
   // row 19 removed the sports cron, which all now exist. What remains is what no slice
-  // owns: stake sizing and the console screens (F-29, platform-wide). Asserting the
+  // owns: stake sizing and the two sports console screens (F-29, narrowed by
+  // Phase 27 to the sports and lottery consoles). Asserting the
   // count moved DOWN is the point: a matrix that only ever grows is a matrix nobody
   // checks for entries that are no longer true.
   assert.equal(SPORTS_NOT_PORTED.length, 2);

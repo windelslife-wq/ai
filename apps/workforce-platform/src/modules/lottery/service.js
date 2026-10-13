@@ -83,8 +83,9 @@ export function prizeTier(mainMatches, starMatches) {
 /**
  * The parts of row 15 this port still does not contain, in legacy's own terms.
  * Slice 2 (combination intelligence, tickets, backtests, model versions) empties
- * the middle entries; slice 3 (the cron) removes the jobs entry. The console screens
- * stay until F-29 is lifted platform-wide. Removed, never re-labelled, as entries
+ * the middle entries; slice 3 (the cron) removes the jobs entry. The lottery console
+ * screens stay until they are ported — Phase 27 narrowed F-29 to the sports and
+ * lottery consoles but did not lift it. Removed, never re-labelled, as entries
  * become untrue.
  */
 export const LOTTERY_NOT_PORTED = Object.freeze([
@@ -92,7 +93,7 @@ export const LOTTERY_NOT_PORTED = Object.freeze([
   // tickets, backtest/model-version and scheduled-jobs entries: they became
   // untrue, and untrue entries are removed, never re-labelled. What remains is
   // what no slice has landed yet.
-  Object.freeze({ area: "console screens", legacy: "Lottery::index (views/lottery/*.php)", state: "not ported", detail: "No ported module has a console screen (F-29, platform-wide); the API reads exist under /lottery/*." }),
+  Object.freeze({ area: "console screens", legacy: "Lottery::index (views/lottery/*.php)", state: "not ported", detail: "The lottery console is not ported (F-29, narrowed by Phase 27 to the sports and lottery consoles — the notification inbox, audit browser and portfolio optimizer screens exist under /app). The API reads exist under /lottery/*." }),
 ]);
 
 /**

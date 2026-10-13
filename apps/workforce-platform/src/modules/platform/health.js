@@ -23,19 +23,23 @@ export const MODULE_STATUS = Object.freeze([
   // rendering/content checks; the legacy chat assistant is absent, so the module
   // remains partial. These checks do not claim complete legacy parity.
   { key: "publicSite", label: "Public site, SEO + PWA shell, contact intake (chat assistant not ported)", state: "partial", tests: "unit + http + content checks" },
-  // The trail was already written by every ported action; Phase 10 adds the
+  // The trail was already written by every ported action; Phase 10 added the
   // permissioned browser over it (filter by actor, action, entity and time
-  // window) and puts the actor's identity in the read view. Still read-only on
-  // both adapters: no route can edit, redact or delete an audit event. The
-  // browser SCREEN is app-shell work (row 3), and security-event retention is an
-  // undecided policy, so neither is claimed here.
-  { key: "audit", label: "Security audit trail plus a permissioned read-only browser API (no console screen, no retention policy)", state: "ported", tests: "unit + http + both adapters" },
+  // window) with the actor's identity in the read view, and Phase 27 gave that
+  // API its workspace screen at /app/admin/audit. Still read-only on both
+  // adapters: no route can edit, redact or delete an audit event, and the screen
+  // renders the server's own `mutable: false` rather than promising it in prose.
+  // Security-event retention remains an undecided policy, so it is still named
+  // here — the label narrows, it does not disappear.
+  { key: "audit", label: "Security audit trail plus a permissioned read-only browser API and its workspace screen (read-only by construction: no route edits, redacts or deletes an event; no retention policy decided)", state: "ported", tests: "unit + http + both adapters" },
   // Notifications are ported: the unread-deduped notifier, broadcast/targeted
   // visibility and the three legacy inbox endpoints, with governance and
   // paper-proposal transitions publishing through it. Storage and in-product
   // reading only — there is no outbound delivery channel, so no alert is ever
-  // reported as delivered to a device or an email inbox.
-  { key: "notifications", label: "Operator notifications: unread-deduped inbox, broadcast + targeted, governance publishers (no outbound delivery)", state: "ported", tests: "unit + http + both adapters" },
+  // reported as delivered to a device or an email inbox. Phase 27 gave the inbox
+  // its workspace screen at /app/notifications, which states that absence using
+  // this server's own deliveryChannels value instead of a sentence in a view.
+  { key: "notifications", label: "Operator notifications: unread-deduped inbox with its workspace screen, broadcast + targeted, governance publishers (no outbound delivery)", state: "ported", tests: "unit + http + both adapters" },
   // Market data is ported: the provider chain, normalization, circuit breakers
   // and the three legacy endpoints, with provenance that labels synthetic output.
   { key: "marketData", label: "Market data providers and health", state: "ported", tests: "unit + http + provider fixtures" },
@@ -48,9 +52,12 @@ export const MODULE_STATUS = Object.freeze([
   // allocations under a per-asset cap, the synthetic-data gates and per-asset
   // provenance. It computes weights and nothing else — it has no reference to the
   // paper, strategy or execution services, so it cannot reach an order path. The
-  // console screen (views/portfolio/optimizer.php) is app-shell work (row 3), and
-  // there is no persisted-run history: a report is returned, not stored.
-  { key: "portfolioOptimizer", label: "Research-only portfolio optimization, long-only mean-variance (no console screen, no saved reports)", state: "ported", tests: "unit + http" },
+  // console screen (views/portfolio/optimizer.php) landed in Phase 27 at
+  // /app/portfolio/optimizer, and there is still no persisted-run history: a
+  // report is returned, not stored. The screen renders the weights, the
+  // per-asset provenance and the run's own warnings; it cannot reach an order
+  // path, because the service has no reference to one.
+  { key: "portfolioOptimizer", label: "Research-only portfolio optimization, long-only mean-variance with its workspace screen (weights only: no order path and no saved reports — a run is returned, not stored)", state: "ported", tests: "unit + http" },
   { key: "strategies", label: "Strategy lab, lifecycle, backtesting and durable AI review", state: "ported", tests: "unit + http + persistence" },
   { key: "paperTrading", label: "Owner-scoped simulation accounts, orders, fills and deployments", state: "ported", tests: "unit + http + persistence" },
   { key: "risk", label: "Risk engine, persisted limits, kill switch and paper-portfolio monitor", state: "ported", tests: "unit + http + persistence" },
@@ -100,11 +107,11 @@ export const MODULE_STATUS = Object.freeze([
   // Slice 5 (row 14) completes the measured half: settlement from verified results,
   // result verification, calibration fitting, the point-in-time backtester, the drift
   // monitor (whose SPORTS_MODEL_DRIFT publisher closes NV-6) and measured performance.
-  // The module is still `partial`, and the label must say exactly why: stake sizing,
-  // the sports cron and the console screens are not ported, and no provider has been
+  // The module is still `partial`, and the label must say exactly why: stake sizing
+  // and the two sports console screens are not ported, and no provider has been
   // verified against a real vendor. "Sports intelligence: partial" reads as "half a
   // betting engine" — nothing here executes, and the label keeps saying so.
-  { key: "sports", label: "Sports data foundation, ingestion, decision chain, ticket engine and the measured half (slice 5): normalized fixture/odds/result contracts, data-quality and freshness gates, the provider boundary (sandbox simulation double-gated and labelled, generic REST provider never verified against a vendor), idempotent ingestion under a unique execution key, derived provider health from stored observations, PHP-parity proven by differential test, the decision chain with immutable predictions, the ticket engine (correlation, exhaustive optimizer, governance, a daily run recorded as PENDING for a person), and slice 5: result verification under sports.settle, settlement from verified results only (RESTITUTE_ODDS by default), calibration fitting on settled outcomes (PENDING until an administrator approves), the point-in-time backtester whose reports are flagged simulation, the drift monitor that publishes SPORTS_MODEL_DRIFT, and measured performance analytics. The sports cron (row 19) runs the nine scheduled jobs — syncs, quality, the daily ticket, the settlement sweep, performance snapshots, monitoring, retention cleanup — from the CLI under window locks, never from an HTTP route. Nothing is executed, no stake is sized, and no stored result is trusted before a person attests to it. Not ported: stake sizing and the console screens (F-29). Nineteen sports.view reads, two sports.manage reads, ten sports.manage writes (sync, configuration patch, evaluate, calibration fit/approve/reject, daily ticket run, backtest run, drift run, stuck-run recovery), one sports.approve write (ticket decision) and two sports.settle writes (result verification, ticket settlement)", state: "partial", tests: "unit + php-parity + http + store" },
+  { key: "sports", label: "Sports data foundation, ingestion, decision chain, ticket engine and the measured half (slice 5): normalized fixture/odds/result contracts, data-quality and freshness gates, the provider boundary (sandbox simulation double-gated and labelled, generic REST provider never verified against a vendor), idempotent ingestion under a unique execution key, derived provider health from stored observations, PHP-parity proven by differential test, the decision chain with immutable predictions, the ticket engine (correlation, exhaustive optimizer, governance, a daily run recorded as PENDING for a person), and slice 5: result verification under sports.settle, settlement from verified results only (RESTITUTE_ODDS by default), calibration fitting on settled outcomes (PENDING until an administrator approves), the point-in-time backtester whose reports are flagged simulation, the drift monitor that publishes SPORTS_MODEL_DRIFT, and measured performance analytics. The sports cron (row 19) runs the nine scheduled jobs — syncs, quality, the daily ticket, the settlement sweep, performance snapshots, monitoring, retention cleanup — from the CLI under window locks, never from an HTTP route. Nothing is executed, no stake is sized, and no stored result is trusted before a person attests to it. Not ported: stake sizing and the two sports console screens — F-29, narrowed by Phase 27 to the sports and lottery consoles, which are the only screens still missing. Nineteen sports.view reads, two sports.manage reads, ten sports.manage writes (sync, configuration patch, evaluate, calibration fit/approve/reject, daily ticket run, backtest run, drift run, stuck-run recovery), one sports.approve write (ticket decision) and two sports.settle writes (result verification, ticket settlement)", state: "partial", tests: "unit + php-parity + http + store" },
   // Row 15, slice 1: the lottery foundation — the provider boundary (official feed
   // offline until an explicit, https-only, license-carrying configuration; the sandbox
   // double-gated and labelled; a default host has NO provider), the rules engine,
@@ -113,9 +120,9 @@ export const MODULE_STATUS = Object.freeze([
   // DISCLAIMER; no "due" concept), and audited provider health. PHP-parity proven by
   // differential test (rules, validator, statistics, the PRNG and the sandbox draws).
   // Still `partial`: combination intelligence, tickets, backtests, model versions,
-  // the console screens are F-29, and the not-ported
+  // the two console screens are what F-29 still names, and the not-ported
   // matrix travels in /lottery/status.
-  { key: "lottery", label: "Lottery intelligence, foundation + combinations + tickets + backtests + the cron (row 15, slices 1–5): provider-neutral draw contracts, the rules engine (EuroMillions as data), draw validation before storage (a failed draw is never inserted), idempotent ingestion that never overwrites a VERIFIED draw, derived provider health from stored observations and audited explicit probes, and the statistics engine (frequency, gaps, hot/cold, distribution, pairs) whose every output carries the independence DISCLAIMER — EuroMillions is a random lottery and nothing here predicts. The official provider is offline until an explicit, https-only, license-carrying configuration; the sandbox is double-gated and labelled; a default host has no provider and fabricates nothing. Slice 2 landed the combination engines (analyzer, five-mode generator, diversification, system builder) with their persistence (migration 017); slice 3 landed saved tickets — user-scoped records of number lines, never purchases — with owner-only checking against stored VERIFIED draws and official prize-tier LABELS only, never an amount (migration 018); slice 4 landed the measured half — the no-look-ahead Strategy Lab (four seeded strategies, the mandatory RANDOM_BASELINE), persisted HISTORICAL SIMULATION reports with cost/winnings honestly NULL, model versions ensured once and never replaced, and the performance overview whose ACTUAL/HISTORICAL/DEMO sections are never mixed (migration 019); slice 5 landed the lottery cron (tools/lottery-jobs.mjs, npm run lottery:jobs) — CLI-only like every scheduled job on this platform, no HTTP route — seven execution-key-idempotent jobs (sync, health, the data-integrity sweep, the systems consumer that finally drains the queued background builds, auto post-draw ticket checking, one backtest per strategy per day, and the 90/30-day retention sweep). The console screens are not ported (F-29, platform-wide). Nineteen lottery.view reads, eight lottery.view POSTs (records and analysis, not managed ingestion), one authenticated status read and three lottery.manage writes (probe, sync, system-build)", state: "partial", tests: "unit + php-parity + http + store" },
+  { key: "lottery", label: "Lottery intelligence, foundation + combinations + tickets + backtests + the cron (row 15, slices 1–5): provider-neutral draw contracts, the rules engine (EuroMillions as data), draw validation before storage (a failed draw is never inserted), idempotent ingestion that never overwrites a VERIFIED draw, derived provider health from stored observations and audited explicit probes, and the statistics engine (frequency, gaps, hot/cold, distribution, pairs) whose every output carries the independence DISCLAIMER — EuroMillions is a random lottery and nothing here predicts. The official provider is offline until an explicit, https-only, license-carrying configuration; the sandbox is double-gated and labelled; a default host has no provider and fabricates nothing. Slice 2 landed the combination engines (analyzer, five-mode generator, diversification, system builder) with their persistence (migration 017); slice 3 landed saved tickets — user-scoped records of number lines, never purchases — with owner-only checking against stored VERIFIED draws and official prize-tier LABELS only, never an amount (migration 018); slice 4 landed the measured half — the no-look-ahead Strategy Lab (four seeded strategies, the mandatory RANDOM_BASELINE), persisted HISTORICAL SIMULATION reports with cost/winnings honestly NULL, model versions ensured once and never replaced, and the performance overview whose ACTUAL/HISTORICAL/DEMO sections are never mixed (migration 019); slice 5 landed the lottery cron (tools/lottery-jobs.mjs, npm run lottery:jobs) — CLI-only like every scheduled job on this platform, no HTTP route — seven execution-key-idempotent jobs (sync, health, the data-integrity sweep, the systems consumer that finally drains the queued background builds, auto post-draw ticket checking, one backtest per strategy per day, and the 90/30-day retention sweep). The two lottery console screens are not ported — F-29, narrowed by Phase 27 to the sports and lottery consoles because the notification inbox, audit browser and portfolio optimizer screens exist. Nineteen lottery.view reads, eight lottery.view POSTs (records and analysis, not managed ingestion), one authenticated status read and three lottery.manage writes (probe, sync, system-build)", state: "partial", tests: "unit + php-parity + http + store" },
   { key: "languageLearning", label: "Language learning and AI teacher", state: "not-ported", tests: null },
   { key: "leadDiscovery", label: "Lead discovery", state: "not-ported", tests: null },
 ]);

@@ -107,4 +107,12 @@ export const endpoints = {
   adminSetUserStatus: (userId, payload) => api(`/api/v1/admin/users/${userId}/status`, { method: "PATCH", body: payload }),
   adminRoles: () => api("/api/v1/admin/roles"),
   adminInquiries: (query = "") => api(`/api/v1/admin/inquiries${query}`),
+  // Console screens (Phase 27). Each of these binds to a route that already
+  // existed and was tested before the screen did — the screens add no surface,
+  // and none of them can reach one that is not listed in `GET /api/v1/system/routes`.
+  notifications: (query = "") => api(`/api/v1/notifications${query}`),
+  markNotificationRead: (notificationId) => api(`/api/v1/notifications/${notificationId}/read`, { method: "POST", body: {} }),
+  markAllNotificationsRead: () => api("/api/v1/notifications/read-all", { method: "POST", body: {} }),
+  audit: (query = "") => api(`/api/v1/admin/audit${query}`),
+  optimizePortfolio: (payload) => api("/api/v1/portfolio/optimize", { method: "POST", body: payload }),
 };

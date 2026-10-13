@@ -127,8 +127,11 @@ export function WorkspaceNav({ permissions, current }) {
   const entries = [
     { to: "/app/", label: "Overview", permission: null },
     { to: "/app/account", label: "Account", permission: null },
+    { to: "/app/notifications", label: "Notifications", permission: null },
+    { to: "/app/portfolio/optimizer", label: "Portfolio optimizer", permission: "trading.view" },
     { to: "/app/status", label: "Platform status", permission: null },
     { to: "/app/admin/users", label: "Users", permission: "identity.users.view" },
+    { to: "/app/admin/audit", label: "Audit trail", permission: "identity.users.view" },
     { to: "/app/admin/inquiries", label: "Contact messages", permission: "system.super_admin" },
   ];
   return (
@@ -152,47 +155,81 @@ export function WorkspaceNav({ permissions, current }) {
 }
 
 /**
- * Port status per module, stated precisely enough to act on.
+ * Descriptions for the module ledger. The *state* is never declared here — it is
+ * read from `GET /api/v1/system/status`, which serves the server's own
+ * `MODULE_STATUS`, so this screen cannot claim a module is unported after it has
+ * been ported, or ported while its API is absent.
  *
- * Three states, because two are not enough and the difference matters:
+ * That is not hypothetical: this list used to hardcode "Not yet ported to Node"
+ * for sports and lottery, which stopped being true when Phases 19–25 ported them,
+ * and it hardcoded "API ported · no console" for every other module, which stopped
+ * being true with the Phase 27 screens below. `to` names the screen when one
+ * exists; `null` means the module is reachable only through the API, and the card
+ * says exactly that instead of leaving the operator to guess.
  *
- *  - `live`  — has a workspace screen you can use here.
- *  - `api`   — the module's endpoints exist, are tested and are served, but there
- *              is no console for them yet. Usable with an API client; not clickable
- *              in this UI.
- *  - `planned` — not ported at all.
- *
- * This used to be a two-state list that labelled market intelligence "Not yet
- * ported to Node". That stopped being true when Phase 5 ported the analysis
- * engine, and it stayed on screen through Phase 6 — an understatement that would
- * have someone re-port a finished module. The opposite error is just as bad:
- * calling an API-only module "ported" implies an operator can use it here, and
- * they cannot. No module console exists yet for ANY ported module, which is
- * recorded as finding F-29 in docs/migration/PHASE6_STRATEGIES.md rather than
- * papered over by a vaguer label.
+ * `test/console_screens.test.js` asserts that every module key the server reports
+ * has a card here, so a newly ported module appears with its own state and is
+ * never silently missing from this grid.
  */
+const MODULE_CARDS = {
+  identity: { title: "Account & access", text: "Accounts, sessions, permissions and the audited activity of each.", to: "/app/account" },
+  audit: { title: "Audit trail", text: "The whole platform trail, filterable by actor, action and window. Read-only by construction.", to: "/app/admin/audit" },
+  notifications: { title: "Notifications", text: "Operator alerts, stored and read in-product. No outbound delivery channel exists.", to: "/app/notifications" },
+  portfolioOptimizer: { title: "Portfolio optimizer", text: "Research-only mean-variance weights with per-asset provenance. Places no trades.", to: "/app/portfolio/optimizer" },
+  marketData: { title: "Market intelligence", text: "Provider chain with health, provenance and honest synthetic labelling.", to: null },
+  analysis: { title: "Analysis engines", text: "Indicators, regime detection, the agent panel, consensus and debate. Proposals only.", to: null },
+  strategies: { title: "Strategy Lab", text: "Backtesting, walk-forward optimization and the evidence-gated lifecycle.", to: null },
+  paperTrading: { title: "Paper trading", text: "Simulation accounts, orders, fills and strategy deployments.", to: null },
+  risk: { title: "Risk center", text: "Persisted limits, the kill switch and the paper-portfolio risk monitor.", to: null },
+  execution: { title: "Execution governance", text: "Human-reviewed paper proposals with fail-closed governance evidence.", to: null },
+  brokers: { title: "Broker center", text: "The connector boundary and its demo-only gates. No adapter is verified against its provider.", to: null },
+  sports: { title: "Sports intelligence", text: "Fixtures, odds, predictions, tickets and the measured half. Nothing is staked.", to: null },
+  lottery: { title: "Lottery intelligence", text: "Draws, statistics, tickets and the Strategy Lab. EuroMillions is random and nothing here predicts it.", to: null },
+  scheduledJobs: { title: "Scheduled jobs", text: "CLI-only cron: the risk sweep, proposal expiry and broker transitions, under a database lock.", to: null },
+  publicSite: { title: "Public site", text: "Marketing pages, SEO documents, the PWA shell and contact intake.", to: null },
+  languageLearning: { title: "Language learning", text: "Lessons, practice and learner progress. The PHP application is still the only source.", to: null },
+  leadDiscovery: { title: "Lead discovery", text: "Organization-aware discovery and pipeline tools. The PHP application is still the only source.", to: null },
+};
+
+const STATE_LABEL = {
+  ported: { text: "ported", className: "live-label" },
+  partial: { text: "partial", className: "partial-label" },
+  "not-ported": { text: "not ported", className: "planned-label" },
+};
+
 export function ModuleCards() {
-  const moduleCards = [
-    { number: "01", title: "Market intelligence", text: "Multi-agent analysis, consensus, regime detection and a risk-reviewed proposal.", status: "API ported · no console", tone: "api", foot: "PHASE 5 · /api/v1/analysis" },
-    { number: "02", title: "Strategy Lab", text: "Backtesting, walk-forward optimization, evidence-gated lifecycle and confidence calibration.", status: "API ported · no console", tone: "api", foot: "PHASE 6 · /api/v1/strategies" },
-    { number: "03", title: "Sports research", text: "Evidence, data quality and publication review.", status: "Not yet ported to Node", tone: "planned", foot: "MIGRATION BACKLOG" },
-    { number: "04", title: "Lottery tools", text: "Historical statistics and ticket utilities.", status: "Not yet ported to Node", tone: "planned", foot: "MIGRATION BACKLOG" },
-    { number: "05", title: "Language learning", text: "Lessons, practice and learner progress.", status: "Not yet ported to Node", tone: "planned", foot: "MIGRATION BACKLOG" },
-    { number: "06", title: "Lead discovery", text: "Organization-aware discovery and pipeline tools.", status: "Not yet ported to Node", tone: "planned", foot: "MIGRATION BACKLOG" },
-    { number: "07", title: "Account & access", text: "Identity, permissions and audited activity.", status: "Foundation slice", tone: "live", foot: "ACTIVE FOUNDATION" },
-  ];
-  const labelClass = { live: "live-label", api: "api-label", planned: "planned-label" };
+  const status = useResource(() => endpoints.status(), []);
+  const modules = status.data?.modules || [];
+
   return (
-    <div className="workspace-grid">
-      {moduleCards.map((module) => (
-        <article className="workspace-card" key={module.number}>
-          <div className="workspace-card-top"><span>{module.number}</span><span className={labelClass[module.tone]}>{module.status}</span></div>
-          <h3>{module.title}</h3>
-          <p>{module.text}</p>
-          <div className="workspace-card-bottom"><span>{module.foot}</span><span aria-hidden="true">↗</span></div>
-        </article>
-      ))}
-    </div>
+    <StateBox status={status.status} error={status.error} retry={status.retry} label="Loading the module ledger"
+      empty={<p className="empty">The server returned no module ledger. Nothing is listed here rather than guessed at.</p>}>
+      <p className="field-hint">
+        State comes from the server's module ledger (<code>GET /api/v1/system/status</code>). This shell keeps no copy of
+        it, so a module cannot look finished here after the ledger says otherwise. A card with no screen is reachable
+        through the API only, and says so.
+      </p>
+      <div className="workspace-grid">
+        {modules.map((module, index) => {
+          const card = MODULE_CARDS[module.key] || { title: module.key, text: "This shell declares no description for this module.", to: null };
+          const state = STATE_LABEL[module.state] || { text: module.state, className: "planned-label" };
+          return (
+            <article className="workspace-card" key={module.key}>
+              <div className="workspace-card-top">
+                <span>{String(index + 1).padStart(2, "0")}</span>
+                <span className={state.className}>{state.text}</span>
+              </div>
+              <h3>{card.title}</h3>
+              <p>{card.text}</p>
+              <div className="workspace-card-bottom">
+                {card.to ? <Link to={card.to}>Open screen</Link> : <span>API ONLY · NO CONSOLE SCREEN</span>}
+                <span aria-hidden="true">{card.to ? "→" : "·"}</span>
+              </div>
+            </article>
+          );
+        })}
+      </div>
+    </StateBox>
   );
 }
 

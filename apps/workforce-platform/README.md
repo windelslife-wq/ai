@@ -24,16 +24,23 @@ production replacement and no traffic has been cut over.
   flash for the no-script form path. The legacy public chat widget is **not**
   ported, so `publicSite` reports `partial`.
 - **Market data, analysis, the Strategy Lab, paper trading, persisted risk
-  governance, the paper-proposal workflow and operator notifications are ported**;
-  `/api/v1/system/status` states each module's acceptance level individually.
-  Brokers, sports, lottery, language learning and lead discovery remain
-  legacy-only, and the status surface says so rather than implying coverage.
+  governance, the paper-proposal workflow, operator notifications, the audit
+  browser, portfolio optimization, the scheduled operations cron, the broker
+  connector boundary, sports and lottery intelligence are ported**;
+  `/api/v1/system/status` states each module's acceptance level individually and
+  never upgrades one: nine modules report `ported`, six `partial` (brokers, sports
+  and lottery among them) and language learning and lead discovery remain
+  legacy-only. This bullet previously called brokers, sports and lottery
+  "legacy-only", which Phases 14–25 made untrue — the status surface was right and
+  this sentence was not.
 - **Operator notifications are ported** (migration `009`, `wf_notifications`): an
   unread-deduped notifier, broadcast plus targeted visibility, the three legacy
   `/api/v1/notifications` endpoints, and publishers for the kill switch, trading-mode
-  changes and the paper-proposal lifecycle. Alerts are stored and read in-product
-  only — there is **no** mail, push or webhook delivery channel, and no HTTP route
-  can publish one. See [`docs/migration/PHASE9_NOTIFICATIONS.md`](../../docs/migration/PHASE9_NOTIFICATIONS.md).
+  changes and the paper-proposal lifecycle. Their workspace screen is ported
+  (Phase 27, `/app/notifications`) and states the delivery gap using the server's
+  own `deliveryChannels` value. Alerts are stored and read in-product only — there
+  is **no** mail, push or webhook delivery channel, and no HTTP route can publish
+  one. See [`docs/migration/PHASE9_NOTIFICATIONS.md`](../../docs/migration/PHASE9_NOTIFICATIONS.md).
 - **Research-only portfolio optimization is ported**: `POST /api/v1/portfolio/optimize`
   estimates returns and covariance from history aligned on the timestamps every asset
   shares, then solves minimum-variance and maximum-Sharpe allocations under a
@@ -42,15 +49,19 @@ production replacement and no traffic has been cut over.
   schema refuses `execute`, `amount`, `orderId` and `notional` by name. An
   all-synthetic universe needs an explicit `allowSyntheticData: true` opt-in and is
   then labelled `SIMULATION:`; a **mixed** synthetic/live universe is refused with no
-  override. No console screen and no saved reports yet.
+  override. Its workspace screen is ported (Phase 27, `/app/portfolio/optimizer`):
+  it renders the weights, every asset's provenance and the run's own warnings, and
+  it has no path to an order. No saved reports yet.
   See [`docs/migration/PHASE11_PORTFOLIO_OPTIMIZER.md`](../../docs/migration/PHASE11_PORTFOLIO_OPTIMIZER.md).
 - **The audit browser is ported**: `GET /api/v1/admin/audit` serves the whole trail
   filterable by actor, action prefix, entity and inclusive UTC window, paginated,
   with every event carrying a resolved `actor {userId, username, kind}`. It is
   **read-only** — no route on either adapter can edit, redact or delete an audit
   event — and requires `identity.users.view`, a deliberate tightening of the legacy
-  `api/events`, which any signed-in user could read (divergence AV-1). No console
-  screen and no retention policy yet.
+  `api/events`, which any signed-in user could read (divergence AV-1). Its
+  workspace screen is ported (Phase 27, `/app/admin/audit`) and renders the
+  server's own `mutable: false` plus the filters the server applied. No retention
+  policy yet.
   See [`docs/migration/PHASE10_AUDIT_BROWSER.md`](../../docs/migration/PHASE10_AUDIT_BROWSER.md).
 - Two storage adapters implement one repository contract:
   - `STORAGE_ADAPTER=mysql` (production target) — the MySQL/MariaDB tables created by

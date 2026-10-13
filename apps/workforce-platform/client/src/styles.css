@@ -191,6 +191,23 @@ button:focus-visible, input:focus-visible, a:focus-visible { outline: 2px solid 
 .status-list dt { color: #7f9184; font-size: .6rem; font-weight: 700; letter-spacing: .12em; text-transform: uppercase; }
 .status-list dd { margin: 0; color: #d3ddd1; }
 .status-list code { color: #a9c79a; font-size: .68rem; }
+/* --- console screens (Phase 27): inbox, audit browser, optimizer ------- */
+.badge-critical { border-color: rgba(255, 170, 160, .45); background: rgba(48, 23, 20, .55); color: #ffb3a8; }
+.partial-label { color: #b0a17a; font-size: .52rem; letter-spacing: .04em; }
+.workspace-card-bottom a { color: #8fb8d4; text-decoration: none; }
+.workspace-card-bottom a:hover { color: var(--green); }
+.inbox-summary { display: flex; align-items: center; gap: 1.2rem; margin: .4rem 0 .9rem; color: #8b9a8e; font-size: .68rem; }
+.inbox-summary strong { color: #d6e1d5; font-size: .9rem; }
+.notification-title { color: #dbe5da; font-weight: 600; }
+.detail-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: .3rem .9rem; width: 100%; margin: .35rem 0 0; font-size: .64rem; }
+.detail-grid dt { color: #7b8c80; letter-spacing: .06em; text-transform: uppercase; }
+.detail-grid dd { margin: 0; color: #c3d0c0; word-break: break-word; }
+.json-block { max-height: 320px; margin: .8rem 0 0; padding: .8rem 1rem; overflow: auto; border: 1px solid var(--line); border-radius: 6px; background: rgba(6, 17, 13, .8); color: #c9d6c6; font-size: .66rem; }
+.asset-rows { display: flex; flex-direction: column; gap: .3rem; }
+.asset-row { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr) auto; gap: .8rem; align-items: end; }
+.asset-row .text-button { min-height: 42px; }
+.problem-list { margin: .2rem 0 0; padding-left: 1.1rem; color: #e6d6ab; font-size: .68rem; line-height: 1.7; }
+.weight-chip { display: inline-block; margin: 0 .3rem .2rem 0; padding: .12rem .4rem; border: 1px solid rgba(193, 241, 139, .19); border-radius: 99px; color: #adca9e; font-size: .56rem; }
 @media (max-width: 980px) {
   .workspace-body { grid-template-columns: 1fr; }
   .app-nav { position: static; top: 0; flex-direction: row; flex-wrap: wrap; gap: .4rem; padding: 1rem 1.2rem 0; border-right: 0; border-bottom: 1px solid var(--line); }

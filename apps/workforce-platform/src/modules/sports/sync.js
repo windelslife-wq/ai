@@ -61,7 +61,9 @@ export const FIXTURE_NOT_SYNCED = "fixture is not synchronized for this provider
  * platform's dotted-lowercase vocabulary (`execution.proposal.expired`,
  * `notification.published`) because the audit browser filters on these strings: one
  * event type spelled two ways is two event types to anyone building a filter, and the
- * Phase 10 browser is the only console this platform has (**F-29**). Divergence SP-24.
+ * Phase 10 browser — and, since Phase 27, the audit browser screen at
+ * /app/admin/audit (**F-29** now names only the sports and lottery consoles).
+ * Divergence SP-24.
  */
 export const SYNC_AUDIT_ACTIONS = Object.freeze({
   FIXTURES_COMPLETED: "sports.sync.fixtures.completed",

@@ -4,7 +4,10 @@
 > legacy's `LotteryCronService` (248 lines) ported whole as seven execution-key-idempotent jobs,
 > CLI-only at `tools/lottery-jobs.mjs` (`npm run lottery:jobs`), with **no HTTP route**. It
 > retires row 15's last code gap; the console screens remain not-ported under F-29
-> (platform-wide — no ported module has one). The previous record is
+> (platform-wide — no ported module has one). *(Updated by Phase 27: F-29 is
+> narrowed to the sports and lottery consoles; the notification, audit and
+> portfolio-optimizer screens are ported. See
+> [`PHASE27_CONSOLE_SCREENS.md`](PHASE27_CONSOLE_SCREENS.md).)* The previous record is
 > [`PHASE24_LOTTERY_BACKTESTS.md`](PHASE24_LOTTERY_BACKTESTS.md).
 
 ## 1. What this phase is

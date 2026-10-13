@@ -193,7 +193,9 @@ finished workstream.
 - **No console screen.** `views/portfolio/optimizer.php` and `Portfolio::index` are
   not ported; **F-29 still stands** — no ported module has a workspace console, and
   this phase adds a third API with no screen (after notifications and the audit
-  browser).
+  browser). *(Updated by Phase 27: this screen is ported at
+  `/app/portfolio/optimizer`, and it was the third and last of these three APIs to
+  get one — see [`PHASE27_CONSOLE_SCREENS.md`](PHASE27_CONSOLE_SCREENS.md).)*
 - **No saved reports.** A run is computed and returned, never persisted. There is
   no history endpoint, so a caller cannot read back what the platform told them
   last week — only the audit event records that a run happened, with its objective,

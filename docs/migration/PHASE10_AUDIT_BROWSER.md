@@ -130,7 +130,10 @@ written, rather than the assertions being relaxed to match the code:
 - **No console screen.** `views/admin/index.php` and the legacy admin UI are not
   ported; **F-29 still stands** — no ported module has a workspace console. The SPA
   keeps its existing `/app/account` activity list, which is unaffected: it reads
-  named fields, so the additive `actor` projection does not change it.
+  named fields, so the additive `actor` projection does not change it. *(Updated by
+  Phase 27: the audit browser screen is ported at `/app/admin/audit`, so F-29 now
+  names only the sports and lottery consoles — see
+  [`PHASE27_CONSOLE_SCREENS.md`](PHASE27_CONSOLE_SCREENS.md).)*
 - **No retention policy.** `wf_audit_events` is unbounded and has no delete path.
   That is correct for evidence, but "security-event retention" is listed in row 5
   and remains **undecided** — it needs one policy covering audit, notifications

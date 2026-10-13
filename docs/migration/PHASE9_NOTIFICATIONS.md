@@ -124,7 +124,9 @@ Measured in this sandbox on 2026-10-11, Node v22.22.3:
   `deliveryChannels: []`) and in the `MODULE_STATUS` label.
 - **No UI.** The legacy console (`/notifications`, `views/notifications/index.php`)
   is not ported. That is app-shell work (row 3), and F-29 still stands: no ported
-  module has a workspace console.
+  module has a workspace console. *(Updated by Phase 27: the workspace screen is
+  ported at `/app/notifications`, so F-29 no longer covers this module — see
+  [`PHASE27_CONSOLE_SCREENS.md`](PHASE27_CONSOLE_SCREENS.md).)*
 - **No retention.** `wf_notifications` grows without bound and has no delete path,
   matching the legacy table. This is the same open question as R-27
   (`wf_analysis_runs`) and R-28 (`wf_backtests`) and needs one decision, not three.

@@ -4,7 +4,8 @@
  * Legacy exposed `Api_system::brokers()` returning `{brokers: allStatus()}` and
  * nothing else; the `PLANNED` matrix and the `routable` flag lived only in the
  * console view (`application/controllers/Brokers.php`). Since no ported module has
- * a console screen (**F-29**), both move into this response — otherwise the
+ * a console screen yet (**F-29**: the sports and lottery consoles are what remain
+ * unported), both move into this response — otherwise the
  * distinction between "scaffolded, never verified" and "working" would exist only
  * in a PHP view that nothing renders (divergence BC-10).
  *
