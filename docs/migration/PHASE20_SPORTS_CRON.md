@@ -3,7 +3,9 @@
 > **Status: landed on `arena/653d6218-ai`.** This record covers the `SportsCronService` port — nine
 > scheduled jobs on window locks, CLI-only — and the performance-snapshot writer (migration **015**),
 > the table slice 5's migration deliberately refused to create early. It does **not** cover stake
-> sizing (no slice owns it) or the console screens (F-29, platform-wide). The previous record is
+> sizing (no slice owns it) or the console screens (F-29, platform-wide). *Forward pointer: Phase 28
+> ported both console screens to `/app/sports`; F-29 now names the market-data, analysis and Strategy
+> Lab consoles instead.* The previous record is
 > [`PHASE19_SPORTS_MEASURED_HALF.md`](PHASE19_SPORTS_MEASURED_HALF.md).
 
 ## 1. What this phase is
@@ -238,7 +240,9 @@ keeps it partial is that nothing is executed, no stake is sized, no stored resul
 a person attests to it, and no provider is verified against a vendor. `SPORTS_NOT_PORTED` shrinks
 3 → **2** (stake sizing; the console screens, F-29) — the cron's entry was removed, not re-labelled.
 `scheduledJobs` also names the sports CLI now. **After row 19 the sports module owes only stake
-sizing (which no slice owns) and the console screens (F-29, platform-wide).**
+sizing (which no slice owns) and the console screens (F-29, platform-wide).** *Phase 28 ported the
+console screens\) — so after Phase 28 this sentence reads "only stake sizing"; F-29 still names the
+market-data, analysis and Strategy Lab consoles.*
 
 ## 12. Open items and risks
 

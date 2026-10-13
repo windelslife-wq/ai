@@ -8,7 +8,11 @@ Source of truth: `application/config/routes.php` (285 explicit rules) + CodeIgni
 > legacy inventory. Sections 14.4 and 14.7–14.12 describe the Node API through Phase 11;
 > 75 API routes are implementation inventory, not a PHP-parity claim. Paper
 > trading and approved proposal submission remain simulation-only and owner-scoped.
-> The full supervisor and all live broker/order routes remain unavailable. See
+> The full supervisor and all live broker/order routes remain unavailable.
+> **F-29 in this file is dated:** Phases 27 and 28 added five workspace screens (notifications,
+> audit, optimizer, sports, lottery), so "no ported module has a console screen" no longer holds;
+> the finding stays open for the market-data, analysis and Strategy Lab consoles. The live list is
+> `docs/UNFINISHED_MODULE_INVENTORY.md` and the top of `docs/migration/STATUS.md`. See
 > [`PHASE8_EXECUTION_PROPOSALS.md`](PHASE8_EXECUTION_PROPOSALS.md) for scope and
 > verification limits.
 
@@ -715,5 +719,9 @@ workspace console.
 
 Workspace SPA surfaces declared by the client router: `/app/`, `/app/login`, `/app/register`,
 `/app/account`, `/app/status`, `/app/admin/users` (`identity.users.view`),
-`/app/admin/inquiries` (`system.super_admin`). Undeclared `/app/*` paths render an explicit
-"nothing is served here" view rather than a blank screen.
+`/app/admin/inquiries` (`system.super_admin`), and the five console screens — `/app/notifications`,
+`/app/admin/audit` (`identity.users.view`), `/app/portfolio/optimizer` (`trading.view`),
+`/app/sports` (`sports.view`) and `/app/lottery` (`lottery.view`) — added in Phases 27 and 28.
+Undeclared `/app/*` paths render an explicit "nothing is served here" view rather than a blank
+screen. `test/console_screens.test.js` asserts each of these resolves to a declared route and that
+every endpoint behind it is a served one.

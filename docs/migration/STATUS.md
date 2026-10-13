@@ -1,8 +1,47 @@
 # JavaScript / Node.js / cPanel migration status
 
-**Updated:** 2026-10-13 · **Branch:** `arena/653d6218-ai`
+**Updated:** 2026-10-13 · **Branch:** `arena/ef756273-ai` (Phase 27 landed on `arena/653d6218-ai`)
 
-## Current Phase 27 status (2026-10-13)
+## Current Phase 28 status (2026-10-13)
+
+**F-29 loses its last two tracked halves; the finding stays open.** The sports console
+(`/app/sports`, merging legacy's `Sports::index` and `Sports::tickets`) and the lottery console
+(`/app/lottery`, legacy's `Lottery::index`) now exist, so all five consoles F-29 had been tracking
+are ported. It is **not** closed: its own text names the market-data (Phase 4), analysis (Phase 5)
+and Strategy Lab (Phase 6) consoles, which still have no screen, plus `brokers/index.php`,
+`execution/index.php`, `journal/index.php`, `paper/index.php` + `account.php` and `risk/index.php`
+from the same class of gap. Both module labels say exactly that, and two tests assert they do **not**
+say "closed". No HTTP route, migration, table or contract method was added: the 25 endpoints these
+screens call were already served and tested.
+
+Three rules shaped the screens. **Only legacy's actions have controls**: approve/reject a ticket
+(`sports.approve`), the settlement sweep (`sports.settle`), the lottery provider probe and draw sync
+(`lottery.manage`) and a ticket check (`lottery.view`) — while everything else the modules can do
+(provider configuration, evaluate, calibration fit/approve/reject, the daily ticket run, backtests,
+drift, stuck-run recovery, system builds) is listed with the permission it needs and has **no client
+call at all**. **The server's own facts are rendered verbatim**: the `notPorted` matrices (sports is
+down to stake sizing, lottery's is empty), `isDemoData` / `demoBanner`, the lottery disclaimer, and
+the performance overview's three sections under the server's `label` and `separationNote`. **Nothing
+is recomputed in the browser** — legacy's per-match quality band was a PHP aggregate the Node API
+does not expose, and the console shows the stored columns rather than a second implementation of the
+rule.
+
+`test/console_screens.test.js` grew from three screens to five without growing its test count: each
+entry now names a **gate** endpoint (the lottery console's gate is `lottery/health`, not
+`lottery/status`, because the status read needs only a session exactly as legacy's did) and its
+**elevated controls**, each asserted to be a permission the API really enforces, that differs from
+the gate, and that the screen's source really names.
+
+Version **0.23.0**, unchanged. Gates: `npm test` **981 / 981** across **68** files,
+`npm run verify:install` **30 / 30** (the bundle-existence check runs because `public/app/` is built;
+a git-ignored artefact), `npm run check` exit 0, PHP tree untouched (oracle **367 / 367**). Live
+rehearsal on the file adapter with the Vite dev server: login, every sports and lottery read the
+screens call (including all seven statistics kinds) `200`, the five guarded writes answering domain
+errors (`NOT_FOUND` / `LOTTERY_TICKET_NOT_FOUND`), the probe returning its honest `UNCONFIGURED`
+state and the sync returning `NO_PROVIDER`. **Not run:** a real browser DOM suite, a real MySQL
+server, any official feed, a crontab.
+
+## Phase 27 status (2026-10-13)
 
 **F-29 is narrowed to the sports and lottery consoles.** The three ported APIs that had no screen —
 `GET /api/v1/notifications` (Phase 9), `GET /api/v1/admin/audit` (Phase 10) and

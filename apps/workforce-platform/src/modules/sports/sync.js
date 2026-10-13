@@ -62,7 +62,8 @@ export const FIXTURE_NOT_SYNCED = "fixture is not synchronized for this provider
  * `notification.published`) because the audit browser filters on these strings: one
  * event type spelled two ways is two event types to anyone building a filter, and the
  * Phase 10 browser — and, since Phase 27, the audit browser screen at
- * /app/admin/audit (**F-29** now names only the sports and lottery consoles).
+ * /app/admin/audit (one of the five screens; F-29 still names the market-data,
+ * analysis and Strategy Lab consoles).
  * Divergence SP-24.
  */
 export const SYNC_AUDIT_ACTIONS = Object.freeze({

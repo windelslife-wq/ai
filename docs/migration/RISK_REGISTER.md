@@ -124,13 +124,31 @@ keeping the summary columns, or keeping evidence for any strategy past `BACKTEST
 and pruning only abandoned drafts. Recorded so the table does not grow silently while the
 question is unanswered.
 
-### F-29 — no ported module has a workspace console (open)
+### F-29 — no ported module has a workspace console (open; narrowed by Phases 27 and 28)
 
-The SPA ships identity, account, admin and status views and **nothing else**. Market data
-(Phase 4, 3 routes), analysis (Phase 5, 5 routes) and now the Strategy Lab (Phase 6, 11
-routes) are all reachable only with an API client. The legacy served each as a rendered page;
-`views/strategy/index.php` alone is 8 466 bytes of operator UI with forms for backtest,
-optimize and advance, and its four document routes remain unported.
+**Update, Phases 27–28.** The universal form of this finding is now false: five ported modules
+have workspace screens — the notification inbox (`/app/notifications`), the audit browser
+(`/app/admin/audit`), the portfolio optimizer (`/app/portfolio/optimizer`), the sports console
+(`/app/sports`) and the lottery console (`/app/lottery`). The finding is **not closed**, because
+consoles it names below still do not exist:
+
+- **Market data** (Phase 4, 3 routes) and **analysis** (Phase 5, 5 routes) remain reachable only
+  with an API client.
+- **Strategy Lab** (Phase 6, 11 routes) — `views/strategy/index.php` alone is 8 466 bytes of
+  operator UI with forms for backtest, optimize and advance, and its four document routes remain
+  unported.
+- Same class of gap, not previously listed here: `brokers/index.php`, `execution/index.php`,
+  `journal/index.php`, `paper/index.php` + `account.php` and `risk/index.php` have no Node screen.
+  (Of these, `brokers` and `execution` are `partial` modules whose remaining scope is broker-bound.)
+
+A phase that ported the rest and wrote "F-29 closed" would be making the same kind of claim this
+register exists to catch. Records:
+[`PHASE27_CONSOLE_SCREENS.md`](PHASE27_CONSOLE_SCREENS.md),
+[`PHASE28_SPORTS_LOTTERY_CONSOLES.md`](PHASE28_SPORTS_LOTTERY_CONSOLES.md).
+
+The SPA shipped identity, account, admin and status views and **nothing else**. Market data
+(Phase 4, 3 routes), analysis (Phase 5, 5 routes) and the Strategy Lab (Phase 6, 11
+routes) were all reachable only with an API client.
 
 Compounding it, `ModuleCards` labelled market intelligence *"Not yet ported to Node"* — false
 since Phase 5, and still on screen through Phase 6. Corrected in `a2bef0f` with a three-state
@@ -142,7 +160,9 @@ here, which they cannot. The middle state is styled blue rather than the green u
 The label fix makes the gap visible instead of hiding it behind a claim that happens to be
 false in the other direction. Building the consoles is a separate, larger piece of work; if a
 future phase adds one it should establish the pattern for all three modules rather than for
-itself alone.
+itself alone. *It did:* Phases 27 and 28 added five screens through one shared shell, one
+`api.js`, one `contracts.js` and one ledger test (`test/console_screens.test.js`), which is why
+the last two cost far less than the first three.
 
 ### F-30 — `maxCorrelatedPositions` is a declared risk limit with no enforcement (open)
 

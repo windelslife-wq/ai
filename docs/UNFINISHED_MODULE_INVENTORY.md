@@ -3,10 +3,12 @@
 **Derived:** 2026-10-13, from a read-only scan of the tree (app version
 `@windels/workforce-platform@0.23.0`).
 
-**Updated after Phase 27** (the console screens): three items below moved — the
-notification inbox, the audit browser and the portfolio optimizer gained workspace
-screens, so finding **F-29** no longer covers the platform and now names only the
-sports and lottery consoles. See
+**Updated after Phase 28** (the sports and lottery consoles): the last two tracked
+items moved — `/app/sports` and `/app/lottery` now exist, removing F-29's sports and
+lottery halves. **F-29 itself stays open**: its own text names the market-data,
+analysis and Strategy Lab consoles, which still have no screen. See
+[`migration/PHASE28_SPORTS_LOTTERY_CONSOLES.md`](migration/PHASE28_SPORTS_LOTTERY_CONSOLES.md);
+the Phase 27 record is
 [`migration/PHASE27_CONSOLE_SCREENS.md`](migration/PHASE27_CONSOLE_SCREENS.md).
 
 **Sources of truth for this list (nothing here is invented):**
@@ -70,8 +72,8 @@ What the platform itself reports. **9 ported / 6 partial / 2 not-ported.**
 - **execution** — Human-reviewed paper proposals, fail-closed governance (no live route, no automated mode)
 - **scheduledJobs** — Scheduled operations cron (CLI only, no HTTP route, no early-warning tiers)
 - **brokers** — Broker connector boundary, normalized data contracts, demo-only gates (ten adapters, all disabled; no order routing; no adapter verified)
-- **sports** — Sports foundation → decision chain → tickets → measured half; **stake sizing and console screens not ported**
-- **lottery** — Lottery foundation → combinations → tickets → backtests → cron; **console screens not ported**
+- **sports** — Sports foundation → decision chain → tickets → measured half, **with its console screen**; **stake sizing not ported** (its whole remainder)
+- **lottery** — Lottery foundation → combinations → tickets → backtests → cron, **with its console screen**; **nothing left on its not-ported matrix**
 
 ### 2c. `ported` (9) — accepted, but each with a stated open gap
 
@@ -89,26 +91,30 @@ What the platform itself reports. **9 ported / 6 partial / 2 not-ported.**
 
 ## 3. Named sub-areas explicitly declared "not ported"
 
-### `SPORTS_NOT_PORTED` (2)
+### `SPORTS_NOT_PORTED` (1)
 
-1. **Stake sizing** — no stake is sized from bankroll or edge; the configured fixed `stake_amount` is recorded, as legacy does.
-2. **Console screens** — `Sports::index`, `Sports::tickets` (`views/sports/*.php`).
+1. **Stake sizing** — no stake is sized from bankroll or edge; the configured fixed `stake_amount` is recorded, as legacy does. This is the matrix's whole remainder since Phase 28.
 
-### `LOTTERY_NOT_PORTED` (1)
+### `LOTTERY_NOT_PORTED` (0)
 
-1. **Console screens** — `Lottery::index` (`views/lottery/*.php`).
+Empty — asserted empty by `test/lottery_http.test.js`: every area the matrix named has been ported.
 
-### Finding F-29 (narrowed by Phase 27)
+### Finding F-29 — narrowed twice, still open (Phases 27 and 28)
 
-**F-29 no longer covers the platform.** Its three unscreened APIs now have screens:
+**F-29 removed five items; it is not closed.** Each of these now has a workspace screen:
 
 - ~~Notification inbox (`GET /api/v1/notifications`)~~ → `/app/notifications`
 - ~~Audit browser (`GET /api/v1/admin/audit`)~~ → `/app/admin/audit`
 - ~~Portfolio optimizer (`views/portfolio/optimizer.php`)~~ → `/app/portfolio/optimizer`
+- ~~Sports consoles (`Sports::index`, `Sports::tickets`)~~ → `/app/sports`
+- ~~Lottery console (`Lottery::index`)~~ → `/app/lottery`
 
-**What F-29 still names:** the two sports consoles (`Sports::index`,
-`Sports::tickets`) and the lottery console (`Lottery::index`). Settings screens and
-the per-domain dashboards were never F-29 items and are still absent.
+**What F-29 still names:** the market-data (Phase 4), analysis (Phase 5) and Strategy
+Lab (Phase 6) consoles — all three APIs are ported and none has a screen — plus,
+from the same class of gap, the unported legacy consoles `brokers/index.php`,
+`execution/index.php`, `journal/index.php`, `paper/index.php` + `account.php` and
+`risk/index.php`. Settings screens and the per-domain dashboards are row 3's
+remainder; the three consoles above are F-29's.
 
 ---
 
@@ -160,7 +166,7 @@ These are code-complete but not yet proven, so they are not "done":
 - **Scheduled live-provider probe (F-25)** and **multi-process health store (F-24)**.
 - **Retention policy** — undecided and shared across audit, notifications, `wf_analysis_runs` (R-27), `wf_backtests` (R-28).
 - **Settings screens + permissions** — the last of row 5, alongside the module cards' former audience.
-- **Sports and lottery console screens** — F-29's whole remainder after Phase 27.
+- ~~Sports and lottery console screens~~ — ported in Phase 28; F-29 loses its sports and lottery halves and now names the market-data, analysis and Strategy Lab consoles.
 - **Executable top-level artefacts:** bundled `application-deployment.zip` has drifted from the tree and must not be deployed until rebuilt (release action).
 
 ---
@@ -171,10 +177,10 @@ These are code-complete but not yet proven, so they are not "done":
 |---|---:|
 | Node port backlog rows named | 23 |
 | Node modules `not-ported` | 2 |
-| Node modules `partial` (the three screen-less APIs are now screened) | 6 |
+| Node modules `partial` (five of them now carry their console screen) | 6 |
 | Node modules `ported` (with a stated open gap) | 9 |
-| Sports sub-areas not ported | 2 |
-| Lottery sub-areas not ported | 1 |
+| Sports sub-areas not ported | 1 (stake sizing) |
+| Lottery sub-areas not ported | 0 (empty matrix) |
 | PHP `PLANNED` feature-matrix entries | 3 |
 | PHP `PLANNED` broker connector scaffolds | 9 |
 | PHP provider/sentiment/fundamentals abstention boundaries | 4 |

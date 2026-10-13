@@ -49,8 +49,30 @@ export const MAX_ASSETS = 12;
 export const MIN_CANDLE_LIMIT = 31;
 export const MAX_CANDLE_LIMIT = 2000;
 
-/** The portfolio route requires `trading.view`; the audit route `identity.users.view`. */
+/** `src/modules/sports/routes.js` → `MATCHES_QUERY`, `TICKETS_QUERY`, `SYNC_RUNS_QUERY`, `CALIBRATIONS_QUERY`. */
+export const SPORTS_MATCH_STATUSES = Object.freeze(["SCHEDULED", "LIVE", "FINISHED", "POSTPONED", "CANCELLED", "SUSPENDED"]);
+export const SPORTS_TICKET_APPROVALS = Object.freeze(["PENDING_USER_APPROVAL", "APPROVED_NOT_EXECUTED", "REJECTED"]);
+export const SPORTS_JOB_TYPES = Object.freeze(["FIXTURES", "ODDS", "RESULTS"]);
+export const SPORTS_CALIBRATION_STATUSES = Object.freeze(["PENDING", "APPROVED", "REJECTED"]);
+
+/** `src/modules/lottery/routes.js` → `STATISTICS_PARAMS`. */
+export const LOTTERY_STATISTICS_KINDS = Object.freeze([
+  "numbers", "stars", "hot-cold", "distribution", "pairs", "triplets", "star-pairs",
+]);
+
+/**
+ * The permission each workspace screen is gated on, and the elevated permissions
+ * the sports and lottery consoles use for their own controls. The console test
+ * asserts each of these is the permission the matching endpoint enforces, and
+ * that the screen references it before rendering the control.
+ */
 export const SCREEN_PERMISSIONS = Object.freeze({
   audit: "identity.users.view",
   portfolioOptimizer: "trading.view",
+  notifications: "system.authenticated",
+  sports: "sports.view",
+  lottery: "lottery.view",
+  sportsApprove: "sports.approve",
+  sportsSettle: "sports.settle",
+  lotteryManage: "lottery.manage",
 });

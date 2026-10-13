@@ -20,6 +20,7 @@ import {
   NotFoundView, RegisterPanel, StatusPill, StatusView, WorkspaceNav,
 } from "./views.jsx";
 import { AuditBrowserView, NotificationsView, PortfolioOptimizerView } from "./screens.jsx";
+import { LotteryConsoleView, SportsConsoleView } from "./consoles.jsx";
 
 const NATIVE_BUILD = __NATIVE_BUILD__;
 
@@ -32,6 +33,8 @@ const ROUTES = [
   { path: "/app", view: "workspace", requiresAuth: true },
   { path: "/app/account", view: "account", requiresAuth: true },
   { path: "/app/notifications", view: "notifications", requiresAuth: true },
+  { path: "/app/sports", view: "sports", requiresAuth: true, permission: "sports.view" },
+  { path: "/app/lottery", view: "lottery", requiresAuth: true, permission: "lottery.view" },
   { path: "/app/portfolio/optimizer", view: "portfolio-optimizer", requiresAuth: true, permission: "trading.view" },
   { path: "/app/status", view: "status" },
   { path: "/app/admin/users", view: "admin-users", requiresAuth: true, permission: "identity.users.view" },
@@ -364,6 +367,8 @@ function SessionApp() {
       "admin-users": <AdminUsersView permissions={permissions} />,
       audit: <AuditBrowserView />,
       notifications: <NotificationsView />,
+      sports: <SportsConsoleView permissions={permissions} />,
+      lottery: <LotteryConsoleView permissions={permissions} />,
       "portfolio-optimizer": <PortfolioOptimizerView />,
       inquiries: <InquiriesView />,
     }[route.view]

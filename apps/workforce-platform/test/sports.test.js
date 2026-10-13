@@ -588,18 +588,17 @@ test("the not-ported matrix names every slice row 14 still owes", async () => {
   const service = createSportsService({ config: sportsConfig(), now: () => NOW });
   const report = await service.status();
   assert.equal(report.notPorted, SPORTS_NOT_PORTED);
-  // Two, down from six at slice 4's end. Slice 5 removed settlement and verification,
-  // calibration fitting, backtesting, model monitoring and performance analytics, and
-  // row 19 removed the sports cron, which all now exist. What remains is what no slice
-  // owns: stake sizing and the two sports console screens (F-29, narrowed by
-  // Phase 27 to the sports and lottery consoles). Asserting the
-  // count moved DOWN is the point: a matrix that only ever grows is a matrix nobody
-  // checks for entries that are no longer true.
-  assert.equal(SPORTS_NOT_PORTED.length, 2);
+  // One, down from six at slice 4's end. Slice 5 removed settlement and verification,
+  // calibration fitting, backtesting, model monitoring and performance analytics, row 19
+  // removed the sports cron, and Phase 28 removed the console screens by porting them to
+  // /app/sports. What remains is what no slice owns: stake sizing. Asserting the count
+  // moved DOWN is the point: a matrix that only ever grows is a matrix nobody checks for
+  // entries that are no longer true — and "console screens" leaving it is the assertion
+  // that the screen really exists.
+  assert.equal(SPORTS_NOT_PORTED.length, 1);
   const areas = SPORTS_NOT_PORTED.map((entry) => entry.area).join(" | ");
-  for (const expected of ["stake sizing", "console screens"]) {
-    assert.match(areas, new RegExp(expected, "i"), `the matrix must name ${expected}`);
-  }
+  assert.match(areas, /stake sizing/i, "the matrix must still name stake sizing");
+  assert.ok(!/console screens/i.test(areas), "Phase 28 ported Sports::index and Sports::tickets to /app/sports, so the entry was removed, not re-labelled");
   for (const entry of SPORTS_NOT_PORTED) {
     assert.ok(entry.legacy && entry.state && entry.detail, `${entry.area} must name its legacy class and its state`);
     assert.notEqual(entry.state, "ported", "this matrix lists what is NOT ported");

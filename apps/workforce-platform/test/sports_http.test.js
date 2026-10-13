@@ -93,13 +93,13 @@ test("a default host configures no provider, fabricates nothing, and lists what 
   assert.equal(body.message, "No sports provider is configured. No fixtures, odds, predictions, or tickets are fabricated.");
   assert.match(body.notice, /nothing is fabricated/i);
 
-  // The honesty matrix travels in the response because the sports console screens
-  // are not ported (F-29, narrowed by Phase 27 to the sports and lottery consoles)
-  // — the same decision as BC-10 in the broker port.
+  // The honesty matrix travels in the response: it used to carry the unported console
+  // screens (the same decision as BC-10 in the broker port), and Phase 28 ported them
+  // to /app/sports, so the matrix is down to stake sizing alone.
   // Slice 5 empties the matrix down to three: settlement, verification, calibration
   // fitting, backtesting, drift monitoring and performance analytics all exist now,
   // and left the matrix rather than being re-labelled.
-  assert.equal(body.notPorted.length, 2, "slice 5 removed settlement, calibration fitting, backtesting, drift and analytics; row 19 removed the cron; what remains is sizing and the consoles");
+  assert.equal(body.notPorted.length, 1, "slice 5 removed settlement, calibration fitting, backtesting, drift and analytics; row 19 removed the cron; Phase 28 removed the consoles by porting them, so stake sizing is what remains");
   for (const entry of body.notPorted) {
     assert.ok(entry.area && entry.legacy && entry.state && entry.detail, JSON.stringify(entry));
     assert.notEqual(entry.state, "ported");
@@ -268,8 +268,10 @@ test("the public status surface reports sports from configuration and contacts n
   const sports = body.modules.find((module) => module.key === "sports");
   assert.equal(sports.state, "partial");
   assert.match(sports.label, /no stored result is trusted before a person attests/i);
-  assert.match(sports.label, /not ported: stake sizing and the two sports console screens/i);
-  assert.match(sports.label, /f-29, narrowed by phase 27 to the sports and lottery consoles/i);
+  assert.match(sports.label, /not ported: stake sizing, and it is the module's whole remainder/i);
+  assert.match(sports.label, /the sports console screens .* landed in phase 28 at \/app\/sports/i);
+  assert.match(sports.label, /removing f-29's sports half/i);
+  assert.ok(!/console screens are not ported/i.test(sports.label), "the screens exist since Phase 28");
   assert.ok(!/no persistence/i.test(sports.label), "persistence exists now; a stale label reads as current documentation");
   assert.equal(body.modules.length, 17);
 });

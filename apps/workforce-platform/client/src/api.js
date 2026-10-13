@@ -115,4 +115,35 @@ export const endpoints = {
   markAllNotificationsRead: () => api("/api/v1/notifications/read-all", { method: "POST", body: {} }),
   audit: (query = "") => api(`/api/v1/admin/audit${query}`),
   optimizePortfolio: (payload) => api("/api/v1/portfolio/optimize", { method: "POST", body: payload }),
+  // Sports console (Phase 28). The reads are all `sports.view`; the two writes are
+  // the human-in-the-loop controls legacy's console carried, under their own
+  // permissions. No other sports mutation has a client call at all.
+  sportsStatus: (query = "") => api(`/api/v1/sports/status${query}`),
+  sportsProviders: (query = "") => api(`/api/v1/sports/providers${query}`),
+  sportsSyncRuns: (query = "") => api(`/api/v1/sports/sync-runs${query}`),
+  sportsMatches: (query = "") => api(`/api/v1/sports/matches${query}`),
+  sportsPredictions: (query = "") => api(`/api/v1/sports/predictions${query}`),
+  sportsTickets: (query = "") => api(`/api/v1/sports/tickets${query}`),
+  sportsDailyTickets: (query = "") => api(`/api/v1/sports/daily-tickets${query}`),
+  sportsPerformance: (query = "") => api(`/api/v1/sports/performance${query}`),
+  sportsModels: () => api("/api/v1/sports/models"),
+  sportsCalibrations: (query = "") => api(`/api/v1/sports/calibrations${query}`),
+  sportsDecideTicket: (ticketId, payload) => api(`/api/v1/sports/tickets/${ticketId}/decision`, { method: "POST", body: payload }),
+  sportsSettleTicket: (ticketId, payload) => api(`/api/v1/sports/tickets/${ticketId}/settle`, { method: "POST", body: payload }),
+  // Lottery console (Phase 28). `status` needs only a session, as legacy's did; the
+  // reads need `lottery.view`, the probe and sync need `lottery.manage`, and the
+  // ticket check is a `lottery.view` POST (a record read, not managed ingestion).
+  lotteryStatus: () => api("/api/v1/lottery/status"),
+  lotteryHealth: () => api("/api/v1/lottery/health"),
+  lotteryProviders: () => api("/api/v1/lottery/providers"),
+  lotteryDraws: (query = "") => api(`/api/v1/lottery/draws${query}`),
+  lotteryStatistics: (kind, query = "") => api(`/api/v1/lottery/statistics/${kind}${query}`),
+  lotteryDecisions: (query = "") => api(`/api/v1/lottery/ai-decisions${query}`),
+  lotteryTickets: (query = "") => api(`/api/v1/lottery/tickets${query}`),
+  lotteryPerformance: () => api("/api/v1/lottery/performance"),
+  lotteryModels: () => api("/api/v1/lottery/models"),
+  lotteryJobs: (query = "") => api(`/api/v1/lottery/jobs${query}`),
+  lotteryCheckTicket: (ticketId) => api(`/api/v1/lottery/tickets/${ticketId}/check`, { method: "POST", body: {} }),
+  lotteryProbe: () => api("/api/v1/lottery/providers/check", { method: "POST", body: {} }),
+  lotterySync: (payload = {}) => api("/api/v1/lottery/sync", { method: "POST", body: payload }),
 };

@@ -1,10 +1,12 @@
 /**
- * The console screens (Phase 27, row 3 of `docs/migration/UNFINISHED_MODULES.md`).
+ * The console screens (Phases 27 and 28, row 3 of `docs/migration/UNFINISHED_MODULES.md`).
  *
  * Finding **F-29** said no ported module had a console screen. Phase 27 built the
  * first three — the notification inbox, the audit browser and the research-only
- * portfolio optimizer — and this file is the evidence that a screen cannot drift
- * away from the API it claims to render:
+ * portfolio optimizer — and Phase 28 built the last two, the sports and lottery
+ * consoles, removing F-29's last two halves (the finding stays open for the market-data,
+ * analysis and Strategy Lab consoles). This file is the evidence that a screen cannot
+ * drift away from the API it claims to render:
  *
  *  1. **The vocabularies are the server's.** The client's pick-lists (notification
  *     types and severities, audit sorts and directions, market classes,
@@ -66,6 +68,9 @@ const API_SOURCE = read("api.js");
 const APP_SOURCE = read("App.jsx");
 const VIEWS_SOURCE = read("views.jsx");
 const SCREENS_SOURCE = read("screens.jsx");
+const CONSOLES_SOURCE = read("consoles.jsx");
+/** The two screen modules, so a component is looked up in the file it lives in. */
+const SCREEN_SOURCES = Object.freeze({ "screens.jsx": SCREENS_SOURCE, "consoles.jsx": CONSOLES_SOURCE });
 
 /** The three screens this phase built, and the endpoint each one is bound to. */
 const SCREENS = Object.freeze([
@@ -73,19 +78,76 @@ const SCREENS = Object.freeze([
     name: "notification inbox",
     route: "/app/notifications",
     component: "NotificationsView",
+    /** The endpoint whose permission is the screen's own gate. */
+    gate: "GET /api/v1/notifications",
     endpoints: Object.freeze(["GET /api/v1/notifications", "POST /api/v1/notifications/:param/read", "POST /api/v1/notifications/read-all"]),
   }),
   Object.freeze({
     name: "audit browser",
     route: "/app/admin/audit",
     component: "AuditBrowserView",
+    gate: "GET /api/v1/admin/audit",
     endpoints: Object.freeze(["GET /api/v1/admin/audit"]),
   }),
   Object.freeze({
     name: "portfolio optimizer",
     route: "/app/portfolio/optimizer",
     component: "PortfolioOptimizerView",
+    gate: "POST /api/v1/portfolio/optimize",
     endpoints: Object.freeze(["POST /api/v1/portfolio/optimize"]),
+  }),
+  Object.freeze({
+    name: "sports console",
+    route: "/app/sports",
+    component: "SportsConsoleView",
+    file: "consoles.jsx",
+    gate: "GET /api/v1/sports/status",
+    endpoints: Object.freeze([
+      "GET /api/v1/sports/status",
+      "GET /api/v1/sports/providers",
+      "GET /api/v1/sports/sync-runs",
+      "GET /api/v1/sports/matches",
+      "GET /api/v1/sports/predictions",
+      "GET /api/v1/sports/tickets",
+      "GET /api/v1/sports/daily-tickets",
+      "GET /api/v1/sports/performance",
+      "GET /api/v1/sports/models",
+      "GET /api/v1/sports/calibrations",
+    ]),
+    // The human-in-the-loop controls legacy's console carried, each behind its own
+    // permission and each asserted below to be an endpoint the API really guards.
+    elevated: Object.freeze([
+      Object.freeze({ endpoint: "POST /api/v1/sports/tickets/:param/decision", permission: "sports.approve" }),
+      Object.freeze({ endpoint: "POST /api/v1/sports/tickets/:param/settle", permission: "sports.settle" }),
+    ]),
+  }),
+  Object.freeze({
+    name: "lottery console",
+    route: "/app/lottery",
+    component: "LotteryConsoleView",
+    file: "consoles.jsx",
+    // The lottery module status is readable by any signed-in member, exactly as
+    // legacy's was (`$this->requirePermission('system.authenticated')`), so it is
+    // deliberately NOT the gate: the console renders draw, statistics, ticket and
+    // performance reads, and every one of those needs `lottery.view`.
+    gate: "GET /api/v1/lottery/health",
+    endpoints: Object.freeze([
+      "GET /api/v1/lottery/status",
+      "GET /api/v1/lottery/health",
+      "GET /api/v1/lottery/providers",
+      "GET /api/v1/lottery/draws",
+      "GET /api/v1/lottery/statistics/:param",
+      "GET /api/v1/lottery/ai-decisions",
+      "GET /api/v1/lottery/tickets",
+      "GET /api/v1/lottery/performance",
+      "GET /api/v1/lottery/models",
+      "GET /api/v1/lottery/jobs",
+      "POST /api/v1/lottery/tickets/:param/check",
+    ]),
+    elevated: Object.freeze([
+      Object.freeze({ endpoint: "POST /api/v1/lottery/providers/check", permission: "lottery.manage" }),
+      Object.freeze({ endpoint: "POST /api/v1/lottery/sync", permission: "lottery.manage" }),
+    ]),
   }),
 ]);
 
@@ -182,7 +244,7 @@ test("every endpoint the SPA calls exists in the served route inventory", async 
   assert.deepEqual(missing, [], `the SPA calls endpoints the server does not serve: ${missing.join(", ")}`);
 
   for (const screen of SCREENS) {
-    for (const endpoint of screen.endpoints) {
+    for (const endpoint of [...screen.endpoints, ...(screen.elevated || []).map((entry) => entry.endpoint)]) {
       assert.ok(declared.has(endpoint), `${screen.name} must call ${endpoint}`);
       assert.ok(served.has(endpoint), `${screen.name} binds to ${endpoint}, which must be served`);
     }
@@ -205,15 +267,16 @@ test("no screen is broader than the API behind it, and no permission is invented
 
   const clientRoutes = extractClientRoutes(APP_SOURCE);
   const catalogue = new Set(PLATFORM_PERMISSIONS.map((permission) => permission.key));
+  const sourceOf = (screen) => SCREEN_SOURCES[screen.file || "screens.jsx"];
 
   for (const screen of SCREENS) {
     const screenRoute = clientRoutes.find((entry) => entry.path === screen.route);
     assert.ok(screenRoute, `${screen.name} must be a declared route (${screen.route})`);
     assert.equal(screenRoute.requiresAuth, true, `${screen.name} is a signed-in surface`);
 
-    const [method, endpoint] = screen.endpoints[0].split(" ");
+    const [method, endpoint] = screen.gate.split(" ");
     const serverRoute = servedBy(method, endpoint);
-    assert.ok(serverRoute, `${screen.name}'s endpoint ${screen.endpoints[0]} must be served`);
+    assert.ok(serverRoute, `${screen.name}'s gate ${screen.gate} must be served`);
     assert.equal(serverRoute.auth, true, `${screen.name}'s endpoint requires a session`);
 
     if (screenRoute.permission) {
@@ -228,6 +291,26 @@ test("no screen is broader than the API behind it, and no permission is invented
         serverRoute.permission,
         "system.authenticated",
         `${screen.name} declares no extra permission, so its API must need exactly the signed-in baseline`,
+      );
+    }
+
+    // Elevated controls: each must be guarded by a real, distinct permission on the
+    // API — and the screen must actually name that permission before rendering the
+    // control, so the button and the server agree about who may press it.
+    for (const entry of screen.elevated || []) {
+      const [elevatedMethod, elevatedRoute] = entry.endpoint.split(" ");
+      const elevatedServerRoute = servedBy(elevatedMethod, elevatedRoute);
+      assert.ok(elevatedServerRoute, `${screen.name} binds to ${entry.endpoint}, which must be served`);
+      assert.equal(
+        elevatedServerRoute.permission,
+        entry.permission,
+        `${entry.endpoint} is declared as ${entry.permission}; the API enforces ${elevatedServerRoute.permission}`,
+      );
+      assert.ok(catalogue.has(entry.permission), `${entry.permission} must exist in the seeded catalogue`);
+      assert.notEqual(entry.permission, serverRoute.permission, `${screen.name}: an elevated control must need more than the screen's own permission`);
+      assert.ok(
+        sourceOf(screen).includes(`"${entry.permission}"`) || sourceOf(screen).includes(`'${entry.permission}'`),
+        `${screen.name} must name ${entry.permission} in the source that gates the control`,
       );
     }
   }
@@ -257,7 +340,9 @@ test("the navigation offers the three screens, locked rather than hidden when re
       screenRoute.permission,
       `${navEntry.label}: the nav must lock exactly what the route guards`,
     );
-    assert.match(SCREENS_SOURCE, new RegExp(`export function ${screen.component}\\(`), `${screen.component} must be an exported screen`);
+    const source = SCREEN_SOURCES[screen.file || "screens.jsx"];
+    assert.ok(source, `${screen.name} must name a screen module that exists`);
+    assert.match(source, new RegExp(`export function ${screen.component}\\(`), `${screen.component} must be an exported screen`);
   }
 
   // A nav entry that matches no route would render the not-found view from a
@@ -314,12 +399,24 @@ test("the screens bind to the API's own facts rather than restating them", () =>
   assert.match(SCREENS_SOURCE, /provenance/, "the optimizer renders per-asset provenance");
   assert.match(SCREENS_SOURCE, /SIMULATION/, "a synthetic input is labelled on the screen");
 
+  // The consoles render the module's own honesty surfaces rather than restating
+  // them: the sports matrix travels in `/sports/status`, the lottery disclaimer and
+  // matrix in `/lottery/status`, and the lottery performance sections stay separated
+  // exactly as the API separates them.
+  assert.match(CONSOLES_SOURCE, /report\.notPorted|report\?\.notPorted/, "the consoles render the module's not-ported matrix");
+  assert.match(CONSOLES_SOURCE, /disclaimer/, "the lottery console renders the API's independence disclaimer");
+  assert.match(CONSOLES_SOURCE, /actualTicketResults/, "the performance sections are rendered by the names the API uses");
+  assert.match(CONSOLES_SOURCE, /demoBanner/, "the sports console renders the server's sandbox banner");
+
   // Every data source a screen touches must be a declared endpoint key: a screen
   // cannot invent a call, and renaming one in api.js breaks this test.
   const declaredKeys = new Set([...API_SOURCE.matchAll(/^\s{2}([a-zA-Z][a-zA-Z0-9]*):\s*\(/gm)].map((match) => match[1]));
-  const usedKeys = new Set([...SCREENS_SOURCE.matchAll(/endpoints\.([a-zA-Z][a-zA-Z0-9]*)\(/g)].map((match) => match[1]));
-  assert.ok(usedKeys.size > 0, "the screens must call the API client");
-  for (const key of usedKeys) {
-    assert.ok(declaredKeys.has(key), `screens.jsx calls endpoints.${key}, which api.js does not declare`);
+  assert.ok(declaredKeys.size > 0, "api.js must declare endpoint keys");
+  for (const [file, source] of Object.entries(SCREEN_SOURCES)) {
+    const usedKeys = new Set([...source.matchAll(/endpoints\.([a-zA-Z][a-zA-Z0-9]*)\(/g)].map((match) => match[1]));
+    assert.ok(usedKeys.size > 0, `${file} must call the API client`);
+    for (const key of usedKeys) {
+      assert.ok(declaredKeys.has(key), `${file} calls endpoints.${key}, which api.js does not declare`);
+    }
   }
 });

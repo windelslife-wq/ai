@@ -442,8 +442,8 @@ test("each run is audited under the platform's dotted vocabulary, attributed to 
   // Legacy emits `SPORTS_FIXTURE_SYNC_COMPLETED` and five siblings. This port uses the
   // platform's dotted-lowercase vocabulary because the audit browser filters on these
   // strings (divergence SP-24): one event type spelled two ways is two event types to
-  // anyone building a filter, and that browser is the only console this platform has
-  // (**F-29**).
+  // anyone building a filter, and that browser is one of five workspace screens — the
+  // ledger for them is test/console_screens.test.js.
   for (const action of audits.map((entry) => entry.action)) {
     assert.match(action, /^sports\.sync\.[a-z]+\.(completed|failed)$/);
   }

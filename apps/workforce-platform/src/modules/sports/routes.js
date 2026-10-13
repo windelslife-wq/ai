@@ -18,10 +18,10 @@
  * module's reads correctly and left another's open, so "legacy did it this way" is
  * evidence about a controller, never about the application.
  *
- * Since the sports console screens are not ported (**F-29**, narrowed by Phase 27 to
- * the sports and lottery consoles), the list of what is *not*
- * ported travels in the response — the same decision as BC-10 in the broker port. A
- * module that reported only what it has would look complete.
+ * The list of what is *not* ported travels in the response — the same decision as BC-10
+ * in the broker port, and it is why the sports console at /app/sports (Phase 28) can
+ * render the matrix without keeping a copy of it. A module that reported only what it
+ * has would look complete.
  */
 
 import { AppError } from "../../http/errors.js";

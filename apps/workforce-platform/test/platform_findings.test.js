@@ -1114,19 +1114,21 @@ test("F-02 the status surface is honest about unported modules, and F-03 the rou
   // runs only when a person asks.
   assert.equal(body.modules.find((module) => module.key === "sports").state, "partial");
   const sportsLabel = body.modules.find((module) => module.key === "sports").label;
+  assert.ok(!/console screens are not ported/i.test(sportsLabel), "Phase 28 ported them; the clause was removed, not softened");
+  assert.ok(!/f-29 is closed/i.test(sportsLabel) && !/closed f-29/i.test(sportsLabel), "F-29 is narrowed, not closed: its own text names the market-data, analysis and Strategy Lab consoles");
   for (const pattern of [
     // The absence is stated as one list, so the list is pinned as a list rather than
     // as separate "no X" phrases that the label does not and should not repeat.
-    // Slice 5 shrank it to three and row 19 removed the cron from it: stake sizing
-    // and the two sports console screens are what no slice owns. Phase 27 narrowed
-    // F-29 to those consoles but did not lift it, so the phrase names them
-    // specifically instead of claiming the platform has no console at all.
-    // Settlement, calibration fitting, backtests, drift and
-    // analytics came OUT of this list, and the assertion that they are gone is as
-    // important as the ones that remain: a ledger label is documentation, and a stale
-    // one is worse than none because it is read as current.
-    /not ported: stake sizing and the two sports console screens/i,
-    /f-29, narrowed by phase 27 to the sports and lottery consoles/i,
+    // Slice 5 shrank it to three, row 19 removed the cron from it, and Phase 28
+    // removed the console screens by porting them: stake sizing is now the whole list.
+    // Settlement, calibration fitting, backtests, drift and analytics came OUT of this
+    // list, and the assertion that they are gone is as important as the ones that
+    // remain: a ledger label is documentation, and a stale one is worse than none
+    // because it is read as current.
+    /not ported: stake sizing, and it is the module's whole remainder/i,
+    /the sports console screens .* landed in phase 28 at \/app\/sports/i,
+    /removing f-29's sports half/i,
+    /that finding now names only the market-data, analysis and strategy lab consoles/i,
     /no stored result is trusted before a person attests/i,
     /never verified against a vendor/i,
     /nineteen sports\.view reads, two sports\.manage reads, ten sports\.manage writes/i,
@@ -1158,9 +1160,11 @@ test("F-02 the status surface is honest about unported modules, and F-03 the rou
   // Row 15 slice 1 moves `lottery` from not-ported to partial: the foundation
   // (providers, rules, validation, ingestion, derived health, statistics) is ported
   // and PHP-parity proven; combination intelligence, tickets, backtests and the cron
-  // have since landed too, leaving the two console screens as F-29's remainder —
-  // narrowed by Phase 27, which ported the notification inbox, audit browser and
-  // portfolio optimizer screens.
+  // landed after it, and Phase 28 ported the last area — the console screen — which took
+  // F-29's lottery half. F-29 itself stays open for the consoles its own text names
+  // (market data, analysis, Strategy Lab), so no label here claims it is closed. What
+  // keeps this label at `partial` is verification, not a missing surface: the module is
+  // proven by parity tests and no real MySQL or live feed has been exercised.
   const lotteryLabel = body.modules.find((module) => module.key === "lottery").label;
   assert.equal(body.modules.find((module) => module.key === "lottery").state, "partial");
   for (const pattern of [
@@ -1168,8 +1172,9 @@ test("F-02 the status surface is honest about unported modules, and F-03 the rou
     /never overwrites a VERIFIED draw/i,
     /independence DISCLAIMER/i,
     /a default host has no provider and fabricates nothing/i,
-    /the two lottery console screens are not ported/i,
-    /f-29, narrowed by phase 27 to the sports and lottery consoles/i,
+    /the lottery console screen .* landed in phase 28 at \/app\/lottery/i,
+    /nothing is left on the not-ported matrix and f-29 loses its lottery half/i,
+    /it still names the market-data, analysis and strategy lab consoles/i,
     /systems consumer that finally drains the queued background builds/i,
     /nineteen lottery\.view reads/i,
     /eight lottery\.view POSTs/i,
@@ -1177,7 +1182,7 @@ test("F-02 the status surface is honest about unported modules, and F-03 the rou
   ]) {
     assert.match(lotteryLabel, pattern);
   }
-  assert.equal(body.modules.filter((module) => module.state === "partial").length, 6, "the public site (chat widget), execution (the remaining supervisor steps are broker-bound, no live route, no automated mode), scheduled jobs (no early-warning tiers, no HTTP route), brokers (no verified adapter, no order routing), sports (measured but person-gated: nothing executed, no stake sized, no stored result trusted before a person attests, no verified vendor, and the two sports console screens are not ported) and lottery (slices 1–5 ported and proven for parity; only its two console screens are missing, F-29 narrowed by Phase 27) remain partial");
+  assert.equal(body.modules.filter((module) => module.state === "partial").length, 6, "the public site (chat widget), execution (the remaining supervisor steps are broker-bound, no live route, no automated mode), scheduled jobs (no early-warning tiers, no HTTP route), brokers (no verified adapter, no order routing), sports (measured but person-gated: nothing executed, no stake sized, no stored result trusted before a person attests, no verified vendor, and stake sizing is its whole not-ported list) and lottery (slices 1–5 ported and proven for parity, with the console screen ported in Phase 28; the label stays partial for verification, not for a missing surface) remain partial");
   assert.equal(body.modules.filter((module) => module.state === "not-ported").length, 2, "language learning and lead discovery remain legacy-only");
   assert.equal(body.modules.length, 17, "the ledger keeps listing every module, ported or not");
   // The public status surface carries a market-data snapshot that must not have

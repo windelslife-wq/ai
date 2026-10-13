@@ -63,6 +63,21 @@ production replacement and no traffic has been cut over.
   server's own `mutable: false` plus the filters the server applied. No retention
   policy yet.
   See [`docs/migration/PHASE10_AUDIT_BROWSER.md`](../../docs/migration/PHASE10_AUDIT_BROWSER.md).
+- **The sports and lottery consoles are ported** (Phase 28): `/app/sports` merges
+  legacy's `Sports::index` and `Sports::tickets` — fixtures, predictions, tickets with
+  the approve/reject (`sports.approve`) and settlement (`sports.settle`) controls
+  legacy carried, sync runs, daily runs, the measured half, models and calibrations —
+  and `/app/lottery` is legacy's `Lottery::index`: draws, all seven statistics kinds,
+  the decision records, saved tickets with an owner-scoped check, the three-section
+  performance overview, model versions and job history, with the provider probe and
+  draw sync behind `lottery.manage`. Both render the module's `notPorted` matrix,
+  the sandbox banner and the independence disclaimer **verbatim**, and together they
+  remove the last two halves of finding F-29 — which stays open for the market-data,
+  analysis and Strategy Lab consoles, and both labels say so rather than claiming it
+  is closed. Nothing here sizes a stake, executes a ticket or purchases a line; the
+  controls are the five legacy's consoles had, and every other sports/lottery
+  mutation is listed with the permission it needs and has no client call at all.
+  See [`docs/migration/PHASE28_SPORTS_LOTTERY_CONSOLES.md`](../../docs/migration/PHASE28_SPORTS_LOTTERY_CONSOLES.md).
 - Two storage adapters implement one repository contract:
   - `STORAGE_ADAPTER=mysql` (production target) — the MySQL/MariaDB tables created by
     `src/db/migrations/*.sql`.

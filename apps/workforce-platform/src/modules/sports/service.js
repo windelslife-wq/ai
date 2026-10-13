@@ -56,22 +56,26 @@ import { createHttpSportsProvider } from "./providers/http.js";
  *
  * Slice 5 empties this matrix down to three entries: stake sizing (which no slice
  * owns), the scheduled jobs (whose ported home is row 19, shared with the operations
- * cron), and the two console screens (F-29 — no longer platform-wide: Phase 27
- * ported the notification inbox, audit browser and portfolio optimizer screens).
+ * cron), and — until Phase 28 — the two console screens. Phase 28 ported them, so
+ * only stake sizing remains on this matrix. Note that this does NOT close F-29: the
+ * finding names every ported module's missing console, and its remainder is now the
+ * market-data, analysis and Strategy Lab consoles.
  * Settlement, verification, calibration fitting, backtesting, model drift monitoring
  * and performance analytics all graduated in slice 5, and were REMOVED from this list
  * rather than re-labelled: a matrix whose name is "not ported" must not contain an
- * entry that says otherwise.
+ * entry that says otherwise. The **console screens** left the same way in Phase 28,
+ * when `Sports::index` and `Sports::tickets` were ported to `/app/sports`. What
+ * remains is what no slice owns: stake sizing.
  *
  * Surfaced by `status()` for the same reason the broker route surfaces its
- * `PLANNED` matrix (divergence BC-10): the sports console screens are not ported
- * (**F-29**), so a distinction that legacy showed an operator in a view has to
+ * `PLANNED` matrix (divergence BC-10): the sports module's unported areas are what
+ * the matrix names (stake sizing alone since Phase 28 ported the consoles), and a
+ * distinction that legacy showed an operator in a view has to
  * travel in the API response or it is lost. "Working" and "scaffolded, not yet
  * ported" must not look the same from the outside.
  */
 export const SPORTS_NOT_PORTED = Object.freeze([
   Object.freeze({ area: "stake sizing", legacy: "stake_amount copied onto each ticket (TicketGovernance::record)", state: "not ported", detail: "No stake is sized from bankroll or edge: the configured fixed stake_amount is recorded on each ticket, as legacy does, and settlement's P/L is computed on it. Sizing is not ported, and no slice owns it yet." }),
-  Object.freeze({ area: "console screens", legacy: "Sports::index, Sports::tickets (views/sports/*.php)", state: "not ported", detail: "Both console views aggregate stored tickets and settled results. They are not ported; F-29 was narrowed by Phase 27 to the sports and lottery consoles, so \"no ported module has a console screen\" would no longer be true (the notification inbox, audit browser and portfolio optimizer screens exist at /app/notifications, /app/admin/audit and /app/portfolio/optimizer). The API reads exist under /sports/performance and /sports/tickets." }),
 ]);
 
 /**
