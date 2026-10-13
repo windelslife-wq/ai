@@ -207,6 +207,76 @@ const PREDICTIONS_QUERY = Object.freeze({
   limit: Object.freeze({ type: "integer", default: 50, min: 1, max: 200 }),
 });
 
+// ── settlement, results, backtests and monitoring (slice 5) ──────────────────
+
+const BACKTEST_PARAMS = Object.freeze({
+  backtestId: Object.freeze({ type: "string", required: true, minLength: 3, maxLength: 40 }),
+});
+
+const RESULTS_QUERY = Object.freeze({
+  // The kickoff window. Defaults to no bound, which reads every FINISHED fixture —
+  // bounded by `limit`, as legacy's `min(500, max(1, $limit))` is.
+  from: Object.freeze({ type: "string", maxLength: 32 }),
+  to: Object.freeze({ type: "string", maxLength: 32 }),
+  competition: Object.freeze({ type: "string", maxLength: 160 }),
+  limit: Object.freeze({ type: "integer", default: 200, min: 1, max: 500 }),
+});
+
+const PERFORMANCE_QUERY = Object.freeze({
+  from: Object.freeze({ type: "string", maxLength: 32 }),
+  to: Object.freeze({ type: "string", maxLength: 32 }),
+  modelVersionId: Object.freeze({ type: "integer", min: 1 }),
+});
+
+const VERIFY_BODY = Object.freeze({
+  type: "object",
+  required: ["matchId", "providerId"],
+  properties: Object.freeze({
+    matchId: Object.freeze({ type: "integer", required: true, min: 1 }),
+    providerId: Object.freeze({ type: "integer", required: true, min: 1 }),
+  }),
+});
+
+const SETTLE_BODY = Object.freeze({
+  type: "object",
+  properties: Object.freeze({
+    // Both present → settle that one match from the stored (match, provider) result.
+    // Neither → sweep every PENDING leg against its best stored result.
+    matchId: Object.freeze({ type: "integer", min: 1 }),
+    providerId: Object.freeze({ type: "integer", min: 1 }),
+  }),
+});
+
+const BACKTEST_RUN_BODY = Object.freeze({
+  type: "object",
+  required: ["from", "to"],
+  properties: Object.freeze({
+    from: Object.freeze({ type: "string", required: true, maxLength: 10 }),
+    to: Object.freeze({ type: "string", required: true, maxLength: 10 }),
+    league: Object.freeze({ type: "string", maxLength: 160 }),
+    modelVersionId: Object.freeze({ type: "integer", min: 1 }),
+    minConfidence: Object.freeze({ type: "number", min: 0, max: 100 }),
+    oddsMin: Object.freeze({ type: "number", min: 0 }),
+    oddsMax: Object.freeze({ type: "number", min: 0 }),
+    minDataQuality: Object.freeze({ type: "integer", min: 0, max: 100 }),
+    stake: Object.freeze({ type: "number", min: 0 }),
+  }),
+});
+
+const BACKTESTS_QUERY = Object.freeze({
+  limit: Object.freeze({ type: "integer", default: 20, min: 1, max: 200 }),
+});
+
+const RECOVER_BODY = Object.freeze({
+  type: "object",
+  required: ["date"],
+  properties: Object.freeze({
+    // The UTC day whose stuck RUNNING runs are released. A finished run can never
+    // match; only a claim that never finished is removed.
+    date: Object.freeze({ type: "string", required: true, maxLength: 10 }),
+  }),
+});
+
 /**
  * The configuration patch. Every editable field is declared, because the validator drops
  * undeclared keys (the body is rebuilt from its schema). Types come from the configuration
@@ -328,8 +398,8 @@ export function sportsRoutes(app, { config, store, sports = null }) {
       // and neither is a fault.
       notice: report.providersConfigured
         ? (report.persistence
-          ? "Providers are configured from the environment and ingestion is persisted. Prediction, ticketing, settlement, calibration and backtesting are not ported, and no stored result is verified."
-          : "Providers are configured from the environment, but this host has no sports repository: ingestion, prediction, ticketing, settlement, calibration and backtesting are not available.")
+          ? "Providers are configured from the environment and ingestion is persisted. The decision chain, tickets, settlement, verification, calibration fitting, backtesting, drift monitoring and measured performance are runnable on request; nothing is executed, and no provider has been verified against a real vendor."
+          : "Providers are configured from the environment, but this host has no sports repository: nothing is persisted and no decision, ticket or measurement can be produced.")
         : "No sports provider is configured, so no fixture, odds, prediction or ticket can be produced. Nothing is fabricated to fill the gap.",
     };
   });
@@ -513,12 +583,18 @@ export function sportsRoutes(app, { config, store, sports = null }) {
 
   app.get("/sports/models", { preHandler: view }, async () => {
     const models = await guarded(intel.listModels());
-    return { models, count: models.length };
+    // The measured snapshots, newest first (legacy's `models()` lists them alongside
+    // the registry): each `live` metrics read and each drift warning writes one row,
+    // so this list is the evidence trail of what was measured, when.
+    const metrics = await guarded(store.listSportsModelMetrics({}, 100));
+    return { models, metrics, count: models.length };
   });
 
   /**
-   * Model performance. `samples` is 0 and the metrics are null until settlement exists
-   * (slice 5); ticket metrics are NOT_PORTED, not zero.
+   * Model performance over a window — measured from stored settled outcomes and
+   * settled tickets (slice 5). `samples: 0` with null metrics is an empty history,
+   * not an unimplemented measurement; `comparison` is every model version side by
+   * side, measured in the same window.
    */
   app.get("/sports/models/performance", {
     preHandler: view,
@@ -534,8 +610,13 @@ export function sportsRoutes(app, { config, store, sports = null }) {
     return { calibrations, count: calibrations.length };
   });
 
-  /** Refused in this slice (422): a fit needs settled outcomes, which settlement will supply. */
-  app.post("/sports/calibrations/fit", { preHandler: manage }, async () => guarded(intel.fitCalibration()));
+  /**
+   * Fit a calibration from the platform's own settled outcomes (slice 5). A fit needs
+   * at least 20 settled predictions with both classes represented; anything less is a
+   * 422 with the fit's own reason and nothing is stored. A successful fit is stored
+   * PENDING — it is not usable until an administrator approves it below.
+   */
+  app.post("/sports/calibrations/fit", { preHandler: manage }, async (request) => guarded(intel.fitCalibration({ actorId: actorOf(request) })));
 
   app.post("/sports/calibrations/:calibrationId/approve", {
     preHandler: manage,
@@ -637,4 +718,167 @@ export function sportsRoutes(app, { config, store, sports = null }) {
     reason: request.body.reason ?? "",
     actorId: actorOf(request),
   })));
+
+  // ── settlement, verification, backtests and monitoring (slice 5) ───────────
+  // Verification and settlement are `sports.settle`, the separate permission legacy
+  // gates them with — attesting to a result is a different act from reading one, and
+  // a different act from approving a ticket. Approval under a kill switch is blocked
+  // (the decision route's own gate); settlement deliberately is not, because settling
+  // existing records is how the book is closed while new approvals wait.
+
+  /**
+   * Stored results: every FINISHED fixture in the window with its best stored result
+   * row and that row's attestation state. This is what an operator verifies from —
+   * `verified: false` here is a result waiting for a person, not a refusal.
+   */
+  app.get("/sports/results", {
+    preHandler: view,
+    querySchema: RESULTS_QUERY,
+  }, async (request) => {
+    const { limit, ...filter } = request.query;
+    const results = await guarded(sports.listResults(filter, limit));
+    return {
+      results,
+      count: results.length,
+      unverified: results.filter((row) => !row.verified).length,
+    };
+  });
+
+  /**
+   * Attest to one stored provider result. The scores do not move; only the
+   * attestation does, and the audit event names the person who made it. A result that
+   * is not a well-formed final score (not FINISHED, missing or negative scores) is
+   * refused with 409 and nothing is attested.
+   */
+  app.post("/sports/results/verify", {
+    preHandler: guardFor("sports.settle"),
+    bodySchema: VERIFY_BODY,
+  }, async (request) => guarded(sports.settlement.verifyStoredResult({
+    matchId: request.body.matchId,
+    providerId: request.body.providerId,
+    actorId: actorOf(request),
+  })));
+
+  /**
+   * Settle a ticket: either one match from a stored (match, provider) result, or a
+   * sweep of every PENDING leg against its best stored result. Idempotent by
+   * construction — the ticket's status is recomputed from its legs every time — and
+   * safe to run repeatedly, which is what a future settlement sweep will do.
+   */
+  app.post("/sports/tickets/:ticketId/settle", {
+    preHandler: guardFor("sports.settle"),
+    paramsSchema: TICKET_PARAMS,
+    bodySchema: SETTLE_BODY,
+  }, async (request) => {
+    const hasMatchProvider = request.body?.matchId !== undefined && request.body?.providerId !== undefined;
+    const settlement = hasMatchProvider
+      ? await guarded(sports.settlement.applyStoredResult(request.params.ticketId, request.body.matchId, request.body.providerId))
+      : await guarded(sports.settlement.settlePending(request.params.ticketId));
+    const ticket = await guarded(sports.tickets.getTicket(request.params.ticketId));
+    return { settlement, ticket };
+  });
+
+  /**
+   * The performance report over stored settled data. Every number derives from stored
+   * records; an empty history reports `dataAvailable: false` with null metrics, and a
+   * SANDBOX-mode host's report says `DEMO / SANDBOX DATA` in so many words.
+   */
+  app.get("/sports/performance", {
+    preHandler: view,
+    querySchema: PERFORMANCE_QUERY,
+  }, async (request) => {
+    const { modelVersionId, ...filter } = request.query;
+    return guarded(sports.performanceReport({ ...filter, modelVersionId: modelVersionId ?? null }));
+  });
+
+  /**
+   * Run one point-in-time backtest over stored history. Gated `sports.manage`, as
+   * legacy's `run_backtest` is. The report is stored whole with `simulation: true`
+   * inside it, and every derived number says it is a replay.
+   */
+  app.post("/sports/backtests/run", {
+    preHandler: manage,
+    bodySchema: BACKTEST_RUN_BODY,
+  }, async (request) => {
+    const stored = await guarded(sports.backtester.run(request.body, { actorId: actorOf(request) }));
+    return { backtest: stored };
+  });
+
+  app.get("/sports/backtests", {
+    preHandler: view,
+    querySchema: BACKTESTS_QUERY,
+  }, async (request) => {
+    const backtests = await guarded(store.listSportsBacktests(request.query.limit));
+    // The report bodies stay out of the list: they can be large, and the read exists
+    // so an operator can find a run, not re-read every run.
+    return {
+      backtests: backtests.map((backtest) => ({
+        id: backtest.id,
+        createdAt: backtest.created_at,
+        createdBy: backtest.created_by,
+        status: backtest.status,
+        params: backtest.params,
+      })),
+      count: backtests.length,
+    };
+  });
+
+  app.get("/sports/backtests/:backtestId", {
+    preHandler: view,
+    paramsSchema: BACKTEST_PARAMS,
+  }, async (request) => {
+    const backtest = await guarded(store.findSportsBacktest(request.params.backtestId)).catch(() => null);
+    if (!backtest) throw AppError.notFound("No stored backtest with that id");
+    return { backtest };
+  });
+
+  /**
+   * Run the model drift monitor now (slice 5). Legacy runs it only from the
+   * `monitoring` cron job, which is not ported (row 19); this route is the on-request
+   * surface the alerting needs until a scheduler exists. A warning publishes
+   * `SPORTS_MODEL_DRIFT` — the last declared notification type to gain a publisher
+   * (NV-6) — deduped once per model per UTC day, and writes a `drift` snapshot row.
+   */
+  app.post("/sports/models/drift/run", {
+    preHandler: manage,
+  }, async () => guarded(sports.drift.monitor()));
+
+  /**
+   * Recover a stuck daily-ticket run (R-29). A run that crashed mid-way stays RUNNING
+   * and blocks its (day, configuration version) forever, because the claim is the
+   * row. Recovery deletes the RUNNING claims for one day — a finished run can never
+   * match — reports the counters it died with, and audits each release, so the day
+   * can be re-run and the crash is still on the record.
+   */
+  app.post("/sports/daily-tickets/recover", {
+    preHandler: manage,
+    bodySchema: RECOVER_BODY,
+  }, async (request) => {
+    if (!store) {
+      throw new AppError(503, "SPORTS_PERSISTENCE_UNAVAILABLE",
+        "This host has no sports repository, so there is no run to recover");
+    }
+    const storeRepository = store;
+    const removed = await guarded(storeRepository.recoverSportsDailyTicketRuns(request.body.date));
+    for (const run of removed) {
+      await storeRepository.recordAudit({
+        actorId: actorOf(request),
+        action: "sports.daily_ticket.recovered",
+        entityType: "sports_daily_ticket",
+        entityId: String(run.id),
+        details: {
+          runDate: run.run_date,
+          configurationVersion: run.configuration_version,
+          recoveredAt: new Date().toISOString(),
+          counters: {
+            fixturesRead: run.fixtures_read,
+            candidatesEvaluated: run.candidates_evaluated,
+            predictionsRecorded: run.predictions_recorded,
+          },
+          message: `A RUNNING run for ${run.run_date} (configuration ${run.configuration_version}) never finished and was released; the day can be re-run`,
+        },
+      });
+    }
+    return { recovered: removed, count: removed.length };
+  });
 }

@@ -1,30 +1,271 @@
 # JavaScript / Node.js / cPanel migration status
 
-**Updated:** 2026-10-12 · **Branch:** `arena/8de8de2e-ai`
+**Updated:** 2026-10-13 · **Branch:** `arena/653d6218-ai`
 
-## Current Phase 18 status (2026-10-12)
+## Current Phase 26 status (2026-10-13)
 
-**The ticket engine is ported** (row 14, slice 4 of 5). App version is still **0.15.0**; no release was
-cut, and nothing is deployed. The branch `arena/7577d922-ai` is not merged. The ledger stays at **9 ported /
-5 partial / 3 not-ported** across **17** modules, and `sports` remains `partial`. Migration **013** adds three
-`wf_sports_*` tables, taking the schema to **38**. The repository grows from 120 to **129** methods. Five
-routes are added, and the sports surface reaches **25**. The total route count is **106**. Full record:
+**R-30 is closed**: the file adapter's aggregate writes are single-record atomic. A new internal
+`mutateBatch` appends one `{"op":"batch","changes":[…]}` WAL record — applied whole on replay, a
+torn line discarded whole — and the three aggregate-critical writers use it: `saveSportsTicket`
+(the R-30 subject; selections first, ticket last, duplicate guard up front), and the two lottery
+replace-writes, `saveLotteryDrawNumbers` and `saveLotteryTicketLines`. Converting the draw-numbers
+writer exposed **F-46**: the old delete built its key from `{id}` alone while the table keys by
+`draw_id|kind|position`, so every replace was a silent no-op and duplicate number rows accumulated
+per re-save — the same family as Phase 25's job-run find. Fixed with the key the table uses.
+One residual is recorded rather than fixed: the lottery ticket create stays legacy's two
+repository calls on both adapters (that crash window is legacy's own; no line-count column exists
+to check on read) — see the R-30 entry. The version is **0.23.0**. Full record:
+[`PHASE26_FILE_ATOMICITY.md`](PHASE26_FILE_ATOMICITY.md).
+
+Gates on this branch: `npm test` **975 / 975** across **67** files, `npm run check` exit 0
+(`verify:install` 29/29), PHP oracle **367 / 367**, legacy tree unmodified. **Not run:** a real
+MySQL server, any official feed, a crontab, a real browser.
+
+## Phase 25 status (2026-10-13) — superseded by Phase 26
+
+**The lottery cron is ported** (row 15, slice 5 — the scheduler row 15 has owed since slice 2
+queued its first background build). Seven execution-key-idempotent jobs in legacy's order — sync
+(once per day), health (read-only staleness), statistics (the data-integrity sweep, violations
+audited for manual correction), **systems** (the consumer that finally drains the queued
+background builds), tickets (auto post-draw checking; future-dated and archived tickets
+untouched), backtests (one per strategy per day, baseline included) and cleanup (the 90/30-day
+retention sweep) — CLI-only at `tools/lottery-jobs.mjs` (`npm run lottery:jobs`), **no HTTP
+route**, the route count honestly unchanged. The idempotency mechanism is legacy's own job-run
+table (`wf_lottery_sync_runs`), not the sports cron's window locks: `startLotteryJobRun` returns
+NULL on an existing key, a failed run's key still blocks the window, and the `systems` queue IS
+its job runs. Version **0.22.0**; the status matrix's lottery entry shrank **two areas → one**
+(console screens, F-29, platform-wide); `lottery` stays `partial` for that alone.
+
+The cleanup test caught a real slice-1 file-adapter bug: `deleteOldLotteryJobRuns` deleted by
+`{id}` while the table keys by `execution_key` — every prune was a silent no-op (the SQL adapter
+was correct; the old test asserted the count, not the effect). Fixed, comment at the delete.
+Full record: [`PHASE25_LOTTERY_CRON.md`](PHASE25_LOTTERY_CRON.md).
+
+Gates on this branch: `npm test` **970 / 970** across **66** files, `npm run check` exit 0
+(`verify:install` 29/29, 84 documented variables), PHP oracle **367 / 367**, and the legacy tree
+(`application/`, `system/`, `tests/`) unmodified. **Not run:** a real MySQL server, migrations
+001–019 against any database, any official feed, and a crontab — the CLI is proven by spawning
+the real tool against a real file store.
+
+**Still not ported (lottery):** the console screens only (F-29, platform-wide — no ported module
+has one). Platform-wide: F-15 (real MySQL), R-30 (file-adapter atomicity), row 22 (cutover), and
+the sports remainder (stake sizing, console screens).
+
+## Phase 24 status (2026-10-13) — superseded by Phase 25
+
+**The lottery's measured half is ported** (row 15, slice 4 — the Strategy Lab on slices 1–3's
+foundation). Four seeded strategies replay stored draws **without look-ahead** (test draw i sees
+only draws 1..i-1): RANDOM_BASELINE (the mandatory baseline, spec §25), BALANCED_PROFILE,
+HISTORICAL_FREQ and ANTI_POPULAR, each line generated through the slice-2 generator with a
+per-test-draw seed mixed from CRC-32 of the strategy name, the draw index and the model version.
+Reports are labelled **HISTORICAL SIMULATION**; simulated cost and winnings stay **NULL** with
+their notes — nothing is fabricated; comparisons run every strategy on the SAME period and
+declare none "better" (spec §34). Migration **019** adds `wf_lottery_backtests` +
+`wf_lottery_model_versions` (schema **54**); the contract reaches **185** methods (41 lottery);
+routes are **146** (31 lottery: 19 `lottery.view` reads, 8 `lottery.view` POSTs, 3
+`lottery.manage` writes, 1 status read); the version is **0.21.0**. Model versions are **ensured
+once and never replaced** (spec §33); the performance overview keeps ACTUAL / HISTORICAL / DEMO
+sections **never mixed** (spec §30). The status matrix's lottery entry shrank **three areas →
+two**; `lottery` stays `partial` with the cron and the console screens remaining.
+
+The differential golden grows to **137 cases** (+15 backtests). The parity record caught two
+shapes and one bug: PHP's sequential-key distributions json_encode as **arrays** (the port
+matches; an empty `ksort`ed map is `[]`, not `{}`); **F-45** — the best-line tracker's rank is
+`substr($tier, 5, 1)`, so TIER_10 reads as rank 1, legacy's own quirk, pinned and kept; and the
+HTTP tests caught a real port bug the golden alone missed (a tier-sort `fromEntries` on keys
+instead of entries — TypeError on any report with a prize hit), fixed before landing. Full
+record: [`PHASE24_LOTTERY_BACKTESTS.md`](PHASE24_LOTTERY_BACKTESTS.md).
+
+Gates on this branch: `npm test` **961 / 961** across **65** files, `npm run check` exit 0
+(`verify:install` 29/29, 84 documented variables), PHP oracle **367 / 367**, and the legacy tree
+(`application/`, `system/`, `tests/`) unmodified. **Not run:** a real MySQL server, migrations
+016–019 against any database, any official feed, and a crontab.
+
+**Still not ported (lottery):** the lottery cron (the queued system builds' consumer) and the
+console screens (F-29). Platform-wide: F-15 (real MySQL), R-30 (file-adapter atomicity), row 22
+(cutover), and the sports remainder (stake sizing, console screens).
+
+## Phase 23 status (2026-10-13) — superseded by Phase 24
+
+**The saved ticket is ported** (row 15, slice 3 — the record layer on slices 1–2's foundation).
+A ticket is a **record of number lines, never a purchase**: create (validated with legacy's own
+refusal strings; lines stored sorted; ≤50 lines; free-form `configuration` JSON kept verbatim),
+list and detail (owner-scoped; an actor with `lottery.manage` reads any ticket by id, legacy's
+`identity->can` branch), **check** against stored VERIFIED draws on or before the ticket's date
+(no stored draw → **409** `NO_DRAW`, the row never marked CHECKED on that path; matches reported
+as per-line counts and official prize-tier **labels** — `TIER_1 (5 mains + 2 stars)` …
+`TIER_10 (2 stars)` — and never an amount), and soft **archive** (status only; detail still
+returns the row). Migration **018** adds `wf_lottery_tickets` + `wf_lottery_ticket_lines`
+(schema **52**); the contract reaches **180** methods (36 lottery); routes are **140**
+(25 lottery: 15 `lottery.view` reads, 6 `lottery.view` POSTs, 3 `lottery.manage` writes,
+1 status read); the version is **0.20.0**. The status matrix's lottery entry shrank
+**four areas → three** (removed, never re-labelled); `lottery` stays `partial` with
+backtests/model versions, the cron and the console screens remaining.
+
+The differential golden grows to **122 cases** (+4 ticket cases). One oracle-corrected
+assumption is pinned: the legacy tier ladder has **no star upper bound** — `prizeTier(5,3)` is
+`TIER_3`, whatever the stars. The framework validator gained one declared passthrough
+(`additionalProperties: true` on a property-less object) so free-form caller JSON can reach a
+verbatim column; it is commented in `src/http/validate.js` and pinned by the HTTP round-trip.
+Full record: [`PHASE23_LOTTERY_TICKETS.md`](PHASE23_LOTTERY_TICKETS.md).
+
+Gates on this branch: `npm test` **949 / 949** across **62** files, `npm run check` exit 0
+(`verify:install` 29/29, 84 documented variables), PHP oracle **367 / 367**, and the legacy tree
+(`application/`, `system/`, `tests/`) unmodified. **Not run:** a real MySQL server, migrations
+016–018 against any database, any official feed, and a crontab.
+
+**Still not ported (lottery):** backtests, model versions and measured performance; the lottery
+cron (the queued system builds' consumer); the console screens (F-29). Platform-wide: F-15 (real
+MySQL), R-30 (file-adapter atomicity), row 22 (cutover), and the sports remainder (stake sizing,
+console screens).
+
+## Phase 22 status (2026-10-12) — superseded by Phase 23
+
+**The lottery combination engines are ported** (row 15, slice 2 — the intelligence on slice 1's
+foundation). The five-mode generator (RANDOM, BALANCED, HISTORICAL, DIVERSIFIED, ANTI-POPULAR —
+locked/excluded numbers respected, seeded and reproducible), the per-line analyzer (STATISTICAL
+BALANCE SCORE, never a probability), the diversification engine (DIVERSITY SCORE), and the system
+builder (line counts computed as C(N,5) × C(S,2), never hardcoded; lazy enumeration; a pool above
+10 000 lines queues idempotently under an md5 execution key). Migration **017** adds
+`wf_lottery_combinations` + `wf_lottery_ai_decisions` (schema **50**); the contract reaches **173**
+methods (29 lottery); routes are **135** (20 lottery); the version is **0.19.0**. The status
+matrix's lottery entry shrank **six areas → four** (removed, never re-labelled); `lottery` stays
+`partial` with tickets, backtests/model versions, the cron and the console screens remaining.
+
+The permission split is legacy's own and is pinned from both sides: `generate`, `diversity` and
+`system` POST behind **`lottery.view`** (analysis records are not managed ingestion), only
+`system-build` needs **`lottery.manage`** (it writes a job-run row). Queued system builds are
+honest about having **no consumer** — the lottery cron is a later slice, and both the response
+note and the matrix say so instead of pointing at a command this platform does not have. The
+35-case `cases.combinations` golden group — every mode seeded, all four engines, every refusal
+string — **passed on the first run with zero port fixes**, the xorshift32 PRNG's proven identity
+doing exactly what it was proven for. Full record:
+[`PHASE22_LOTTERY_COMBINATIONS.md`](PHASE22_LOTTERY_COMBINATIONS.md).
+
+## Phase 21 status (2026-10-12) — superseded by Phases 22–23
+
+**The lottery foundation is ported** (row 15, slice 1 — the layer every later lottery slice stands
+on). The provider boundary lands with all three implementations: the unavailable default, the
+sandbox (double-gated behind `WINDELS_LOTTERY_SANDBOX=1`, labelled `sandbox-simulation`, never
+official) and the official feed (offline until an explicit, https-only, license-carrying
+configuration; credentials-in-URL refused). EuroMillions rules are versioned data; every draw is
+validated before storage; ingestion is idempotent and **a differing VERIFIED result is never
+overwritten** (the import reports a conflict and audits it); provider health derives from stored
+observations plus audited explicit probes; and every statistics output carries the independence
+DISCLAIMER. Migration **016** adds seven tables, taking the schema to **48**; the contract reaches
+**167** methods (23 lottery) on both adapters; the version is **0.18.0**; routes grow **115 →
+126** (11 lottery: 9 GET + 2 POST). `lottery` moves **not-ported → partial**; `not-ported`
+shrinks to **2** (language learning, lead discovery).
+
+The differential harness grew an **83-case lottery golden** (`runtime/parity/lottery-golden.php`
+→ `test/fixtures/lottery-parity-golden.json`, regenerated by `node runtime/lottery-parity.mjs`)
+covering rules, validator, statistics, the xorshift32 PRNG and all three providers — and it
+**caught two real port bugs on its first run** (the official provider's nested wrapper was not
+unwrapped; `rollover` used JS truthiness where PHP's `!empty()` treats the string `'0'` as empty).
+Both fixed and pinned. New divergences **LT-1..LT-4**, pending user confirmation where
+operator-visible: **LT-2** — the VERIFIED guard is repository-level (no caller can bypass it);
+**LT-4** — construction performs no writes, so a host without migration 016 boots fine and its
+lottery routes answer 503 `LOTTERY_PERSISTENCE_UNAVAILABLE` instead of failing at boot. Full
+record: [`PHASE21_LOTTERY_FOUNDATION.md`](PHASE21_LOTTERY_FOUNDATION.md).
+
+Gates on this branch: `npm test` **921 / 921** across **57** files, `npm run check` exit 0
+(`verify:install` 29/29, **84** documented variables), PHP oracle **367 / 367**, and the legacy
+tree (`application/`, `system/`, `tests/`) unmodified. The 14 test pins that moved were each read
+before being updated; all but three were counts (the store-less boot contract, the by-name
+exemption of legacy's `GET /api/v1/lottery/jobs` read from the scheduled-jobs scan, and the
+notifications pin re-pointed at `languageLearning` per the ledger's own churn protocol). **Not
+run:** a real MySQL server, migration 016 against any database, any official feed (the transport
+is a scripted function in every test), and a crontab.
+
+**Still not ported (lottery, slices 2–5):** combination intelligence (generator, analyzer,
+diversification, `SystemBuilder`, the analyze/generate facade), tickets and checking, backtests
+and model versions, the lottery cron (the phase-20 lock pattern, CLI-only when it lands) and the
+console screens (F-29). Platform-wide: F-15 (real MySQL), R-30 (file-adapter atomicity), row 22
+(cutover), and the sports remainder (stake sizing, console screens).
+
+## Phase 20 status (2026-10-12) — superseded by Phase 21
+
+**The sports cron is ported** (row 19 — `SportsCronService`, 255 lines, the last code the sports
+module owed). Nine jobs — fixtures, odds and results syncs, quality, the daily ticket, the
+settlement sweep, performance snapshots, monitoring, and the 90-day retention cleanup — run in
+legacy's order from **`tools/sports-jobs.mjs` (`npm run sports:jobs`)**, CLI-only under the host's
+crontab; there is no HTTP route. Idempotency keeps legacy's answer with this platform's arbiter:
+each window-locked job takes a `wf_job_locks` marker whose **expiry is the window** (dots in the
+name — `assertJobName` refuses colons), a re-run inside the window reports `DUPLICATE_SKIPPED`
+naming the holder, the marker is never released (not even on failure — it is the "already ran"
+record, exactly legacy's execution-key semantics), and the sync jobs keep their per-provider
+execution keys. Migration **015** adds `wf_sports_performance_snapshots` — the writer slice 5's
+schema refused to pre-create — taking the schema to **41** tables; the contract reaches **144**
+methods (58 sports); the version is **0.17.0**; routes are unchanged at **115** total, **34**
+sports. `SPORTS_NOT_PORTED` shrinks to **2** (stake sizing, console screens): the cron's entry was
+removed, not re-labelled.
+
+The phase found and fixed two real bugs and two legacy ones: **F-43** — a shadowed import made
+`GET /api/v1/sports/performance` recurse into itself forever (the route had never been exercised
+end to end); **F-44** — the CLI parsed `--now` and then ran on the wall clock (the new CLI test
+caught it); **DV-24** — legacy's `run()` has no `'cleanup'` arm, so every legacy sweep ended
+`FAILED` with a spurious `SPORTS_JOB_FAILED` audit, and the port routes the job (pending user
+confirmation); **DV-25** — legacy's fixtures summary said "no providers configured" even when
+providers synced, and the port says it only when true (pending user confirmation). The quality job
+reads **stored** reliability, never a live probe (the cron-side extension of SP-10). Full record:
+[`PHASE20_SPORTS_CRON.md`](PHASE20_SPORTS_CRON.md).
+
+Gates on this branch: `npm test` **893 / 893** across **53** files, `npm run check` exit 0
+(`verify:install` 29/29, 76 documented variables), PHP oracle **367 / 367**, and the legacy tree
+(`application/`, `system/`, `tests/`) unmodified. The 14 test pins that moved were each read before
+being updated; four looked like behavior failures and were all count pins. **Not run:** a real
+MySQL server, migration 015 against any database, and a crontab.
+
+**Still not ported:** stake sizing (no slice owns it) and the console screens (F-29,
+platform-wide) — the sports module's whole remainder. Platform-wide: row 15 (lottery), F-15 (real
+MySQL), R-30 (file-adapter atomicity), row 22 (cutover).
+
+## Phase 19 status (2026-10-12) — superseded by Phase 20
+
+**The measured half is ported** (row 14, slice 5 of 5 — **all five slices of the sports module have
+landed**). App version is now **0.16.0**; no release was cut, and nothing is deployed. The ledger stays at
+**9 ported / 5 partial / 3 not-ported** across **17** modules, and `sports` remains `partial` — its label now
+carries the slice-5 boundary: nothing executed, no stake sized, no stored result trusted before a person
+attests to it. Migration **014** adds two `wf_sports_*` tables (backtests, model metrics), taking the schema
+to **40**. The repository grows from 129 to **142** methods (56 sports). Nine routes are added: the sports
+surface reaches **34**, the total **115**. **NV-6 is closed** — the drift monitor publishes
+`SPORTS_MODEL_DRIFT`, so every declared notification type has a publisher — and **R-29 is closed** by the
+stuck-run recovery route. `SPORTS_NOT_PORTED` shrinks to **3** (stake sizing, the sports cron, console
+screens). Full record: [`PHASE19_SPORTS_MEASURED_HALF.md`](PHASE19_SPORTS_MEASURED_HALF.md).
+
+A stored result is verified under `sports.settle` by a person; settlement settles tickets **only** from
+verified results (`RESTITUTE_ODDS` by default); calibration fitting now runs on the platform's settled
+outcomes and stores `PENDING` for an administrator; the backtester replays stored history point-in-time with
+`simulation: true` inside the report; the drift monitor compares a 14-day window against its 28-day baseline;
+performance analytics measure tickets, selections and predictions from stored records. Slice 5 also brought a
+new differential harness (`cases.slice5`): the repository-bound legacy engines are driven over a scripted fake
+`SportsRepository` in WASM PHP and the port over an equally scripted store, including one **full identity-replay
+backtest** compared whole. It found **F-42** (the port's drift reason string had dropped legacy's parentheses —
+fixed) and evidences **F-36** (PHP's Brier is always 0.0) four times. **F-41** (the MySQL `createStore` method
+list had gone stale) was caught by the boot test before commit and fixed.
+
+Gates on this branch: `npm test` **885 / 885** across **52** files, `npm run check` exit 0 (`verify:install` 29/29,
+76 documented variables), PHP oracle **367 / 367**, and the legacy tree (`application/`, `system/`, `tests/`)
+unmodified. The golden regenerates additively (`cases.slice5` added: 4,757 insertions, zero deletions) and
+deterministically (two consecutive runs hash identically). **Not run:** a real MySQL server, and migration 014
+against any database.
+
+**Still not ported:** stake sizing, the sports cron (`SportsCronService`, row 19) and the console screens (F-29).
+
+## Phase 18 status (2026-10-12) — superseded by Phase 19
+
+**The ticket engine was ported** (row 14, slice 4 of 5). App version was **0.15.0**. The ledger stayed at
+**9 ported / 5 partial / 3 not-ported** across **17** modules, and `sports` remained `partial`. Migration **013** added three
+`wf_sports_*` tables, taking the schema to **38**. The repository grew from 120 to **129** methods. Five
+routes were added, and the sports surface reached **25**. The total route count was **106**. Full record:
 [`PHASE18_SPORTS_TICKETS.md`](PHASE18_SPORTS_TICKETS.md).
 
-A daily run over stored fixtures records one ticket per day and configuration version, as
+A daily run over stored fixtures recorded one ticket per day and configuration version, as
 `PENDING_USER_APPROVAL`. A person approves or rejects it. Nothing is executed, and a simulated candidate never
 reaches a ticket (DV-20, user-chosen). A run that throws is stored as `NO_QUALIFIED_TICKET` with the error kept
 (DV-23, as legacy). Two findings: **F-39**, legacy's team and competition correlation checks never fire, and the
 port follows the documented intent (user-confirmed). **F-40**, the file adapter gave
 concurrent inserts the same id, is fixed.
-
-Gates on this branch: `npm test` **875 / 875** across **51** files, `npm run check` exit 0 (`verify:install` 29/29,
-76 documented variables), PHP oracle **367 / 367**, and the legacy tree (`application/`, `system/`, `tests/`)
-unmodified. The golden regenerator now exits on its own, and re-running it reproduced the golden byte for byte.
-**Not run:** a real MySQL server, and migration 013 against any database.
-
-**Still not ported:** stake sizing, settlement, verification, the backtester, drift and analytics (slice 5);
-calibration fitting; and cron.
 
 ## Phase 17 status (2026-10-12) — superseded by Phase 18
 

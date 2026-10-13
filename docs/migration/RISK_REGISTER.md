@@ -534,7 +534,7 @@ that day and version reports `DUPLICATE_SKIPPED`, and nothing in the API clears 
 **Mitigation / owner.** None yet. Before any scheduled run (`SportsCronService`, still unported), add a recovery
 route or an operator procedure that finishes an abandoned run and records who did it and why. The status it writes is decided with that route. Related: DV-23.
 
-### R-30 — The file adapter writes a ticket and its legs in separate appends (open)
+### R-30 — The file adapter writes a ticket and its legs in separate appends (closed, Phase 26)
 
 **Risk.** `saveSportsTicket` on the file adapter appends the ticket and then each leg. A crash between the appends
 leaves a ticket with missing legs, which reads as a combination with fewer selections than it was recorded with.
@@ -542,6 +542,19 @@ The MySQL adapter writes them in one transaction, and a test proves it rolls bac
 
 **Mitigation / owner.** Acceptable while the file adapter is test or sandbox storage. Before the file adapter holds
 anything real, make the ticket write atomic or check on read that every ticket has its legs.
+
+**Closed (Phase 26).** The file adapter gained `mutateBatch`: an aggregate write is ONE WAL batch record
+(`{"op":"batch","changes":[…]}`), applied whole on replay — a torn line is discarded whole, so the state after a
+crash is either everything or nothing, never the half-written aggregate. `saveSportsTicket` (legs first, parent
+last), `saveLotteryDrawNumbers` and `saveLotteryTicketLines` (delete + inserts) all use it, and
+`test/file_atomicity.test.js` pins the record shape, the torn-tail discard, and the duplicate-id refusal writing
+nothing. Found on the way and fixed in the same change (**F-46**): the draw-numbers delete built its key from
+`{id}` alone while the table keys by `draw_id|kind|position`, so every replace was a silent no-op and the file
+adapter accumulated duplicate number rows per re-save — the same bug family the lottery cron's cleanup found in
+the job-run table. Residual, recorded rather than fixed: the LOTTERY ticket create is legacy's TWO repository
+calls (ticket, then lines) on both adapters, so the same crash window exists there as always existed in legacy;
+there is no line-count column to check on read. If the file adapter ever holds anything real, that path needs
+the same single-record treatment first.
 
 ### R-31 — An approved ticket is a record, and a reader may take `APPROVED_NOT_EXECUTED` as an order (mitigated)
 

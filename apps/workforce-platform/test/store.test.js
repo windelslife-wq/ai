@@ -13,7 +13,7 @@ test("database readiness requires every ordered Node identity migration and repo
   };
   const readiness = await createStore(pool).readiness();
   assert.deepEqual(readiness, { database: true, schema: false, adapter: "mysql", detail: null });
-  assert.match(calls[1].sql, /IN \(\?, \?, \?, \?, \?, \?, \?, \?, \?, \?, \?, \?, \?\)/);
+  assert.match(calls[1].sql, /IN \(\?, \?, \?, \?, \?, \?, \?, \?, \?, \?, \?, \?, \?, \?, \?, \?, \?, \?, \?\)/);
   assert.deepEqual(calls[1].values, [
     "001_platform_foundation",
     "002_identity_import_fields",
@@ -37,6 +37,18 @@ test("database readiness requires every ordered Node identity migration and repo
     "012_sports_intelligence",
     // Slice 4: tickets, ticket selections and the daily ticket run.
     "013_sports_tickets",
+        "014_sports_settlement",
+        "015_sports_snapshots",
+    // Row 15 slice 1: the lottery foundation tables. Required, so a host without
+    // migration 016 sees an incomplete schema up front instead of lottery routes
+    // answering 503 for a reason the readiness probe already knew.
+        "016_lottery_foundation",
+    // Slice 2: combinations + AI decisions (migration 017).
+        "017_lottery_combinations",
+    // Slice 3: saved tickets + their number lines (migration 018).
+        "018_lottery_tickets",
+    // Slice 4: backtest reports + model versions (migration 019).
+        "019_lottery_backtests",
   ]);
 });
 

@@ -131,9 +131,11 @@ export const REPOSITORY_METHODS = Object.freeze([
   // SP-18. `pruneSportsHealth` uses the platform's retention verb rather than
   // legacy's `delete`, so "what can be deleted" is findable under one prefix.
   //
-  // Not here, and owed by later slices: `verifySportsResult` and
-  // `findSportsResultByMatch` (settlement, slice 5). Ingestion reports a result; it
-  // does not get to verify one.
+  // Slice 5 (migration 014) adds the two names the comment below reserved —
+  // `verifySportsResult` and `findSportsResultByMatch` — because attesting to a
+  // result is exactly what slice 5 exists to do. Until slice 4, ingestion was the
+  // only writer of `wf_sports_results`, and a writer that reported an outcome must
+  // not also attest to it.
   "ensureSportsProvider",
   "listSportsProviders",
   "setSportsProviderEnabled",
@@ -151,6 +153,8 @@ export const REPOSITORY_METHODS = Object.freeze([
   "findSportsOddsBefore",
   "saveSportsResult",
   "findSportsResult",
+  "verifySportsResult",
+  "findSportsResultByMatch",
   "saveSportsQuality",
   "latestSportsQuality",
   "startSportsSync",
@@ -183,6 +187,93 @@ export const REPOSITORY_METHODS = Object.freeze([
   "finishSportsDailyTicketRun",
   "findSportsDailyTicketRun",
   "listSportsDailyTicketRuns",
+  // ── Settlement and result verification (row 14, slice 5, migration 014) ────
+  // Settlement writes ONLY the settlement columns. `updateSportsTicket` takes four
+  // named fields rather than legacy's arbitrary patch, so it cannot reach
+  // `approval_status` — the column a person's decision owns (slice 4). A selection
+  // status can move once, PENDING → terminal; `result` mirrors it, as legacy writes it.
+  "updateSportsTicket",
+  "updateSportsTicketSelection",
+  "recordSportsTicketOutcome",
+  // A stuck run's claim is released, not edited: the row is deleted and its counters
+  // are reported to the caller and audited, so the day and version can be re-run
+  // (R-29). Only a RUNNING row can be removed; a finished run is evidence.
+  "recoverSportsDailyTicketRuns",
+  // ── Measured performance: outcomes, metrics and backtests (migration 014) ──
+  // `listSportsPredictionOutcomes` is the read every measured number in this module
+  // derives from: a prediction joined to a VERIFIED finished result, with the binary
+  // outcome for its market. No legacy counterpart method exists to read results
+  // without one — this closes it.
+  "listSportsPredictionOutcomes",
+  "listSportsSettledSelections",
+  "saveSportsModelMetrics",
+  "listSportsModelMetrics",
+  // Storage for the point-in-time backtester's reports (legacy `sports_backtests`).
+  "saveSportsBacktest",
+  "findSportsBacktest",
+  "listSportsBacktests",
+  "saveSportsPerformanceSnapshot",
+  "listSportsPerformanceSnapshots",
+  // ── Lottery Intelligence data foundation (row 15, slice 1, migration 016) ──
+  // The methods SP-18 predicted: legacy's lottery repository declares the very names
+  // (`ensureProvider`, `saveHealth`, `latestHealth`, `listHealth`, `deleteOldHealth`)
+  // that would have collided with the sports ones in one flat namespace. Every name
+  // here is `Lottery`-prefixed, and `deleteOld*` keeps legacy's verb because the
+  // retention decision it serves is this module's own cleanup job (slice 3), unlike
+  // the sports foundation's shared retention read.
+  "ensureLotteryGame",
+  "listLotteryGames",
+  "activeLotteryRules",
+  "saveLotteryRules",
+  "ensureLotteryProvider",
+  "listLotteryProviders",
+  "saveLotteryHealth",
+  "latestLotteryHealth",
+  "listLotteryHealth",
+  "findLotteryDraw",
+  "findLotteryDrawByExternal",
+  "listLotteryDraws",
+  "saveLotteryDraw",
+  "listLotteryDrawNumbers",
+  "saveLotteryDrawNumbers",
+  "lotteryDrawsForStats",
+  "countLotteryDraws",
+  "startLotteryJobRun",
+  "finishLotteryJobRun",
+  "listLotteryJobRuns",
+  "findLotteryJobRunByKey",
+  "deleteOldLotteryJobRuns",
+  "deleteOldLotteryHealth",
+  // ── Lottery combination intelligence (row 15, slice 2, migration 017) ──
+  // Generated combination lines (spec §14/§16) and their AI decision reports
+  // (spec §26/§33), exactly legacy's Persistence interface block: the save
+  // methods return {row, created} with the JSON columns decoded on read.
+  "saveLotteryCombination",
+  "findLotteryCombination",
+  "listLotteryCombinations",
+  "saveLotteryAiDecision",
+  "findLotteryAiDecision",
+  "listLotteryAiDecisions",
+  // ── Lottery saved tickets (row 15, slice 3, migration 018) ──
+  // A ticket is a RECORD of number lines, never a purchase. User isolation is
+  // inside the repository (spec §38): find/list filter by user_id in the
+  // statement itself; null userId is the admin/system scope.
+  "saveLotteryTicket",
+  "findLotteryTicket",
+  "listLotteryTickets",
+  "listAllLotteryTickets",
+  "updateLotteryTicket",
+  "listLotteryTicketLines",
+  "saveLotteryTicketLines",
+  // ── Lottery measured half (row 15, slice 4, migration 019) ──
+  // HISTORICAL SIMULATION backtest reports (spec §23–§25) and the model
+  // versions (spec §33) they are stamped with: ensured once on an existing
+  // (model_name, model_version) pair, never deleted or replaced.
+  "ensureLotteryModelVersion",
+  "listLotteryModelVersions",
+  "saveLotteryBacktest",
+  "findLotteryBacktest",
+  "listLotteryBacktests",
   // operational
   "readiness",
 ]);

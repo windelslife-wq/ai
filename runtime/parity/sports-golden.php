@@ -297,6 +297,9 @@ $slice3 = require __DIR__ . '/sports-intelligence-golden.php';
 // Slice 4: correlation, the class of a selection set, and the ticket optimizer.
 $slice4 = require __DIR__ . '/sports-tickets-golden.php';
 
+// Slice 5: verification, settlement, analytics, drift, model metrics, backtests.
+$slice5 = require __DIR__ . '/sports-settlement-golden.php';
+
 $payload = [
     'generator' => 'runtime/parity/sports-golden.php',
     'php' => ['version' => PHP_VERSION, 'sapi' => PHP_SAPI],
@@ -334,6 +337,7 @@ $payload = [
         })(),
         'slice3' => $slice3,
         'slice4' => $slice4,
+        'slice5' => $slice5,
         'sandbox' => [
             'health' => strip_clock($sandbox->health()),
             'fixtureCount' => count($fixtures),

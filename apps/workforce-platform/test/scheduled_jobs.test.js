@@ -916,7 +916,16 @@ test("no HTTP route exposes the scheduled jobs", async (t) => {
 
   const routes = app.routes();
   assert.ok(routes.length >= 80, `expected the full route inventory, found ${routes.length}`);
-  const offenders = routes.filter((route) => /job|cron|schedul|sweep|expire-stale|run-operations|stale/i.test(`${route.method} ${route.path}`));
+  // Row 15 gives lottery a `GET /api/v1/lottery/jobs` — a READ of stored sync-run
+  // history behind `lottery.view`, mirroring legacy's own `api_lottery/jobs` read
+  // (`listJobRuns`). Reading the history is not running the schedule, so it is
+  // exempted BY NAME and pinned as a guarded GET; any route that TRIGGERS
+  // scheduled work still fails this scan.
+  const lotteryJobsRead = routes.filter((route) => route.method === "GET" && route.path === "/api/v1/lottery/jobs");
+  assert.equal(lotteryJobsRead.length, 1, "the lottery jobs history read exists, as a GET");
+  const offenders = routes
+    .filter((route) => !lotteryJobsRead.includes(route))
+    .filter((route) => /job|cron|schedul|sweep|expire-stale|run-operations|stale/i.test(`${route.method} ${route.path}`));
   assert.deepEqual(offenders.map((route) => `${route.method} ${route.path}`), [],
     "runOperations takes no owner argument: it scans every account and expires every operator's proposals, so it must not be reachable over HTTP");
 

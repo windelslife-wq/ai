@@ -8,6 +8,7 @@ import { createExecutionRepository } from "./execution-repository.js";
 import { createNotificationRepository } from "./notification-repository.js";
 import { createJobRepository } from "./job-repository.js";
 import { createSportsRepository } from "./sports-repository.js";
+import { createLotteryRepository } from "./lottery-repository.js";
 
 export const REQUIRED_MIGRATIONS = Object.freeze([
   "001_platform_foundation",
@@ -23,6 +24,15 @@ export const REQUIRED_MIGRATIONS = Object.freeze([
   "011_sports_foundation",
   "012_sports_intelligence",
   "013_sports_tickets",
+  "014_sports_settlement",
+  "015_sports_snapshots",
+  "016_lottery_foundation",
+  // Slice 2: the generated-combination record and its AI decision report.
+  "017_lottery_combinations",
+  // Slice 3: the ticket record and its number lines.
+  "018_lottery_tickets",
+  // Slice 4: backtest reports + model versions (the measured half).
+  "019_lottery_backtests",
 ]);
 
 /** Only driver codes are ever reported; never an SQL statement or credential. */
@@ -46,6 +56,7 @@ export function createStore(pool, { requiredMigrations = REQUIRED_MIGRATIONS } =
   const notifications = createNotificationRepository(pool);
   const jobs = createJobRepository(pool);
   const sports = createSportsRepository(pool);
+  const lottery = createLotteryRepository(pool);
   return {
     ...repository,
     ...site,
@@ -78,8 +89,9 @@ export function createStore(pool, { requiredMigrations = REQUIRED_MIGRATIONS } =
     // implied: these 22 methods read and write ONLY the seven `wf_sports_*` foundation tables.
     // None of them can reach a proposal, order, position, account or broker row, and
     // none of them places a bet — this is observed sporting data and the evidence of
-    // how it was obtained. `verifySportsResult` is deliberately absent: ingestion
-    // reports a result, it does not get to attest to one.
+    // how it was obtained. (`verifySportsResult` used to be deliberately absent here;
+    // since slice 5 it exists, but it lives in the attestation block below — the
+    // ingest writes and the attesting write stay distinct names on one repository.)
     ensureSportsProvider: sports.ensureSportsProvider,
     listSportsProviders: sports.listSportsProviders,
     setSportsProviderEnabled: sports.setSportsProviderEnabled,
@@ -131,6 +143,84 @@ export function createStore(pool, { requiredMigrations = REQUIRED_MIGRATIONS } =
     finishSportsDailyTicketRun: sports.finishSportsDailyTicketRun,
     findSportsDailyTicketRun: sports.findSportsDailyTicketRun,
     listSportsDailyTicketRuns: sports.listSportsDailyTicketRuns,
+    // Slice 5 completes the ticket write surface: leg and ticket outcome updates are
+    // what settlement applies, and run recovery is the R-29 stuck-run release. Still
+    // ticket tables only, and still nothing that places or prices a bet.
+    updateSportsTicket: sports.updateSportsTicket,
+    updateSportsTicketSelection: sports.updateSportsTicketSelection,
+    recordSportsTicketOutcome: sports.recordSportsTicketOutcome,
+    recoverSportsDailyTicketRuns: sports.recoverSportsDailyTicketRuns,
+    // Settlement and the measured half (migration 014, slice 5). Result attestation
+    // sits here deliberately next to the ingest block it refines: `saveSportsResult`
+    // records what a provider said, `verifySportsResult` records that a person
+    // attested to it, and nothing in the ingest block can call the attesting one.
+    // The analytics reads feed settlement, measurement and reporting only.
+    verifySportsResult: sports.verifySportsResult,
+    findSportsResultByMatch: sports.findSportsResultByMatch,
+    listSportsPredictionOutcomes: sports.listSportsPredictionOutcomes,
+    listSportsSettledSelections: sports.listSportsSettledSelections,
+    saveSportsModelMetrics: sports.saveSportsModelMetrics,
+    listSportsModelMetrics: sports.listSportsModelMetrics,
+    saveSportsBacktest: sports.saveSportsBacktest,
+    findSportsBacktest: sports.findSportsBacktest,
+    listSportsBacktests: sports.listSportsBacktests,
+    // The performance snapshot (migration 015, row 19). Its only writer is the sports
+    // cron's `performance` job; the read is the history an operator compares windows
+    // with. Upsert on (as_of, window) — a re-run of the same hour replaces, never
+    // appends — exactly as legacy's unique key makes it.
+    saveSportsPerformanceSnapshot: sports.saveSportsPerformanceSnapshot,
+    listSportsPerformanceSnapshots: sports.listSportsPerformanceSnapshots,
+    // Lottery Intelligence data foundation (migration 016, row 15 slice 1). Listed
+    // explicitly like the sports block above — the F-41 lesson is that an implicit
+    // list is a stale list waiting to happen, so each name is written out and the
+    // contract test counts them. These 23 methods read and write ONLY the seven
+    // `wf_lottery*` tables: published draw results and the evidence of how they were
+    // obtained. Nothing here purchases, wagers or pays out anything, and none of it
+    // can reach a proposal, order, position, account or broker row.
+    ensureLotteryGame: lottery.ensureLotteryGame,
+    listLotteryGames: lottery.listLotteryGames,
+    activeLotteryRules: lottery.activeLotteryRules,
+    saveLotteryRules: lottery.saveLotteryRules,
+    ensureLotteryProvider: lottery.ensureLotteryProvider,
+    listLotteryProviders: lottery.listLotteryProviders,
+    saveLotteryHealth: lottery.saveLotteryHealth,
+    latestLotteryHealth: lottery.latestLotteryHealth,
+    listLotteryHealth: lottery.listLotteryHealth,
+    findLotteryDraw: lottery.findLotteryDraw,
+    findLotteryDrawByExternal: lottery.findLotteryDrawByExternal,
+    listLotteryDraws: lottery.listLotteryDraws,
+    saveLotteryDraw: lottery.saveLotteryDraw,
+    listLotteryDrawNumbers: lottery.listLotteryDrawNumbers,
+    saveLotteryDrawNumbers: lottery.saveLotteryDrawNumbers,
+    lotteryDrawsForStats: lottery.lotteryDrawsForStats,
+    countLotteryDraws: lottery.countLotteryDraws,
+    startLotteryJobRun: lottery.startLotteryJobRun,
+    finishLotteryJobRun: lottery.finishLotteryJobRun,
+    listLotteryJobRuns: lottery.listLotteryJobRuns,
+    findLotteryJobRunByKey: lottery.findLotteryJobRunByKey,
+    deleteOldLotteryJobRuns: lottery.deleteOldLotteryJobRuns,
+    deleteOldLotteryHealth: lottery.deleteOldLotteryHealth,
+    // Slice 2 (migration 017): combinations + AI decisions (F-41: the explicit list).
+    saveLotteryCombination: lottery.saveLotteryCombination,
+    findLotteryCombination: lottery.findLotteryCombination,
+    listLotteryCombinations: lottery.listLotteryCombinations,
+    saveLotteryAiDecision: lottery.saveLotteryAiDecision,
+    findLotteryAiDecision: lottery.findLotteryAiDecision,
+    listLotteryAiDecisions: lottery.listLotteryAiDecisions,
+    // Slice 3 (migration 018): tickets + lines (records, never purchases).
+    saveLotteryTicket: lottery.saveLotteryTicket,
+    findLotteryTicket: lottery.findLotteryTicket,
+    listLotteryTickets: lottery.listLotteryTickets,
+    listAllLotteryTickets: lottery.listAllLotteryTickets,
+    updateLotteryTicket: lottery.updateLotteryTicket,
+    listLotteryTicketLines: lottery.listLotteryTicketLines,
+    saveLotteryTicketLines: lottery.saveLotteryTicketLines,
+    // Slice 4 (migration 019): backtest reports + model versions (the measured half).
+    ensureLotteryModelVersion: lottery.ensureLotteryModelVersion,
+    listLotteryModelVersions: lottery.listLotteryModelVersions,
+    saveLotteryBacktest: lottery.saveLotteryBacktest,
+    findLotteryBacktest: lottery.findLotteryBacktest,
+    listLotteryBacktests: lottery.listLotteryBacktests,
     saveJobState: jobs.saveJobState,
     // Notifications are written outside any paper transaction: they are evidence
     // about a change that already committed, and a failed notification must never

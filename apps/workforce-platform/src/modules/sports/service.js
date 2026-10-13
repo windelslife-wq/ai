@@ -35,21 +35,32 @@ import { PROVIDER_STATUS } from "./provider-error.js";
 import { assessProviderHealth } from "./health-monitor.js";
 import { createSportsProviderManager } from "./providers/manager.js";
 import { AppError } from "../../http/errors.js";
+import { createSportsCronService } from "./cron.js";
 import { createSportsSyncService } from "./sync.js";
 import { createSportsIntelligenceService } from "./intelligence-service.js";
 import { createTicketService } from "./ticket-service.js";
+import { createSettlementService } from "./settlement.js";
+import { createModelDriftService } from "./drift.js";
+import { runBacktest } from "./backtester.js";
+// Imported under a distinct name: this service also defines `performanceReport` (the
+// repository-bound assembler), and a bare import of the same name would be shadowed by
+// it here — which is exactly what happened (finding F-43): the assembler called itself
+// through the shadowed name, and the route hung in infinite async recursion. The pure
+// report is `computePerformanceReport`; the assembler is `performanceReport`.
+import { performanceReport as computePerformanceReport } from "./performance-analytics.js";
 import { createSandboxSportsProvider, SANDBOX_PROVIDER_ID } from "./providers/sandbox.js";
 import { createHttpSportsProvider } from "./providers/http.js";
 
 /**
- * The slices of row 14 this port does not yet contain, in legacy's own terms.
+ * The parts of row 14 this port still does not contain, in legacy's own terms.
  *
- * Nine entries, down from the ten Phase 15 shipped: fixture, odds and result ingestion
- * has been REMOVED rather than re-labelled, because a matrix whose name is "not ported"
- * must not contain an entry that says otherwise. What ingestion now does is stated
- * positively in `status().persistence` and `status().message`, where a reader looking
- * for capability will find it; a slice that graduates out of this list is the list
- * working.
+ * Slice 5 empties this matrix down to three entries: stake sizing (which no slice
+ * owns), the scheduled jobs (whose ported home is row 19, shared with the operations
+ * cron), and the console screens (which no ported module has — F-29, platform-wide).
+ * Settlement, verification, calibration fitting, backtesting, model drift monitoring
+ * and performance analytics all graduated in slice 5, and were REMOVED from this list
+ * rather than re-labelled: a matrix whose name is "not ported" must not contain an
+ * entry that says otherwise.
  *
  * Surfaced by `status()` for the same reason the broker route surfaces its
  * `PLANNED` matrix (divergence BC-10): no ported module has a console screen
@@ -58,12 +69,8 @@ import { createHttpSportsProvider } from "./providers/http.js";
  * ported" must not look the same from the outside.
  */
 export const SPORTS_NOT_PORTED = Object.freeze([
-  Object.freeze({ area: "stake sizing", legacy: "stake_amount copied onto each ticket (TicketGovernance::record)", state: "not ported", detail: "Correlation is measured (slice 4). No stake is sized from bankroll or edge: the configured fixed stake_amount is recorded on each ticket, as legacy does. Sizing is not ported, and no slice owns it yet." }),
-  Object.freeze({ area: "settlement and result verification", legacy: "TicketSettlementService, ResultVerificationEngine, PersistedResultVerifier", state: "not ported", detail: "No result can be verified, so no decision has an outcome and `verified` stays false everywhere. Row 14 slice 5." }),
-  Object.freeze({ area: "calibration", legacy: "CalibrationEngine::fit", state: "not ported", detail: "A calibration cannot be fitted yet, because a fit needs settled outcomes. Approving and rejecting a fitted calibration are ported; `POST /sports/calibrations/fit` returns 422 and stores nothing until settlement exists. Row 14 slice 5." }),
-  Object.freeze({ area: "backtesting", legacy: "SportsBacktester", state: "not ported", detail: "Point-in-time backtesting is UNBLOCKED but not written: migration 011 stores odds as one row per observation, so `findSportsOddsBefore` can answer what was known at a time. It needs settled outcomes, so it is row 14 slice 5." }),
-  Object.freeze({ area: "model monitoring", legacy: "ModelDriftMonitor", state: "not ported", detail: "The model registry and the prediction counts are ported, but drift is not measured. `SPORTS_MODEL_DRIFT` therefore remains the last notification type with no publisher (NV-6), until slice 5." }),
-  Object.freeze({ area: "performance analytics and dashboards", legacy: "PerformanceAnalytics, Sports::index, Sports::tickets", state: "not ported", detail: "Both aggregate stored tickets and settled results, and neither exists yet. The model-performance read reports `samples: 0` and null metrics, which is the honest answer, not a dashboard." }),
+  Object.freeze({ area: "stake sizing", legacy: "stake_amount copied onto each ticket (TicketGovernance::record)", state: "not ported", detail: "No stake is sized from bankroll or edge: the configured fixed stake_amount is recorded on each ticket, as legacy does, and settlement's P/L is computed on it. Sizing is not ported, and no slice owns it yet." }),
+  Object.freeze({ area: "console screens", legacy: "Sports::index, Sports::tickets (views/sports/*.php)", state: "not ported", detail: "Both console views aggregate stored tickets and settled results. No ported module has a console screen (F-29, platform-wide); the API reads exist under /sports/performance and /sports/tickets." }),
 ]);
 
 /**
@@ -71,12 +78,16 @@ export const SPORTS_NOT_PORTED = Object.freeze([
  *
  * @param {object} options
  * @param {{sports: Record<string, unknown>}} options.config
+ * @param {object|null} [options.store] the repository (the store adapter)
+ * @param {object|null} [options.notifications] the operator notification service; the
+ *   drift monitor publishes `SPORTS_MODEL_DRIFT` through it (NV-6) and degrades to a
+ *   logged refusal when it is absent
  * @param {() => number} [options.now] epoch milliseconds
  * @param {(url: string, init: Record<string, unknown>) => Promise<{status: number, body: string}>} [options.transport]
  *   injected into the HTTP provider; the default uses `fetch`
  * @returns {Readonly<Record<string, unknown>>}
  */
-export function createSportsService({ config, store = null, now = () => Date.now(), transport } = {}) {
+export function createSportsService({ config, store = null, notifications = null, now = () => Date.now(), transport } = {}) {
   const settings = config?.sports ?? {};
   const http = settings.http ?? {};
 
@@ -216,8 +227,8 @@ export function createSportsService({ config, store = null, now = () => Date.now
       ticketEngine: "ON_REQUEST",
       message: configured
         ? (store
-          ? "Sports data providers are configured and ingestion is persisted: fixtures, odds observations, results, quality assessments, provider health and sync runs are stored. Derived provider health is computed from those rows. No prediction, ticket, settlement, calibration or backtest can be produced, and no stored result is verified."
-          : "Sports data providers are configured but this host has no sports repository, so nothing is persisted: fixture, odds and result ingestion has nowhere to put its rows, and no prediction, ticket, settlement, calibration or backtest can be produced.")
+          ? "Sports data providers are configured and ingestion is persisted: fixtures, odds observations, results, quality assessments, provider health and sync runs are stored. Derived provider health is computed from those rows. The decision chain, the ticket engine, settlement and verification, calibration fitting, the backtester, drift monitoring and measured performance are all runnable, on request. Nothing is executed: a ticket is a record a person approves, and settlement settles the record. No stake is sized, and no provider has been verified against a real vendor."
+          : "Sports data providers are configured but this host has no sports repository, so nothing is persisted: fixture, odds and result ingestion has nowhere to put its rows, and no decision, ticket, settlement or measurement can be produced.")
         : "No sports provider is configured. No fixtures, odds, predictions, or tickets are fabricated.",
     };
 
@@ -301,8 +312,8 @@ export function createSportsService({ config, store = null, now = () => Date.now
       ticketEngine: "ON_REQUEST",
       reason: configured
         ? (store
-          ? "Providers are configured from the environment and ingestion is persisted. Decisions are recorded for fixtures that have a quality assessment, but no ticket, settlement, backtest or model drift can be produced, and no stored result is verified. This snapshot reports configuration only: derived health is computed from stored observations and is available on the authenticated GET /api/v1/sports/status, never here, because this surface is unauthenticated and must not trigger a read of provider history or an outbound call."
-          : "Providers are configured from the environment but this host has no sports repository, so no fixture, odds or result is persisted, and no decision, ticket, settlement or backtest can be produced. The authenticated GET /api/v1/sports/status reports the same and can probe on request.")
+          ? "Providers are configured from the environment and ingestion is persisted. Decisions, tickets, settlement, verification, calibration fits, backtests, drift monitoring and measured performance are all runnable on request; nothing is executed and no stake is sized. This snapshot reports configuration only: derived health is computed from stored observations and is available on the authenticated GET /api/v1/sports/status, never here, because this surface is unauthenticated and must not trigger a read of provider history or an outbound call."
+          : "Providers are configured from the environment but this host has no sports repository, so no fixture, odds or result is persisted, and no decision, ticket, settlement or measurement can be produced. The authenticated GET /api/v1/sports/status reports the same and can probe on request.")
         : "No sports provider is configured, so no fixture, odds, decision or ticket can be produced and nothing is fabricated to fill the gap.",
     });
   }
@@ -472,11 +483,91 @@ export function createSportsService({ config, store = null, now = () => Date.now
    */
   const tickets = createTicketService({ store, intelligence, now });
 
-  return Object.freeze({
+  /**
+   * Settlement and verification (slice 5): a result is attested by a person with
+   * `sports.settle`, then a ticket's legs settle only from attested rows. It writes the
+   * settlement columns through the repository and nothing else — no paper, execution
+   * or broker path exists here.
+   */
+  const settlement = createSettlementService({ store, now });
+
+  /**
+   * Model drift monitoring (slice 5). The publisher for `SPORTS_MODEL_DRIFT` (NV-6),
+   * degraded to a logged refusal when this host has no notification store. Runnable on
+   * request; no scheduler drives it (row 19 owns the cron).
+   */
+  const drift = createModelDriftService({ store, notifications, now });
+
+  /**
+   * The point-in-time backtester (slice 5). One function over the stored history; the
+   * report is stored whole with `simulation: true` inside it.
+   */
+  const backtester = Object.freeze({
+    run: (params, { actorId = null } = {}) => runBacktest({ store, params, actorId, now }),
+  });
+
+  /**
+   * Stored results for one day window: the fixtures that FINISHED and the best stored
+   * result row for each, with its attestation state. This is the read an operator
+   * verifies from, and the read the settlement sweep's evidence starts from.
+   */
+  async function listResults(filter = {}, limit = 200) {
+    const repository = requireStore();
+    const bounded = Math.min(500, Math.max(1, Number(limit) || 200));
+    const matches = await repository.listSportsMatches({ ...filter, status: "FINISHED" }, bounded);
+    const rows = [];
+    for (const match of matches) {
+      const result = await repository.findSportsResultByMatch(match.id).catch(() => null);
+      rows.push({
+        match,
+        result,
+        verified: result ? result.verified === true || result.verified === 1 : false,
+      });
+    }
+    return rows;
+  }
+
+  /**
+   * The performance report over stored settled data (slice 5), as legacy's
+   * `SportsIntelligence::performanceReport` assembles it: tickets, settled selections
+   * and prediction outcomes handed to the pure `performanceReport`.
+   */
+  async function performanceReport(filter = {}) {
+    const repository = requireStore();
+    const settings = config?.sports ?? {};
+    const f = filter && typeof filter === "object" ? filter : {};
+    const tickets = await repository.listSportsTickets({
+      from: f.from ?? null,
+      to: f.to ?? null,
+    }, 500);
+    const windowSelections = await repository.listSportsSettledSelections(
+      { from: f.from ?? null, to: f.to ?? null, modelVersionId: f.modelVersionId ?? null },
+      5000,
+    );
+    const outcomes = (await repository.listSportsPredictionOutcomes(f.modelVersionId ?? null, 5000))
+      .filter((row) => (f.from ? inWindowFrom(row.created_at, f.from) : true));
+    // F-43: this is the PURE report from performance-analytics.js, called under its
+    // unshadowed alias. Under the shadowed name this line called this very function.
+    const report = computePerformanceReport(tickets, windowSelections, outcomes, {
+      mode: settings.mode ?? "SANDBOX",
+      totalPredictions: (await repository.listSportsPredictions({}, 1000)).length,
+    });
+    return { ...report, filter: f };
+  }
+
+  /**
+   * The composed service, named so the cron can be handed the very object a caller
+   * gets — the cron drives the same sync, tickets, settlement, drift and measurement
+   * paths the HTTP surface does, never a private copy of them.
+   */
+  const sportsService = Object.freeze({
     status,
     statusSnapshot,
     intelligence,
     tickets,
+    settlement,
+    drift,
+    backtester,
     readFixtures,
     readOdds,
     readResults,
@@ -488,6 +579,9 @@ export function createSportsService({ config, store = null, now = () => Date.now
     matchDetail,
     listSyncRuns,
     providerHealthHistory,
+    // Slice 5 reads: the results an operator verifies from, and the measured report.
+    listResults,
+    performanceReport,
     // Ingestion. Gated `sports.manage` at the route, matching legacy's `Api_sports`,
     // and idempotent by `executionKey` underneath.
     sync,
@@ -497,4 +591,23 @@ export function createSportsService({ config, store = null, now = () => Date.now
     /** `PROVIDER_STATUS`, re-exported so a route does not import two modules. */
     statuses: PROVIDER_STATUS,
   });
+
+  /**
+   * The sports cron (row 19): nine idempotent jobs driving the services above, from
+   * the CLI (`npm run sports:jobs`) and never from an HTTP route. Built only where a
+   * repository exists — every job reads or writes one, and a cron that answered
+   * "done" without a store would be the fabrication the module refuses.
+   */
+  const cron = store ? createSportsCronService({ sports: sportsService, store, now }) : null;
+
+  return Object.freeze({ ...sportsService, cron });
+}
+
+/** Whether a stored instant is at or after a `from` bound, compared as instants. */
+function inWindowFrom(createdAt, from) {
+  const at = Date.parse(String(createdAt ?? ""));
+  const bound = Date.parse(String(from));
+  if (Number.isNaN(at)) return false;
+  if (Number.isNaN(bound)) return true;
+  return at >= bound;
 }

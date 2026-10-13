@@ -40,6 +40,7 @@
 import { assertIsoCutoff } from "../persistence/contract.js";
 import { createSportsIntelligenceRepository, SPORTS_INTELLIGENCE_METHODS } from "./sports-intelligence-repository.js";
 import { createSportsTicketRepository, SPORTS_TICKET_METHODS } from "./sports-ticket-repository.js";
+import { createSportsAnalyticsRepository, SPORTS_ANALYTICS_METHODS } from "./sports-analytics-repository.js";
 import { parseStrictInstant } from "../lib/php-date.js";
 import {
   HEALTH_STATUSES,
@@ -121,6 +122,8 @@ export function createSportsRepository(executor) {
     ...createSportsIntelligenceRepository(executor),
     // ── slice 4: tickets and the daily ticket run (migration 013) ──
     ...createSportsTicketRepository(executor),
+    // ── slice 5: outcomes, settled selections, model metrics, backtests (migration 014) ──
+    ...createSportsAnalyticsRepository(executor),
     // ── providers ──────────────────────────────────────────────────────────────
 
     /**
@@ -611,6 +614,49 @@ export function createSportsRepository(executor) {
       return readSportsResult(executor, matchId, providerId);
     },
 
+    /**
+     * Attest to one stored result (slice 5). Only the attestation moves: the scores,
+     * the status and the payload are the provider's report and stay as ingested.
+     * Returns the verified row.
+     */
+    async verifySportsResult(resultId, verifiedAt) {
+      const id = assertRowId(resultId, "result id");
+      const at = optionalInstant(verifiedAt, "verified_at") ?? canonicalNow();
+      await executor.execute(
+        `UPDATE wf_sports_results SET verified = 1, verified_at = ? WHERE id = ?`,
+        [at, id],
+      );
+      const [rows] = await executor.query(
+        `SELECT id, match_id, provider_id, home_score, away_score, status, verified,
+                source_timestamp, verified_at, payload
+           FROM wf_sports_results
+          WHERE id = ?
+          LIMIT 1`,
+        [id],
+      );
+      return resultRow(rows?.[0] ?? null);
+    },
+
+    /**
+     * The best stored result for one fixture: verified first, then newest id.
+     *
+     * Legacy's `findResultByMatch` orders by `verified DESC, id DESC`, and settlement
+     * sweeps read through this method — so "which result is the truth for this match"
+     * is decided here, in one place, for both adapters.
+     */
+    async findSportsResultByMatch(matchId) {
+      const [rows] = await executor.query(
+        `SELECT id, match_id, provider_id, home_score, away_score, status, verified,
+                source_timestamp, verified_at, payload
+           FROM wf_sports_results
+          WHERE match_id = ?
+          ORDER BY verified DESC, id DESC
+          LIMIT 1`,
+        [assertRowId(matchId, "match_id")],
+      );
+      return resultRow(rows?.[0] ?? null);
+    },
+
     // ── data quality ───────────────────────────────────────────────────────────
 
     /**
@@ -797,7 +843,7 @@ export function createSportsRepository(executor) {
   };
 }
 
-/** The 34 methods this repository adds to the shared store contract (22 foundation, 12 slice 3). */
+/** The 58 methods this repository adds to the shared store contract (22 foundation + 12 intelligence + 13 ticket + 11 settlement, measurement and snapshot). */
 export const SPORTS_REPOSITORY_METHODS = Object.freeze([
   "ensureSportsProvider",
   "listSportsProviders",
@@ -816,6 +862,8 @@ export const SPORTS_REPOSITORY_METHODS = Object.freeze([
   "findSportsOddsBefore",
   "saveSportsResult",
   "findSportsResult",
+  "verifySportsResult",
+  "findSportsResultByMatch",
   "saveSportsQuality",
   "latestSportsQuality",
   "startSportsSync",
@@ -823,4 +871,5 @@ export const SPORTS_REPOSITORY_METHODS = Object.freeze([
   "listSportsSyncRuns",
   ...SPORTS_INTELLIGENCE_METHODS,
   ...SPORTS_TICKET_METHODS,
+  ...SPORTS_ANALYTICS_METHODS,
 ]);

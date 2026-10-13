@@ -64,7 +64,42 @@ import {
   prepareTicket,
   ticketRow,
   ticketSelectionRow,
+  backtestRow,
+  modelMetricsRow,
+  performanceSnapshotRow,
+  prepareBacktest,
+  prepareModelMetrics,
+  preparePerformanceSnapshot,
+  prepareSelectionSettlement,
+  prepareTicketSettlement,
+  predictionOutcomeRow,
+  settledSelectionRow,
+  SNAPSHOT_WINDOWS,
 } from "./sports-rows.js";
+import {
+  LOTTERY_VERIFICATION_STATUSES,
+  assertDrawDate,
+  assertLotteryCode,
+  prepareLotteryCombination,
+  prepareLotteryAiDecision,
+  lotteryDrawNumberRow,
+  lotteryDrawRow,
+  lotteryCombinationRow,
+  lotteryAiDecisionRow,
+  lotteryTicketRow,
+  lotteryTicketLineRow,
+  prepareLotteryTicket,
+  prepareLotteryTicketLine,
+  prepareLotteryBacktest,
+  lotteryBacktestRow,
+  prepareLotteryModelVersion,
+  lotteryModelVersionRow,
+  lotteryGameRow,
+  lotteryHealthRow,
+  lotteryProviderRow,
+  lotteryRulesRow,
+  lotterySyncRunRow,
+} from "./lottery-rows.js";
 import { createHash } from "node:crypto";
 import path from "node:path";
 
@@ -81,7 +116,29 @@ const ENTITIES = ["users", "profiles", "sessions", "roles", "permissions", "user
   "sportsModelVersions", "sportsPredictions", "sportsConfigurations", "sportsCalibrations",
   // Tickets and the daily ticket run (migration 013, slice 4). A ticket's selections are a
   // separate collection, as the table is, and a daily run is keyed by its day and version.
-  "sportsTickets", "sportsTicketSelections", "sportsDailyTickets"];
+  "sportsTickets", "sportsTicketSelections", "sportsDailyTickets",
+  // Settlement, measurement and backtests (migration 014, slice 5). Backtests are keyed
+  // by their `bt_` id; metrics snapshots are append-only and keyed by id.
+  "sportsBacktests", "sportsModelMetrics",
+  // Performance snapshots (migration 015, row 19). Keyed by (as_of hour, window) — the
+  // migration's UNIQUE key, and what makes a re-run of the same hour REPLACE.
+  "sportsPerformanceSnapshots",
+  // Lottery Intelligence data foundation (migration 016, row 15 slice 1). Seven
+  // collections for seven tables, named for the module exactly as the sports ones
+  // are — SP-18 was ABOUT this module's method names. The game registry is
+  // `lotteries` (legacy's own table name); a draw is (lottery, external id); a
+  // stored rule version is (lottery, version); numbers are (draw, kind, position);
+  // health and sync runs follow the sports collections' shapes.
+  "lotteries", "lotteryRules", "lotteryProviders", "lotteryHealth", "lotteryDraws",
+  "lotteryDrawNumbers", "lotterySyncRuns",
+  // Slice 2 (migration 017): the generated-combination record and its AI
+  // decision report (spec §14/§26/§33).
+  "lotteryCombinations", "lotteryAiDecisions",
+  // Slice 3 (migration 018): the ticket record and its number lines.
+  "lotteryTickets", "lotteryTicketLines",
+  // Slice 4 (migration 019): backtest reports + the model versions they are
+  // stamped with (spec §23–§25/§33; ensured once, never deleted).
+  "lotteryBacktests", "lotteryModelVersions"];
 const PAPER_TX_ENTITIES = Object.freeze(["tradingState", "paperAccounts", "paperOrders", "paperPositions", "paperTrades", "paperDeployments", "executionProposals", "strategies", "journalEntries", "audit"]);
 const COMPACTION_ENTRIES = 2_000;
 /**
@@ -176,6 +233,23 @@ function keyOf(entity, record) {
   if (entity === "sportsConfigurations") return String(record.version);
   // One daily run per (day, configuration version), the same as the migration's UNIQUE key.
   if (entity === "sportsDailyTickets") return `${record.run_date}|${record.configuration_version}`;
+  // One performance snapshot per (as_of hour, window), the same as the migration's
+  // UNIQUE key — and what makes the cron's re-run of an hour REPLACE, not append.
+  if (entity === "sportsPerformanceSnapshots") return `${record.as_of}|${record.window}`;
+  // Lottery foundation (migration 016). A game is its code; a stored rule version is
+  // (lottery, version); a provider is its code, as for sports; a draw is
+  // (lottery, external id), because two sources numbering one draw differently is
+  // the normal case; a number row is (draw, kind, position); a sync run is keyed by
+  // its execution key, which is what makes re-ingestion the adapter's arbiter.
+  // Health is append-only and keyed by id.
+  if (entity === "lotteries") return String(record.code);
+  if (entity === "lotteryRules") return `${record.lottery_code}|${record.version}`;
+  if (entity === "lotteryProviders") return String(record.provider_code);
+  if (entity === "lotteryDraws") return `${record.lottery_code}:${record.external_id}`;
+  if (entity === "lotteryDrawNumbers") return `${record.draw_id}|${record.kind}|${record.position}`;
+  if (entity === "lotterySyncRuns") return String(record.execution_key);
+  // Combinations and AI decisions are auto-increment rows: the insert path below
+  // assigns the next id, so the default `String(record.id)` branch is theirs.
   return String(record.id);
 }
 
@@ -394,6 +468,37 @@ export async function createFileStore({ dir, logger = console, idFactory = () =>
       if (op === "upsert" && table.has(key) && record.replace === false) throw new Error("Already exists");
       apply({ entity, key, op, value: value ? sanitize(value) : undefined }, { persist: false });
       await persist({ entity, key, op, value: op === "delete" ? null : sanitize(record) });
+    };
+    return enqueue(run);
+  }
+
+  /**
+   * One WAL record, many changes — the file adapter's atomic multi-row write
+   * (R-30). The batch line is applied whole on replay (a torn line is dropped
+   * whole), so a crash between the appends of an aggregate — a sports ticket
+   * and its selections, a stored draw and its numbers, a lottery ticket and
+   * its lines — leaves either everything or nothing, never the half-written
+   * state the one-append-at-a-time path could produce. Aggregate writers put
+   * children first so even a reader of the raw log sees completeness in the
+   * record order. Values are sanitized (the `replace` hint never reaches the
+   * log) and the caller owns any pre-write guard it needs.
+   *
+   * @param {{entity: string, key: string, op: "upsert"|"delete", value: object|null}[]} changes
+   */
+  function mutateBatch(changes) {
+    const run = async () => {
+      const clean = changes.map((change) => ({
+        entity: change.entity,
+        // The key follows the value's own keyOf, exactly as `mutate` derives it —
+        // entities with composite keys (draw numbers are draw|kind|position) must
+        // not be keyed by a bare id, or deletes and upserts land beside their rows.
+        key: change.key ?? keyOf(change.entity, change.value ?? {}),
+        op: change.op,
+        value: change.value === null || change.value === undefined ? null : sanitize(change.value),
+      }));
+      await persist({ op: "batch", changes: clean }, { compactAfter: false });
+      apply({ op: "batch", changes: clean, sequence }, { persist: false });
+      if (appendCount >= COMPACTION_ENTRIES) await compact();
     };
     return enqueue(run);
   }
@@ -1134,6 +1239,28 @@ export async function createFileStore({ dir, logger = console, idFactory = () =>
       return resultRow(tables.get("sportsResults").get(key) ?? null);
     },
 
+    /**
+     * Attest to one stored result (slice 5). Only the attestation moves: scores,
+     * status and payload stay as the provider reported them.
+     */
+    async verifySportsResult(resultId, verifiedAt) {
+      const id = assertRowId(resultId, "result id");
+      const current = [...tables.get("sportsResults").values()].find((r) => toInt(r.id, 0) === id);
+      if (!current) return null;
+      const at = optionalInstant(verifiedAt, "verified_at") ?? nowIso();
+      await mutate("sportsResults", "upsert", { ...current, verified: 1, verified_at: at });
+      return resultRow([...tables.get("sportsResults").values()].find((r) => toInt(r.id, 0) === id));
+    },
+
+    /** Verified first, then newest id — the same order the SQL applies. */
+    async findSportsResultByMatch(matchId) {
+      const id = assertRowId(matchId, "match_id");
+      const rows = [...tables.get("sportsResults").values()]
+        .filter((r) => toInt(r.match_id, 0) === id)
+        .sort((a, b) => (toInt(b.verified, 0) - toInt(a.verified, 0)) || (toInt(b.id, 0) - toInt(a.id, 0)));
+      return rows.length ? resultRow(rows[0]) : null;
+    },
+
     async saveSportsQuality(matchId, assessment) {
       const a = assessment && typeof assessment === "object" ? assessment : {};
       const record = {
@@ -1362,11 +1489,18 @@ export async function createFileStore({ dir, logger = console, idFactory = () =>
 
     async saveSportsTicket(built) {
       const { ticket, selections } = prepareTicket(built ?? {});
-      await mutate("sportsTickets", "upsert", { ...ticket, replace: false });
-      for (const selection of selections) {
+      // R-30: the ticket and its legs are ONE WAL batch, legs FIRST — a crash
+      // used to be able to leave a ticket with fewer selections than
+      // selection_count claims. The replace:false guard is checked up front so
+      // a duplicate id still refuses before anything is written.
+      const key = keyOf("sportsTickets", ticket);
+      if (tables.get("sportsTickets").has(key)) throw new Error("Already exists");
+      const changes = selections.map((selection) => {
         const id = nextRowId("sportsTicketSelections");
-        await mutate("sportsTicketSelections", "upsert", { id, ...selection });
-      }
+        return { entity: "sportsTicketSelections", op: "upsert", value: { id, ...selection } };
+      });
+      changes.push({ entity: "sportsTickets", op: "upsert", value: { ...ticket, replace: false } });
+      await mutateBatch(changes);
       return ticketRow(tables.get("sportsTickets").get(ticket.id));
     },
 
@@ -1381,6 +1515,8 @@ export async function createFileStore({ dir, logger = console, idFactory = () =>
         ? null : assertEnum(f.approvalStatus, TICKET_APPROVALS, "filter.approvalStatus");
       // Same meaning as the SQL subquery: tickets linked from a daily run on that day.
       const runDate = f.runDate === null || f.runDate === undefined ? null : assertRunDate(f.runDate);
+      const status = f.status === null || f.status === undefined
+        ? null : assertText(String(f.status).slice(0, 16), 16, "filter.status");
       const linked = runDate === null ? null : new Set(
         [...tables.get("sportsDailyTickets").values()]
           .filter((r) => r.run_date === runDate && r.ticket_id !== null && r.ticket_id !== undefined)
@@ -1388,7 +1524,8 @@ export async function createFileStore({ dir, logger = console, idFactory = () =>
       );
       return [...tables.get("sportsTickets").values()]
         .filter((r) => (approval === null || r.approval_status === approval)
-          && (linked === null || linked.has(String(r.id))))
+          && (linked === null || linked.has(String(r.id)))
+          && (status === null || r.status === status))
         .sort((a, b) => String(b.created_at).localeCompare(String(a.created_at)) || String(b.id).localeCompare(String(a.id)))
         .slice(0, bounded)
         .map(ticketRow);
@@ -1454,6 +1591,781 @@ export async function createFileStore({ dir, logger = console, idFactory = () =>
         .sort((a, b) => String(b.run_date).localeCompare(String(a.run_date)) || toInt(b.id, 0) - toInt(a.id, 0))
         .slice(0, bounded)
         .map(dailyRunRow);
+    },
+
+    // ── settlement (slice 5, migration 014) ──────────────────────────────────
+    // The same four named-field writes the SQL adapter makes. `updateSportsTicket`
+    // accepts the settlement columns only — the same fields `prepareTicketSettlement`
+    // validates — so a settlement sweep cannot overwrite `approval_status` here either.
+
+    async updateSportsTicket(id, patch) {
+      const ticketId = assertTicketId(id);
+      const current = tables.get("sportsTickets").get(ticketId);
+      if (!current) return null;
+      const p = prepareTicketSettlement(patch ?? {});
+      await mutate("sportsTickets", "upsert", {
+        ...current,
+        settlement_status: p.settlement_status,
+        status: p.status,
+        total_odds: p.total_odds,
+        reason: p.reason,
+      });
+      return ticketRow(tables.get("sportsTickets").get(ticketId));
+    },
+
+    async updateSportsTicketSelection(id, patch) {
+      const selectionId = assertRowId(id, "selection id");
+      const current = [...tables.get("sportsTicketSelections").values()].find((r) => toInt(r.id, 0) === selectionId);
+      if (!current) return null;
+      const p = prepareSelectionSettlement(patch ?? {});
+      await mutate("sportsTicketSelections", "upsert", { ...current, status: p.status, result: p.result });
+      return ticketSelectionRow([...tables.get("sportsTicketSelections").values()].find((r) => toInt(r.id, 0) === selectionId));
+    },
+
+    async recordSportsTicketOutcome(id, pnl) {
+      const ticketId = assertTicketId(id);
+      const current = tables.get("sportsTickets").get(ticketId);
+      if (!current) return null;
+      const value = Number(pnl);
+      if (!Number.isFinite(value)) throw new TypeError(`pnl must be a finite number, received ${JSON.stringify(pnl)}`);
+      await mutate("sportsTickets", "upsert", { ...current, pnl: Number(value.toFixed(4)) });
+      return ticketRow(tables.get("sportsTickets").get(ticketId));
+    },
+
+    /** Delete RUNNING claims for a day and report exactly what was removed (R-29). */
+    async recoverSportsDailyTicketRuns(runDate) {
+      const date = assertRunDate(runDate);
+      const stuck = [...tables.get("sportsDailyTickets").values()]
+        .filter((r) => r.run_date === date && r.status === "RUNNING")
+        .sort((a, b) => toInt(a.id, 0) - toInt(b.id, 0));
+      const removed = [];
+      for (const row of stuck) {
+        await mutate("sportsDailyTickets", "delete", row);
+        removed.push(dailyRunRow(row));
+      }
+      return removed;
+    },
+
+    // ── measured performance (slice 5, migration 014) ────────────────────────
+
+    /** Verified-finished-result outcomes, in creation order; unscorable markets excluded. */
+    async listSportsPredictionOutcomes(modelVersionId = null, limit = 5000) {
+      const bounded = Math.min(5000, Math.max(1, toInt(limit, 5000)));
+      const matches = new Map([...tables.get("sportsMatches").values()].map((m) => [String(m.id), m]));
+      const resultsByMatch = new Map();
+      for (const r of tables.get("sportsResults").values()) {
+        const key = String(r.match_id);
+        const current = resultsByMatch.get(key);
+        // Verified first, then newest id — the same order the SQL join's WHERE and the
+        // MySQL adapter's ORDER BY produce.
+        if (!current || toInt(r.verified, 0) > toInt(current.verified, 0) || toInt(r.id, 0) > toInt(current.id, 0)) {
+          resultsByMatch.set(key, r);
+        }
+      }
+      const out = [];
+      const predictions = [...tables.get("sportsPredictions").values()]
+        .sort((a, b) => String(a.created_at).localeCompare(String(b.created_at)) || String(a.id).localeCompare(String(b.id)));
+      for (const p of predictions) {
+        if (out.length >= bounded) break;
+        if (modelVersionId !== null && modelVersionId !== undefined && toInt(p.model_version_id, 0) !== toInt(modelVersionId)) continue;
+        const match = matches.get(String(p.match_id));
+        if (!match) continue;
+        const result = resultsByMatch.get(String(p.match_id));
+        if (!result || toInt(result.verified, 0) !== 1 || result.status !== "FINISHED") continue;
+        const mapped = predictionOutcomeRow({
+          ...p,
+          league: match.competition ?? null,
+          home_score: result.home_score,
+          away_score: result.away_score,
+        });
+        if (mapped !== null) out.push(mapped);
+      }
+      return out;
+    },
+
+    /** Ticket legs joined to ticket/match/model fields, `_settled` naming terminal legs. */
+    async listSportsSettledSelections(filter = {}, limit = 5000) {
+      const f = filter && typeof filter === "object" ? filter : {};
+      const bounded = Math.min(5000, Math.max(1, toInt(limit, 5000)));
+      const tickets = new Map([...tables.get("sportsTickets").values()].map((t) => [String(t.id), t]));
+      const matches = new Map([...tables.get("sportsMatches").values()].map((m) => [String(m.id), m]));
+      const modelVersions = new Map([...tables.get("sportsModelVersions").values()].map((m) => [String(m.id), m]));
+      const from = f.from === null || f.from === undefined || String(f.from).trim() === "" ? null : assertIsoCutoff(String(f.from).trim());
+      const to = f.to === null || f.to === undefined || String(f.to).trim() === "" ? null : assertIsoCutoff(String(f.to).trim());
+      const market = f.market === null || f.market === undefined || String(f.market).trim() === "" ? null : String(f.market).slice(0, 40);
+      const modelVersionId = f.modelVersionId === null || f.modelVersionId === undefined ? null : toInt(f.modelVersionId);
+      const out = [];
+      const selections = [...tables.get("sportsTicketSelections").values()]
+        .sort((a, b) => toInt(a.id, 0) - toInt(b.id, 0));
+      for (const s of selections) {
+        if (out.length >= bounded) break;
+        const ticket = tickets.get(String(s.ticket_id));
+        if (!ticket) continue;
+        if (from !== null && String(ticket.created_at) < from) continue;
+        if (to !== null && String(ticket.created_at) > to) continue;
+        if (market !== null && s.market !== market) continue;
+        if (modelVersionId !== null && toInt(ticket.model_version_id, 0) !== modelVersionId) continue;
+        const match = matches.get(String(s.match_id));
+        const model = ticket.model_version_id === null ? null : modelVersions.get(String(ticket.model_version_id));
+        out.push(settledSelectionRow({
+          ...s,
+          ticket_odds: ticket.total_odds,
+          ticket_status: ticket.settlement_status,
+          ticket_stake: ticket.stake,
+          ticket_pnl: ticket.pnl,
+          competition: match?.competition ?? null,
+          kickoff_at: match?.kickoff_at ?? null,
+          model_name: model?.model_name ?? null,
+          model_version: model?.model_version ?? null,
+        }));
+      }
+      return out;
+    },
+
+    async saveSportsModelMetrics(input) {
+      const row = prepareModelMetrics(input ?? {});
+      const id = nextRowId("sportsModelMetrics");
+      await mutate("sportsModelMetrics", "upsert", { id, ...row, replace: false });
+      return modelMetricsRow(tables.get("sportsModelMetrics").get(String(id)));
+    },
+
+    async listSportsModelMetrics(filter = {}, limit = 100) {
+      const f = filter && typeof filter === "object" ? filter : {};
+      const bounded = Math.min(500, Math.max(1, toInt(limit, 100)));
+      const modelVersionId = f.modelVersionId === null || f.modelVersionId === undefined ? null : toInt(f.modelVersionId);
+      const windowDays = f.windowDays === null || f.windowDays === undefined ? null : toInt(f.windowDays);
+      const sampleType = f.sampleType === null || f.sampleType === undefined ? null : String(f.sampleType).slice(0, 16);
+      return [...tables.get("sportsModelMetrics").values()]
+        .filter((r) => (modelVersionId === null || toInt(r.model_version_id, 0) === modelVersionId)
+          && (windowDays === null || toInt(r.window_days, 0) === windowDays)
+          && (sampleType === null || r.sample_type === sampleType))
+        .sort((a, b) => String(b.computed_at).localeCompare(String(a.computed_at)) || toInt(b.id, 0) - toInt(a.id, 0))
+        .slice(0, bounded)
+        .map(modelMetricsRow);
+    },
+
+    async saveSportsBacktest(input) {
+      const row = prepareBacktest(input ?? {});
+      await mutate("sportsBacktests", "upsert", { ...row, replace: false });
+      return backtestRow(tables.get("sportsBacktests").get(row.id));
+    },
+
+    async findSportsBacktest(id) {
+      const backtestId = String(id ?? "");
+      if (!/^bt_[0-9a-f]{16}$/.test(backtestId)) {
+        throw new TypeError(`backtest id must be 'bt_' and 16 hex characters, received ${JSON.stringify(backtestId.slice(0, 40))}`);
+      }
+      return backtestRow(tables.get("sportsBacktests").get(backtestId) ?? null);
+    },
+
+    async listSportsBacktests(limit = 20) {
+      const bounded = Math.min(500, Math.max(1, toInt(limit, 20)));
+      return [...tables.get("sportsBacktests").values()]
+        .sort((a, b) => String(b.created_at).localeCompare(String(a.created_at)) || String(b.id).localeCompare(String(a.id)))
+        .slice(0, bounded)
+        .map(backtestRow);
+    },
+
+    /**
+     * Store one performance snapshot. No `replace: false`: (as_of, window) is the
+     * identity the keyOf arbiter enforces, and legacy's write REPLACES the window's
+     * snapshot when the same hour runs again — an upsert, not an append.
+     */
+    async saveSportsPerformanceSnapshot(input) {
+      const row = preparePerformanceSnapshot(input ?? {});
+      const key = `${row.as_of}|${row.window}`;
+      await mutate("sportsPerformanceSnapshots", "upsert", row);
+      return performanceSnapshotRow(tables.get("sportsPerformanceSnapshots").get(key));
+    },
+
+    async listSportsPerformanceSnapshots(window, limit = 30) {
+      const w = String(window ?? "").trim();
+      if (!SNAPSHOT_WINDOWS.includes(w)) {
+        throw new TypeError(`snapshot window must be one of ${SNAPSHOT_WINDOWS.join(", ")}, received ${JSON.stringify(w.slice(0, 8))}`);
+      }
+      const bounded = Math.min(366, Math.max(1, toInt(limit, 30)));
+      return [...tables.get("sportsPerformanceSnapshots").values()]
+        .filter((r) => r.window === w)
+        .sort((a, b) => String(b.as_of).localeCompare(String(a.as_of)))
+        .slice(0, bounded)
+        .map(performanceSnapshotRow);
+    },
+
+    // ── Lottery Intelligence data foundation: mirrors src/db/lottery-repository.js
+    // method for method (row 15 slice 1, migration 016), on the sports foundation's
+    // rules: rows in legacy's shape, instants canonical, writes idempotent by the
+    // unique key (LT-2's VERIFIED guard included), single-process.
+    async ensureLotteryGame(code, name, rulesVersion) {
+      const gameCode = assertLotteryCode(code);
+      const table = tables.get("lotteries");
+      const existing = table.get(gameCode);
+      if (existing) {
+        if (String(existing.rules_version) !== String(rulesVersion)) {
+          await mutate("lotteries", "upsert", { ...existing, rules_version: String(rulesVersion), updated_at: nowIso() });
+        }
+        return lotteryGameRow(table.get(gameCode));
+      }
+      const now = nowIso();
+      const record = {
+        id: nextRowId("lotteries"),
+        code: gameCode,
+        name: String(name).slice(0, 120),
+        enabled: 1,
+        rules_version: String(rulesVersion).slice(0, 16),
+        created_at: now,
+        updated_at: now,
+      };
+      await mutate("lotteries", "upsert", { ...record, replace: false }).catch(() => {});
+      return lotteryGameRow(table.get(gameCode));
+    },
+
+    async listLotteryGames() {
+      return [...tables.get("lotteries").values()]
+        .sort((a, b) => toInt(a.id, 0) - toInt(b.id, 0))
+        .map(lotteryGameRow);
+    },
+
+    async activeLotteryRules(lotteryCode) {
+      const code = assertLotteryCode(lotteryCode);
+      const rows = [...tables.get("lotteryRules").values()]
+        .filter((row) => row.lottery_code === code && toInt(row.active, 1) === 1)
+        .sort((a, b) => toInt(a.id, 0) - toInt(b.id, 0));
+      return rows.length ? lotteryRulesRow(rows[rows.length - 1]) : null;
+    },
+
+    async saveLotteryRules(input) {
+      const i = input && typeof input === "object" ? input : {};
+      const now = nowIso();
+      const record = {
+        id: nextRowId("lotteryRules"),
+        lottery_code: assertLotteryCode(i.lotteryCode),
+        version: String(i.version ?? "").slice(0, 16),
+        main_count: toInt(i.mainCount, 0),
+        main_min: toInt(i.mainMin, 0),
+        main_max: toInt(i.mainMax, 0),
+        star_count: toInt(i.starCount, 0),
+        star_min: toInt(i.starMin, 0),
+        star_max: toInt(i.starMax, 0),
+        schedule: String(i.schedule ?? ""),
+        active: i.active ? 1 : 0,
+        created_at: now,
+      };
+      await mutate("lotteryRules", "upsert", record);
+      return record.id;
+    },
+
+    async ensureLotteryProvider(code, name) {
+      const providerCode = String(code ?? "").trim().slice(0, 64);
+      if (!providerCode) throw new TypeError("provider_code must be 1-64 characters");
+      const table = tables.get("lotteryProviders");
+      const existing = table.get(providerCode);
+      if (existing) return lotteryProviderRow(existing);
+      const now = nowIso();
+      const record = {
+        id: nextRowId("lotteryProviders"),
+        provider_code: providerCode,
+        display_name: String(name ?? "").trim().slice(0, 120),
+        enabled: 0,
+        synthetic: providerCode.includes("sandbox") ? 1 : 0,
+        created_at: now,
+        updated_at: now,
+      };
+      try {
+        await mutate("lotteryProviders", "upsert", { ...record, replace: false });
+      } catch (error) {
+        if (!/already exists/i.test(String(error?.message || error))) throw error;
+      }
+      return lotteryProviderRow(table.get(providerCode) ?? null);
+    },
+
+    async listLotteryProviders(enabledOnly = false) {
+      return [...tables.get("lotteryProviders").values()]
+        .filter((row) => !enabledOnly || toInt(row.enabled, 0) === 1)
+        .sort((a, b) => toInt(a.id, 0) - toInt(b.id, 0))
+        .map(lotteryProviderRow);
+    },
+
+    async saveLotteryHealth(providerId, health) {
+      const h = health && typeof health === "object" ? health : {};
+      const record = {
+        id: nextRowId("lotteryHealth"),
+        provider_id: assertRowId(providerId, "provider_id"),
+        status: String(h.status ?? "").trim().slice(0, 32) || "UNKNOWN",
+        response_ms: h.responseMs === null || h.responseMs === undefined ? null : toInt(h.responseMs, 0),
+        records_received: toInt(h.recordsReceived, 0),
+        invalid_records: toInt(h.invalidRecords, 0),
+        error_rate: h.errorRate === null || h.errorRate === undefined ? null : Number(h.errorRate),
+        last_success_at: h.lastSuccessAt ?? null,
+        last_failure_at: h.lastFailureAt ?? null,
+        last_draw_retrieved: h.lastDrawRetrieved === null || h.lastDrawRetrieved === undefined ? null : assertDrawDate(h.lastDrawRetrieved),
+        data_freshness_seconds: h.dataFreshnessSeconds === null || h.dataFreshnessSeconds === undefined ? null : toInt(h.dataFreshnessSeconds, 0),
+        synthetic: h.synthetic ? 1 : 0,
+        // Stamped here, as the SQL adapter does: this is when THIS PLATFORM saw the report.
+        observed_at: nowIso(),
+      };
+      await mutate("lotteryHealth", "upsert", record);
+    },
+
+    async latestLotteryHealth(providerId) {
+      const id = assertRowId(providerId, "provider_id");
+      const rows = [...tables.get("lotteryHealth").values()]
+        .filter((row) => toInt(row.provider_id) === id)
+        .sort((a, b) => String(b.observed_at).localeCompare(String(a.observed_at)) || toInt(b.id, 0) - toInt(a.id, 0));
+      return rows.length ? lotteryHealthRow(rows[0]) : null;
+    },
+
+    async listLotteryHealth(providerId, limit = 20) {
+      const id = assertRowId(providerId, "provider_id");
+      const bounded = Math.min(200, Math.max(1, toInt(limit, 20)));
+      return [...tables.get("lotteryHealth").values()]
+        .filter((row) => toInt(row.provider_id) === id)
+        .sort((a, b) => String(b.observed_at).localeCompare(String(a.observed_at)) || toInt(b.id, 0) - toInt(a.id, 0))
+        .slice(0, bounded)
+        .map(lotteryHealthRow);
+    },
+
+    async findLotteryDraw(id) {
+      const drawId = assertRowId(id, "draw id");
+      const row = [...tables.get("lotteryDraws").values()].find((entry) => toInt(entry.id) === drawId);
+      return lotteryDrawRow(row ?? null);
+    },
+
+    async findLotteryDrawByExternal(lotteryCode, externalId) {
+      const key = `${assertLotteryCode(lotteryCode)}:${String(externalId ?? "").slice(0, 64)}`;
+      const row = tables.get("lotteryDraws").get(key);
+      return lotteryDrawRow(row ?? null);
+    },
+
+    async listLotteryDraws(filter = {}, limit = 100, order = "DESC") {
+      const f = filter && typeof filter === "object" ? filter : {};
+      const bounded = Math.min(100_000, Math.max(1, toInt(limit, 100)));
+      const lotteryCode = f.lotteryCode ? assertLotteryCode(f.lotteryCode) : null;
+      const from = f.from ? assertDrawDate(f.from) : null;
+      const to = f.to ? assertDrawDate(f.to) : null;
+      const verificationStatus = f.verificationStatus ? String(f.verificationStatus).slice(0, 32) : null;
+      return [...tables.get("lotteryDraws").values()]
+        .filter((row) => (lotteryCode === null ? true : row.lottery_code === lotteryCode))
+        .filter((row) => (from === null ? true : String(row.draw_date) >= from))
+        .filter((row) => (to === null ? true : String(row.draw_date) <= to))
+        .filter((row) => (verificationStatus === null ? true : String(row.verification_status) === verificationStatus))
+        .sort((a, b) => (order === "ASC"
+          ? String(a.draw_date).localeCompare(String(b.draw_date)) || toInt(a.id, 0) - toInt(b.id, 0)
+          : String(b.draw_date).localeCompare(String(a.draw_date)) || toInt(b.id, 0) - toInt(a.id, 0)))
+        .slice(0, bounded)
+        .map(lotteryDrawRow);
+    },
+
+    async saveLotteryDraw(input) {
+      const i = input && typeof input === "object" ? input : {};
+      const table = tables.get("lotteryDraws");
+      const key = `${assertLotteryCode(i.lotteryCode)}:${String(i.externalId ?? "").slice(0, 64)}`;
+      const existing = table.get(key);
+      const now = nowIso();
+      if (existing) {
+        // LT-2: an attested draw is not silently rewritten with different numbers.
+        const stored = lotteryDrawRow(existing);
+        const incoming = i.payload && typeof i.payload === "object" ? i.payload : {};
+        const same = JSON.stringify(stored.payload?.main ?? null) === JSON.stringify(incoming.main)
+          && JSON.stringify(stored.payload?.stars ?? null) === JSON.stringify(incoming.stars);
+        if (String(existing.verification_status) === "VERIFIED" && String(i.verificationStatus) === "VERIFIED" && !same) {
+          return { row: stored, created: false, conflict: true };
+        }
+        await mutate("lotteryDraws", "upsert", {
+          ...existing,
+          jackpot: i.jackpot ?? null,
+          rollover: i.rollover ? 1 : 0,
+          source: String(i.source ?? existing.source),
+          source_timestamp: String(i.sourceTimestamp ?? existing.source_timestamp),
+          retrieved_at: String(i.retrievedAt ?? existing.retrieved_at),
+          verification_status: String(i.verificationStatus ?? existing.verification_status),
+          payload: JSON.stringify(incoming ?? {}),
+          updated_at: now,
+        });
+        return { row: lotteryDrawRow(table.get(key)), created: false, conflict: false };
+      }
+      const record = {
+        id: nextRowId("lotteryDraws"),
+        lottery_code: assertLotteryCode(i.lotteryCode),
+        provider_id: i.providerId === null || i.providerId === undefined ? null : toInt(i.providerId, 0),
+        external_id: String(i.externalId ?? "").slice(0, 64),
+        draw_date: assertDrawDate(i.drawDate),
+        jackpot: i.jackpot === null || i.jackpot === undefined || i.jackpot === "" ? null : String(i.jackpot).slice(0, 32),
+        rollover: i.rollover ? 1 : 0,
+        source: String(i.source ?? "").slice(0, 120),
+        source_timestamp: String(i.sourceTimestamp ?? "").slice(0, 40),
+        retrieved_at: String(i.retrievedAt ?? now),
+        verification_status: LOTTERY_VERIFICATION_STATUSES.includes(String(i.verificationStatus)) ? String(i.verificationStatus) : "UNVERIFIED",
+        payload: JSON.stringify(i.payload && typeof i.payload === "object" ? i.payload : {}),
+        created_at: now,
+        updated_at: now,
+      };
+      try {
+        // Keyed by (lottery, external id): `replace: false` is the idempotency arbiter.
+        await mutate("lotteryDraws", "upsert", { ...record, replace: false });
+      } catch (error) {
+        if (!/already exists/i.test(String(error?.message || error))) throw error;
+      }
+      return { row: lotteryDrawRow(table.get(key)), created: true, conflict: false };
+    },
+
+    async listLotteryDrawNumbers(drawId) {
+      const id = assertRowId(drawId, "draw_id");
+      return [...tables.get("lotteryDrawNumbers").values()]
+        .filter((row) => toInt(row.draw_id) === id)
+        .sort((a, b) => String(a.kind).localeCompare(String(b.kind)) || toInt(a.position, 0) - toInt(b.position, 0))
+        .map(lotteryDrawNumberRow);
+    },
+
+    /** Replace a draw's numbers wholesale — legacy deletes then inserts, and so does this. */
+    async saveLotteryDrawNumbers(drawId, numbers) {
+      const id = assertRowId(drawId, "draw_id");
+      const table = tables.get("lotteryDrawNumbers");
+      const doomed = [...table.values()].filter((row) => toInt(row.draw_id) === id);
+      // R-30: the replacement is ONE WAL batch — a crash mid-replace used to be
+      // able to leave a draw with some of its old numbers and some of its new.
+      const changes = doomed.map((row) => ({ entity: "lotteryDrawNumbers", key: keyOf("lotteryDrawNumbers", row), op: "delete", value: null }));
+      for (const [field, kind] of [["main", "MAIN"], ["stars", "STAR"]]) {
+        const list = Array.isArray(numbers?.[field]) ? numbers[field] : [];
+        for (let index = 0; index < list.length; index += 1) {
+          const value = Number(list[index]);
+          if (!Number.isInteger(value)) throw new TypeError(`draw numbers must be integers, received ${JSON.stringify(String(list[index]).slice(0, 20))}`);
+          const recordId = nextRowId("lotteryDrawNumbers");
+          changes.push({
+            entity: "lotteryDrawNumbers",
+            op: "upsert",
+            value: { id: recordId, draw_id: id, kind, position: index, number: value },
+          });
+        }
+      }
+      await mutateBatch(changes);
+    },
+
+    async lotteryDrawsForStats(lotteryCode, limit = 10_000) {
+      const rows = await this.listLotteryDraws({ lotteryCode }, limit, "ASC");
+      const out = [];
+      for (const row of rows) {
+        const payload = row.payload && typeof row.payload === "object" ? row.payload : {};
+        if (!Array.isArray(payload.main) || !Array.isArray(payload.stars)) continue;
+        out.push({
+          drawDate: String(row.draw_date),
+          main: payload.main.map((value) => Math.trunc(Number(value))),
+          stars: payload.stars.map((value) => Math.trunc(Number(value))),
+        });
+      }
+      return out;
+    },
+
+    async countLotteryDraws(lotteryCode) {
+      return [...tables.get("lotteryDraws").values()].filter((row) => row.lottery_code === assertLotteryCode(lotteryCode)).length;
+    },
+
+    async startLotteryJobRun(run) {
+      const r = run && typeof run === "object" ? run : {};
+      const id = String(r.id ?? "").trim().slice(0, 64);
+      const executionKey = String(r.executionKey ?? "").trim().slice(0, 128);
+      if (!id) throw new TypeError("id must be a non-empty string");
+      if (!executionKey) throw new TypeError("execution_key must be a non-empty string");
+      const table = tables.get("lotterySyncRuns");
+      if (table.get(executionKey)) return null;
+      const record = {
+        id,
+        provider_id: r.providerId === null || r.providerId === undefined ? null : toInt(r.providerId, 0),
+        job_type: String(r.jobType ?? "").trim().slice(0, 40),
+        status: "RUNNING",
+        started_at: nowIso(),
+        ended_at: null,
+        records_processed: 0,
+        records_created: 0,
+        records_updated: 0,
+        errors: null,
+        payload: r.payload === null || r.payload === undefined ? null : JSON.stringify(r.payload),
+        execution_key: executionKey,
+      };
+      try {
+        await mutate("lotterySyncRuns", "upsert", { ...record, replace: false });
+      } catch (error) {
+        if (!/already exists/i.test(String(error?.message || error))) throw error;
+        return null;
+      }
+      return lotterySyncRunRow(record);
+    },
+
+    async finishLotteryJobRun(id, result) {
+      const runId = String(id ?? "").trim().slice(0, 64);
+      const r = result && typeof result === "object" ? result : {};
+      const table = tables.get("lotterySyncRuns");
+      const existing = [...table.values()].find((row) => String(row.id) === runId);
+      if (!existing) return;
+      await mutate("lotterySyncRuns", "upsert", {
+        ...existing,
+        status: String(r.status ?? "").trim().slice(0, 32) || existing.status,
+        ended_at: nowIso(),
+        records_processed: toInt(r.processed, 0),
+        records_created: toInt(r.created, 0),
+        records_updated: toInt(r.updated, 0),
+        errors: JSON.stringify(Array.isArray(r.errors) ? r.errors : []),
+      });
+    },
+
+    async listLotteryJobRuns(jobType = null, limit = 50) {
+      const bounded = Math.min(500, Math.max(1, toInt(limit, 50)));
+      return [...tables.get("lotterySyncRuns").values()]
+        .filter((row) => (jobType === null || jobType === undefined ? true : String(row.job_type) === String(jobType)))
+        .sort((a, b) => String(b.started_at).localeCompare(String(a.started_at)) || String(b.id).localeCompare(String(a.id)))
+        .slice(0, bounded)
+        .map(lotterySyncRunRow);
+    },
+
+    async findLotteryJobRunByKey(key) {
+      const row = tables.get("lotterySyncRuns").get(String(key ?? "").trim().slice(0, 128));
+      return lotterySyncRunRow(row ?? null);
+    },
+
+    async deleteOldLotteryJobRuns(cutoff) {
+      const boundary = assertIsoCutoff(cutoff);
+      const doomed = [...tables.get("lotterySyncRuns").values()].filter((row) => String(row.started_at) < boundary);
+      for (const row of doomed) {
+        // The job-run table is keyed by EXECUTION KEY (keyOf above), not by id —
+        // a delete record carrying `id` alone would name an undefined key and
+        // silently prune nothing (found by the slice-5 cleanup test).
+        await mutate("lotterySyncRuns", "delete", { execution_key: row.execution_key });
+      }
+      return doomed.length;
+    },
+
+    async deleteOldLotteryHealth(cutoff) {
+      const boundary = assertIsoCutoff(cutoff);
+      const doomed = [...tables.get("lotteryHealth").values()].filter((row) => String(row.observed_at) < boundary);
+      for (const row of doomed) {
+        await mutate("lotteryHealth", "delete", { id: row.id });
+      }
+      return doomed.length;
+    },
+
+    // ── combinations + AI decisions (slice 2) ────────────────────────────────
+    // Legacy's Aegis_model inserts and re-reads through find* so the JSON columns
+    // come back decoded; this adapter does the same via the shared row mappers.
+
+    async saveLotteryCombination(input) {
+      const i = input && typeof input === "object" ? input : {};
+      const record = prepareLotteryCombination({
+        lotteryCode: i.lotteryCode,
+        mode: i.mode,
+        modelVersion: i.modelVersion,
+        seed: i.seed ?? null,
+        lineCount: i.lineCount,
+        lines: i.lines,
+        constraints: i.constraints,
+        scoreSummary: i.scoreSummary,
+        createdBy: i.createdBy ?? null,
+        createdAt: i.createdAt,
+      });
+      const row = { id: nextRowId("lotteryCombinations"), ...record };
+      await mutate("lotteryCombinations", "upsert", row);
+      return { row: lotteryCombinationRow(tables.get("lotteryCombinations").get(String(row.id))), created: true };
+    },
+
+    async findLotteryCombination(id) {
+      const row = tables.get("lotteryCombinations").get(String(assertRowId(id, "id")));
+      return lotteryCombinationRow(row ?? null);
+    },
+
+    async listLotteryCombinations(limit = 50, offset = 0) {
+      const bounded = Math.min(200, Math.max(1, toInt(limit, 50)));
+      const safeOffset = Math.max(0, toInt(offset, 0));
+      return [...tables.get("lotteryCombinations").values()]
+        .sort((a, b) => toInt(b.id, 0) - toInt(a.id, 0))
+        .slice(safeOffset, safeOffset + bounded)
+        .map((row) => lotteryCombinationRow(row));
+    },
+
+    async saveLotteryAiDecision(input) {
+      const i = input && typeof input === "object" ? input : {};
+      const record = prepareLotteryAiDecision({
+        lotteryCode: i.lotteryCode,
+        combinationId: i.combinationId ?? null,
+        modelVersion: i.modelVersion,
+        mode: i.mode ?? null,
+        decision: i.decision,
+        createdAt: i.createdAt,
+      });
+      const row = { id: nextRowId("lotteryAiDecisions"), ...record };
+      await mutate("lotteryAiDecisions", "upsert", row);
+      return { row: lotteryAiDecisionRow(tables.get("lotteryAiDecisions").get(String(row.id))), created: true };
+    },
+
+    async findLotteryAiDecision(id) {
+      const row = tables.get("lotteryAiDecisions").get(String(assertRowId(id, "id")));
+      return lotteryAiDecisionRow(row ?? null);
+    },
+
+    async listLotteryAiDecisions(combinationId = null, limit = 50) {
+      const bounded = Math.min(500, Math.max(1, toInt(limit, 50)));
+      const byCombination = combinationId === null || combinationId === undefined ? null : assertRowId(combinationId, "combination_id");
+      return [...tables.get("lotteryAiDecisions").values()]
+        .filter((row) => (byCombination === null ? true : toInt(row.combination_id, 0) === byCombination))
+        .sort((a, b) => toInt(b.id, 0) - toInt(a.id, 0))
+        .slice(0, bounded)
+        .map((row) => lotteryAiDecisionRow(row));
+    },
+
+    // ── tickets (slice 3) ────────────────────────────────────────────────────
+    // A ticket is a record of number lines, never a purchase. User isolation is
+    // IN the repository (spec §38): find/list filter by user_id here, so a route
+    // cannot leak another user's ticket by forgetting the clause.
+
+    async saveLotteryTicket(input) {
+      const i = input && typeof input === "object" ? input : {};
+      const record = prepareLotteryTicket({
+        userId: i.userId,
+        lotteryCode: i.lotteryCode,
+        name: i.name,
+        drawDate: i.drawDate ?? null,
+        generationMethod: i.generationMethod,
+        modelVersion: i.modelVersion,
+        configuration: i.configuration,
+        status: i.status,
+        result: i.result ?? null,
+        createdAt: i.createdAt,
+        updatedAt: i.updatedAt,
+      });
+      const row = { id: nextRowId("lotteryTickets"), ...record };
+      await mutate("lotteryTickets", "upsert", row);
+      return { row: lotteryTicketRow(tables.get("lotteryTickets").get(String(row.id))), created: true };
+    },
+
+    async findLotteryTicket(id, userId = null) {
+      const row = tables.get("lotteryTickets").get(String(assertRowId(id, "id")));
+      if (!row) return null;
+      if (userId !== null && userId !== undefined && toInt(row.user_id, 0) !== assertRowId(userId, "user_id")) return null;
+      return lotteryTicketRow(row);
+    },
+
+    async listLotteryTickets(userId, limit = 50) {
+      const bounded = Math.min(500, Math.max(1, toInt(limit, 50)));
+      const owner = assertRowId(userId, "user_id");
+      return [...tables.get("lotteryTickets").values()]
+        .filter((row) => toInt(row.user_id, 0) === owner)
+        .sort((a, b) => toInt(b.id, 0) - toInt(a.id, 0))
+        .slice(0, bounded)
+        .map(lotteryTicketRow);
+    },
+
+    async listAllLotteryTickets(limit = 200) {
+      const bounded = Math.min(1000, Math.max(1, toInt(limit, 200)));
+      return [...tables.get("lotteryTickets").values()]
+        .sort((a, b) => toInt(b.id, 0) - toInt(a.id, 0))
+        .slice(0, bounded)
+        .map(lotteryTicketRow);
+    },
+
+    async updateLotteryTicket(id, patch = {}) {
+      // Legacy passes raw column values (the service json_encodes result itself);
+      // the adapter merges only the columns the service may legally change.
+      const key = String(assertRowId(id, "id"));
+      const existing = tables.get("lotteryTickets").get(key);
+      if (!existing) return; // legacy: an UPDATE that matches no row is silent
+      const next = { ...existing };
+      if (patch.status !== undefined) next.status = assertEnum(patch.status, ["OPEN", "CHECKED", "ARCHIVED"], "status");
+      if (patch.result !== undefined) next.result = patch.result === null ? null : String(patch.result); // already JSON text from the service
+      if (patch.updated_at !== undefined) next.updated_at = assertInstant(patch.updated_at, "updated_at");
+      await mutate("lotteryTickets", "upsert", next);
+    },
+
+    async listLotteryTicketLines(ticketId) {
+      const owner = assertRowId(ticketId, "ticket_id");
+      return [...tables.get("lotteryTicketLines").values()]
+        .filter((row) => toInt(row.ticket_id, 0) === owner)
+        .sort((a, b) => toInt(a.position, 0) - toInt(b.position, 0))
+        .map(lotteryTicketLineRow);
+    },
+
+    async saveLotteryTicketLines(ticketId, linesIn) {
+      // Delete-then-insert, positions AS GIVEN (the draw-numbers rule), each
+      // line stamped by the adapter exactly as legacy stamps gmdate('c').
+      // R-30: the replacement is ONE WAL batch — a crash mid-replace used to be
+      // able to leave a ticket with fewer lines than it was recorded with.
+      const owner = assertRowId(ticketId, "ticket_id");
+      const table = tables.get("lotteryTicketLines");
+      const doomed = [...table.values()].filter((row) => toInt(row.ticket_id, 0) === owner);
+      const changes = doomed.map((row) => ({ entity: "lotteryTicketLines", key: keyOf("lotteryTicketLines", row), op: "delete", value: null }));
+      const lines = Array.isArray(linesIn) ? linesIn : [];
+      for (let position = 0; position < lines.length; position += 1) {
+        const line = lines[position] ?? {};
+        const record = prepareLotteryTicketLine({
+          ticketId: owner,
+          position,
+          mains: line.mains ?? [],
+          stars: line.stars ?? [],
+          createdAt: nowIso(),
+        });
+        const rowId = nextRowId("lotteryTicketLines");
+        changes.push({ entity: "lotteryTicketLines", op: "upsert", value: { id: rowId, ...record } });
+      }
+      await mutateBatch(changes);
+      return lines.length;
+    },
+
+    // ---- lottery slice 4: backtests + model versions (migration 019) ------
+    // A model version is ENSURED: an existing (model_name, model_version) pair
+    // returns the existing row decoded, exactly legacy's read-then-insert —
+    // historical results stay connected to the model that produced them. Rows
+    // are never deleted or replaced on either adapter.
+    async ensureLotteryModelVersion(input) {
+      const i = input && typeof input === "object" ? input : {};
+      const modelName = assertText(i.modelName, 64, "model_name");
+      const modelVersion = assertText(i.modelVersion, 16, "model_version");
+      const table = tables.get("lotteryModelVersions");
+      const existing = [...table.values()].find(
+        (row) => row.model_name === modelName && row.model_version === modelVersion,
+      );
+      if (existing) return lotteryModelVersionRow(existing);
+      const record = prepareLotteryModelVersion({
+        modelName,
+        modelVersion,
+        config: i.config,
+        datasetVersion: i.datasetVersion ?? null,
+        status: i.status,
+        createdAt: i.createdAt,
+      });
+      const row = { id: nextRowId("lotteryModelVersions"), ...record };
+      await mutate("lotteryModelVersions", "upsert", row);
+      return lotteryModelVersionRow(table.get(String(row.id)));
+    },
+    async listLotteryModelVersions() {
+      // Oldest first (spec §33: versions accumulate, newest is not "current").
+      return [...tables.get("lotteryModelVersions").values()]
+        .sort((a, b) => Number(a.id) - Number(b.id))
+        .map(lotteryModelVersionRow);
+    },
+    async saveLotteryBacktest(input) {
+      const i = input && typeof input === "object" ? input : {};
+      const record = prepareLotteryBacktest({
+        lotteryCode: i.lotteryCode,
+        strategy: i.strategy,
+        modelVersion: i.modelVersion,
+        linesPerDraw: i.linesPerDraw,
+        drawsTested: i.drawsTested,
+        periodFrom: i.periodFrom ?? null,
+        periodTo: i.periodTo ?? null,
+        datasetVersion: i.datasetVersion ?? null,
+        report: i.report,
+        createdAt: i.createdAt,
+      });
+      const row = { id: nextRowId("lotteryBacktests"), ...record };
+      await mutate("lotteryBacktests", "upsert", row);
+      return { row: lotteryBacktestRow(tables.get("lotteryBacktests").get(String(row.id))), created: true };
+    },
+    async findLotteryBacktest(id) {
+      const row = tables.get("lotteryBacktests").get(String(assertRowId(id, "id")));
+      return lotteryBacktestRow(row);
+    },
+    async listLotteryBacktests(limit = 50) {
+      const bounded = Math.min(500, Math.max(1, toInt(limit, 50)));
+      return [...tables.get("lotteryBacktests").values()]
+        .sort((a, b) => Number(b.id) - Number(a.id))
+        .slice(0, bounded)
+        .map(lotteryBacktestRow);
     },
 
     /**

@@ -95,15 +95,21 @@ test("a default host configures no provider, fabricates nothing, and lists what 
 
   // The honesty matrix travels in the response because no ported module has a
   // console screen (F-29) — the same decision as BC-10 in the broker port.
-  assert.equal(body.notPorted.length, 6, "ingestion left the matrix in Phase 16; predictions and the configuration service left it in slice 3; correlation and ticket governance left it in slice 4");
+  // Slice 5 empties the matrix down to three: settlement, verification, calibration
+  // fitting, backtesting, drift monitoring and performance analytics all exist now,
+  // and left the matrix rather than being re-labelled.
+  assert.equal(body.notPorted.length, 2, "slice 5 removed settlement, calibration fitting, backtesting, drift and analytics; row 19 removed the cron; what remains is sizing and the consoles");
   for (const entry of body.notPorted) {
     assert.ok(entry.area && entry.legacy && entry.state && entry.detail, JSON.stringify(entry));
     assert.notEqual(entry.state, "ported");
   }
-  assert.match(JSON.stringify(body.notPorted), /SPORTS_MODEL_DRIFT/, "NV-6's last type is named where an operator can see it");
+  // NV-6 is closed: SPORTS_MODEL_DRIFT has a publisher (the drift monitor) since
+  // slice 5, so its absence from a not-ported matrix is the assertion that matters.
+  assert.ok(!/SPORTS_MODEL_DRIFT/.test(JSON.stringify(body.notPorted)),
+    "SPORTS_MODEL_DRIFT is published; naming it as not ported would be a false honesty claim");
 });
 
-test("the route inventory is exactly the slice 4 surface, and every write is a gated, named route", async (t) => {
+test("the route inventory is exactly the slice 5 surface, and every write is a gated, named route", async (t) => {
   const instance = await createFileStoreApp({});
   t.after(() => instance.cleanup());
 
@@ -115,8 +121,11 @@ test("the route inventory is exactly the slice 4 surface, and every write is a g
   // Every sports route, with the permission it must require. Asserted per route rather
   // than by count, so a route that lost its guard fails by name. Slice 3 (row 14) adds the
   // decision chain: configuration, models, calibration decisions, evaluation and reads of
-  // the stored decisions. Slice 4 adds the ticket surface. Slice 5 will extend this table,
-  // not relax it.
+  // the stored decisions. Slice 4 adds the ticket surface. Slice 5 adds the measured
+  // surface: results and their verification, settlement, performance, backtests, the
+  // drift run and stuck-run recovery. Verification and settlement are `sports.settle`,
+  // the permission legacy itself gates them with — a third permission, distinct from
+  // both the read and the manage grant.
   const EXPECTED = new Map([
     ["GET /api/v1/sports/status", "sports.view"],
     ["GET /api/v1/sports/providers", "sports.view"],
@@ -145,22 +154,37 @@ test("the route inventory is exactly the slice 4 surface, and every write is a g
     ["GET /api/v1/sports/tickets", "sports.view"],
     ["GET /api/v1/sports/tickets/:ticketId", "sports.view"],
     ["POST /api/v1/sports/tickets/:ticketId/decision", "sports.approve"],
+    // Slice 5: the measured half. Reads are `sports.view`; the backtest and drift runs
+    // are `sports.manage`; and the two attestation writes are `sports.settle`.
+    ["GET /api/v1/sports/results", "sports.view"],
+    ["POST /api/v1/sports/results/verify", "sports.settle"],
+    ["POST /api/v1/sports/tickets/:ticketId/settle", "sports.settle"],
+    ["GET /api/v1/sports/performance", "sports.view"],
+    ["POST /api/v1/sports/backtests/run", "sports.manage"],
+    ["GET /api/v1/sports/backtests", "sports.view"],
+    ["GET /api/v1/sports/backtests/:backtestId", "sports.view"],
+    ["POST /api/v1/sports/models/drift/run", "sports.manage"],
+    ["POST /api/v1/sports/daily-tickets/recover", "sports.manage"],
   ]);
 
   const sports = inventory.filter((route) => route.path.includes("/sports"));
   assert.deepEqual(
     sports.map((route) => `${route.method} ${route.path}`).sort(),
     [...EXPECTED.keys()].sort(),
-    "the sports inventory is exactly the slice 4 surface, no more and no fewer",
+    "the sports inventory is exactly the slice 5 surface, no more and no fewer",
   );
   // Routes that take no input have nothing to validate, so they are the only ones allowed
   // to report `validated: false`. Named here, so a new unvalidated route fails the test.
+  // The calibration fit and the drift run take no caller input at all (fit reads the
+  // stored settled outcomes; the drift monitor reads the stored predictions), so they
+  // are the two POSTs with no schema.
   const NO_INPUT = new Set([
     "GET /api/v1/sports/status",
     "GET /api/v1/sports/providers",
     "GET /api/v1/sports/configuration",
     "GET /api/v1/sports/models",
     "POST /api/v1/sports/calibrations/fit",
+    "POST /api/v1/sports/models/drift/run",
   ]);
   for (const route of sports) {
     const key = `${route.method} ${route.path}`;
@@ -169,28 +193,36 @@ test("the route inventory is exactly the slice 4 surface, and every write is a g
   }
 
   // The write surface, named. Every non-GET sports route is in this list, so a new write
-  // cannot appear without this test being edited on purpose.
+  // cannot appear without this test being edited on purpose. Slice 5 adds the two
+  // attestation writes (verify, settle), the two run writes (backtest, drift) and the
+  // stuck-run recovery.
   assert.deepEqual(
     sports.filter((route) => route.method !== "GET").map((route) => `${route.method} ${route.path}`).sort(),
     [
       "PATCH /api/v1/sports/configuration",
+      "POST /api/v1/sports/backtests/run",
       "POST /api/v1/sports/calibrations/:calibrationId/approve",
       "POST /api/v1/sports/calibrations/:calibrationId/reject",
       "POST /api/v1/sports/calibrations/fit",
+      "POST /api/v1/sports/daily-tickets/recover",
       "POST /api/v1/sports/daily-tickets/run",
       "POST /api/v1/sports/matches/:matchId/evaluate",
+      "POST /api/v1/sports/models/drift/run",
+      "POST /api/v1/sports/results/verify",
       "POST /api/v1/sports/sync",
       "POST /api/v1/sports/tickets/:ticketId/decision",
+      "POST /api/v1/sports/tickets/:ticketId/settle",
     ],
   );
 
-  // Every legacy sports endpoint whose table or engine does not exist yet is still absent.
-  // Asserted as an absence rather than a count, because a count would also pass if a route
-  // were renamed. Slice 3 removed predictions, models, calibration and configuration from
-  // this list, and slice 4 removes tickets and the daily run. What remains is slice 5's
-  // surface (results, settlement, backtesting, drift) and the staking and order routes that
-  // no slice owns.
-  for (const forbidden of ["odds", "results", "settle", "verify", "backtest", "risk", "correlation", "optimi", "stake", "order", "broker", "drift"]) {
+  // Every legacy sports endpoint whose surface no slice owns is still absent. Asserted
+  // as an absence rather than a count, because a count would also pass if a route were
+  // renamed. Slice 3 removed predictions, models, calibration and configuration from
+  // this list; slice 4 removed tickets and the daily run; slice 5 removes results,
+  // verification, settlement, backtests, drift and performance. What remains forbidden
+  // is the staking/order surface nothing owns and the stored odds read legacy has and
+  // no slice has needed.
+  for (const forbidden of ["odds", "risk", "correlation", "optimi", "stake", "order", "broker"]) {
     const found = inventory.filter((route) => route.path.includes("/sports") && route.path.toLowerCase().includes(forbidden));
     assert.deepEqual(found.map((route) => route.path), [], `no /sports/${forbidden} route may exist in this slice`);
   }
@@ -217,7 +249,7 @@ test("the public status surface reports sports from configuration and contacts n
   assert.deepEqual(body.sports.providerIds, ["sandbox-sim"]);
   assert.equal(body.sports.simulatedProviders, 1);
   // True on this host: `createFileStoreApp` wires the file adapter, which implements
-  // all 43 sports methods. A host without migration 011 would report false, and the
+  // all 56 sports methods. A host without migration 011 would report false, and the
   // stored-read routes would refuse with 503 rather than returning empty lists.
   assert.equal(body.sports.persistence, true, "stated as a fact about this host");
   assert.equal(body.sports.ticketEngine, "ON_REQUEST");
@@ -225,16 +257,17 @@ test("the public status surface reports sports from configuration and contacts n
   assert.equal(body.sports.derivedStatus, undefined, "nothing has been witnessed, so nothing is derived");
   assert.match(body.sports.reason, /GET \/api\/v1\/sports\/status/);
 
-  // The module ledger row moved, and its label carries the gap rather than the
-  // achievement — "sports: partial" must not read as "half a betting engine".
-  // Phase 16 makes that harder, not easier: a module that now ingests and stores
-  // fixtures, odds and results LOOKS like a working betting system. The label has to
-  // say what stops it being one, and the sharpest such fact is that no stored result
-  // is verified — ingestion reports an outcome, and nothing downstream of it exists.
+  // The module ledger row moved, and its label carries the boundary rather than the
+  // achievement — "sports: partial" must not read as "a working betting system".
+  // Slice 5 makes that harder, not easier: a module that now verifies results, settles
+  // tickets, fits calibrations, backtests, monitors drift and measures performance
+  // LOOKS complete. The label has to say what still stops it being one, and the
+  // sharpest such facts are that nothing is executed, no stake is sized, and no
+  // stored result is trusted before a person attests to it.
   const sports = body.modules.find((module) => module.key === "sports");
   assert.equal(sports.state, "partial");
-  assert.match(sports.label, /no stored result is verified/i);
-  assert.match(sports.label, /not ported: stake sizing, settlement, calibration fitting, backtests, model drift and performance analytics/i);
+  assert.match(sports.label, /no stored result is trusted before a person attests/i);
+  assert.match(sports.label, /not ported: stake sizing and the console screens \(f-29\)/i);
   assert.ok(!/no persistence/i.test(sports.label), "persistence exists now; a stale label reads as current documentation");
   assert.equal(body.modules.length, 17);
 });
@@ -261,7 +294,8 @@ test("a configured sandbox provider is reported as simulated, unverified and UNK
   assert.equal(provider.detail, "no observations yet");
   assert.equal(provider.reliability, 0);
   assert.match(body.message, /ingestion is persisted/);
-  assert.match(body.message, /no stored result is verified/, "ingestion reports; only settlement attests");
+  assert.match(body.message, /a ticket is a record a person approves, and settlement settles the record/,
+    "ingestion reports; a person approves the ticket and settlement settles that record — nothing closes itself");
 });
 
 test("probe=1 takes a live reading and stamps it as not persisted", async (t) => {
@@ -694,7 +728,7 @@ test("after a sync, /sports/status reports a derived health that was measured, n
   assert.equal(probed.persisted, false);
 });
 
-test("no sports route can settle, verify, stake or reach a broker, and a prediction is never updated", async (t) => {
+test("no sports route can stake or reach a broker, a prediction is never updated, and settlement writes carry their own permission", async (t) => {
   const instance = await sandboxApp(t);
   t.after(() => instance.cleanup());
   await signIn(instance.app);
@@ -704,15 +738,13 @@ test("no sports route can settle, verify, stake or reach a broker, and a predict
   const inventory = (await instance.app.inject({ method: "GET", url: "/api/v1/system/routes" })).json().routes;
   assert.ok(inventory.length >= 80);
   const sports = inventory.filter((route) => route.path.includes("/sports"));
-  assert.equal(sports.length, 25, "7 foundation routes + 13 decision-chain routes + 5 ticket routes");
+  assert.equal(sports.length, 34, "7 foundation routes + 13 decision-chain routes + 5 ticket routes + 9 measured (slice 5) routes");
 
   // Asserted as absences rather than as a count, because a count would also pass if a
-  // route were renamed. `prediction` and `calibrat` are allowed now; settlement and staking
-  // are not, and neither is any broker or order surface.
-  // Slice 4 adds tickets and the daily run, so `ticket` and `daily` are no longer forbidden
-  // here. Settlement, verification, backtesting, staking and any broker or order surface
-  // remain forbidden: those are slices 4's refusals and slice 5's boundary.
-  for (const forbidden of ["settle", "verify", "backtest", "stake", "order", "broker", "drift"]) {
+  // route were renamed. Slice 5 legalises settle, verify, backtest and drift — those
+  // are gated writes now, checked below — but nothing may size a stake, place an
+  // order or touch a broker: that is the execution boundary the whole port keeps.
+  for (const forbidden of ["stake", "order", "broker"]) {
     assert.deepEqual(
       sports.filter((route) => route.path.toLowerCase().includes(forbidden)).map((route) => route.path),
       [],
@@ -722,4 +754,22 @@ test("no sports route can settle, verify, stake or reach a broker, and a predict
   // A prediction is immutable: no route may update or delete one, only create or read.
   const predictionWrites = sports.filter((route) => route.path.includes("/predictions") && route.method !== "GET");
   assert.deepEqual(predictionWrites.map((route) => route.path), [], "predictions are insert-only and have no write route");
+
+  // The two attestation writes are exactly the routes that change a settled fact, and
+  // both are behind `sports.settle` — the same distinct permission legacy gates them
+  // with — rather than `sports.manage`. A manage grant must not be able to attest.
+  const attestation = sports
+    .filter((route) => /verify|settle/.test(route.path) && route.method === "POST")
+    .map((route) => `${route.method} ${route.path} ${route.permission}`)
+    .sort();
+  assert.deepEqual(attestation, [
+    "POST /api/v1/sports/results/verify sports.settle",
+    "POST /api/v1/sports/tickets/:ticketId/settle sports.settle",
+  ], "attestation is exactly two routes, both under the settle permission");
+
+  // The ticket decision keeps its own gate and its own kill switch: under a live
+  // execution stop, approvals are refused outright — while settlement of existing
+  // records stays open, because closing the book is not a new commitment.
+  const decision = sports.find((route) => route.path.includes("/tickets/") && route.path.endsWith("/decision"));
+  assert.equal(decision.permission, "sports.approve");
 });

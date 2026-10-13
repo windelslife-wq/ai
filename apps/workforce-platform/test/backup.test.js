@@ -145,6 +145,9 @@ test("F-13 the MySQL row counts cover every table the migrations create, and not
   // Phase 16 adds the seven `wf_sports_*` tables (migration 011), taking it to 31.
   // Slice 3 adds the four intelligence tables (migration 012), taking it to 35.
   // Slice 4 adds the three ticket tables (migration 013), taking it to 38.
+  // Slice 5 adds the backtest and model-metrics tables (migration 014), taking it to
+  // 40. `sports_performance_snapshots` is deliberately absent: its only legacy writer
+  // is the unported performance cron, and a table with no writer is dead schema.
   //
   // This count is the assertion that a backup covers the schema: `backup.mjs` derives
   // its table list by parsing `CREATE TABLE` out of the migrations, so a table added
@@ -152,7 +155,7 @@ test("F-13 the MySQL row counts cover every table the migrations create, and not
   // NOT counted here would be backed up without this test ever proving it can be
   // restored. The number moving is the point: it forces whoever adds a table to look
   // at whether the restore path covers it.
-  assert.equal(tables.length, 38, `expected the 38 tables the migrations create, got: ${tables.join(", ")}`);
+  assert.equal(tables.length, 54, `expected the 54 tables the migrations create, got: ${tables.join(", ")}`);
   assert.ok(!tables.includes("wf_user_files"), "the phantom table must stay out — counting it broke MySQL backups");
   for (const expected of [
     "wf_analysis_runs",
@@ -174,6 +177,24 @@ test("F-13 the MySQL row counts cover every table the migrations create, and not
     "wf_sports_results",
     "wf_sports_data_quality_assessments",
     "wf_sports_sync_runs",
+    // Migration 016 (row 15 slice 1): the lottery foundation, named for the same
+    // reason the sports tables are.
+    "wf_lotteries",
+    "wf_lottery_rules",
+    "wf_lottery_data_sources",
+    "wf_lottery_provider_health",
+    "wf_lottery_draws",
+    "wf_lottery_draw_numbers",
+    "wf_lottery_sync_runs",
+    // Migration 017 (row 15 slice 2): combinations + AI decisions.
+    "wf_lottery_combinations",
+    "wf_lottery_ai_decisions",
+    // Migration 018 (row 15 slice 3): saved tickets + their number lines.
+    "wf_lottery_tickets",
+    "wf_lottery_ticket_lines",
+    // Migration 019 (row 15 slice 4): backtest reports + model versions.
+    "wf_lottery_backtests",
+    "wf_lottery_model_versions",
   ]) {
     assert.ok(tables.includes(expected), `${expected} must be counted`);
   }
@@ -232,6 +253,28 @@ test("F-13 the MySQL row counts cover every table the migrations create, and not
       sportsTickets: "wf_sports_tickets",
       sportsTicketSelections: "wf_sports_ticket_selections",
       sportsDailyTickets: "wf_sports_daily_tickets",
+      // Slice 5 (migration 014): backtests and measured model metrics.
+      sportsBacktests: "wf_sports_backtests",
+      sportsModelMetrics: "wf_sports_model_metrics",
+      // Row 19 (migration 015): performance snapshots — the table 014 deliberately
+      // refused to create until its only writer (the cron's performance job) arrived.
+      sportsPerformanceSnapshots: "wf_sports_performance_snapshots",
+      // Row 15 slice 1 (migration 016): the lottery foundation. The provider
+      // registry table is wf_lottery_data_sources — the ENTITY is lotteryProviders,
+      // mirroring legacy's data-source table and the sports entity's own naming.
+      lotteries: "wf_lotteries",
+      lotteryRules: "wf_lottery_rules",
+      lotteryProviders: "wf_lottery_data_sources",
+      lotteryHealth: "wf_lottery_provider_health",
+      lotteryDraws: "wf_lottery_draws",
+      lotteryDrawNumbers: "wf_lottery_draw_numbers",
+      lotterySyncRuns: "wf_lottery_sync_runs",
+      lotteryCombinations: "wf_lottery_combinations",
+      lotteryAiDecisions: "wf_lottery_ai_decisions",
+      lotteryTickets: "wf_lottery_tickets",
+      lotteryTicketLines: "wf_lottery_ticket_lines",
+      lotteryBacktests: "wf_lottery_backtests",
+      lotteryModelVersions: "wf_lottery_model_versions",
     };
     const stats = await store.stats();
     for (const collection of Object.keys(stats)) {

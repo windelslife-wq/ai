@@ -71,8 +71,12 @@ function scripted({ queries = [], executes = [], connectionExecutes = [] } = {})
   };
 }
 
-test("the MySQL ticket repository implements exactly the nine names, and the composed repository carries them", () => {
-  assert.equal(SPORTS_TICKET_METHODS.length, 9);
+test("the MySQL ticket repository implements exactly the thirteen names, and the composed repository carries them", () => {
+  // Nine from slice 4, plus the four settlement needs slice 5 added: the ticket and
+  // leg outcome updates, and the stuck-run recovery. A method that settlement needs
+  // but the repository refuses would push the sweep onto a raw executor — which is
+  // exactly the bypass this count exists to prevent.
+  assert.equal(SPORTS_TICKET_METHODS.length, 13);
   const repo = createSportsTicketRepository(scripted());
   assert.deepEqual(Object.keys(repo).sort(), [...SPORTS_TICKET_METHODS].sort());
   for (const name of SPORTS_TICKET_METHODS) assert.ok(SPORTS_REPOSITORY_METHODS.includes(name), `${name} is in the shared contract`);

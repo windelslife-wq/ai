@@ -102,9 +102,9 @@ function odds(overrides = {}) {
 
 // ── contract ─────────────────────────────────────────────────────────────────
 
-test("the sports repository exposes exactly the 43 methods the contract names, and no more", () => {
+test("the sports repository exposes exactly the 58 methods the contract names, and no more", () => {
   const repository = createSportsRepository(recordingExecutor());
-  assert.equal(SPORTS_REPOSITORY_METHODS.length, 43);
+  assert.equal(SPORTS_REPOSITORY_METHODS.length, 58);
   for (const method of SPORTS_REPOSITORY_METHODS) {
     assert.equal(typeof repository[method], "function", `${method} must be implemented`);
   }
@@ -115,8 +115,12 @@ test("the sports repository exposes exactly the 43 methods the contract names, a
   for (const generic of ["ensureProvider", "saveHealth", "latestHealth", "listHealth", "deleteOldHealth"]) {
     assert.ok(!SPORTS_REPOSITORY_METHODS.includes(generic), `${generic} must be module-prefixed (divergence SP-18)`);
   }
-  // Ingestion must not be able to attest to a result.
-  assert.ok(!SPORTS_REPOSITORY_METHODS.includes("verifySportsResult"));
+  // Ingestion must not be able to attest to a result: `verifySportsResult` exists
+  // since slice 5 (under sports.settle at the routes), but the attesting write and
+  // the ingest writes stay distinct names on one repository — nothing here lets a
+  // sync quietly mark its own result verified.
+  assert.ok(SPORTS_REPOSITORY_METHODS.includes("verifySportsResult"));
+  assert.ok(!SPORTS_REPOSITORY_METHODS.includes("verifySportsResultAndMarkSyncVerified"));
 });
 
 // ── provider registry ────────────────────────────────────────────────────────

@@ -7,8 +7,8 @@
  *    `AUTOMATED_EXECUTION` whatever the body says, and drops fields it does not declare.
  *  - A decision is recorded for a fixture with its gate's reasons, and cannot be changed.
  *  - Evaluation refuses a fixture that has never been assessed for quality.
- *  - Calibration fitting is refused in this slice, and a decision on a calibration is
- *    accepted only from PENDING, exactly once, and audited.
+ *  - Calibration fitting with no settled sample behind it is refused, and a decision
+ *    on a calibration is accepted only from PENDING, exactly once, and audited.
  *
  * They do NOT establish that the chain's numbers are right. That is the parity test
  * (`sports_intelligence_parity.test.js`), which holds every stage to legacy's output.
@@ -210,14 +210,19 @@ test("a decision is recorded for a fixture with its gate's reasons, and cannot b
   // Stored as '' (the NOT NULL key's sentinel for "uncalibrated"), presented as null.
   assert.equal(models.json().models[0].calibration_version, null, "an uncalibrated model has no calibration version");
 
-  // Performance has no outcomes yet, so it says so and reports no metric as zero.
+  // Performance measures what exists: one stored prediction, no settled outcome.
+  // Slice 5 makes the measurement real, so the empty history is the DATA's answer —
+  // samples 0, null metrics — and `outcomesAvailable: true` says the measurement ran
+  // rather than that it is unported. Ticket metrics measure the same empty history.
   const performance = await instance.app.inject({ method: "GET", url: "/api/v1/sports/models/performance", headers: root.headers });
   assert.equal(performance.statusCode, 200);
   assert.equal(performance.json().predictions, 1);
   assert.equal(performance.json().samples, 0);
-  assert.equal(performance.json().outcomesAvailable, false);
+  assert.equal(performance.json().outcomesAvailable, true, "measurement is real; an empty history is the data's answer, not a refusal");
   assert.equal(performance.json().metrics.brier, null, "no outcome means no Brier score, not zero");
-  assert.equal(performance.json().tickets.status, "NOT_PORTED");
+  assert.equal(performance.json().tickets.status, "MEASURED", "ticket metrics measure the (empty) history");
+  assert.equal(performance.json().tickets.settledTickets, 0);
+  assert.equal(performance.json().tickets.winRate, null, "no settled tickets means no win rate, not zero");
 
   const audited = await instance.store.listAuditEvents({ action: "sports.decision.recorded" });
   assert.equal(audited.total, 1);
@@ -277,8 +282,10 @@ test("calibration fitting is refused, and approval is accepted once from PENDING
   const analyst = await signIn(instance.app, "sportsanalyst", "Sports analyst phrase");
 
   const fit = await instance.app.inject({ method: "POST", url: "/api/v1/sports/calibrations/fit", headers: root.headers });
-  assert.equal(fit.statusCode, 422, "a fit needs settled outcomes, which slice 5 supplies");
-  assert.equal(fit.json().error.code, "SETTLED_OUTCOMES_UNAVAILABLE");
+  assert.equal(fit.statusCode, 422, "a fit with no settled outcomes behind it has nothing to fit on");
+  assert.equal(fit.json().error.code, "CALIBRATION_CANNOT_BE_FITTED");
+  assert.match(fit.json().error.message, /INSUFFICIENT_SETTLED_SAMPLE/, "the refusal names why: the settled sample is too small");
+  assert.match(fit.json().error.message, /samples: 0/, "and says how small it is");
   const stillNone = await instance.app.inject({ method: "GET", url: "/api/v1/sports/calibrations", headers: root.headers });
   assert.equal(stillNone.json().count, 0, "a refused fit stores nothing");
 

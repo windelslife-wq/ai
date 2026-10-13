@@ -47,6 +47,8 @@ import { createPortfolioService } from "./modules/portfolio/service.js";
 import { brokerRoutes } from "./modules/brokers/routes.js";
 import { sportsRoutes } from "./modules/sports/routes.js";
 import { createSportsService } from "./modules/sports/service.js";
+import { lotteryRoutes } from "./modules/lottery/routes.js";
+import { createLotteryService } from "./modules/lottery/service.js";
 import { createBrokerRegistry } from "./modules/brokers/registry.js";
 
 const JSON_TYPE = "application/json; charset=utf-8";
@@ -158,6 +160,13 @@ export async function buildApp({ config, store, logger = true, publicDir = path.
   // directly — the execution supervisor asks the manager, exactly as legacy did.
   const brokers = createBrokerRegistry({ brokers: config.brokers });
 
+  // One notification service per app. It is built before the sports and paper
+  // services because governance transitions publish through it, and it is handed to
+  // each as an *optional* collaborator: a host whose migration 009 has not
+  // been applied must still be able to move the kill switch, so the publisher
+  // degrades to a logged no-op instead of failing the governance action.
+  const notifications = createNotificationService({ store, log: app.log });
+
   // One sports service per app (row 14). Providers come from the environment only,
   // and a default host registers none at all: the sandbox provider needs
   // WINDELS_SPORTS_MODE=SANDBOX *and* WINDELS_SPORTS_SANDBOX=1, and the HTTP
@@ -171,14 +180,19 @@ export async function buildApp({ config, store, logger = true, publicDir = path.
   // refuses with 503 rather than returning an empty list that would look like an
   // empty database, and `/api/v1/sports/status` still answers, because configuration
   // is not something a missing table can make unknown.
-  const sports = createSportsService({ config, store });
+  //
+  // Slice 5 also hands it the notification service, because the drift monitor is the
+  // publisher `SPORTS_MODEL_DRIFT` has been declared-and-unwired for since Phase 9
+  // (NV-6): a drift warning now reaches the operator inbox, deduped per model per day.
+  const sports = createSportsService({ config, store, notifications });
 
-  // One notification service per app. It is built before the paper service
-  // because governance transitions publish through it, and it is handed to that
-  // service as an *optional* collaborator: a host whose migration 009 has not
-  // been applied must still be able to move the kill switch, so the publisher
-  // degrades to a logged no-op instead of failing the governance action.
-  const notifications = createNotificationService({ store, log: app.log });
+  // One lottery service per app (row 15, slice 1). The provider is legacy's
+  // Platform.php choice: an authorized official feed when configured, else the
+  // sandbox when WINDELS_LOTTERY_SANDBOX=1, else nothing — a default host has no
+  // provider, which is the honest state for a platform with no verified source.
+  // The service performs NO writes at construction (LT-4): the game registry row is
+  // ensured lazily on the first call that needs it, so booting stays read-free.
+  const lottery = createLotteryService({ config, store });
 
   // The status surface reports the notification module alongside market data and
   // analysis, so an operator can see that alerts are stored-and-read only and that
@@ -233,6 +247,12 @@ export async function buildApp({ config, store, logger = true, publicDir = path.
   // create, so none of them is ported; a matches endpoint that answered from a live
   // provider call would return a different thing under a familiar name.
   await app.register(sportsRoutes, { prefix: "/api/v1", store, config, sports });
+  // Lottery Intelligence (row 15, slice 1): the foundation surface — status, rules,
+  // draws, statistics, providers, health, jobs, and the two lottery.manage writes
+  // (probe and sync). Legacy's thirty-odd other lottery endpoints read tables this
+  // slice does not create, so none of them is ported; the status route carries the
+  // not-ported matrix.
+  await app.register(lotteryRoutes, { prefix: "/api/v1", store, config, lottery });
 
   /**
    * Scheduled operations (row 19): the portfolio risk sweep and the cross-owner
@@ -564,6 +584,8 @@ export async function buildApp({ config, store, logger = true, publicDir = path.
     concurrency,
     siteDocuments,
     jobs,
+    sports,
+    lottery,
     routes: () => router.list(),
     documents: () => siteDocuments.paths(),
     async listen({ host = config.host, port = config.port } = {}) {

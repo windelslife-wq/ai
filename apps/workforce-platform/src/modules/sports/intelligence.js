@@ -390,6 +390,11 @@ export function evaluatePrediction({ match, odds = null, quality, calibration = 
   const calibrationInput = calibration !== null && calibration !== undefined
     ? {
       approved: true,
+      // The calibration's own method travels with it (slice 5): a stored identity
+      // calibration measures on the raw probability (DV-19), everything else on the
+      // logistic map (DV-12). Inputs without a method keep the logistic map, exactly
+      // as every pre-slice-5 caller did.
+      method: calibration.method ?? null,
       intercept: phpFloat(calibration.intercept),
       slope: phpFloat(calibration.slope),
       version: calibration.calibrationVersion ?? calibration.version ?? null,

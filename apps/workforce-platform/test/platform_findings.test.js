@@ -637,7 +637,15 @@ test("F-01 the durable file adapter replays its log, survives a torn write, and 
     // Slice 3: the four decision-chain collections, all empty for the same reason.
     sportsModelVersions: 0, sportsPredictions: 0, sportsConfigurations: 0, sportsCalibrations: 0,
     // Slice 4: the ticket collections, empty for the same reason.
-    sportsTickets: 0, sportsTicketSelections: 0, sportsDailyTickets: 0 });
+    sportsTickets: 0, sportsTicketSelections: 0, sportsDailyTickets: 0,
+    sportsBacktests: 0, sportsModelMetrics: 0, sportsPerformanceSnapshots: 0,
+    lotteries: 0, lotteryRules: 0, lotteryProviders: 0, lotteryHealth: 0,
+    lotteryDraws: 0, lotteryDrawNumbers: 0, lotterySyncRuns: 0,
+    lotteryCombinations: 0, lotteryAiDecisions: 0,
+    // Row 15 slice 3 (migration 018): tickets and lines, empty for the same reason.
+    lotteryTickets: 0, lotteryTicketLines: 0,
+    // Row 15 slice 4 (migration 019): backtests + model versions, same.
+    lotteryBacktests: 0, lotteryModelVersions: 0 });
 
   await reopened.compact();
   const compacted = (await readFile(fileStorePaths(dir).log, "utf8")).trim();
@@ -670,15 +678,17 @@ test("F-01 the file store and the SQL store implement one repository contract, s
     () => assertRepositoryContract({ adapter: "stub", capabilities: {}, readiness: async () => ({}) }, { adapter: "stub" }),
     /does not implement the repository contract.*findUserByIdentifier/s,
   );
-  assert.equal(REPOSITORY_METHODS.length, 129, "8 identity + 6 sessions + 9 RBAC + 2 admin + 4 audit/profile + 2 contact intake + 4 analysis runs + 11 Strategy Lab (including persisted human sign-off) + 23 paper trading + 3 execution proposal reads (2 owner-scoped + 1 cross-owner for the scheduled job) + 6 operator notifications + 5 job locks + 2 job state + 22 sports foundation (3 provider registry + 4 health including retention + 4 fixtures + 4 odds + 2 results + 2 quality + 3 sync runs) + 12 sports intelligence (2 model versions + 4 predictions + 3 configuration + 3 calibration) + 1 readiness");
+  assert.equal(REPOSITORY_METHODS.length, 185, "8 identity + 6 sessions + 9 RBAC + 2 admin + 4 audit/profile + 2 contact intake + 4 analysis runs + 11 Strategy Lab (including persisted human sign-off) + 23 paper trading + 3 execution proposal reads (2 owner-scoped + 1 cross-owner for the scheduled job) + 6 operator notifications + 5 job locks + 2 job state + 22 sports foundation (3 provider registry + 4 health including retention + 4 fixtures + 4 odds + 2 results + 2 quality + 3 sync runs) + 12 sports intelligence (2 model versions + 4 predictions + 3 configuration + 3 calibration) + 13 ticket writes and reads (9 slice 4 + 4 slice-5 settlement updates and recovery) + 11 settlement, measurement and snapshot methods (2 result attestation + 2 outcome reads + 2 model metrics + 3 backtests + 2 performance snapshots) + 23 lottery foundation (1 game registry + 2 rules + 2 provider registry + 3 health + 5 draws + 4 draw numbers + 3 sync runs + 2 stats reads + 1 audit) + 6 lottery combinations and AI decisions (slice 2, migration 017) + 7 saved tickets and lines (slice 3, migration 018) + 5 backtest reports and model versions (slice 4, migration 019) + 1 readiness");
 
-  // The 22 sports foundation methods and the 12 decision-chain methods (migration 012)
-  // are named here rather than only counted, because this is the
+  // The 22 sports foundation methods, the 12 decision-chain methods (migration 012)
+  // and the slice-5 settlement-and-measurement methods (migration 014) are named here
+  // rather than only counted, because this is the
   // assertion that both adapters implement the same one. Two of them matter enough to
   // call out: `listSportsSyncRuns` has no legacy counterpart at all (legacy wrote
   // `sports_sync_runs` and could not read it — finding F-35), and `verifySportsResult`
-  // is deliberately ABSENT, because ingestion reports a result and must not get to
-  // attest to one. That absence is slice 5's boundary, stated in the contract.
+  // arrived only with slice 5, under the `sports.settle` permission at the routes —
+  // ingestion reports a result, a person attests to it, and the two writes stay
+  // distinct names on one repository rather than one method with a flag.
   for (const method of [
     "ensureSportsProvider", "listSportsProviders", "setSportsProviderEnabled",
     "saveSportsHealth", "latestSportsHealth", "listSportsHealth", "pruneSportsHealth",
@@ -690,10 +700,14 @@ test("F-01 the file store and the SQL store implement one repository contract, s
     "findSportsPrediction", "listSportsPredictions", "saveSportsConfiguration",
     "activeSportsConfiguration", "listSportsConfigurations", "saveSportsCalibration",
     "findSportsCalibration", "listSportsCalibrations", "decideSportsCalibration",
+    "verifySportsResult", "findSportsResultByMatch",
+    "listSportsPredictionOutcomes", "listSportsSettledSelections",
+    "saveSportsModelMetrics", "listSportsModelMetrics",
+    "saveSportsBacktest", "findSportsBacktest", "listSportsBacktests",
   ]) {
     assert.ok(REPOSITORY_METHODS.includes(method), `${method} must be in the contract, not an adapter extra`);
   }
-  assert.ok(!REPOSITORY_METHODS.includes("verifySportsResult"), "verifying a result is settlement (slice 5), not ingestion");
+  assert.ok(!REPOSITORY_METHODS.includes("verifySportsResultAndMarkSyncVerified"), "the attesting write and the ingest writes stay distinct methods — nothing lets a sync attest to its own result");
   assert.ok(!REPOSITORY_METHODS.includes("ensureProvider"), "sports methods are module-prefixed: legacy's lottery repository declares the same unprefixed names, and one flat contract namespace cannot hold both (divergence SP-18)");
   assert.equal(file.adapter, "file");
   assert.equal(file.capabilities.durable, true);
@@ -1086,27 +1100,29 @@ test("F-02 the status surface is honest about unported modules, and F-03 the rou
   // Phase 15 moved `sports` from not-ported to partial, and Phase 16 gives it
   // persistence — but this is still the label that has to work hardest in the whole
   // ledger, because "sports intelligence: partial" reads as "half a betting engine".
-  // What is actually ported is a data layer: the normalized contracts, two
-  // conservative gates, the provider boundary, and ingestion into seven tables.
-  // The label must say what is missing, not what is present, because the risk here is
-  // a reader inferring capability — and slice 2 raises that risk, since a module that
-  // now stores fixtures, odds and results looks much more like a working betting
-  // system than one that stored nothing. The two things that keep it honest are in
-  // the label: nothing downstream of ingestion exists, and NO STORED RESULT IS
-  // VERIFIED, so nothing here can settle anything.
+  // Slice 5 makes that tension sharper, not weaker: the module now verifies results,
+  // settles tickets, fits calibrations, backtests, monitors drift and measures
+  // performance, which looks like the whole betting system. What keeps the label
+  // honest is the boundary it still names: nothing is executed, no stake is sized,
+  // and NO STORED RESULT IS TRUSTED before a person attests to it — measurement and
+  // settlement exist, but every one of them runs on stored, attested records and
+  // runs only when a person asks.
   assert.equal(body.modules.find((module) => module.key === "sports").state, "partial");
   const sportsLabel = body.modules.find((module) => module.key === "sports").label;
   for (const pattern of [
     // The absence is stated as one list, so the list is pinned as a list rather than
-    // as six separate "no X" phrases that the label does not and should not repeat.
-    // "no persistence" came OUT of this list in Phase 16, and the assertion that it
-    // is gone is as important as the ones that remain: a ledger label is documentation,
-    // and a stale one is worse than none because it is read as current.
-    /not ported: stake sizing, settlement, calibration fitting, backtests, model drift and performance analytics/i,
-    /no stored result is verified/i,
+    // as separate "no X" phrases that the label does not and should not repeat.
+    // Slice 5 shrank it to three and row 19 removed the cron from it: stake sizing
+    // and the console screens (F-29) are what no slice owns. Settlement, calibration fitting, backtests, drift and
+    // analytics came OUT of this list, and the assertion that they are gone is as
+    // important as the ones that remain: a ledger label is documentation, and a stale
+    // one is worse than none because it is read as current.
+    /not ported: stake sizing and the console screens \(f-29\)/i,
+    /no stored result is trusted before a person attests/i,
     /never verified against a vendor/i,
-    /fifteen sports\.view reads, two sports\.manage reads, seven sports\.manage writes/i,
+    /nineteen sports\.view reads, two sports\.manage reads, ten sports\.manage writes/i,
     /one sports\.approve write/i,
+    /two sports\.settle writes/i,
     // The one positive claim the label makes, and the only one this slice can
     // support with evidence rather than assertion.
     /PHP-parity proven by differential test/i,
@@ -1114,6 +1130,10 @@ test("F-02 the status surface is honest about unported modules, and F-03 the rou
   ]) {
     assert.match(sportsLabel, pattern);
   }
+  // And the attestation boundary is stated as a positive claim too: the settle
+  // permission exists precisely so that managing sports data and attesting to a
+  // result are different grants.
+  assert.match(sportsLabel, /sports\.settle/i);
   // Phase 12 ports `Tools::cron()` as a scheduled-jobs module. It is `partial` and
   // the label must carry the gap: legacy alerted at 80/70/60% of a limit as a
   // `warning` and at the limit as `critical`, while this port alerts only on the
@@ -1126,8 +1146,27 @@ test("F-02 the status surface is honest about unported modules, and F-03 the rou
   // Phase 14 moves `brokers` from not-ported to partial: the connector boundary, the
   // normalized data contracts and the demo-only order gates are ported and tested,
   // while no adapter is verified against its provider and no order can be routed.
-  assert.equal(body.modules.filter((module) => module.state === "partial").length, 5, "the public site (chat widget), execution (the remaining supervisor steps are broker-bound, no live route, no automated mode), scheduled jobs (no early-warning tiers, no sports/lottery cron), brokers (no verified adapter, no order routing) and sports (ingestion and persistence only — no prediction, ticket, settlement, calibration, backtest or monitoring, and no stored result verified) remain partial");
-  assert.equal(body.modules.filter((module) => module.state === "not-ported").length, 3, "lottery, language learning and lead discovery remain legacy-only");
+  // Row 15 slice 1 moves `lottery` from not-ported to partial: the foundation
+  // (providers, rules, validation, ingestion, derived health, statistics) is ported
+  // and PHP-parity proven, while combination intelligence, tickets, backtests, the
+  // lottery cron and the console screens are not (F-29 keeps that list).
+  const lotteryLabel = body.modules.find((module) => module.key === "lottery").label;
+  assert.equal(body.modules.find((module) => module.key === "lottery").state, "partial");
+  for (const pattern of [
+    /draw validation before storage/i,
+    /never overwrites a VERIFIED draw/i,
+    /independence DISCLAIMER/i,
+    /a default host has no provider and fabricates nothing/i,
+    /the console screens are not ported \(f-29, platform-wide\)/i,
+    /systems consumer that finally drains the queued background builds/i,
+    /nineteen lottery\.view reads/i,
+    /eight lottery\.view POSTs/i,
+    /three lottery\.manage writes/i,
+  ]) {
+    assert.match(lotteryLabel, pattern);
+  }
+  assert.equal(body.modules.filter((module) => module.state === "partial").length, 6, "the public site (chat widget), execution (the remaining supervisor steps are broker-bound, no live route, no automated mode), scheduled jobs (no early-warning tiers, no sports/lottery cron), brokers (no verified adapter, no order routing), sports (measured but person-gated: nothing executed, no stake sized, no stored result trusted before a person attests, no verified vendor, no cron and no console screens) and lottery (slices 1–5 ported and proven for parity; only the console screens are missing, F-29) remain partial");
+  assert.equal(body.modules.filter((module) => module.state === "not-ported").length, 2, "language learning and lead discovery remain legacy-only");
   assert.equal(body.modules.length, 17, "the ledger keeps listing every module, ported or not");
   // The public status surface carries a market-data snapshot that must not have
   // probed an external host to produce it.
