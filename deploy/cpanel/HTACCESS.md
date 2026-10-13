@@ -7,3 +7,9 @@
 - Keep the existing PHP hostname/document root and its `.htaccess` unchanged during coexistence. Use a separate HTTPS staging subdomain for Node validation.
 
 If the host requires a custom Apache rule, get the provider's supported Passenger example and verify that static-file requests, API paths, HTTPS forwarding, and the application startup all work before enabling the rule. No universal `.htaccess` proxy snippet is asserted here because cPanel/Passenger configurations differ by provider.
+
+Two paths are served by the application itself rather than by Apache, so no rewrite is needed for
+them under Passenger: `/` and the other marketing paths are composed per request, and `/app/` is
+served from `apps/workforce-platform/public/app/` (the built SPA, git-ignored — see
+[`docs/INSTALLATION.md`](../../docs/INSTALLATION.md) §5). If `/app/` returns 404 while `/` works, the
+bundle was not deployed; no `.htaccess` rule will fix that.

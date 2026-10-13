@@ -1,5 +1,9 @@
 # Portable cPanel deployment (no terminal required)
 
+This is the guide for the **PHP/CodeIgniter** application. The Node.js platform in
+`apps/workforce-platform/` is a different install entirely — see
+[`INSTALLATION.md`](INSTALLATION.md).
+
 This PHP/CodeIgniter deployment is designed for this exact flow:
 
 ```text

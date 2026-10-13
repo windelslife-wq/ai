@@ -121,7 +121,9 @@ login-attempt hash, not only the session cookie. `DB_*` are required only by the
 `npm run check` is the release gate: it verifies the installation (engines range,
 dependency set, required files, migrations, `.env.example` coverage, production
 config rules, reproducible icons, absence of static generated documents, built
-client bundle — **30 checks**) and then runs the suite — currently **103 tests**.
+client bundle — **30 checks**; the bundle check is skipped with a `[SKIP]` line when
+`public/app/` has not been built) and then runs the suite — currently **981 tests across 68
+files**. The installation guide is [`docs/INSTALLATION.md`](../../docs/INSTALLATION.md).
 `npm run build:icons` regenerates the PNG icon set; `npm run check:icons` proves
 the committed PNGs are byte-identical to what the generator produces.
 
