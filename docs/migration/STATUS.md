@@ -2,7 +2,26 @@
 
 **Updated:** 2026-10-13 · **Branch:** `arena/653d6218-ai`
 
-## Current Phase 25 status (2026-10-13)
+## Current Phase 26 status (2026-10-13)
+
+**R-30 is closed**: the file adapter's aggregate writes are single-record atomic. A new internal
+`mutateBatch` appends one `{"op":"batch","changes":[…]}` WAL record — applied whole on replay, a
+torn line discarded whole — and the three aggregate-critical writers use it: `saveSportsTicket`
+(the R-30 subject; selections first, ticket last, duplicate guard up front), and the two lottery
+replace-writes, `saveLotteryDrawNumbers` and `saveLotteryTicketLines`. Converting the draw-numbers
+writer exposed **F-46**: the old delete built its key from `{id}` alone while the table keys by
+`draw_id|kind|position`, so every replace was a silent no-op and duplicate number rows accumulated
+per re-save — the same family as Phase 25's job-run find. Fixed with the key the table uses.
+One residual is recorded rather than fixed: the lottery ticket create stays legacy's two
+repository calls on both adapters (that crash window is legacy's own; no line-count column exists
+to check on read) — see the R-30 entry. The version is **0.23.0**. Full record:
+[`PHASE26_FILE_ATOMICITY.md`](PHASE26_FILE_ATOMICITY.md).
+
+Gates on this branch: `npm test` **975 / 975** across **67** files, `npm run check` exit 0
+(`verify:install` 29/29), PHP oracle **367 / 367**, legacy tree unmodified. **Not run:** a real
+MySQL server, any official feed, a crontab, a real browser.
+
+## Phase 25 status (2026-10-13) — superseded by Phase 26
 
 **The lottery cron is ported** (row 15, slice 5 — the scheduler row 15 has owed since slice 2
 queued its first background build). Seven execution-key-idempotent jobs in legacy's order — sync

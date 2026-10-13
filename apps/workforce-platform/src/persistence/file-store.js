@@ -472,6 +472,37 @@ export async function createFileStore({ dir, logger = console, idFactory = () =>
     return enqueue(run);
   }
 
+  /**
+   * One WAL record, many changes — the file adapter's atomic multi-row write
+   * (R-30). The batch line is applied whole on replay (a torn line is dropped
+   * whole), so a crash between the appends of an aggregate — a sports ticket
+   * and its selections, a stored draw and its numbers, a lottery ticket and
+   * its lines — leaves either everything or nothing, never the half-written
+   * state the one-append-at-a-time path could produce. Aggregate writers put
+   * children first so even a reader of the raw log sees completeness in the
+   * record order. Values are sanitized (the `replace` hint never reaches the
+   * log) and the caller owns any pre-write guard it needs.
+   *
+   * @param {{entity: string, key: string, op: "upsert"|"delete", value: object|null}[]} changes
+   */
+  function mutateBatch(changes) {
+    const run = async () => {
+      const clean = changes.map((change) => ({
+        entity: change.entity,
+        // The key follows the value's own keyOf, exactly as `mutate` derives it —
+        // entities with composite keys (draw numbers are draw|kind|position) must
+        // not be keyed by a bare id, or deletes and upserts land beside their rows.
+        key: change.key ?? keyOf(change.entity, change.value ?? {}),
+        op: change.op,
+        value: change.value === null || change.value === undefined ? null : sanitize(change.value),
+      }));
+      await persist({ op: "batch", changes: clean }, { compactAfter: false });
+      apply({ op: "batch", changes: clean, sequence }, { persist: false });
+      if (appendCount >= COMPACTION_ENTRIES) await compact();
+    };
+    return enqueue(run);
+  }
+
   function sanitize(value) {
     const { replace, ...rest } = value;
     return rest;
@@ -1458,11 +1489,18 @@ export async function createFileStore({ dir, logger = console, idFactory = () =>
 
     async saveSportsTicket(built) {
       const { ticket, selections } = prepareTicket(built ?? {});
-      await mutate("sportsTickets", "upsert", { ...ticket, replace: false });
-      for (const selection of selections) {
+      // R-30: the ticket and its legs are ONE WAL batch, legs FIRST — a crash
+      // used to be able to leave a ticket with fewer selections than
+      // selection_count claims. The replace:false guard is checked up front so
+      // a duplicate id still refuses before anything is written.
+      const key = keyOf("sportsTickets", ticket);
+      if (tables.get("sportsTickets").has(key)) throw new Error("Already exists");
+      const changes = selections.map((selection) => {
         const id = nextRowId("sportsTicketSelections");
-        await mutate("sportsTicketSelections", "upsert", { id, ...selection });
-      }
+        return { entity: "sportsTicketSelections", op: "upsert", value: { id, ...selection } };
+      });
+      changes.push({ entity: "sportsTickets", op: "upsert", value: { ...ticket, replace: false } });
+      await mutateBatch(changes);
       return ticketRow(tables.get("sportsTickets").get(ticket.id));
     },
 
@@ -1983,23 +2021,23 @@ export async function createFileStore({ dir, logger = console, idFactory = () =>
       const id = assertRowId(drawId, "draw_id");
       const table = tables.get("lotteryDrawNumbers");
       const doomed = [...table.values()].filter((row) => toInt(row.draw_id) === id);
-      for (const row of doomed) {
-        await mutate("lotteryDrawNumbers", "delete", { id: row.id });
-      }
+      // R-30: the replacement is ONE WAL batch — a crash mid-replace used to be
+      // able to leave a draw with some of its old numbers and some of its new.
+      const changes = doomed.map((row) => ({ entity: "lotteryDrawNumbers", key: keyOf("lotteryDrawNumbers", row), op: "delete", value: null }));
       for (const [field, kind] of [["main", "MAIN"], ["stars", "STAR"]]) {
         const list = Array.isArray(numbers?.[field]) ? numbers[field] : [];
         for (let index = 0; index < list.length; index += 1) {
           const value = Number(list[index]);
           if (!Number.isInteger(value)) throw new TypeError(`draw numbers must be integers, received ${JSON.stringify(String(list[index]).slice(0, 20))}`);
-          await mutate("lotteryDrawNumbers", "upsert", {
-            id: nextRowId("lotteryDrawNumbers"),
-            draw_id: id,
-            kind,
-            position: index,
-            number: value,
+          const recordId = nextRowId("lotteryDrawNumbers");
+          changes.push({
+            entity: "lotteryDrawNumbers",
+            op: "upsert",
+            value: { id: recordId, draw_id: id, kind, position: index, number: value },
           });
         }
       }
+      await mutateBatch(changes);
     },
 
     async lotteryDrawsForStats(lotteryCode, limit = 10_000) {
@@ -2245,10 +2283,12 @@ export async function createFileStore({ dir, logger = console, idFactory = () =>
     async saveLotteryTicketLines(ticketId, linesIn) {
       // Delete-then-insert, positions AS GIVEN (the draw-numbers rule), each
       // line stamped by the adapter exactly as legacy stamps gmdate('c').
+      // R-30: the replacement is ONE WAL batch — a crash mid-replace used to be
+      // able to leave a ticket with fewer lines than it was recorded with.
       const owner = assertRowId(ticketId, "ticket_id");
       const table = tables.get("lotteryTicketLines");
       const doomed = [...table.values()].filter((row) => toInt(row.ticket_id, 0) === owner);
-      for (const row of doomed) await mutate("lotteryTicketLines", "delete", { id: row.id });
+      const changes = doomed.map((row) => ({ entity: "lotteryTicketLines", key: keyOf("lotteryTicketLines", row), op: "delete", value: null }));
       const lines = Array.isArray(linesIn) ? linesIn : [];
       for (let position = 0; position < lines.length; position += 1) {
         const line = lines[position] ?? {};
@@ -2259,9 +2299,10 @@ export async function createFileStore({ dir, logger = console, idFactory = () =>
           stars: line.stars ?? [],
           createdAt: nowIso(),
         });
-        const row = { id: nextRowId("lotteryTicketLines"), ...record };
-        await mutate("lotteryTicketLines", "upsert", row);
+        const rowId = nextRowId("lotteryTicketLines");
+        changes.push({ entity: "lotteryTicketLines", op: "upsert", value: { id: rowId, ...record } });
       }
+      await mutateBatch(changes);
       return lines.length;
     },
 
