@@ -22,7 +22,7 @@
 
 import assert from "node:assert/strict";
 import test from "node:test";
-import { readFileSync } from "node:fs";
+import { existsSync, readFileSync } from "node:fs";
 import path from "node:path";
 
 import {
@@ -362,6 +362,11 @@ test("formatting never invents a figure, and a draw renders from its typed rows"
 test("both lottery consoles are declared, permission-gated and reachable as deep links", async (t) => {
   const instance = await createFileStoreApp();
   t.after(() => instance.cleanup());
+
+  // `public/app/` is generated and git-ignored, and a deep link is a 404 without it by
+  // design — so say that before asserting 200, or a fresh checkout reads as a routing
+  // bug. CI builds the client before this suite; locally, `npm run build:client`.
+  assert.ok(existsSync(path.resolve(CLIENT, "..", "..", "public", "app", "index.html")), "the built SPA shell is required: npm run build:client");
 
   const app = readFileSync(path.join(CLIENT, "App.jsx"), "utf8");
   const views = readFileSync(path.join(CLIENT, "views.jsx"), "utf8");

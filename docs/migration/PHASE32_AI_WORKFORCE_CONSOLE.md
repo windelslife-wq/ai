@@ -82,7 +82,19 @@ the whole surface the console drives, and by requiring the declaration not to ca
    The divergence is now written at the assignment with that reasoning, and the suite asserts the port's shape —
    including that a **blank** reason on an activation gets the server's default while a blank reason on a release
    stores `null`.
-4. **A `.secondary-button` class was referenced but never defined.** Phase 31's console used it and it rendered
+4. **`npm run check` could not pass on a clean checkout — and CI had been failing since Phase 29.** The
+   console suites added between Phases 29 and 31 (and this one) assert that a bookmarked `/app/...` path answers
+   the SPA shell with a 200; `public/app/` is generated and **git-ignored**, and without it every deep link is a
+   404 **by design**. Locally the bundle was present, so the suite passed; in CI the release gate ran *before* the
+   client build, so all four pushes from Phase 29 onward failed at `npm run check` — with only the failing test
+   names visible, because the runner logs are not reachable from the environment doing the debugging (the log
+   fetch is refused; the annotations are all that can be read). Fixed at both ends: the workflow now installs and
+   builds the client **before** the gate, so those assertions run in CI rather than failing on a missing artefact,
+   and each deep-link test asserts the built shell up front with the remedy in its message
+   (`the built SPA shell is required: npm run build:client`) instead of letting a 404 read as a routing bug.
+   Reproduced both ways locally: with `public/app/` moved aside the suite fails on that one message, and after a
+   fresh `npm run build:client` the four console suites run 40/40.
+5. **A `.secondary-button` class was referenced but never defined.** Phase 31's console used it and it rendered
    unstyled; styles.css now defines it (base, `:hover:not(:disabled)`, `:disabled`) immediately before
    `.danger-button`, whose existing shared disabled rule it inherits.
 
@@ -125,6 +137,9 @@ throttle).
   tests).
 - `npm run build:workforce-client` — production bundle built: `index-Brdr6qjd.js` (410.65 kB / 113.50 kB gzip)
   and `index-C8opwlwx.css` (35.81 kB / 7.89 kB gzip).
+- **The gate's own ordering** — the client built, then the four console suites with the bundle present (40/40),
+  and then the same suites with `public/app/` moved aside to confirm the new precondition reports the missing
+  shell rather than a routing failure.
 - `npm run verify:install -- --require-bundle` — **30/30** installation checks.
 - **Behavioural end-to-end** against the running server, driven by the console's own builders and formatters
   (a live store holding a BTCUSDT run): login; `GET /trading/mode` 200 with the kill switch engaged and
@@ -151,8 +166,11 @@ throttle).
 - **The module counts are unchanged (10 ported / 5 partial / 2 not-ported).** This phase closed an absence inside
   a `partial` row; it did not promote a state, and row 3 keeps its `partial` label because the sports dashboard
   and the settings screens are still absent.
+- The app README's test counts were **wrong and are corrected**: it claimed 1008 tests across 74 files; the
+  suite is 1016 tests across **72** files, which is what the directory holds.
 - `UNFINISHED_MODULES.md` row 3's "Still absent" clause drops the analysis dashboard and gains the Phase 32
-  record; row 7's port-with-the-shell clause is satisfied and now names the console. `UNFINISHED_MODULES_INDEX.md`,
+  record; row 6's and row 7's "no UI" clauses become the ported chart and the console, and their "port the
+  chart/dashboard UI with the app-shell workstream" actions are struck through as done; row 7's port-with-the-shell clause is satisfied and now names the console. `UNFINISHED_MODULES_INDEX.md`,
   `STATUS.md` and the app `README.md` carry the same corrections.
 
 ## Remaining after this phase

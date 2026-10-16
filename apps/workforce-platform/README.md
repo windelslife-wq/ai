@@ -151,7 +151,11 @@ login-attempt hash, not only the session cookie. `DB_*` are required only by the
 `npm run check` is the release gate: it verifies the installation (engines range,
 dependency set, required files, migrations, `.env.example` coverage, production
 config rules, reproducible icons, absence of static generated documents, built
-client bundle — **30 checks**) and then runs the suite — currently **1008 tests** across 74 files.
+client bundle — **30 checks**) and then runs the suite — currently **1016 tests** across 72 files.
+It needs the client built first (`npm run build:client`): the console suites assert that a
+bookmarked `/app/...` path reaches the SPA shell, and `public/app/` is generated and
+git-ignored, so on a fresh checkout those assertions fail with that instruction rather
+than with a routing error. CI builds the client before running the gate.
 `npm run build:icons` regenerates the PNG icon set; `npm run check:icons` proves
 the committed PNGs are byte-identical to what the generator produces.
 

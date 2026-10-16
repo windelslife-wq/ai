@@ -16,6 +16,12 @@ jobs:
       - run: npm ci
       - run: npm run typecheck
       - run: npm run test:contracts
+      # The suite asserts that a bookmarked `/app/...` path reaches the SPA shell, which
+      # needs the built client: `public/app/` is generated and git-ignored, and without it
+      # every deep link is a 404 by design. Build before the release gate so those
+      # assertions run here instead of failing on a missing artefact.
+      - run: npm ci --prefix apps/workforce-platform/client
+      - run: npm run build --prefix apps/workforce-platform/client
       # On a failure, re-emit the failing test names, their failure detail, the suite
       # totals and the log tail as check ANNOTATIONS, which are readable through the API
       # without signing in to the Actions UI. Runner logs are not reachable from every
@@ -45,8 +51,7 @@ jobs:
             done
           fi
           exit $status
-      - run: npm ci --prefix apps/workforce-platform/client
-      - run: npm run build --prefix apps/workforce-platform/client
+      # Rebuilt for the native target below and restored for the artefact gate.
       - run: npm ci --prefix apps/workforce-platform/native
       - run: npm run check:config --prefix apps/workforce-platform/native
       - run: VITE_API_BASE_URL=https://api.example.invalid npm run build:native --prefix apps/workforce-platform/client

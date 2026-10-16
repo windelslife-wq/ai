@@ -17,7 +17,7 @@
 
 import assert from "node:assert/strict";
 import test from "node:test";
-import { readFileSync } from "node:fs";
+import { existsSync, readFileSync } from "node:fs";
 import path from "node:path";
 
 import {
@@ -285,6 +285,11 @@ test("the optimizer's report renders from its own fields, and only an ai variant
 test("the Strategy Lab is a session-only screen, and session-only is what its routes are", async (t) => {
   const instance = await createFileStoreApp();
   t.after(() => instance.cleanup());
+
+  // `public/app/` is generated and git-ignored, and a deep link is a 404 without it by
+  // design — so say that before asserting 200, or a fresh checkout reads as a routing
+  // bug. CI builds the client before this suite; locally, `npm run build:client`.
+  assert.ok(existsSync(path.resolve(CLIENT, "..", "..", "public", "app", "index.html")), "the built SPA shell is required: npm run build:client");
 
   const app = readFileSync(path.join(CLIENT, "App.jsx"), "utf8");
   const views = readFileSync(path.join(CLIENT, "views.jsx"), "utf8");

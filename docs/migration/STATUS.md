@@ -66,7 +66,7 @@ instead of 403-ing on click; the three modes this edition does not have are name
 the capability each is missing, and refused by the request schema (400 `INVALID_REQUEST`) if posted.
 **No new HTTP route, migration, contract method or permission** — 146 routes before and after.
 
-Three defects were found and fixed on the way: `provenanceFacts(null)` rendered a **LIVE** banner for
+Three defects were found and fixed in the port itself: `provenanceFacts(null)` rendered a **LIVE** banner for
 a payload that carried no provenance (it now returns null and the banner is not drawn); the console's
 copy claimed a 409 the API **cannot** return — the request schema refuses the legacy-only modes at the
 edge, so the service's `TRADING_MODE_UNSUPPORTED` 409 is unreachable over HTTP (the same shape as the
@@ -76,6 +76,14 @@ copied**: legacy's kill switch kept the reason and stamped a fresh `activatedAt`
 well as engagement, so a released switch described itself as engaged at a time it was not; the port
 clears both and the release reason survives in the audit row. See
 [`PHASE32_AI_WORKFORCE_CONSOLE.md`](PHASE32_AI_WORKFORCE_CONSOLE.md).
+
+**CI had been failing since Phase 29, and the gate could not pass on a clean checkout.** The console suites
+assert that a bookmarked `/app/...` path answers the SPA shell; `public/app/` is generated and git-ignored, so
+without a build every deep link is a 404 by design — and CI ran the release gate **before** the client build, so
+the last four pushes failed at `npm run check` with only the failing test names visible. The workflow now installs
+and builds the client before the gate, and each deep-link test asserts the built shell up front with the remedy
+in its message. Reproduced both ways locally (bundle moved aside → one clear failure; rebuilt → 40/40 across the
+four console suites). The app README's stale test counts (1008 tests / 74 files) are corrected to 1016 / 72.
 
 A fourth contract suite (`test/client_workforce_console.test.js`, 8 tests) reads the console's
 vocabulary out of the server's own contracts, checks each built body against its schema property by
