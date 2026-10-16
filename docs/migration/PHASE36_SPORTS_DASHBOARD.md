@@ -164,6 +164,22 @@ tests rather than 20.
 - **Not run:** a real browser (no rendering, no click-through), real MySQL/MariaDB (F-15),
   any live provider, SMTP, cPanel/Passenger, and still no PHP↔Node numeric diff (F-26).
 
+## Verification record
+
+CI run **`38976858301`** on `arena/046b29ac-ai` (`1d959a0`) is **success** on both jobs
+(`javascript`, `mt5-bridge-contract`). The sandbox that ran the gates above was reset twice
+in this phase — `/tmp`, the demo store and `node_modules` do not survive it — so the tree
+was realigned to `ee07769` with its P36 changes intact, `npm ci` was re-run at the root and
+in `client/` and `native/`, and every gate was re-measured on the committed tree before the
+push: `check:workforce` **1066 / 1066**, the eight client suites **89 / 89**, the client build
+with the same hashes (`index-D7L0hs05.js`, `index-B_XlxOxv.css`), `typecheck` clean,
+`test:contracts` **12 / 12**, `verify:install --require-bundle` **30 / 30**, the football suite
+**29 / 29** and the runtime suite **367 passed**. The demo host was then rebuilt for the
+preview (seed → `seed-platform.mjs` for the 9 roles / 14 permissions / 29 grants and the
+`root` administrator → calibration approved → daily ticket run through the API → the kill
+switch left ACTIVE) and the probe re-run with a re-created script: **34 / 34**, the same
+facts as the 36-check run above plus the refusal's code, kept honest by leaving the switch on.
+
 ## After this phase
 
 Row 3 is closed: the workspace dashboard (Phase 33), the account avatar (Phase 34), the administrator

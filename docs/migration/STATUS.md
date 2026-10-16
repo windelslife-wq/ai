@@ -65,7 +65,7 @@ console tests, +1 HTTP guard test), the eight client suites **89 / 89**, `npm ru
 **30 / 30**, plus a **36 / 36** live probe (the demo store seeded with four "… Test" fixtures and an
 approved calibration, the daily ticket run through the API, an approval refused 409 with nothing changed).
 **Not run:** a real browser, real MySQL/MariaDB, any live provider, SMTP, cPanel/Passenger, and still no
-PHP↔Node numeric diff (F-26). Full record:
+PHP↔Node numeric diff (F-26). **CI `38976858301` on `1d959a0` is success on both jobs.** Full record:
 [`PHASE36_SPORTS_DASHBOARD.md`](PHASE36_SPORTS_DASHBOARD.md).
 
 **F-29's residual list is now five: paper, risk, execution, brokers, journal** — sports left it whole,
