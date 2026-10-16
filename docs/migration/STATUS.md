@@ -83,7 +83,9 @@ without a build every deep link is a 404 by design — and CI ran the release ga
 the last four pushes failed at `npm run check` with only the failing test names visible. The workflow now installs
 and builds the client before the gate, and each deep-link test asserts the built shell up front with the remedy
 in its message. Reproduced both ways locally (bundle moved aside → one clear failure; rebuilt → 40/40 across the
-four console suites). The app README's stale test counts (1008 tests / 74 files) are corrected to 1016 / 72.
+four console suites). CI run `38905032261` (`c0416cc`) then completed **green** in both jobs — the first green
+run on this branch since Phase 28. The app README's stale test counts (1008 tests / 74 files) are corrected to
+1016 / 72.
 
 A fourth contract suite (`test/client_workforce_console.test.js`, 8 tests) reads the console's
 vocabulary out of the server's own contracts, checks each built body against its schema property by

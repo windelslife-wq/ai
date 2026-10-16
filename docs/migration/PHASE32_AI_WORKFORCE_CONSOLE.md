@@ -140,6 +140,10 @@ throttle).
 - **The gate's own ordering** — the client built, then the four console suites with the bundle present (40/40),
   and then the same suites with `public/app/` moved aside to confirm the new precondition reports the missing
   shell rather than a routing failure.
+- **CI itself** — run `38905032261` on commit `c0416cc` completed **success** in both jobs (the `javascript` job
+  including the release gate, the native build, the artefact gate, the football-predictions suite and the runtime
+  suite). That is the first green run on this branch since Phase 28; the four pushes from Phase 29 to this phase's
+  first commit all failed at the gate for the reason item 4 above records.
 - `npm run verify:install -- --require-bundle` — **30/30** installation checks.
 - **Behavioural end-to-end** against the running server, driven by the console's own builders and formatters
   (a live store holding a BTCUSDT run): login; `GET /trading/mode` 200 with the kill switch engaged and
