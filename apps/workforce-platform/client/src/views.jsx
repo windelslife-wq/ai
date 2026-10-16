@@ -10,6 +10,11 @@
 
 import { useEffect, useState } from "react";
 import { endpoints } from "./api.js";
+import {
+  ALLOCATION_ROWS, MAX_ASSETS, MAX_LIMIT, MAX_SYMBOL_LENGTH, MARKET_CLASSES, MIN_ASSETS, MIN_LIMIT,
+  OBJECTIVES, TIMEFRAMES, buildOptimizeBody, defaultForm, emptyAsset, formatNumber, formatPercent,
+  formatWindowBound, isSimulation, provenanceBySymbol, provenanceLabel, reportSummary, validateOptimizeForm,
+} from "./portfolio.js";
 import { Link } from "./router.jsx";
 import { ConnectivityBanner, Field, Notice, StateBox, useResource } from "./ui.jsx";
 
@@ -134,6 +139,7 @@ export function WorkspaceNav({ permissions, current, signedIn = true, notificati
     { to: "/app/account", label: "Account", permission: null },
     { to: "/app/notifications", label: "Notifications", permission: null, unread: true },
     { to: "/app/status", label: "Platform status", permission: null },
+    { to: "/app/portfolio/optimizer", label: "Portfolio optimizer", permission: "trading.view" },
     { to: "/app/admin/users", label: "Users", permission: "identity.users.view" },
     { to: "/app/admin/audit", label: "Audit trail", permission: "identity.users.view" },
     { to: "/app/admin/inquiries", label: "Contact messages", permission: "system.super_admin" },
@@ -335,24 +341,33 @@ export function ModuleCards() {
   const moduleCards = [
     { number: "01", title: "Market intelligence", text: "Multi-agent analysis, consensus, regime detection and a risk-reviewed proposal.", status: "API ported · no console", tone: "api", foot: "PHASE 5 · /api/v1/analysis" },
     { number: "02", title: "Strategy Lab", text: "Backtesting, walk-forward optimization, evidence-gated lifecycle and confidence calibration.", status: "API ported · no console", tone: "api", foot: "PHASE 6 · /api/v1/strategies" },
-    { number: "03", title: "Sports research", text: "Evidence, data quality and publication review.", status: "Not yet ported to Node", tone: "planned", foot: "MIGRATION BACKLOG" },
-    { number: "04", title: "Lottery tools", text: "Historical statistics and ticket utilities.", status: "Not yet ported to Node", tone: "planned", foot: "MIGRATION BACKLOG" },
-    { number: "05", title: "Language learning", text: "Lessons, practice and learner progress.", status: "Not yet ported to Node", tone: "planned", foot: "MIGRATION BACKLOG" },
-    { number: "06", title: "Lead discovery", text: "Organization-aware discovery and pipeline tools.", status: "Not yet ported to Node", tone: "planned", foot: "MIGRATION BACKLOG" },
+    { number: "03", title: "Sports research", text: "Ingestion, decision chain, ticket engine, settlement and measured performance.", status: "Measured half ported · no console", tone: "api", foot: "PHASES 15–20 · /api/v1/sports" },
+    { number: "04", title: "Lottery tools", text: "Draw statistics, combinations, saved tickets and the no-look-ahead Strategy Lab.", status: "Slices 1–5 ported · no console", tone: "api", foot: "PHASES 21–25 · /api/v1/lottery" },
+    { number: "05", title: "Language learning", text: "Lessons, practice and learner progress.", status: "PHP only · not ported", tone: "planned", foot: "MIGRATION BACKLOG" },
+    { number: "06", title: "Lead discovery", text: "Organization-aware discovery and pipeline tools.", status: "PHP only · not ported", tone: "planned", foot: "MIGRATION BACKLOG" },
     { number: "07", title: "Account & access", text: "Identity, permissions and audited activity.", status: "Foundation slice", tone: "live", foot: "ACTIVE FOUNDATION" },
-    { number: "08", title: "Notifications", text: "Review stored alerts, filter the inbox and mark items read.", status: "Inbox available", tone: "live", foot: "PHASE 9 · /app/notifications" },
+    { number: "08", title: "Notifications", text: "Review stored alerts, filter the inbox and mark items read.", status: "Inbox available", tone: "live", foot: "PHASE 9 · /app/notifications", to: "/app/notifications" },
+    { number: "09", title: "Portfolio optimizer", text: "Long-only mean-variance research under a per-asset cap, with per-asset provenance.", status: "Console available", tone: "live", foot: "PHASE 29 · /app/portfolio/optimizer", to: "/app/portfolio/optimizer", permission: "trading.view" },
   ];
   const labelClass = { live: "live-label", api: "api-label", planned: "planned-label" };
   return (
     <div className="workspace-grid">
-      {moduleCards.map((module) => (
-        <article className="workspace-card" key={module.number}>
-          <div className="workspace-card-top"><span>{module.number}</span><span className={labelClass[module.tone]}>{module.status}</span></div>
-          <h3>{module.title}</h3>
-          <p>{module.text}</p>
-          <div className="workspace-card-bottom"><span>{module.foot}</span><span aria-hidden="true">↗</span></div>
-        </article>
-      ))}
+      {moduleCards.map((module) => {
+        const body = (
+          <>
+            <div className="workspace-card-top"><span>{module.number}</span><span className={labelClass[module.tone]}>{module.status}</span></div>
+            <h3>{module.title}</h3>
+            <p>{module.text}</p>
+            <div className="workspace-card-bottom"><span>{module.foot}</span><span aria-hidden="true">{module.to ? "→" : "↗"}</span></div>
+          </>
+        );
+        // Only a card with a real target is a link; a card whose console does not
+        // exist yet must not look clickable. Permission-gated cards keep their
+        // target so the locked-entry pattern stays visible in the workspace.
+        return module.to
+          ? <Link className="workspace-card workspace-card-link" key={module.number} to={module.to}>{body}</Link>
+          : <article className="workspace-card" key={module.number}>{body}</article>;
+      })}
     </div>
   );
 }
@@ -699,6 +714,347 @@ export function AuditView() {
           <Pagination meta={meta} applied={applied} onNavigate={(offset) => setApplied((current) => ({ ...current, offset }))} />
         </StateBox>
       </section>
+    </div>
+  );
+}
+
+/* ------------------------------------------------------ portfolio optimizer */
+
+/**
+ * Research-only portfolio optimizer console (Phase 29, row 9).
+ *
+ * The screen over `POST /api/v1/portfolio/optimize`, replacing the legacy
+ * `views/portfolio/optimizer.php` + `assets/js/portfolio-optimizer.js` pair. It is
+ * an *action* screen rather than a reading screen, so it does not use
+ * `useResource`: a run is submitted deliberately, and the three states that matter
+ * are form problems (caught before the request), a server refusal (rendered with
+ * its code) and a report.
+ *
+ * Three things this screen deliberately does not do:
+ *
+ *  - It does not persist a report or offer a history. The endpoint computes and
+ *    returns; the only durable trace is the audit event the server writes itself.
+ *    A "saved runs" list here would be a fiction.
+ *  - It does not summarise provenance. Every asset row carries its own source,
+ *    because a universe where one series is synthetic and another is not must
+ *    never read as one clean input.
+ *  - It does not require or offer an account, an amount or a broker. The body
+ *    cannot express an order, and the screen has no control that implies otherwise.
+ */
+export function PortfolioOptimizerView({ permissions }) {
+  const canRun = permissions.includes("trading.view");
+  const [form, setForm] = useState(defaultForm);
+  const [run, setRun] = useState({ status: "idle", report: null, error: null, problems: [] });
+
+  useEffect(() => { document.title = "Portfolio optimizer · WINDELS AI WORKFORCE"; }, []);
+
+  const update = (patch) => setForm((current) => ({ ...current, ...patch }));
+  const updateAsset = (index, patch) => setForm((current) => ({
+    ...current,
+    assets: current.assets.map((asset, position) => (position === index ? { ...asset, ...patch } : asset)),
+  }));
+  const addAsset = () => setForm((current) => (current.assets.length >= MAX_ASSETS
+    ? current
+    : { ...current, assets: [...current.assets, emptyAsset()] }));
+  const removeAsset = (index) => setForm((current) => (current.assets.length <= MIN_ASSETS
+    ? current
+    : { ...current, assets: current.assets.filter((_, position) => position !== index) }));
+
+  async function submit(event) {
+    event.preventDefault();
+    const problems = validateOptimizeForm(form);
+    if (problems.length) {
+      setRun({ status: "invalid", report: null, error: null, problems });
+      return;
+    }
+    setRun({ status: "running", report: null, error: null, problems: [] });
+    try {
+      const payload = await endpoints.optimizePortfolio(buildOptimizeBody(form));
+      const report = payload?.optimization ?? null;
+      if (!report) {
+        setRun({ status: "error", report: null, problems: [], error: Object.assign(new Error("The server returned no optimization report."), { code: "NO_REPORT" }) });
+        return;
+      }
+      setRun({ status: "ready", report, error: null, problems: [] });
+    } catch (error) {
+      setRun({ status: "error", report: null, problems: [], error });
+    }
+  }
+
+  const fieldProblem = (field) => (run.status === "invalid" ? run.problems.find((entry) => entry.field === field)?.message : null);
+  const busy = run.status === "running";
+
+  return (
+    <div className="view">
+      <header className="view-header">
+        <div><div className="overline">RESEARCH · ROW 9 <span className="overline-line" /></div><h1>Portfolio optimizer.</h1></div>
+        <Link className="text-button" to="/app/">Back to overview</Link>
+      </header>
+
+      <Notice tone="warn">
+        <strong>Research only.</strong> Output is long-only historical analysis under a per-asset cap — not investment advice, not a forecast, and never an order.
+        Fees, slippage, taxes, liquidity, currency conversion and future market changes are not modeled. Synthetic data is refused unless you explicitly enable the simulation option below.
+      </Notice>
+
+      {!canRun ? (
+        <section className="panel">
+          <h2>Permission required</h2>
+          <Notice tone="error">
+            Your account does not have the <code>trading.view</code> permission required to run portfolio analysis.
+            The API refuses this path with your session, so nothing here is a client-side decision.
+          </Notice>
+        </section>
+      ) : (
+        <>
+          <div className="portfolio-layout">
+            <section className="panel">
+              <h2>Optimization inputs</h2>
+              <form className="panel-form portfolio-form" onSubmit={submit}>
+                <div className="portfolio-grid">
+                  <Field label="Timeframe" htmlFor="po-timeframe">
+                    <select id="po-timeframe" value={form.timeframe} onChange={(event) => update({ timeframe: event.target.value })}>
+                      {TIMEFRAMES.map((entry) => <option key={entry.value} value={entry.value}>{entry.label}</option>)}
+                    </select>
+                  </Field>
+                  <Field label="Historical bars" htmlFor="po-limit" error={fieldProblem("limit")} hint={`${MIN_LIMIT}–${MAX_LIMIT}; 31 is the floor a return series needs.`}>
+                    <input id="po-limit" type="number" min={MIN_LIMIT} max={MAX_LIMIT} step="1" value={form.limit} required
+                      onChange={(event) => update({ limit: event.target.value })} />
+                  </Field>
+                  <Field label="Objective" htmlFor="po-objective">
+                    <select id="po-objective" value={form.objective} onChange={(event) => update({ objective: event.target.value })}>
+                      {OBJECTIVES.map((entry) => <option key={entry.value} value={entry.value}>{entry.label}</option>)}
+                    </select>
+                  </Field>
+                  <Field label="Maximum weight per asset (0–1)" htmlFor="po-max-weight" error={fieldProblem("maxWeight")} hint="Must leave room to be fully invested: at least 1 ÷ asset count.">
+                    <input id="po-max-weight" type="number" min="0.01" max="1" step="0.01" value={form.maxWeight} required
+                      onChange={(event) => update({ maxWeight: event.target.value })} />
+                  </Field>
+                  <Field label="Annual risk-free rate (%)" htmlFor="po-risk-free" error={fieldProblem("riskFreeRatePct")} hint="Sent to the API as a decimal: 4 → 0.04.">
+                    <input id="po-risk-free" type="number" min="-10" max="100" step="0.1" value={form.riskFreeRatePct}
+                      onChange={(event) => update({ riskFreeRatePct: event.target.value })} />
+                  </Field>
+                  <Field label="Periods per year (optional)" htmlFor="po-periods" error={fieldProblem("periodsPerYear")} hint="Left blank it is inferred — only for a single market class.">
+                    <input id="po-periods" type="number" min="1" max="100000" step="1" value={form.periodsPerYear} placeholder="Auto for one market class"
+                      onChange={(event) => update({ periodsPerYear: event.target.value })} />
+                  </Field>
+                </div>
+
+                <div className="portfolio-assets-head">
+                  <div>
+                    <h3>Asset universe</h3>
+                    <p className="muted">Use symbols served by a configured provider. Assets must share timestamps, and every symbol must be unique.</p>
+                  </div>
+                  <button className="secondary-button" type="button" onClick={addAsset} disabled={form.assets.length >= MAX_ASSETS}>+ Add asset</button>
+                </div>
+
+                <div className="portfolio-assets">
+                  {form.assets.map((asset, index) => (
+                    <div className="portfolio-asset-row" key={index}>
+                      <Field label={`Symbol ${index + 1}`} htmlFor={`po-symbol-${index}`} error={fieldProblem(`assets.${index}.symbol`)}>
+                        <input id={`po-symbol-${index}`} value={asset.symbol} maxLength={MAX_SYMBOL_LENGTH} autoComplete="off" required
+                          onChange={(event) => updateAsset(index, { symbol: event.target.value })} />
+                      </Field>
+                      <Field label="Market class" htmlFor={`po-class-${index}`} error={fieldProblem(`assets.${index}.marketClass`)}>
+                        <select id={`po-class-${index}`} value={asset.marketClass} onChange={(event) => updateAsset(index, { marketClass: event.target.value })}>
+                          {MARKET_CLASSES.map((entry) => <option key={entry.value} value={entry.value}>{entry.label}</option>)}
+                        </select>
+                      </Field>
+                      <button className="text-button portfolio-remove" type="button" onClick={() => removeAsset(index)}
+                        disabled={form.assets.length <= MIN_ASSETS} aria-label={`Remove asset ${index + 1}`}>Remove</button>
+                    </div>
+                  ))}
+                </div>
+
+                <label className="checkbox-row" htmlFor="po-synthetic">
+                  <input id="po-synthetic" type="checkbox" checked={form.allowSyntheticData}
+                    onChange={(event) => update({ allowSyntheticData: event.target.checked })} />
+                  Allow clearly labeled synthetic simulation data
+                </label>
+                <p className="field-hint">Keep this unchecked for real-data-only analysis. Synthetic and live series can never be mixed — the API refuses that combination regardless of this flag.</p>
+
+                {run.status === "invalid" ? (
+                  <div className="notice notice-error" role="alert">
+                    <strong>{run.problems.length} problem{run.problems.length === 1 ? "" : "s"} to fix before running:</strong>
+                    <ul className="portfolio-problems">{run.problems.map((problem, index) => <li key={`${problem.field}-${index}`}>{problem.message}</li>)}</ul>
+                  </div>
+                ) : null}
+
+                {run.status === "error" ? (
+                  <div className="notice notice-error" role="alert">
+                    <strong>{formFailure(run.error)}</strong>
+                    {run.error?.code ? <span className="state-code"> {run.error.code}</span> : null}
+                    {run.error?.retryAfter ? <span> Try again in about {run.error.retryAfter}s.</span> : null}
+                    {Array.isArray(run.error?.details) && run.error.details.length ? (
+                      <ul className="portfolio-problems">
+                        {run.error.details.map((issue, index) => <li key={index}>{issue.field ? `${issue.field}: ` : ""}{issue.message}</li>)}
+                      </ul>
+                    ) : null}
+                  </div>
+                ) : null}
+
+                <button className="primary-button" id="po-submit" type="submit" disabled={busy}>
+                  {busy ? "Loading market history…" : "Run portfolio analysis"}
+                </button>
+                <p className="field-hint">A run can take a while: the API fetches every series in sequence and then solves. One session may keep a limited number of runs in flight.</p>
+              </form>
+            </section>
+
+            <aside className="panel portfolio-method">
+              <h2>How to read this</h2>
+              <ul className="portfolio-method-list">
+                <li><b>Expected return</b> is the annualized arithmetic mean of historical returns.</li>
+                <li><b>Risk</b> is annualized sample volatility using diagonal covariance shrinkage.</li>
+                <li><b>Maximum Sharpe</b> is a deterministic approximate search; it is not guaranteed to find a global optimum.</li>
+                <li><b>Minimum variance</b> minimizes estimated portfolio variance under long-only, fully invested and per-asset cap constraints.</li>
+                <li><b>Equal weight</b> is included as a reference baseline, not as a recommendation.</li>
+              </ul>
+              <p className="muted">
+                No short selling, leverage, order sizing, tax, fee, slippage, liquidity or currency conversion is modeled.
+                The correlation matrix is reported from the unshrunk sample, while the solver uses the shrunk estimate.
+                Review the input source, timestamp coverage and warnings before interpreting any result.
+              </p>
+            </aside>
+          </div>
+
+          <section className="portfolio-result" aria-live="polite">
+            {run.status === "idle" ? (
+              <div className="state-box">No run in this tab yet. Results appear here and are not stored on the server — the audit trail records that a run happened, never the report itself.</div>
+            ) : null}
+
+            {run.status === "ready" ? <PortfolioReport report={run.report} /> : null}
+          </section>
+        </>
+      )}
+    </div>
+  );
+}
+
+/** One computed report. Every figure comes from the response; nothing is recomputed here. */
+function PortfolioReport({ report }) {
+  const provenance = provenanceBySymbol(report);
+  const symbols = (report.assets ?? []).map((asset) => asset.symbol);
+  const correlations = report.correlations ?? null;
+  return (
+    <div className="panel">
+      <div className="portfolio-report-heading">
+        <div>
+          <h2>Optimization report</h2>
+          <p className="muted">{reportSummary(report)}</p>
+        </div>
+        <div className="portfolio-report-badges">
+          <span className="badge badge-live">{report.status || "RESEARCH_ONLY"}</span>
+          {isSimulation(report) ? <span className="badge badge-warn">SIMULATION</span> : null}
+        </div>
+      </div>
+
+      {(report.warnings ?? []).length ? (
+        <div className="portfolio-warnings">
+          {report.warnings.map((warning, index) => <div className="notice notice-warn" key={index}>{warning}</div>)}
+        </div>
+      ) : null}
+
+      <h3>Selected allocation</h3>
+      <div className="scroll">
+        <table className="data-table">
+          <thead>
+            <tr>
+              <th>Asset</th><th>Selected weight</th><th>Expected return / year</th><th>Volatility / year</th>
+              <th>Min-variance weight</th><th>Max-Sharpe weight</th><th>Source</th>
+            </tr>
+          </thead>
+          <tbody>
+            {(report.assets ?? []).map((asset) => (
+              <tr key={asset.symbol}>
+                <td><code>{asset.symbol}</code><span className="muted"> · {asset.marketClass}</span></td>
+                <td>{formatPercent(asset.selectedWeight)}</td>
+                <td>{formatPercent(asset.expectedReturnAnnualized)}</td>
+                <td>{formatPercent(asset.volatilityAnnualized)}</td>
+                <td>{formatPercent(asset.minimumVarianceWeight)}</td>
+                <td>{formatPercent(asset.maximumSharpeWeight)}</td>
+                <td className="muted">{provenanceLabel(provenance.get(asset.symbol))}</td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+
+      <h3>Portfolio comparisons</h3>
+      <div className="scroll">
+        <table className="data-table">
+          <thead>
+            <tr><th>Allocation</th><th>Expected return / year</th><th>Volatility / year</th><th>Sharpe</th><th>Concentration index</th></tr>
+          </thead>
+          <tbody>
+            {ALLOCATION_ROWS.map((row) => {
+              const allocation = report.allocations?.[row.key];
+              if (!allocation) return null;
+              return (
+                <tr key={row.key}>
+                  <td>{row.label}</td>
+                  <td>{formatPercent(allocation.expectedReturnAnnualized)}</td>
+                  <td>{formatPercent(allocation.volatilityAnnualized)}</td>
+                  <td>{formatNumber(allocation.sharpeRatio, 3)}</td>
+                  <td>{formatNumber(allocation.concentrationIndex, 4)}</td>
+                </tr>
+              );
+            })}
+          </tbody>
+        </table>
+      </div>
+
+      {correlations && symbols.length ? (
+        <details className="portfolio-details">
+          <summary>Sample correlation matrix ({symbols.length} × {symbols.length}, unshrunk)</summary>
+          <div className="scroll">
+            <table className="data-table">
+              <thead><tr><th />{symbols.map((symbol) => <th key={symbol}>{symbol}</th>)}</tr></thead>
+              <tbody>
+                {symbols.map((rowSymbol) => (
+                  <tr key={rowSymbol}>
+                    <th><code>{rowSymbol}</code></th>
+                    {symbols.map((columnSymbol) => (
+                      <td key={columnSymbol}>{formatNumber(correlations[rowSymbol]?.[columnSymbol], 3)}</td>
+                    ))}
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </details>
+      ) : null}
+
+      <details className="portfolio-details">
+        <summary>Window, estimation and constraints</summary>
+        <dl className="portfolio-meta">
+          <dt>Model</dt><dd><code>{report.model || "—"}</code></dd>
+          <dt>Window</dt>
+          <dd>
+            {report.window?.alignedPriceObservations ?? "—"} aligned {report.window?.timeframe ?? ""} price observations ·
+            {" "}{report.window?.returnObservations ?? "—"} returns ·
+            {" "}{report.window?.periodsPerYear ?? "—"} periods/year ·
+            {" "}{formatWindowBound(report.window?.firstTimestamp)} → {formatWindowBound(report.window?.lastTimestamp)}
+          </dd>
+          <dt>Expected return</dt><dd>{report.estimation?.expectedReturn || "—"}</dd>
+          <dt>Covariance</dt>
+          <dd>{report.estimation?.covariance || "—"}{report.estimation?.shrinkage !== undefined ? ` · shrinkage ${formatNumber(report.estimation.shrinkage, 4)}` : ""}</dd>
+          <dt>Risk-free rate</dt><dd>{formatPercent(report.estimation?.riskFreeRateAnnualized)} annualized</dd>
+          <dt>Constraints</dt>
+          <dd>
+            {report.constraints?.longOnly ? "long-only" : "long-only: unknown"} ·
+            {report.constraints?.fullyInvested ? " fully invested" : " fully invested: unknown"} ·
+            {" "}cap {formatPercent(report.constraints?.maximumWeightPerAsset)} ·
+            {" "}gross leverage {formatNumber(report.constraints?.grossLeverage, 2)}
+          </dd>
+          <dt>Requested</dt>
+          <dd>{(report.request?.assets ?? []).map((asset) => `${asset.symbol} (${asset.marketClass})`).join(", ") || "—"} · {report.request?.timeframe ?? "—"} · {report.request?.limit ?? "—"} bars</dd>
+        </dl>
+      </details>
+
+      <div className="portfolio-disclaimer">
+        <p><strong>{report.disclaimer}</strong></p>
+        <p className="muted">{report.methodNote}</p>
+        <p className="muted">This report is not stored: it exists in this tab only. The run itself is recorded in the audit trail.</p>
+      </div>
     </div>
   );
 }

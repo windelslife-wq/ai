@@ -1059,20 +1059,24 @@ test("F-02 the status surface is honest about unported modules, and F-03 the rou
   assert.equal(body.modules.find((module) => module.key === "notifications").state, "ported");
   assert.equal(body.notifications.emailDeliveryAvailable, false, "no outbound delivery channel is ported");
   assert.deepEqual(body.notifications.deliveryChannels, []);
-  // Phase 10 ports the audit browser API: attribution, filtering and pagination
-  // over the whole trail, permissioned and read-only. The console SCREEN is
-  // app-shell work (row 3) and retention is still undecided, so the label says
-  // both rather than letting `ported` imply a finished workstream.
+  // Phase 10 ports the audit browser API (attribution, filtering, pagination over
+  // the whole trail, permissioned and read-only) and Phase 28 adds its console at
+  // /app/admin/audit. The label therefore no longer says "no console screen" — it
+  // did until Phase 29 corrected it, which is exactly the understatement the
+  // module-card comment above warns about. Retention is still undecided and no
+  // historical audit_logs row has been imported, so both are named instead.
   assert.equal(body.modules.find((module) => module.key === "audit").state, "ported");
-  assert.match(body.modules.find((module) => module.key === "audit").label, /no console screen/i);
+  assert.match(body.modules.find((module) => module.key === "audit").label, /console/i);
+  assert.doesNotMatch(body.modules.find((module) => module.key === "audit").label, /no console screen/i);
   assert.match(body.modules.find((module) => module.key === "audit").label, /no retention policy/i);
-  // Phase 11 ports the research-only portfolio optimizer (row 9). It computes
-  // weights and nothing else: no console screen (views/portfolio/optimizer.php is
-  // app-shell work, row 3) and no saved reports — a run is returned, not persisted,
-  // so the label must not let `ported` imply a history a caller could read back.
+  assert.match(body.modules.find((module) => module.key === "audit").label, /no historical import/i);
+  // Phase 11 ports the research-only portfolio optimizer (row 9) and Phase 29 adds
+  // its console. What must stay true is the part `ported` could otherwise imply
+  // away: a run is returned, never persisted, so there is no history to read back —
+  // the screen states that in the report itself rather than offering a list.
   assert.equal(body.modules.find((module) => module.key === "portfolioOptimizer").state, "ported");
   assert.match(body.modules.find((module) => module.key === "portfolioOptimizer").label, /research-only/i);
-  assert.match(body.modules.find((module) => module.key === "portfolioOptimizer").label, /no console screen/i);
+  assert.match(body.modules.find((module) => module.key === "portfolioOptimizer").label, /\/app\/portfolio\/optimizer/);
   assert.match(body.modules.find((module) => module.key === "portfolioOptimizer").label, /no saved reports/i);
   // Phase 7 adds persisted governance and account-scoped paper risk. Phase 8A
   // adds human-reviewed paper proposals, not the full supervisor or a live route.

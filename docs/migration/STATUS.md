@@ -1,8 +1,45 @@
 # JavaScript / Node.js / cPanel migration status
 
-**Updated:** 2026-10-16 · **Branch:** `arena/3ec00218-ai`
+**Updated:** 2026-10-16 · **Branch:** `arena/046b29ac-ai`
 
-## Current Phase 28 status (2026-10-16)
+## Current Phase 29 status (2026-10-16)
+
+**Row 9's console gap is closed.** `/app/portfolio/optimizer` exposes the Phase 11 endpoint
+as a workspace screen, guarded by `trading.view` in both the exact-path SPA route and the
+API, mirroring `views/portfolio/optimizer.php`. It carries the legacy screen's defaults and
+option order, pre-flights the refusals a person can fix before spending the endpoint's widest
+fan-out (universe size, symbol shape and uniqueness, bar bounds, the `1/n` cap floor, a mixed
+calendar without an explicit `periodsPerYear`), and renders the report as the API returns it:
+`SIMULATION` badge, every warning, per-asset provenance, the four-allocation comparison, the
+correlation matrix marked **unshrunk**, and the constraints block. **No saved reports** — the
+screen states that a run is returned, never stored, and that the audit trail records the run
+rather than the report. No new HTTP route, migration, contract method or permission: the route
+count stays 146.
+
+A new contract suite (`test/client_console.test.js`, 11 tests) closes the gap no server test can
+see: it imports the console's plain-ESM request module **and** the server's own
+`OPTIMIZE_BODY`/`PORTFOLIO_MARKET_CLASSES`/`OBJECTIVES` to fail on vocabulary drift, asserts the
+built body carries only declared properties and no order-shaped key, checks every literal path
+in `client/src/api.js` against the live `GET /api/v1/system/routes` inventory, requires every
+declared `/app*` route to answer the SPA shell for an HTML deep link, and pins the route, nav
+entry and guard to the same `trading.view` literal. It found two real defects while being
+written: `formatPercent(null)` rendered `0.00%`, and the first order-equality assertions would
+have forced the console to drop the legacy display order.
+
+Two stale status labels were corrected — the same class of error as overstating, in the other
+direction: `audit` still said "no console screen" after Phase 28 shipped one, and the workspace
+module cards still claimed sports and lottery were "Not yet ported to Node" long after their
+measured halves landed. Record: [`PHASE29_PORTFOLIO_OPTIMIZER_CONSOLE.md`](PHASE29_PORTFOLIO_OPTIMIZER_CONSOLE.md).
+
+Gates on this branch: client production build passed; `npm run check:workforce` **986/986** across
+72 files; `verify-install --require-bundle` 30/30; and a real server run (file adapter, seeded
+administrator) where the optimizer answered **422** for synthetic data without the opt-in and
+**200** with `RESEARCH_ONLY` + `SIMULATION:` + `synthetic-demo` provenance with it.
+**Not run:** a real browser, MySQL/MariaDB, SMTP, official feeds, a live provider call, or cPanel
+deployment. Still open: settings and the remaining domain dashboards (row 3), the retention
+decision and outbound delivery (row 5).
+
+## Phase 28 status (2026-10-16) — superseded by Phase 29
 
 The existing platform-wide audit API now has a read-only workspace console at
 `/app/admin/audit`. It is guarded by `identity.users.view` in both the exact-path SPA
@@ -13,8 +50,8 @@ The server-resolved actor, event entity, timestamp and JSON details are visible,
 with loading/error/empty states and the API's `mutable: false` signal. Record:
 [`PHASE28_AUDIT_BROWSER_SCREEN.md`](PHASE28_AUDIT_BROWSER_SCREEN.md). The API contract and
 storage are unchanged from Phase 10; no retention policy or historical audit import is
-implemented. The portfolio optimizer screen, settings and domain dashboards remain
-separate work.
+implemented. Settings and the remaining domain dashboards (analysis, strategy, sports,
+lottery) remain separate work; the portfolio optimizer screen followed in Phase 29.
 
 Gates on this branch: client production build passed; `npm run check:workforce` passed
 (30/30 install checks, 975/975 tests). **Not run:** a real browser, MySQL/MariaDB,

@@ -17,7 +17,7 @@ import { Link, matchRoute, RouterProvider, useRouter } from "./router.jsx";
 import { ConnectivityBanner, Notice, UpdateBanner } from "./ui.jsx";
 import {
   AccountView, AdminUsersView, AuditView, Brand, InquiriesView, LoginPanel, ModuleCards,
-  NotificationsView, NotFoundView, RegisterPanel, StatusPill, StatusView, WorkspaceNav,
+  NotificationsView, NotFoundView, PortfolioOptimizerView, RegisterPanel, StatusPill, StatusView, WorkspaceNav,
 } from "./views.jsx";
 
 const NATIVE_BUILD = __NATIVE_BUILD__;
@@ -32,6 +32,11 @@ const ROUTES = [
   { path: "/app/account", view: "account", requiresAuth: true },
   { path: "/app/notifications", view: "notifications", requiresAuth: true },
   { path: "/app/status", view: "status" },
+  // Row 9 (Phase 29): the console over `POST /api/v1/portfolio/optimize`. The
+  // route and the API carry the same `trading.view` gate the legacy workspace page
+  // used, so a role without it sees the locked navigation entry and the denied
+  // state rather than a form the server would refuse.
+  { path: "/app/portfolio/optimizer", view: "portfolio-optimizer", requiresAuth: true, permission: "trading.view" },
   { path: "/app/admin/users", view: "admin-users", requiresAuth: true, permission: "identity.users.view" },
   { path: "/app/admin/audit", view: "audit", requiresAuth: true, permission: "identity.users.view" },
   { path: "/app/admin/inquiries", view: "inquiries", requiresAuth: true, permission: "system.super_admin" },
@@ -362,6 +367,7 @@ function SessionApp() {
       account: <AccountView user={user} permissions={permissions} onSessionChanged={applySession} />,
       notifications: <NotificationsView onNotificationsChanged={refreshNotifications} />,
       status: <StatusView />,
+      "portfolio-optimizer": <PortfolioOptimizerView permissions={permissions} />,
       "admin-users": <AdminUsersView permissions={permissions} />,
       audit: <AuditView />,
       inquiries: <InquiriesView />,

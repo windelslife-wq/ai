@@ -24,10 +24,13 @@ production replacement and no traffic has been cut over.
   flash for the no-script form path. The legacy public chat widget is **not**
   ported, so `publicSite` reports `partial`.
 - **Market data, analysis, the Strategy Lab, paper trading, persisted risk
-  governance, the paper-proposal workflow and operator notifications are ported**;
+  governance, the paper-proposal workflow, operator notifications and the audit,
+  inbox and portfolio-optimizer consoles are ported**;
   `/api/v1/system/status` states each module's acceptance level individually.
-  Brokers, sports, lottery, language learning and lead discovery remain
-  legacy-only, and the status surface says so rather than implying coverage.
+  Brokers, sports and lottery are ported **in part** (`partial`, each with its own
+  stated remainder — no verified adapter, no stake sizing, no console screens);
+  language learning and lead discovery remain legacy-only. The status surface
+  reports each state rather than implying coverage.
 - **Operator notifications are ported** (migration `009`, `wf_notifications`): an
   unread-deduped notifier, broadcast plus targeted visibility, the three legacy
   `/api/v1/notifications` endpoints, and publishers for the kill switch, trading-mode
@@ -42,15 +45,19 @@ production replacement and no traffic has been cut over.
   schema refuses `execute`, `amount`, `orderId` and `notional` by name. An
   all-synthetic universe needs an explicit `allowSyntheticData: true` opt-in and is
   then labelled `SIMULATION:`; a **mixed** synthetic/live universe is refused with no
-  override. No console screen and no saved reports yet.
-  See [`docs/migration/PHASE11_PORTFOLIO_OPTIMIZER.md`](../../docs/migration/PHASE11_PORTFOLIO_OPTIMIZER.md).
+  override. Its console is available at `/app/portfolio/optimizer` (Phase 29, gated by
+  `trading.view`); there is still **no saved-report history** — a run is returned, not
+  stored, and the screen says so.
+  See [`docs/migration/PHASE11_PORTFOLIO_OPTIMIZER.md`](../../docs/migration/PHASE11_PORTFOLIO_OPTIMIZER.md)
+  and [`docs/migration/PHASE29_PORTFOLIO_OPTIMIZER_CONSOLE.md`](../../docs/migration/PHASE29_PORTFOLIO_OPTIMIZER_CONSOLE.md).
 - **The audit browser is ported**: `GET /api/v1/admin/audit` serves the whole trail
   filterable by actor, action prefix, entity and inclusive UTC window, paginated,
   with every event carrying a resolved `actor {userId, username, kind}`. It is
   **read-only** — no route on either adapter can edit, redact or delete an audit
   event — and requires `identity.users.view`, a deliberate tightening of the legacy
-  `api/events`, which any signed-in user could read (divergence AV-1). No console
-  screen and no retention policy yet.
+  `api/events`, which any signed-in user could read (divergence AV-1). Its read-only
+  console is at `/app/admin/audit` (Phase 28). No retention policy and no historical
+  `audit_logs` import yet.
   See [`docs/migration/PHASE10_AUDIT_BROWSER.md`](../../docs/migration/PHASE10_AUDIT_BROWSER.md).
 - Two storage adapters implement one repository contract:
   - `STORAGE_ADAPTER=mysql` (production target) — the MySQL/MariaDB tables created by
@@ -95,7 +102,7 @@ login-attempt hash, not only the session cookie. `DB_*` are required only by the
 `npm run check` is the release gate: it verifies the installation (engines range,
 dependency set, required files, migrations, `.env.example` coverage, production
 config rules, reproducible icons, absence of static generated documents, built
-client bundle — **30 checks**) and then runs the suite — currently **103 tests**.
+client bundle — **30 checks**) and then runs the suite — currently **986 tests** across 72 files.
 `npm run build:icons` regenerates the PNG icon set; `npm run check:icons` proves
 the committed PNGs are byte-identical to what the generator produces.
 

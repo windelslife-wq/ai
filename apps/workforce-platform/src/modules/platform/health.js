@@ -25,11 +25,12 @@ export const MODULE_STATUS = Object.freeze([
   { key: "publicSite", label: "Public site, SEO + PWA shell, contact intake (chat assistant not ported)", state: "partial", tests: "unit + http + content checks" },
   // The trail was already written by every ported action; Phase 10 adds the
   // permissioned browser over it (filter by actor, action, entity and time
-  // window) and puts the actor's identity in the read view. Still read-only on
-  // both adapters: no route can edit, redact or delete an audit event. The
-  // browser SCREEN is app-shell work (row 3), and security-event retention is an
-  // undecided policy, so neither is claimed here.
-  { key: "audit", label: "Security audit trail plus a permissioned read-only browser API (no console screen, no retention policy)", state: "ported", tests: "unit + http + both adapters" },
+  // window) and puts the actor's identity in the read view. Phase 28 adds the
+  // console at /app/admin/audit. Still read-only on both adapters: no route can
+  // edit, redact or delete an audit event — the screen offers no such control
+  // either. Security-event retention is an undecided policy, and legacy audit_logs
+  // rows have not been imported, so neither is claimed here.
+  { key: "audit", label: "Security audit trail plus a permissioned read-only browser API and console (no retention policy, no historical import)", state: "ported", tests: "unit + http + both adapters" },
   // Notifications are ported: the unread-deduped notifier, broadcast/targeted
   // visibility and the three legacy inbox endpoints, with governance and
   // paper-proposal transitions publishing through it. Storage and in-product
@@ -47,10 +48,13 @@ export const MODULE_STATUS = Object.freeze([
   // mean-variance core with diagonal shrinkage, minimum-variance and maximum-Sharpe
   // allocations under a per-asset cap, the synthetic-data gates and per-asset
   // provenance. It computes weights and nothing else — it has no reference to the
-  // paper, strategy or execution services, so it cannot reach an order path. The
-  // console screen (views/portfolio/optimizer.php) is app-shell work (row 3), and
-  // there is no persisted-run history: a report is returned, not stored.
-  { key: "portfolioOptimizer", label: "Research-only portfolio optimization, long-only mean-variance (no console screen, no saved reports)", state: "ported", tests: "unit + http" },
+  // paper, strategy or execution services, so it cannot reach an order path.
+  // Phase 29 adds the console at /app/portfolio/optimizer, which is the same gate
+  // (trading.view) the legacy page used and sends only declared body properties —
+  // the client pre-flight is pinned against this endpoint's own schema by test. There
+  // is still no saved-report history: a run is returned and the console says so,
+  // because the only durable trace is the audit event the server writes.
+  { key: "portfolioOptimizer", label: "Research-only portfolio optimization, long-only mean-variance, with its console at /app/portfolio/optimizer (no saved reports — a run is returned, not stored)", state: "ported", tests: "unit + http + client contract" },
   { key: "strategies", label: "Strategy lab, lifecycle, backtesting and durable AI review", state: "ported", tests: "unit + http + persistence" },
   { key: "paperTrading", label: "Owner-scoped simulation accounts, orders, fills and deployments", state: "ported", tests: "unit + http + persistence" },
   { key: "risk", label: "Risk engine, persisted limits, kill switch and paper-portfolio monitor", state: "ported", tests: "unit + http + persistence" },

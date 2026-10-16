@@ -108,6 +108,7 @@ export const endpoints = {
   adminRoles: () => api("/api/v1/admin/roles"),
   adminInquiries: (query = "") => api(`/api/v1/admin/inquiries${query}`),
   adminAudit: (query = "") => api(`/api/v1/admin/audit${query}`),
+  optimizePortfolio: (payload) => api("/api/v1/portfolio/optimize", { method: "POST", body: payload }),
   notificationInbox: (query = "") => api(`/api/v1/notifications${query}`),
   markNotificationRead: (notificationId) => api(`/api/v1/notifications/${encodeURIComponent(notificationId)}/read`, { method: "POST", body: {} }),
   markAllNotificationsRead: () => api("/api/v1/notifications/read-all", { method: "POST", body: {} }),
