@@ -24,13 +24,15 @@ production replacement and no traffic has been cut over.
   flash for the no-script form path. The legacy public chat widget is **not**
   ported, so `publicSite` reports `partial`.
 - **Market data, analysis, the Strategy Lab, paper trading, persisted risk
-  governance, the paper-proposal workflow, operator notifications, lottery
-  intelligence and the audit, inbox, portfolio-optimizer, lottery and Strategy Lab
-  consoles are ported**; `/api/v1/system/status` states each module's acceptance level
-  individually. Brokers and sports are ported **in part** (`partial`, each with its
-  own stated remainder — no verified adapter, and for sports no stake sizing and no
-  console screens); language learning and lead discovery remain legacy-only. The
-  status surface reports each state rather than implying coverage.
+  governance, the paper-proposal workflow, operator notifications and lottery
+  intelligence are ported**, as are the audit, inbox, portfolio-optimizer, lottery,
+  Strategy Lab and AI Workforce consoles; `/api/v1/system/status` states each module's
+  acceptance level individually. Brokers and sports are ported **in part** (`partial`,
+  each with its own stated remainder — no verified adapter, and for sports no stake
+  sizing and no vendor); language learning and lead discovery remain legacy-only, and
+  two screens of the shared shell are still absent — the sports dashboard and the
+  settings screens. The status surface reports each state rather than implying
+  coverage.
 - **Operator notifications are ported** (migration `009`, `wf_notifications`): an
   unread-deduped notifier, broadcast plus targeted visibility, the three legacy
   `/api/v1/notifications` endpoints, and publishers for the kill switch, trading-mode
@@ -78,6 +80,25 @@ production replacement and no traffic has been cut over.
   `views/strategy/index.php` flashed both, and a console that showed only "rejected"
   would lose exactly what a person acts on.
   See [`docs/migration/PHASE31_STRATEGY_CONSOLE.md`](../../docs/migration/PHASE31_STRATEGY_CONSOLE.md).
+- **The AI Workforce console is at `/app/analysis`** (Phase 32, row 3): it requests a run
+  on the legacy page's own symbols and timeframes, with `marketClass` derived by legacy's
+  rule, and renders the run's headline, its **own** provenance (a synthetic run is labelled
+  and the veto is stated), the confidence/confluence/agreement meters, the consensus with
+  its voting and abstaining agents named, the signal rows, the five-agent panel and the
+  four-round debate, plus the stored history. The proposal and the risk decision are drawn
+  **only when the run produced them** — on this edition's default `ANALYSIS_ONLY` posture
+  they are null, and the run's `riskContext` is shown beside that rather than a
+  placeholder. `views/welcome/partials/chart.php` is ported as SVG geometry (1000×380, 140
+  of 200 bars, legacy's EMA warm-up, the volume strip, ±10 % S/R from the technical agent's
+  own levels); a candle fetch that fails drops only the chart. The screen is **session-only,
+  like the controller it ports** — every `/analysis*` and `/market-data/*` route is
+  permission-`null` — and its two governance controls are the paper module's own writes, so
+  they render **disabled with the reason** when the viewer lacks `trading.control`. The
+  three modes this edition does not have are named as unavailable with the capability each
+  is missing, and refused by the request schema (400) if posted. Legacy's kill switch kept
+  a reason and a fresh activation timestamp on **release** too; this port clears both and
+  keeps the release reason in the audit row (a recorded divergence, not a silent one).
+  See [`docs/migration/PHASE32_AI_WORKFORCE_CONSOLE.md`](../../docs/migration/PHASE32_AI_WORKFORCE_CONSOLE.md).
 - **The audit browser is ported**: `GET /api/v1/admin/audit` serves the whole trail
   filterable by actor, action prefix, entity and inclusive UTC window, paginated,
   with every event carrying a resolved `actor {userId, username, kind}`. It is

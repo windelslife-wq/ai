@@ -1412,6 +1412,12 @@ export function createPaperService({ store = null, marketData = null, strategies
     const result = await store.withPaperTransaction(async (tx) => {
       const current = normalizeTradingState(await tx.loadTradingState());
       const updatedAt = isoNow(now);
+      // The stored reason explains why the switch is ENGAGED and is cleared on
+      // release, and `activatedAt` is null while it is not engaged. Legacy kept both
+      // in the released state too (`$reason ?? ($active ? 'engaged' : 'released')`,
+      // plus a fresh `activatedAt` on every call), which describes a switch that is
+      // off and on at once. Nothing is lost: a release's own reason is the audit
+      // row's detail, and the alert carries the engaged reason with it.
       const killSwitch = {
         active,
         activatedAt: active ? updatedAt : null,

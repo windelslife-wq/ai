@@ -2,7 +2,7 @@
 
 **Updated:** 2026-10-16 · **Branch:** `arena/046b29ac-ai`
 
-## Current Phase 31 status (2026-10-16)
+## Current Phase 32 status (2026-10-16)
 
 **Row 8's console gap is closed, and F-29 is closed for `strategies`.** `/app/strategy` is the port
 of `views/strategy/index.php` and of the three posts behind it (`Strategy_lab::run_backtest`,
@@ -45,7 +45,60 @@ F-29 now reads: closed for the audit browser (Phase 28), the portfolio optimizer
 lottery (Phase 30) and strategies (Phase 31); **still open for the Broker Center and the sports
 screens only**.
 
-## Phase 30 status (2026-10-16) — superseded by Phase 31
+**Row 3's analysis dashboard is closed: `/app/analysis` is the AI Workforce console.** It is the port
+of `views/workspace/index.php` and of the market panel above it (`views/welcome/index.php` with
+`views/welcome/partials/chart.php`), driving the twelve analysis/market-data routes that already
+existed. A run is requested on the legacy page's own eight symbols and six timeframes, with
+`marketClass` derived by the legacy rule; the result renders the headline, the synthetic-data banner
+built from the run's **own** provenance, the three meters, the consensus line naming its voting and
+abstaining agents, the nine signal rows, the five-agent panel, the four-round debate, the stored
+history, and the risk engine's proposal and decision — **only when the run produced them**, with the
+run's `riskContext` beside them, because on this edition's default `ANALYSIS_ONLY` posture a null
+proposal is a rendered outcome rather than a gap. The chart partial is ported as geometry
+(1000×380, 140 of 200 bars, the EMA warm-up rule, the volume strip, ±10 % S/R from the technical
+agent's levels) and a candle fetch that fails drops only the chart.
+
+**The screen is session-only, like the controller it ports** — every `/analysis*` and
+`/market-data/*` route is permission-`null`, so the exact-path route and the nav entry declare none.
+Its two governance controls are the paper module's own writes (`trading.view` to read the mode,
+`trading.control` to change it or the kill switch), so they render **disabled with the reason**
+instead of 403-ing on click; the three modes this edition does not have are named as unavailable with
+the capability each is missing, and refused by the request schema (400 `INVALID_REQUEST`) if posted.
+**No new HTTP route, migration, contract method or permission** — 146 routes before and after.
+
+Three defects were found and fixed on the way: `provenanceFacts(null)` rendered a **LIVE** banner for
+a payload that carried no provenance (it now returns null and the banner is not drawn); the console's
+copy claimed a 409 the API **cannot** return — the request schema refuses the legacy-only modes at the
+edge, so the service's `TRADING_MODE_UNSUPPORTED` 409 is unreachable over HTTP (the same shape as the
+lottery's unreachable statistics-kind refusal); and the phase-31 console's `.secondary-button` class
+was referenced but never defined, now defined. One divergence from legacy is **recorded rather than
+copied**: legacy's kill switch kept the reason and stamped a fresh `activatedAt` on **release** as
+well as engagement, so a released switch described itself as engaged at a time it was not; the port
+clears both and the release reason survives in the audit row. See
+[`PHASE32_AI_WORKFORCE_CONSOLE.md`](PHASE32_AI_WORKFORCE_CONSOLE.md).
+
+A fourth contract suite (`test/client_workforce_console.test.js`, 8 tests) reads the console's
+vocabulary out of the server's own contracts, checks each built body against its schema property by
+property, asserts the pre-flights refuse what the schema refuses and nothing stricter, pins the chart
+geometry and the EMA warm-up, drives a run/scan/history/governance sequence against an in-process
+hermetic server, and asserts the route inventory holds **exactly three** permissioned routes on the
+console's whole surface. Gates: `npm run check:workforce` **1016 / 1016** across 5 suites (1008
+before), the client production build OK (`index-Brdr6qjd.js`, `index-C8opwlwx.css`),
+`npm run verify:install -- --require-bundle` **30/30**, and a live probe driving the console's own
+builders against the demo server (run, scan, history, both governance writes, all three refused
+modes, all three chart assets 200). **Not run:** a real browser, real MySQL/MariaDB, any live
+provider, and no PHP↔Node numeric diff (F-26 remains open).
+
+**The module counts are unchanged — 10 ported / 5 partial / 2 not-ported.** Row 3 stays `partial`:
+its remaining absences are the **sports dashboard** (waiting on stake sizing and a verified vendor)
+and the **settings screens** (waiting on row 5's decisions).
+
+F-29 now reads: closed for the audit browser (Phase 28), the portfolio optimizer (Phase 29), the
+lottery (Phase 30) and strategies (Phase 31); **still open for the Broker Center and the sports
+screens only**.
+
+
+## Phase 31 status (2026-10-16) — superseded by Phase 32
 
 
 **Row 15 is closed and `lottery` is `ported`.** The lottery console screens — the module's last

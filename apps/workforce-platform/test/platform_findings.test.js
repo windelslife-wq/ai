@@ -1098,6 +1098,22 @@ test("F-02 the status surface is honest about unported modules, and F-03 the rou
     assert.match(strategiesLabel, pattern);
   }
   assert.ok(!/console screens are not ported/i.test(strategiesLabel), "the strategy console is ported; the F-29 hedge for this module is closed");
+  // Phase 5 ports the analysis engines and Phase 32 adds their console (row 3).
+  // `analysis` was already `ported`; what the label has to carry now is the shape of
+  // the screen — session-only like the controller it ports, with the two governance
+  // controls being the paper module's own permissioned writes and the three modes
+  // this edition does not have refused at the request edge.
+  assert.equal(body.modules.find((module) => module.key === "analysis").state, "ported");
+  const analysisLabel = body.modules.find((module) => module.key === "analysis").label;
+  for (const pattern of [
+    /console at \/app\/analysis/i,
+    /views\/welcome\/partials\/chart\.php/,
+    /session-only/i,
+    /trading\.control writes/,
+    /refused by the request schema/i,
+  ]) {
+    assert.match(analysisLabel, pattern);
+  }
   // Phase 7 adds persisted governance and account-scoped paper risk. Phase 8A
   // adds human-reviewed paper proposals, not the full supervisor or a live route.
   assert.equal(body.modules.find((module) => module.key === "paperTrading").state, "ported");

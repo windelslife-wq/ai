@@ -152,6 +152,19 @@ export const endpoints = {
   runBacktest: (payload) => api("/api/v1/backtesting/run", { method: "POST", body: payload }),
   backtestHistory: (query = "") => api(`/api/v1/backtesting/results${query}`),
   backtestResult: (backtestId) => api(`/api/v1/backtesting/results/${encodeURIComponent(backtestId)}`),
+  // AI Workforce console (Phase 32). The analysis routes are session-only — legacy's
+  // `Api_controller` guarded them with authentication alone — so these wrappers
+  // carry no permission; the two governance writes are `trading.control` on the
+  // server and the view renders them disabled without it.
+  analysisRun: (payload) => api("/api/v1/analysis/run", { method: "POST", body: payload }),
+  analysisHistory: (query = "") => api(`/api/v1/analysis/history${query}`),
+  analysisAgents: () => api("/api/v1/analysis/agents"),
+  analysisRunDetail: (runId) => api(`/api/v1/analysis/${encodeURIComponent(runId)}`),
+  analysisConsensus: (payload) => api("/api/v1/analysis/consensus", { method: "POST", body: payload }),
+  candles: (query = "") => api(`/api/v1/market-data/candles${query}`),
+  tradingMode: () => api("/api/v1/trading/mode"),
+  setTradingMode: (payload) => api("/api/v1/trading/mode", { method: "POST", body: payload }),
+  setKillSwitch: (payload) => api("/api/v1/trading/kill-switch", { method: "POST", body: payload }),
   notificationInbox: (query = "") => api(`/api/v1/notifications${query}`),
   markNotificationRead: (notificationId) => api(`/api/v1/notifications/${encodeURIComponent(notificationId)}/read`, { method: "POST", body: {} }),
   markAllNotificationsRead: () => api("/api/v1/notifications/read-all", { method: "POST", body: {} }),

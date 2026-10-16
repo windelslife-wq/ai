@@ -43,7 +43,7 @@ matrix went empty — `lottery`.
 |---:|---|---|
 | 1 | Identity, authentication and legacy account import | Code present; no real-DB import rehearsal, no approval to import |
 | 2 | Account management, registration, **password reset** and admin users | Mostly ported; password reset not ported (`delivered: false`, no mail transport) |
-| 3 | **Shared app shell, dashboards, settings and navigation** | The analysis and sports dashboards and the settings screens are absent; the portfolio-optimizer (Phase 29), lottery (Phase 30) and Strategy Lab (Phase 31) screens landed |
+| 3 | **Shared app shell, dashboards, settings and navigation** | The sports dashboard and the settings screens are absent; the portfolio-optimizer (Phase 29), lottery (Phase 30), Strategy Lab (Phase 31) and AI Workforce (`/app/analysis`, Phase 32) screens landed |
 | 4 | Public website, help/contact and SEO | Chat widget + announcement bar not ported |
 | 5 | Notifications, audit browser, feature/status reporting | No outbound delivery channel, no retention policy decided (inbox + audit consoles exist) |
 | 6 | Market data and provider health | F-24 shared health store, F-25 live probe, F-26 PHP↔Node numeric diff |

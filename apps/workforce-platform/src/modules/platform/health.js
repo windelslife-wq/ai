@@ -43,7 +43,12 @@ export const MODULE_STATUS = Object.freeze([
   // Analysis is ported: indicators, regime detection, the seven-agent panel, the
   // consensus combiner, the adversarial debate and the five legacy endpoints. It
   // produces proposals only — nothing here can place an order.
-  { key: "analysis", label: "Analysis engines, agents, consensus (proposals only)", state: "ported", tests: "unit + http + persistence" },
+  {
+    key: "analysis",
+    label: "Analysis engines, agents, consensus (proposals only), with their console at /app/analysis (Phase 32): a run on the legacy page's own symbols and timeframes, the consensus/regime meters, the four-round debate, the signal table, the five-agent panel, the risk-engine panel with the run's own risk context, the stored run history and the SVG candle chart ported from views/welcome/partials/chart.php. Like legacy's Api_controller the screen is session-only — the analysis and market-data routes guard on authentication alone — and the two governance controls it renders are the paper module's own trading.control writes (mode and kill switch), with the three modes this edition does not have refused by the request schema rather than silently accepted",
+    state: "ported",
+    tests: "unit + http + persistence + client contract",
+  },
   // Research-only portfolio optimization (row 9) is ported: the long-only
   // mean-variance core with diagonal shrinkage, minimum-variance and maximum-Sharpe
   // allocations under a per-asset cap, the synthetic-data gates and per-asset

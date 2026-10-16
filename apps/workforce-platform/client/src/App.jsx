@@ -16,9 +16,9 @@ import { endpoints, setCsrfToken, setUnauthorizedHandler } from "./api.js";
 import { Link, matchRoute, RouterProvider, useRouter } from "./router.jsx";
 import { ConnectivityBanner, Notice, UpdateBanner } from "./ui.jsx";
 import {
-  AccountView, AdminUsersView, AuditView, Brand, InquiriesView, LoginPanel, LotteryLabView,
-  LotteryOperationsView, ModuleCards, NotificationsView, NotFoundView, PortfolioOptimizerView, RegisterPanel,
-  StatusPill, StatusView, StrategyLabView, WorkspaceNav,
+  AccountView, AdminUsersView, AnalysisWorkforceView, AuditView, Brand, InquiriesView, LoginPanel,
+  LotteryLabView, LotteryOperationsView, ModuleCards, NotificationsView, NotFoundView, PortfolioOptimizerView,
+  RegisterPanel, StatusPill, StatusView, StrategyLabView, WorkspaceNav,
 } from "./views.jsx";
 
 const NATIVE_BUILD = __NATIVE_BUILD__;
@@ -49,6 +49,11 @@ const ROUTES = [
   // and the port kept that, so declaring one here would hide a screen the API serves.
   // The human sign-off inside it is gated on `trading.control` by the server.
   { path: "/app/strategy", view: "strategy-lab", requiresAuth: true },
+  // Row 3 (Phase 32): the AI Workforce console at `/analysis`. Session-only as
+  // well — the analysis and market-data routes are guarded by `authenticate` and
+  // nothing else — with the two governance controls inside gated server-side on
+  // `trading.control`.
+  { path: "/app/analysis", view: "analysis-workforce", requiresAuth: true },
   { path: "/app/admin/users", view: "admin-users", requiresAuth: true, permission: "identity.users.view" },
   { path: "/app/admin/audit", view: "audit", requiresAuth: true, permission: "identity.users.view" },
   { path: "/app/admin/inquiries", view: "inquiries", requiresAuth: true, permission: "system.super_admin" },
@@ -383,6 +388,7 @@ function SessionApp() {
       "lottery-operations": <LotteryOperationsView permissions={permissions} />,
       "lottery-lab": <LotteryLabView permissions={permissions} />,
       "strategy-lab": <StrategyLabView />,
+      "analysis-workforce": <AnalysisWorkforceView permissions={permissions} />,
       "admin-users": <AdminUsersView permissions={permissions} />,
       audit: <AuditView />,
       inquiries: <InquiriesView />,

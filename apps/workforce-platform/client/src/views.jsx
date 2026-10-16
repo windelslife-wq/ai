@@ -38,6 +38,18 @@ import {
   validateBacktestForm, validateSignOffForm,
   validateOptimizeForm as validateStrategyOptimizeForm,
 } from "./strategy.js";
+// The AI Workforce console's module. Two names collide with the blocks above —
+// `historyRows` (this one reads `GET /analysis/history`) and nothing else — so the
+// import is aliased where it does rather than prefixing the module's exports.
+import {
+  MAX_WATCHLIST, REFUSED_MODES, RUN_TIMEFRAMES, SYMBOL_GROUPS, TRADING_MODES, WATCHLIST,
+  agentPanels, biasTone, buildConsensusBody, buildKillSwitchBody, buildModeBody, buildRunBody,
+  candleGeometry, consensusSummary, debateView,
+  historyRows as analysisHistoryRows,
+  meterRows, numberText, priceText, provenanceFacts, riskContextFacts,
+  riskDecisionView, runHeadline, signalRows, structureLevels, tradeSetupView,
+  validateRunForm, validateWatchlistForm, watchlistRows,
+} from "./workforce.js";
 import { Link } from "./router.jsx";
 import { ConnectivityBanner, Field, Notice, StateBox, useResource } from "./ui.jsx";
 
@@ -159,6 +171,10 @@ export function WorkspaceNav({ permissions, current, signedIn = true, notificati
   const unreadCount = Math.max(0, Number(inbox.data?.unread) || 0);
   const entries = [
     { to: "/app/", label: "Overview", permission: null },
+    // Session-only, like the legacy controller: the analysis routes guard on
+    // authentication alone, so an entry that required a permission would hide a
+    // screen the API serves to every signed-in role.
+    { to: "/app/analysis", label: "AI Workforce", permission: null },
     { to: "/app/account", label: "Account", permission: null },
     { to: "/app/notifications", label: "Notifications", permission: null, unread: true },
     { to: "/app/status", label: "Platform status", permission: null },
@@ -360,13 +376,13 @@ export function NotificationsView({ onNotificationsChanged }) {
  * have someone re-port a finished module. The opposite error is just as bad:
  * calling an API-only module "ported" implies an operator can use it here, and
  * they cannot. The shared shell now has an in-product notification inbox plus the
- * portfolio-optimizer, lottery and Strategy Lab consoles, so the cards name the one
- * each of them opens; the analysis and sports dashboards and the settings screens
+ * portfolio-optimizer, lottery, Strategy Lab and AI Workforce consoles, so the cards
+ * name the one each of them opens; the sports dashboard and the settings screens
  * remain open work under F-29.
  */
 export function ModuleCards() {
   const moduleCards = [
-    { number: "01", title: "Market intelligence", text: "Multi-agent analysis, consensus, regime detection and a risk-reviewed proposal.", status: "API ported · no console", tone: "api", foot: "PHASE 5 · /api/v1/analysis" },
+    { number: "01", title: "Market intelligence", text: "Multi-agent analysis, consensus, regime detection and a risk-reviewed proposal.", status: "Console available", tone: "live", foot: "PHASE 32 · /app/analysis", to: "/app/analysis" },
     { number: "02", title: "Strategy Lab", text: "Backtesting, walk-forward optimization, evidence-gated lifecycle and confidence calibration.", status: "Console available", tone: "live", foot: "PHASE 31 · /app/strategy", to: "/app/strategy" },
     { number: "03", title: "Sports research", text: "Ingestion, decision chain, ticket engine, settlement and measured performance.", status: "Measured half ported · no console", tone: "api", foot: "PHASES 15–20 · /api/v1/sports" },
     { number: "04", title: "Lottery tools", text: "Draw statistics, combinations, saved tickets and the no-look-ahead Strategy Lab.", status: "Console available", tone: "live", foot: "PHASE 30 · /app/lottery", to: "/app/lottery", permission: "lottery.view" },
@@ -2598,6 +2614,560 @@ export function StrategyLabView() {
 }
 
 /* ------------------------------------------------------------- not found */
+
+/* ------------------------------------------------------------ AI workforce */
+
+/** One of the three ratio meters (`Confidence`, `Confluence`, `Agreement`). */
+function WorkforceMeter({ meter }) {
+  return (
+    <div className="workforce-meter">
+      <div className="workforce-meter-row"><span>{meter.label}</span><span className="mono">{meter.text}</span></div>
+      <div className="workforce-meter-bar"><div className={`workforce-meter-fill meter-${meter.tone}`} style={{ width: `${Math.max(0, Math.min(100, meter.pct))}%` }} /></div>
+    </div>
+  );
+}
+
+/**
+ * The candlestick chart: `views/welcome/partials/chart.php` rendered as SVG from
+ * `candleGeometry`'s numbers. Same canvas (1000×380), same 140-bar window, same
+ * EMA overlays and support/resistance dashes, same entry/SL/TP overlay — the only
+ * difference is that the geometry is computed in JS instead of PHP, which is what
+ * the contract test pins.
+ */
+function WorkforceChart({ geometry, provenance }) {
+  if (!geometry) return null;
+  const { width, height, padL, padR, bars, gridlines, ema20, ema50, setup } = geometry;
+  const facts = provenanceFacts(provenance);
+  return (
+    <section className="panel">
+      <h2>Candles · EMA · structure{setup ? " · setup" : ""}</h2>
+      <div className="workforce-chart-scroll">
+        <svg viewBox={`0 0 ${width} ${height}`} className="workforce-chart" role="img" aria-label="candlestick chart with EMA overlays and structure levels">
+          {gridlines.map((line) => (
+            <g key={line.price}>
+              <line x1={padL} x2={width - padR} y1={line.y} y2={line.y} className="workforce-grid" />
+              <text x={width - padR + 6} y={line.y + 3} className="workforce-axis-label">{line.label}</text>
+            </g>
+          ))}
+          {geometry.resistance.map((level) => (
+            <line key={`r${level.price}`} x1={padL} x2={width - padR} y1={level.y} y2={level.y} className="workforce-level-resistance">
+              <title>Resistance {level.label}</title>
+            </line>
+          ))}
+          {geometry.support.map((level) => (
+            <line key={`s${level.price}`} x1={padL} x2={width - padR} y1={level.y} y2={level.y} className="workforce-level-support">
+              <title>Support {level.label}</title>
+            </line>
+          ))}
+          {setup ? (
+            <>
+              <rect x={padL} y={setup.zoneY} width={setup.zoneWidth} height={setup.zoneHeight} fill={setup.tone} opacity="0.12" />
+              <line x1={padL} x2={width - padR} y1={setup.stopY} y2={setup.stopY} className="workforce-stop" />
+              <text x={padL + 4} y={setup.stopY - 3} className="workforce-stop-label">SL {setup.stopLabel}</text>
+              {setup.targets.map((target) => (
+                <g key={target.label}>
+                  <line x1={padL} x2={width - padR} y1={target.y} y2={target.y} className="workforce-target" opacity={target.opacity} />
+                  <text x={padL + 4} y={target.y - 3} className="workforce-target-label">{target.label}</text>
+                </g>
+              ))}
+            </>
+          ) : null}
+          {bars.map((bar) => (
+            <rect key={`v${bar.index}`} x={bar.volume.x} y={bar.volume.y} width={bar.volume.width} height={bar.volume.height}
+              fill={bar.volume.up ? "#134e4a" : "#4c1d24"}>
+              <title>vol {bar.volume.label}</title>
+            </rect>
+          ))}
+          {bars.map((bar) => (
+            <g key={`c${bar.index}`} className={bar.up ? "workforce-candle-up" : "workforce-candle-down"}>
+              <title>{new Date(bar.timestamp).toISOString().slice(0, 16).replace("T", " ")}Z · O {bar.open} H {bar.high} L {bar.low} C {bar.close}</title>
+              <line x1={bar.wick.x1} x2={bar.wick.x2} y1={bar.wick.y1} y2={bar.wick.y2} />
+              <rect x={bar.body.x} y={bar.body.y} width={bar.body.width} height={bar.body.height} />
+            </g>
+          ))}
+          <polyline points={ema20.points} fill="none" className="workforce-ema-20"><title>EMA20</title></polyline>
+          <polyline points={ema50.points} fill="none" className="workforce-ema-50"><title>EMA50</title></polyline>
+        </svg>
+      </div>
+      <p className="field-hint">
+        EMA20 (amber) · EMA50 (violet) · support/resistance dashed{setup ? " · entry zone, stop and target ladder" : ""} ·{" "}
+        {geometry.visibleCount} of {geometry.totalCount} bars
+        {facts ? ` · source: ${provenance?.source ?? "—"}${facts.synthetic ? " (SYNTHETIC)" : ""}` : ""}
+      </p>
+    </section>
+  );
+}
+
+/**
+ * AI Workforce console (Phase 32, row 3) — the port of `/analysis`
+ * (`Welcome::index` + `views/welcome/index.php` + `partials/chart.php`) and of the
+ * two governance posts behind it (`Welcome::mode`, `Welcome::kill_switch`), which
+ * this screen performs as API calls instead of a redirect each.
+ *
+ * The screen is **session-only**, like the legacy controller: the analysis routes
+ * are guarded by `authenticate` alone and the marketplace routes likewise, so the
+ * exact-path route declares no permission. The two governance controls inside are
+ * `trading.control` on the server, so they render as disabled with the reason when
+ * the role does not carry it — never as a button that would 403.
+ *
+ * Nothing here places an order: the run endpoint returns a proposal and a risk
+ * verdict, the screen says so, and the trading-mode select offers only the two
+ * modes this edition can be put into.
+ */
+export function AnalysisWorkforceView({ permissions }) {
+  const [form, setForm] = useState({ symbol: "BTCUSDT", timeframe: "1h" });
+  const [watchForm, setWatchForm] = useState({ symbols: WATCHLIST.join(", "), timeframe: "1h" });
+  const [mode, setMode] = useState("");
+  const [killReason, setKillReason] = useState("");
+  const [state, setState] = useState(null);
+  const [result, setResult] = useState(null);
+  const [watch, setWatch] = useState(null);
+  const [candles, setCandles] = useState(null);
+  const [busy, setBusy] = useState(false);
+  const canControl = permissions.includes("trading.control");
+  const canAudit = permissions.includes("identity.users.view");
+
+  useEffect(() => { document.title = "AI Workforce · WINDELS AI WORKFORCE"; }, []);
+
+  const governance = useResource(() => endpoints.tradingMode(), []);
+  const history = useResource(() => endpoints.analysisHistory("?limit=8"), []);
+  const panel = useResource(() => endpoints.analysisAgents(), []);
+  // Legacy showed the last twelve audit events to any signed-in member. The port
+  // deliberately tightened that to `identity.users.view` (AV-1), so the panel loads
+  // only when the role carries it and says why when it does not.
+  const audit = useResource(() => (canAudit ? endpoints.adminAudit("?limit=12") : Promise.resolve(null)), [canAudit]);
+
+  const tradingState = governance.data ?? null;
+  const killSwitchActive = tradingState?.killSwitch?.active === true;
+  const currentMode = tradingState?.tradingMode ?? "";
+  const runAuditEvents = audit.data?.events ?? [];
+  const levels = structureLevels(result?.agents);
+  const geometry = result && candles?.candles ? candleGeometry({ candles: candles.candles, support: levels.support, resistance: levels.resistance, setup: result.tradeSetup }) : null;
+  const setup = tradeSetupView(result?.tradeSetup);
+  const decision = riskDecisionView(result?.riskDecision);
+  const debate = debateView(result?.debate);
+  const facts = result ? provenanceFacts(result.provenance) : null;
+  const context = result ? riskContextFacts(result.riskContext) : null;
+  const consensus = result ? consensusSummary(result) : null;
+
+  async function runAnalysis(target) {
+    const nextForm = target ?? form;
+    const problems = validateRunForm(nextForm);
+    if (problems.length) {
+      setState({ status: "error", message: problems.map((problem) => problem.message).join(" ") });
+      return;
+    }
+    setForm(nextForm);
+    setState(null);
+    setBusy(true);
+    try {
+      const body = buildRunBody(nextForm);
+      const payload = await endpoints.analysisRun(body);
+      setResult(payload);
+      setWatch(null);
+      setState({ status: "done", message: `Analysis complete — ${runHeadline(payload)}` });
+      history.retry();
+      const query = `?symbol=${encodeURIComponent(body.symbol)}&marketClass=${encodeURIComponent(body.marketClass)}&timeframe=${encodeURIComponent(body.timeframe)}&limit=200`;
+      try {
+        setCandles(await endpoints.candles(query));
+      } catch {
+        // The chart is decorative relative to the analysis: a candle fetch that
+        // fails must not take the run off the screen, and the panel says so by
+        // simply not appearing.
+        setCandles(null);
+      }
+    } catch (error) {
+      setState({ status: "error", message: formFailure(error) });
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function scanWatchlist() {
+    const problems = validateWatchlistForm(watchForm);
+    if (problems.length) {
+      setState({ status: "error", message: problems.map((problem) => problem.message).join(" ") });
+      return;
+    }
+    setState(null);
+    setBusy(true);
+    try {
+      const body = buildConsensusBody(watchForm);
+      const payload = await endpoints.analysisConsensus(body);
+      setWatch(payload);
+      setState({ status: "done", message: `Scan complete — ${watchlistRows(payload).length} symbol(s) scored at ${body.timeframe}.` });
+      history.retry();
+    } catch (error) {
+      setState({ status: "error", message: formFailure(error) });
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function applyMode() {
+    const target = mode || currentMode;
+    setState(null);
+    setBusy(true);
+    try {
+      const payload = await endpoints.setTradingMode(buildModeBody(target));
+      setState({ status: "done", message: payload.message ?? `Trading mode set to ${target}` });
+      setMode("");
+      governance.retry();
+    } catch (error) {
+      setState({ status: "error", message: formFailure(error) });
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function toggleKillSwitch() {
+    setState(null);
+    setBusy(true);
+    try {
+      const payload = await endpoints.setKillSwitch(buildKillSwitchBody(!killSwitchActive, killReason));
+      setState({ status: "done", message: `Kill switch ${payload.killSwitch?.active ? "engaged" : "released"}${payload.killSwitch?.reason ? ` — ${payload.killSwitch.reason}` : ""}.` });
+      setKillReason("");
+      governance.retry();
+    } catch (error) {
+      setState({ status: "error", message: formFailure(error) });
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  return (
+    <div className="view">
+      <header className="view-header">
+        <div><div className="overline">AI WORKFORCE <span className="overline-line" /></div><h1>Multi-agent market analysis.</h1></div>
+        <Link className="text-button" to="/app/">Back to overview</Link>
+      </header>
+
+      <Notice tone="info">
+        Agents agree on a bias, the risk engine can veto a setup, and <b>this screen never places an order</b>. Proposals are
+        analysis output; executing one means the Paper Trading console, where the order re-passes the full governance chain.
+      </Notice>
+
+      <RunState state={state} onDismiss={() => setState(null)} />
+
+      <section className="panel">
+        <div className="workforce-start">
+          <div>
+            <h2>Start an analysis</h2>
+            <p className="muted">Choose a market and timeframe. Five agents produce a consensus, a regime read, a setup and a risk decision.</p>
+            <form className="workforce-form" onSubmit={(event) => { event.preventDefault(); runAnalysis(); }}>
+              <Field label="Symbol" htmlFor="workforce-symbol">
+                <select id="workforce-symbol" value={form.symbol} onChange={(event) => setForm((current) => ({ ...current, symbol: event.target.value }))}>
+                  {SYMBOL_GROUPS.map((group) => (
+                    <optgroup key={group.label} label={group.label}>
+                      {group.symbols.map((symbol) => <option key={symbol} value={symbol}>{symbol}</option>)}
+                    </optgroup>
+                  ))}
+                </select>
+              </Field>
+              <Field label="Timeframe" htmlFor="workforce-timeframe">
+                <select id="workforce-timeframe" value={form.timeframe} onChange={(event) => setForm((current) => ({ ...current, timeframe: event.target.value }))}>
+                  {RUN_TIMEFRAMES.map((timeframe) => <option key={timeframe} value={timeframe}>{timeframe}</option>)}
+                </select>
+              </Field>
+              <button className="primary-button" type="submit" disabled={busy}>{busy ? "Working…" : "Run analysis"}</button>
+            </form>
+            <p className="field-hint">
+              The endpoint accepts six timeframes; this form keeps the legacy page's four. The market class is derived the way
+              legacy derived it (<code>XAUUSD</code> → commodity, a <code>USDT</code> pair → crypto, everything else forex).
+            </p>
+          </div>
+          <aside className="workforce-governance">
+            <StateBox status={governance.status} error={governance.error} retry={governance.retry} label="Loading trading state">
+              <div className="workforce-governance-body">
+                {killSwitchActive
+                  ? <span className="badge badge-amber">Kill switch active</span>
+                  : <span className="badge badge-sky">Mode {currentMode}</span>}
+                <p className="muted">
+                  {tradingState?.simulationOnly ? "Simulation only" : "Live trading"} · {killSwitchActive
+                    ? tradingState?.killSwitch?.reason ?? "orders blocked until explicitly released"
+                    : "kill switch released"}
+                </p>
+                <Field label="Trading mode" htmlFor="workforce-mode" hint={canControl ? "The two modes this edition supports." : "Needs trading.control."}>
+                  <select id="workforce-mode" value={mode || currentMode} disabled={!canControl || busy}
+                    onChange={(event) => setMode(event.target.value)}>
+                    {TRADING_MODES.map((value) => <option key={value} value={value}>{value}</option>)}
+                  </select>
+                </Field>
+                <button className="secondary-button" type="button" disabled={!canControl || busy} onClick={applyMode}>Set mode</button>
+                <ul className="workforce-refused-modes">
+                  {REFUSED_MODES.map((entry) => (
+                    <li key={entry.mode}><code>{entry.mode}</code> — unavailable: {entry.reason}</li>
+                  ))}
+                </ul>
+                <Field label="Kill-switch reason (optional)" htmlFor="workforce-kill-reason" hint="Recorded in the audit trail with the change.">
+                  <input id="workforce-kill-reason" type="text" maxLength={500} value={killReason} disabled={!canControl}
+                    onChange={(event) => setKillReason(event.target.value)} placeholder="engaged from the AI Workforce screen" />
+                </Field>
+                <button className={killSwitchActive ? "secondary-button" : "danger-button"} type="button" disabled={!canControl || busy} onClick={toggleKillSwitch}>
+                  {killSwitchActive ? "Release kill switch" : "Activate kill switch"}
+                </button>
+                {canControl ? null : <p className="field-hint">Your role does not carry <code>trading.control</code>; the API refuses these two writes with 403, so they are disabled here rather than failing on click.</p>}
+              </div>
+            </StateBox>
+          </aside>
+        </div>
+      </section>
+
+      <section className="panel">
+        <h2>Watchlist consensus</h2>
+        <form className="workforce-watchlist-form" onSubmit={(event) => { event.preventDefault(); scanWatchlist(); }}>
+          <Field label="Symbols" htmlFor="workforce-watch-symbols" hint={`1–${MAX_WATCHLIST} distinct symbols, comma or space separated.`}>
+            <input id="workforce-watch-symbols" type="text" value={watchForm.symbols} maxLength={260}
+              onChange={(event) => setWatchForm((current) => ({ ...current, symbols: event.target.value }))} />
+          </Field>
+          <Field label="Timeframe" htmlFor="workforce-watch-timeframe">
+            <select id="workforce-watch-timeframe" value={watchForm.timeframe} onChange={(event) => setWatchForm((current) => ({ ...current, timeframe: event.target.value }))}>
+              {RUN_TIMEFRAMES.map((timeframe) => <option key={timeframe} value={timeframe}>{timeframe}</option>)}
+            </select>
+          </Field>
+          <button className="secondary-button" type="submit" disabled={busy}>Scan watchlist</button>
+        </form>
+        <p className="field-hint">
+          A scan is up to {MAX_WATCHLIST} full runs, so it holds its own rate limit and concurrency slot. Sending no symbols makes the server
+          use its own default watchlist; this form only sends the list when one is typed.
+        </p>
+        {watch ? (
+          watchlistRows(watch).length === 0 ? <p className="empty">The scan returned no rows.</p> : (
+            <div className="workforce-watchlist">
+              {watchlistRows(watch).map((row) => (
+                <button key={row.symbol} type="button" className="workforce-watch-row" disabled={busy}
+                  onClick={() => runAnalysis({ symbol: row.symbol, timeframe: watchForm.timeframe })}>
+                  <span className="workforce-watch-head">
+                    <b className="mono">{row.symbol}</b>
+                    <span className={`badge ${row.tone}`}>{row.short}</span>
+                    {row.synthetic ? <span className="badge badge-amber">SIM</span> : null}
+                  </span>
+                  <span className="workforce-watch-meta">conf {row.confidence} · {row.regime}</span>
+                </button>
+              ))}
+            </div>
+          )
+        ) : <p className="muted">No scan has run in this session. The row list above is the legacy page's own default watchlist.</p>}
+      </section>
+
+      {result ? (
+        <>
+          {facts ? (
+            <Notice tone={facts.tone === "error" ? "error" : facts.tone === "warn" ? "warn" : "info"}>
+              <b>{facts.label}</b>{facts.note ? ` — ${facts.note}` : ""}
+              <div className="workforce-provenance">{facts.facts.map((fact) => <span key={fact}>{fact}</span>)}</div>
+            </Notice>
+          ) : null}
+
+          <div className="workforce-grid">
+            <div className="workforce-main">
+              <section className="panel">
+                <div className="audit-section-heading">
+                  <div>
+                    <h2>Trading Intelligence Consensus</h2>
+                    <p className="muted">
+                      Recommendation <b>{result.recommendation}</b> · regime <code>{result.marketRegime}</code>
+                      {" · ADX "}{numberText(result.regimeAssessment?.adx, 1)}
+                      {result.quote ? ` · last ${priceText(result.quote.last)}` : ""}
+                    </p>
+                  </div>
+                  <span className={`badge ${biasTone(result.bias)}`}>{result.bias}</span>
+                </div>
+                {meterRows(result).map((meter) => <WorkforceMeter key={meter.label} meter={meter} />)}
+                <p className="muted lottery-note">
+                  net score {consensus.netScore} · voting: {consensus.voting} · abstaining: {consensus.abstaining}
+                </p>
+                {debate ? (
+                  <div className={`notice notice-${debate.tone === "badge-red" ? "error" : debate.tone === "badge-amber" ? "warn" : "info"}`}>
+                    <b>Agent debate verdict: {debate.bias}</b>{debate.adjustment < 0 ? ` (confidence ${debate.adjustment})` : ""}
+                    {debate.reasoning.length ? ` — ${debate.reasoning.join("; ")}` : ""}
+                    <details>
+                      <summary className="text-button">debate transcript</summary>
+                      {debate.rounds.map((round) => (
+                        <div key={round.role} className="workforce-debate-round">
+                          <b>{round.role}</b>
+                          {round.items.map((item, index) => (
+                            <div key={`${round.role}-${index}`} className="muted">
+                              • {item.text}
+                              {item.evidence ? <span className="mono"> [{item.evidence}]</span> : null}
+                              {item.severity ? <span className="badge badge-gray"> {item.severity}</span> : null}
+                            </div>
+                          ))}
+                        </div>
+                      ))}
+                    </details>
+                  </div>
+                ) : null}
+                {Array.isArray(result.conflicts) && result.conflicts.length ? (
+                  <div className="notice notice-warn">
+                    <b>Signal conflicts:</b>
+                    {result.conflicts.map((conflict) => (
+                      <div key={`${conflict.agent}-${conflict.theirBias}`}>• {conflict.agent} leans {conflict.theirBias} — {conflict.reason}</div>
+                    ))}
+                  </div>
+                ) : null}
+                <details className="workforce-raw">
+                  <summary className="text-button">regime evidence &amp; reasoning</summary>
+                  <ul>
+                    {(result.regimeAssessment?.evidence ?? []).map((evidence) => <li key={evidence}>▸ {evidence}</li>)}
+                    {(result.reasoning ?? []).slice(0, 6).map((line) => <li key={line}>· {line}</li>)}
+                  </ul>
+                </details>
+                {result.gates?.hardBlocks?.length ? (
+                  <Notice tone="error">Hard blocks: {result.gates.hardBlocks.join(" · ")}</Notice>
+                ) : null}
+              </section>
+
+              <WorkforceChart geometry={geometry} provenance={result.provenance} />
+
+              <section className="panel">
+                <h2>Technical signals</h2>
+                <div className="table-scroll">
+                  <table className="data-table">
+                    <thead><tr><th>Indicator</th><th className="num">Value</th><th className="num">Signal</th></tr></thead>
+                    <tbody>
+                      {signalRows(result.signals).map((signal) => (
+                        <tr key={signal.name}>
+                          <td>{signal.name} <span className="muted">{signal.detail}</span></td>
+                          <td className="num mono">{signal.value}</td>
+                          <td className="num"><span className={`badge ${signal.tone}`}>{signal.signal}</span></td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              </section>
+
+              {agentPanels(result.agents).map((agent) => (
+                <section className="panel" key={agent.id}>
+                  <h2>{agent.title}</h2>
+                  <div className="workforce-agent-head">
+                    <span className={`badge ${agent.voteTone}`}>{agent.voteLabel}</span>
+                    <span className="muted">data quality {agent.quality} · score {agent.score}</span>
+                    <span className="muted">{agent.reason}</span>
+                  </div>
+                  {agent.currencyStrength.length ? (
+                    <div className="workforce-strength">
+                      {agent.currencyStrength.map((entry) => (
+                        <span key={entry.currency} className={`badge ${entry.tone}`}>{entry.currency} {entry.text}</span>
+                      ))}
+                    </div>
+                  ) : null}
+                  {agent.warnings.length ? (
+                    <ul className="workforce-limits">
+                      {agent.warnings.slice(0, 4).map((warning) => <li key={warning}>{warning}</li>)}
+                    </ul>
+                  ) : null}
+                </section>
+              ))}
+            </div>
+
+            <div className="workforce-side">
+              <section className="panel">
+                <h2>Trade proposal + Risk Engine</h2>
+                {setup ? (
+                  <>
+                    <div className="workforce-proposal-head">
+                      <span className={`badge ${setup.tone}`}>{setup.action}</span>
+                      <div className="muted"><b className="mono">{setup.symbol}</b> · {setup.timeframe}<br />R:R <b>{setup.riskReward}</b> · conf <b>{setup.confidence}</b></div>
+                    </div>
+                    <dl className="workforce-proposal">
+                      {setup.rows.map((row) => (
+                        <span key={row.label}><dt>{row.label}</dt><dd className={`mono ${row.tone}`}>{row.value}</dd></span>
+                      ))}
+                    </dl>
+                    {decision ? (
+                      <div className="workforce-decision">
+                        <span className={`badge ${decision.tone}`}>{decision.label}</span>
+                        {decision.reasons.map((reason) => <div key={reason} className="down">✕ {reason}</div>)}
+                      </div>
+                    ) : null}
+                  </>
+                ) : (
+                  <p className="muted">No tradeable setup — consensus lacked sufficient evidence. <b>NO_TRADE is a deliberate outcome.</b></p>
+                )}
+                <p className="field-hint">
+                  Proposals are analysis output. Execute manually, or switch to PAPER_TRADING and submit through the Paper Trading
+                  console — where every order re-passes the full governance chain.
+                </p>
+                {context ? (
+                  <dl className="workforce-context">
+                    <span><dt>Decision state</dt><dd>{context.mode}{context.killSwitch ? " · kill switch active" : ""}</dd></span>
+                    <span><dt>Equity</dt><dd className="mono">{context.equity}</dd></span>
+                    <span><dt>Open positions</dt><dd className="mono">{context.openPositions}</dd></span>
+                    <span><dt>Risk limits source</dt><dd>{context.source}</dd></span>
+                  </dl>
+                ) : null}
+                {context?.note ? <p className="field-hint">{context.note}</p> : null}
+              </section>
+
+              <section className="panel">
+                <h2>Recent analysis runs</h2>
+                <StateBox status={history.status} error={history.error} retry={history.retry} label="Loading history">
+                  {analysisHistoryRows(history.data).length === 0 ? <p className="empty">No analysis runs stored yet.</p> : (
+                    <table className="data-table">
+                      <thead><tr><th>Symbol</th><th>TF</th><th>Bias</th><th className="num">Conf</th><th className="num">At</th></tr></thead>
+                      <tbody>
+                        {analysisHistoryRows(history.data).map((row) => (
+                          <tr key={row.id}>
+                            <td className="mono"><b>{row.symbol}</b></td>
+                            <td className="muted">{row.timeframe}</td>
+                            <td><span className={`badge ${row.tone}`}>{row.bias.slice(0, 4)}</span>{row.synthetic ? <span className="badge badge-amber">SIM</span> : null}</td>
+                            <td className="num mono">{row.confidence}</td>
+                            <td className="num mono muted">{row.time}</td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  )}
+                </StateBox>
+              </section>
+
+              <section className="panel">
+                <h2>Agent panel</h2>
+                <StateBox status={panel.status} error={panel.error} retry={panel.retry} label="Loading agents">
+                  <ul className="workforce-agents">
+                    {(panel.data?.agents ?? []).map((agent) => (
+                      <li key={agent.id}><b>{agent.title}</b><span className="muted"> <code>{agent.id}</code> — {agent.description}</span></li>
+                    ))}
+                  </ul>
+                </StateBox>
+              </section>
+
+              <section className="panel">
+                <h2>Audit trail</h2>
+                {canAudit ? (
+                  <StateBox status={audit.status} error={audit.error} retry={audit.retry} label="Loading audit events">
+                    {runAuditEvents.length === 0 ? <p className="empty">No audit events are recorded yet.</p> : (
+                      <ul className="workforce-audit">
+                        {runAuditEvents.slice(0, 12).map((event) => (
+                          <li key={event.id ?? `${event.action}-${event.createdAt}`}>
+                            <span className="mono muted">{String(event.createdAt ?? "").slice(11, 19)}</span>
+                            <code>{event.action}</code>
+                          </li>
+                        ))}
+                      </ul>
+                    )}
+                  </StateBox>
+                ) : (
+                  <p className="muted">
+                    Legacy showed the last twelve audit events to any signed-in member. The port requires{" "}
+                    <code>identity.users.view</code> for the whole trail (AV-1, a deliberate tightening), so this panel stays empty
+                    rather than showing a subset the API does not serve.
+                  </p>
+                )}
+              </section>
+            </div>
+          </div>
+        </>
+      ) : (
+        <section className="panel">
+          <p className="empty">Choose a symbol above and start using AI. Consensus, regime, signals and a risk-reviewed proposal will appear here.</p>
+        </section>
+      )}
+    </div>
+  );
+}
 
 export function NotFoundView({ path }) {
   return (
