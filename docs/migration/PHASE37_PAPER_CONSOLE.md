@@ -159,6 +159,24 @@ already set that flag for exactly this reason; this one now does too, and it ass
 it matters (the filled order's row is `synthetic: true`, the backtest's `dataProvenance.synthetic` is
 `true`), so a future configuration drift fails loudly on the assumption instead of silently on the price.
 
+## Verification record
+
+CI run **`38981437025`** on `arena/046b29ac-ai` (`de05ed3`) is **success** on both jobs
+(`javascript`, `mt5-bridge-contract`). The first run for this phase (`38980620462` on `f20bf70`)
+failed the `javascript` job; the cause and the fix are recorded above, and every gate below was
+re-measured on the fixed tree before the second push: `check:workforce` **1095 / 1095**, the client
+suites **118 / 118**, `client_paper_console` **29 / 29**, `typecheck` clean, `test:contracts`
+**12 / 12**, the client build (`index-BZ7bg51D.js` 509.21 kB / 137.59 kB gzip,
+`index-BbfC8AGb.css` 42.15 kB / 9.05 kB gzip) and `verify:install --require-bundle` **30 / 30**.
+
+The demo preview was rebuilt on the sandbox's file-store host (`:4020`) rather than a fresh install:
+the store already held the two "Recon simulator" accounts and two stored kill-switch rejections from
+the recon, and the probe's deliberate writes left the board showing a fill, a close, three
+kill-switch rejections, one risk/reward rejection and one deployment — with the governance state
+restored to the demo's deliberate ACTIVE switch afterwards. `/app/paper` serves the shell and its
+bundle carries the screen's strings (`Paper Trading`, `Orders (incl. rejected — auditability)`,
+`Run market tick`, `Effective risk limits`, `/app/paper`) with the stale F-29 sentence gone.
+
 ## After this phase
 
 **F-29's residual list is now risk, execution, brokers, journal** — paper left it, which is what row 10's

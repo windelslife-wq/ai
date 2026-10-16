@@ -55,6 +55,7 @@ first push (`f20bf70`) went red on CI for a reason the record keeps: the new sui
 `MARKET_DATA_REAL_PROVIDERS=0`, so on a runner with internet the app served **live** quotes and the two
 order flows asserted against prices the suite never chose. Fixed in the follow-up commit — every assertion
 about a fill or a backtest now also states the synthetic provenance it depends on.
+**CI `38981437025` on `de05ed3` is success on both jobs.**
 **Not run:** a real browser, real MySQL/MariaDB, any live provider, SMTP, cPanel/Passenger, and still no
 PHP↔Node numeric diff (F-26). Full record: [`PHASE37_PAPER_CONSOLE.md`](PHASE37_PAPER_CONSOLE.md).
 
