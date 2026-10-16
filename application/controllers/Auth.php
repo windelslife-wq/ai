@@ -10,6 +10,8 @@ class Auth extends MY_Controller
             redirect($this->isAdmin($user) ? '/admin' : '/dashboard');
             return;
         }
+        // Bootstrap gate: first-time setup takes priority over login.
+        if (!$this->Aegis_model->identity->hasSuperAdmin()) { redirect('/setup'); return; }
         $this->renderAuth(false);
     }
 
@@ -19,12 +21,123 @@ class Auth extends MY_Controller
             redirect($this->isAdmin($user) ? '/admin' : '/access-denied');
             return;
         }
+        // Before any super admin exists, /admin/login redirects to setup.
+        if (!$this->Aegis_model->identity->hasSuperAdmin()) { redirect('/setup'); return; }
         $this->renderAuth(true);
+    }
+
+    /**
+     * First-run bootstrap: when no super_admin exists yet, ANY visitor may
+     * claim the platform by creating the first super-administrator account.
+     * After that, the route 404s and regular admins are created via the
+     * Admin → Users panel (or the CLI bootstrap_admin tool).
+     */
+    public function setup()
+    {
+        if ($this->sessionUser()) { redirect($this->isAdmin() ? '/admin' : '/dashboard'); return; }
+        if ($this->Aegis_model->identity->hasSuperAdmin()) { show_404(); return; }
+        $this->load->view('auth/setup', [
+            'title' => 'Create the super-administrator account',
+            'error' => $this->consumeFlash('error'),
+            'notice' => $this->consumeFlash('notice'),
+            'csrfToken' => $this->ensureVisitorCsrf(),
+        ]);
+    }
+
+    public function setup_submit()
+    {
+        if ($this->sessionUser()) { redirect('/dashboard'); return; }
+        if ($this->Aegis_model->identity->hasSuperAdmin()) { show_404(); return; }
+        if (!$this->validAuthCsrf()) {
+            $this->flash('error', 'Your session expired while filling in the form. Please try again.');
+            redirect('/setup');
+            return;
+        }
+        $username = strtolower(trim((string) $this->input->post('username')));
+        $email = strtolower(trim((string) $this->input->post('email')));
+        $password = (string) $this->input->post('password');
+        $confirm = (string) $this->input->post('password_confirm');
+        $displayName = trim((string) ($this->input->post('display_name') ?: ''));
+        $terms = (string) $this->input->post('terms');
+        if (!$this->validUsername($username) || !filter_var($email, FILTER_VALIDATE_EMAIL)) {
+            $this->flash('error', 'Enter a valid username (3–20 letters, numbers or underscores) and a valid email address.');
+            redirect('/setup');
+            return;
+        }
+        if (strlen($password) < 14) {
+            $this->flash('error', 'The super-administrator password must be at least 14 characters.');
+            redirect('/setup');
+            return;
+        }
+        if ($password !== $confirm) {
+            $this->flash('error', 'The two passwords do not match.');
+            redirect('/setup');
+            return;
+        }
+        if ($terms !== '1') {
+            $this->flash('error', 'Please accept the Terms and Privacy Policy to continue.');
+            redirect('/setup');
+            return;
+        }
+        // Defensive re-check under the same token: another tab / request
+        // cannot race-create the admin after our initial guard.
+        if ($this->Aegis_model->identity->hasSuperAdmin()) {
+            $this->flash('error', 'A super-administrator already exists. Sign in instead.');
+            redirect('/admin/login');
+            return;
+        }
+        if ($this->Aegis_model->identity->findUserByEmail($email)) {
+            $this->flash('error', 'An account with that email already exists.');
+            redirect('/setup');
+            return;
+        }
+        if ($this->Aegis_model->identity->usernameTaken($username)) {
+            $this->flash('error', 'That username is already taken. Try a different one.');
+            redirect('/setup');
+            return;
+        }
+        // Ensure RBAC defaults exist so the super_admin role is present.
+        require_once FCPATH . 'tools/rbac.php';
+        $identity = $this->Aegis_model->identity;
+        aegis_seed_rbac(
+            fn(string $code, string $name): int => $identity->ensureRole($code, $name),
+            fn(string $code, string $name): int => $identity->ensurePermission($code, $name),
+            fn(int $roleId, int $permissionId): bool => (bool) $identity->grantRolePermission($roleId, $permissionId)
+        );
+        $now = gmdate('c');
+        $new = $this->Aegis_model->identity->createUser([
+            'username' => $username,
+            'email' => $email,
+            'password_hash' => password_hash($password, PASSWORD_DEFAULT),
+            'display_name' => $displayName !== '' ? $displayName : $username,
+            'active' => 1,
+            'created_at' => $now,
+            'updated_at' => $now,
+            'last_login_at' => $now,
+        ]);
+        $role = $this->Aegis_model->identity->ensureRole('super_admin', 'Super administrator');
+        $this->Aegis_model->identity->assignRole((int) $new['id'], $role);
+        $this->Aegis_model->audit->emit('SUPER_ADMIN_BOOTSTRAPPED',
+            'First super-administrator account claimed via /setup',
+            ['userId' => (int) $new['id'], 'userUid' => (string) ($new['user_uid'] ?? '')],
+            'bootstrap');
+        $user = $this->platform->identity->authenticate($username, $password);
+        if (!$user) {
+            $this->flash('notice', 'Super-administrator account created. Please sign in.');
+            redirect('/admin/login');
+            return;
+        }
+        $this->establishSession($user);
+        $this->flash('notice', 'Welcome — you are the platform super-administrator.');
+        redirect('/admin');
     }
 
     public function register()
     {
         if ($this->sessionUser()) { redirect('/dashboard'); return; }
+        // Before any super admin exists, redirect visitors to the bootstrap
+        // flow so the platform is claimed before regular accounts are added.
+        if (!$this->Aegis_model->identity->hasSuperAdmin()) { redirect('/setup'); return; }
         $this->load->view('auth/register', [
             'title' => 'Create an account',
             'error' => $this->consumeFlash('error'),

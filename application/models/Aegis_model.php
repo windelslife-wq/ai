@@ -593,6 +593,21 @@ class Aegis_model extends CI_Model
             public function setActive(int $userId, bool $active): void {
                 $this->db->where('id', $userId)->update('users', ['active' => $active ? 1 : 0, 'updated_at' => gmdate('c')]);
             }
+            public function userCount(): int {
+                return (int) $this->db->count_all('users');
+            }
+            /** True when any user holds the super_admin role (i.e. bootstrap has already happened). */
+            public function hasSuperAdmin(): bool {
+                $row = $this->db->select('u.id')
+                    ->from('users u')
+                    ->join('user_roles ur', 'ur.user_id = u.id')
+                    ->join('roles r', 'r.id = ur.role_id')
+                    ->where('r.code', 'super_admin')
+                    ->limit(1)
+                    ->get()
+                    ->row_array();
+                return (bool) $row;
+            }
         };
 
         $this->analysis = new class($db) implements Aegis\Persistence\AnalysisRepository {
