@@ -80,6 +80,19 @@ production replacement and no traffic has been cut over.
   `views/strategy/index.php` flashed both, and a console that showed only "rejected"
   would lose exactly what a person acts on.
   See [`docs/migration/PHASE31_STRATEGY_CONSOLE.md`](../../docs/migration/PHASE31_STRATEGY_CONSOLE.md).
+- **The workspace dashboard is `/app`** (Phase 33, row 3) — the port of legacy's `/dashboard`
+  (`Workspace::index` → `views/workspace/index.php`): the `WINDELS AI WORKFORCE` hero, the
+  status pills (the kill switch replaces the mode while it is engaged, as the page did), legacy's
+  three quick actions, the four KPI cards with legacy's captions, the recent-activity table and
+  the notification feed (eight fetched, six printed). It is **session-only, like
+  `App_Controller`**, and two of its four reads are gated: without `trading.view` the screen does
+  not attempt `GET /trading/mode` or `GET /paper/accounts` and says which gate stood there rather
+  than showing an error for a request it was never entitled to make. Every number the shell cannot
+  source says so — the language card has no Node module behind it (row 16), the run count is the
+  six most recent runs rather than a lifetime total, the paper count is owner-scoped (legacy's
+  `listAccounts()` read every row), and the Paper trading and Learn a language quick actions render
+  as unavailable with their reasons (F-29, row 16) instead of linking into a gap.
+  See [`docs/migration/PHASE33_WORKSPACE_DASHBOARD.md`](../../docs/migration/PHASE33_WORKSPACE_DASHBOARD.md).
 - **The AI Workforce console is at `/app/analysis`** (Phase 32, row 3): it requests a run
   on the legacy page's own symbols and timeframes, with `marketClass` derived by legacy's
   rule, and renders the run's headline, its **own** provenance (a synthetic run is labelled

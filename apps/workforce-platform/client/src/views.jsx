@@ -50,6 +50,10 @@ import {
   riskDecisionView, runHeadline, signalRows, structureLevels, tradeSetupView,
   validateRunForm, validateWatchlistForm, watchlistRows,
 } from "./workforce.js";
+import {
+  DASHBOARD_COPY, DASHBOARD_WINDOWS, PANEL_FEET, TRADING_READ_PERMISSION,
+  activityRows, alertRows, countLabel, dashboardPills, firstWord, kpiCards, quickActions,
+} from "./dashboard.js";
 import { Link } from "./router.jsx";
 import { ConnectivityBanner, Field, Notice, StateBox, useResource } from "./ui.jsx";
 
@@ -359,6 +363,146 @@ export function NotificationsView({ onNotificationsChanged }) {
   );
 }
 
+/* ------------------------------------------------------- workspace dashboard */
+
+/**
+ * The workspace dashboard: the port of `Workspace::index` → `views/workspace/index.php`
+ * (legacy's `/dashboard`, the page sign-in lands on and the only screen in the shell
+ * with no permission of its own — `App_Controller` required a session and nothing
+ * else).
+ *
+ * The page's order is kept: the hero with the trading pills, legacy's three quick
+ * actions, the four KPI cards, then the recent-activity table and the notification
+ * feed. Its honesty rules live in `dashboard.js` and are visible here as their
+ * consequences — a number with no source is not rendered as zero (the language card),
+ * and a destination that does not exist is not a link (the paper console, F-29).
+ *
+ * Two of the four reads are permissioned (`GET /trading/mode` and
+ * `GET /paper/accounts`, both `trading.view`). They are **not attempted** without it:
+ * a viewer who cannot read the trading state is told which gate stood there rather
+ * than shown an error box for a read the screen was never entitled to make.
+ */
+export function WorkspaceDashboard({ user, permissions }) {
+  const canReadTrading = permissions.includes(TRADING_READ_PERMISSION);
+  const state = useResource(() => (canReadTrading ? endpoints.tradingMode() : Promise.resolve(null)), [canReadTrading]);
+  const accounts = useResource(() => (canReadTrading ? endpoints.paperAccounts() : Promise.resolve(null)), [canReadTrading]);
+  const runs = useResource(() => endpoints.analysisHistory(`?limit=${DASHBOARD_WINDOWS.runs}`), []);
+  const inbox = useResource(() => endpoints.notificationInbox(`?limit=${DASHBOARD_WINDOWS.inbox}`), []);
+
+  const pills = dashboardPills({ permissions, state: state.data, accounts: accounts.data });
+  const actions = quickActions();
+  const cards = kpiCards({ permissions, runs: runs.data, unread: inbox.data?.unread, accounts: accounts.data });
+  const activity = activityRows(runs.data);
+  const alerts = alertRows(inbox.data);
+  const offActions = actions.filter((action) => !action.to);
+
+  return (
+    <section className="dash-board" aria-label="Workspace dashboard">
+      <div className="workspace-welcome">
+        <div>
+          <div className="overline">{DASHBOARD_COPY.eyebrow} <span className="overline-line" /></div>
+          <h1>Welcome back,<br /><em>{firstWord(user.displayName || user.username)}.</em></h1>
+          <p className="workspace-lede">{DASHBOARD_COPY.lede}</p>
+          <div className="dash-status">
+            {pills.map((pill) => <span className={`badge ${pill.tone}`} key={pill.key}>{pill.text}</span>)}
+          </div>
+        </div>
+        <div className="welcome-seal"><span>W</span><small>YOUR<br />WORKSPACE</small></div>
+      </div>
+
+      <div className="dash-actions">
+        {actions.filter((action) => action.to).map((action) => (
+          <Link className="primary-button" key={action.key} to={action.to}>{action.label}</Link>
+        ))}
+        {offActions.map((action) => (
+          <span className="dash-action-off" key={action.key} title={action.note}>{action.label} · no screen in this edition</span>
+        ))}
+      </div>
+      {offActions.length ? (
+        <ul className="dash-notes">
+          {offActions.map((action) => (
+            <li key={action.key}><strong>{action.label}</strong> — {action.note}</li>
+          ))}
+        </ul>
+      ) : null}
+
+      <h2 className="section-title">{DASHBOARD_COPY.summaryTitle}</h2>
+      <div className="dash-kpis">
+        {cards.map((card) => (
+          <article className="dash-kpi" key={card.key}>
+            <div className="dash-kpi-top">
+              <span className="dash-kpi-label">{card.label}</span>
+              {card.to ? <Link className="text-button" to={card.to}>Open →</Link> : null}
+            </div>
+            <div className="dash-kpi-value">{card.value}</div>
+            <div className="dash-kpi-trend">{card.trend}</div>
+            <p className="dash-kpi-note">{card.note}</p>
+          </article>
+        ))}
+      </div>
+
+      <h2 className="section-title">{DASHBOARD_COPY.panelsTitle}</h2>
+      <div className="dash-panels">
+        <section className="panel">
+          <h3>{DASHBOARD_COPY.activityTitle}</h3>
+          <div className="panel-body">
+            <StateBox status={runs.status} error={runs.error} retry={runs.retry} label="Loading stored runs"
+              empty={activity.length ? null : (
+                <div className="dash-empty">
+                  <p className="empty">{DASHBOARD_COPY.activityEmpty}</p>
+                  <Link className="text-button" to={DASHBOARD_COPY.activityEmptyAction.to}>{DASHBOARD_COPY.activityEmptyAction.text}</Link>
+                </div>
+              )}>
+              <table className="data-table">
+                <thead><tr><th>Symbol</th><th>Timeframe</th><th>Bias</th><th className="num">Completed</th></tr></thead>
+                <tbody>
+                  {activity.map((row) => (
+                    <tr key={row.id || `${row.symbol}-${row.completed}`}>
+                      <td className="mono">{row.symbol}</td>
+                      <td className="dim">{row.timeframe}</td>
+                      <td>
+                        <span className={`badge ${row.tone}`}>{row.bias}</span>
+                        {row.synthetic ? <span className="badge badge-violet">SIM</span> : null}
+                      </td>
+                      <td className="num dim">{row.completed}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </StateBox>
+          </div>
+          <div className="panel-foot">
+            <Link className="panel-foot-link" to={PANEL_FEET.activity.to}>{PANEL_FEET.activity.text} →</Link>
+            {PANEL_FEET.activity.note ? <span className="panel-foot-note">{PANEL_FEET.activity.note}</span> : null}
+          </div>
+        </section>
+
+        <section className="panel">
+          <h3>{DASHBOARD_COPY.alertsTitle}</h3>
+          <div className="panel-body">
+            <StateBox status={inbox.status} error={inbox.error} retry={inbox.retry} label="Loading the inbox"
+              empty={alerts.length ? null : <div className="dash-empty"><p className="empty">{DASHBOARD_COPY.alertsEmpty}</p></div>}>
+              <ul className="dash-feed">
+                {alerts.map((alert) => (
+                  <li key={alert.id} className={alert.unread ? "dash-feed-unread" : undefined}>
+                    <span className={`badge ${alert.tone}`}>{alert.severity}</span>
+                    <span className="dash-feed-title">{alert.title}</span>
+                    <time className="dim">{alert.time}</time>
+                  </li>
+                ))}
+              </ul>
+            </StateBox>
+          </div>
+          <div className="panel-foot">
+            <Link className="panel-foot-link" to={PANEL_FEET.alerts.to}>{PANEL_FEET.alerts.text} →</Link>
+            <span className="panel-foot-note">{`The ${DASHBOARD_WINDOWS.alerts} most recent of the ${DASHBOARD_WINDOWS.inbox} the page fetches.`}</span>
+          </div>
+        </section>
+      </div>
+    </section>
+  );
+}
+
 /**
  * Port status per module, stated precisely enough to act on.
  *
@@ -375,10 +519,12 @@ export function NotificationsView({ onNotificationsChanged }) {
  * engine, and it stayed on screen through Phase 6 — an understatement that would
  * have someone re-port a finished module. The opposite error is just as bad:
  * calling an API-only module "ported" implies an operator can use it here, and
- * they cannot. The shared shell now has an in-product notification inbox plus the
+ * they cannot. The shared shell now has an in-product notification inbox, the
+ * workspace dashboard (the port of legacy's `/dashboard`, Phase 33) and the
  * portfolio-optimizer, lottery, Strategy Lab and AI Workforce consoles, so the cards
- * name the one each of them opens; the sports dashboard and the settings screens
- * remain open work under F-29.
+ * name the one each of them opens. The screens still absent — the sports dashboard,
+ * the settings screens, and the paper, risk, execution, broker and journal screens —
+ * are what F-29 still counts.
  */
 export function ModuleCards() {
   const moduleCards = [

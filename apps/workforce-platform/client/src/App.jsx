@@ -18,7 +18,7 @@ import { ConnectivityBanner, Notice, UpdateBanner } from "./ui.jsx";
 import {
   AccountView, AdminUsersView, AnalysisWorkforceView, AuditView, Brand, InquiriesView, LoginPanel,
   LotteryLabView, LotteryOperationsView, ModuleCards, NotificationsView, NotFoundView, PortfolioOptimizerView,
-  RegisterPanel, StatusPill, StatusView, StrategyLabView, WorkspaceNav,
+  RegisterPanel, StatusPill, StatusView, StrategyLabView, WorkspaceDashboard, WorkspaceNav,
 } from "./views.jsx";
 
 const NATIVE_BUILD = __NATIVE_BUILD__;
@@ -116,17 +116,15 @@ function WorkspaceShell({ user, permissions, health, current, busy, onLogout, no
   );
 }
 
+/**
+ * The signed-in home. Legacy's dashboard (Phase 33) leads, because that is the page
+ * sign-in lands on; the readiness strip and the module index below it are this
+ * shell's own additions, kept because they state what is ported and what is not.
+ */
 function WorkspaceOverview({ user, permissions, health }) {
   return (
     <div className="view">
-      <div className="workspace-welcome">
-        <div>
-          <div className="overline">PRIVATE WORKSPACE <span className="overline-line" /></div>
-          <h1>Good to see you,<br /><em>{user.displayName || user.username}.</em></h1>
-          <p className="workspace-lede">Your workspace foundation is online. Product modules are being migrated and will appear here only after their security and parity checks are complete.</p>
-        </div>
-        <div className="welcome-seal"><span>W</span><small>YOUR<br />WORKSPACE</small></div>
-      </div>
+      <WorkspaceDashboard user={user} permissions={permissions} />
 
       <section className="system-status" aria-label="Platform status">
         <div className="system-status-heading"><span className="overline">PLATFORM READINESS</span><StatusPill status={health?.status || "checking"} /></div>
@@ -134,7 +132,7 @@ function WorkspaceOverview({ user, permissions, health }) {
           <div><small>NODE API</small><strong>{health?.status === "ready" ? "Operational" : health?.status === "not_ready" ? "Database or schema unavailable" : "Checking"}</strong></div>
           <div><small>DATABASE</small><strong>{health?.database ? "Connected" : "Not ready"}</strong></div>
           <div><small>SCHEMA</small><strong>{health?.schema ? "Foundation ready" : "Migration needed"}</strong></div>
-          <div><small>TRADING MODE</small><strong>Not enabled in this shell</strong></div>
+          <div><small>ORDER ROUTING</small><strong>Simulation only · no live route</strong></div>
         </div>
         <Link className="text-button" to="/app/status">Open the full module status →</Link>
       </section>

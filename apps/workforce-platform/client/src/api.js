@@ -165,6 +165,10 @@ export const endpoints = {
   tradingMode: () => api("/api/v1/trading/mode"),
   setTradingMode: (payload) => api("/api/v1/trading/mode", { method: "POST", body: payload }),
   setKillSwitch: (payload) => api("/api/v1/trading/kill-switch", { method: "POST", body: payload }),
+  // The dashboard's paper-account count (Phase 33). Owner-scoped and under
+  // `trading.view` on the server, which is why the screen does not attempt it
+  // without that permission.
+  paperAccounts: () => api("/api/v1/paper/accounts"),
   notificationInbox: (query = "") => api(`/api/v1/notifications${query}`),
   markNotificationRead: (notificationId) => api(`/api/v1/notifications/${encodeURIComponent(notificationId)}/read`, { method: "POST", body: {} }),
   markAllNotificationsRead: () => api("/api/v1/notifications/read-all", { method: "POST", body: {} }),

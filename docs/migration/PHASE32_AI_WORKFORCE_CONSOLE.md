@@ -1,8 +1,8 @@
 # Phase 32 — AI Workforce console (`/app/analysis`)
 
-**Date:** 2026-10-16 · **Scope:** row 3's analysis dashboard — the `views/workspace/index.php` AI-Workforce page
-and the `views/welcome/index.php` market panel behind it, with the `views/welcome/partials/chart.php` SVG chart —
-as one exact-path screen at `/app/analysis`, driving the twelve analysis/market-data routes that already existed
+**Date:** 2026-10-16 · **Scope:** row 3's analysis dashboard — the `views/welcome/index.php` AI-Workforce page
+(`/analysis` → `Welcome::index`) with the `views/welcome/partials/chart.php` SVG chart behind it — as one
+exact-path screen at `/app/analysis`, driving the twelve analysis/market-data routes that already existed
 plus the paper module's two governance writes. **No new HTTP route, migration, contract method or permission:**
 the route count stays **146** before and after.
 
@@ -20,7 +20,7 @@ judged by whether the screen is a faithful port of the legacy page rather than b
 page and of the market panel that sits above it.
 
 - **A run on legacy's own vocabulary** — the three crypto symbols and five forex/metals symbols of
-  `views/workspace/index.php` grouped as *Crypto* and *Forex & Metals*, all six server timeframes offered, `1h`
+  `views/welcome/index.php` grouped as *Crypto* and *Forex & Metals*, all six server timeframes offered, `1h`
   selected, and the **legacy four** (`15m`, `1h`, `4h`, `1d`) on the watchlist form because that is the list the
   legacy scan offered. `marketClass` is derived by the legacy rule (`XAUUSD` → commodity, `*USDT` → crypto, else
   forex) so a symbol cannot be classified one way on screen and another on the wire, and the rule is asserted
@@ -82,7 +82,14 @@ the whole surface the console drives, and by requiring the declaration not to ca
    The divergence is now written at the assignment with that reasoning, and the suite asserts the port's shape —
    including that a **blank** reason on an activation gets the server's default while a blank reason on a release
    stores `null`.
-4. **`npm run check` could not pass on a clean checkout — and CI had been failing since Phase 29.** The
+4. **This record first misattributed the page it ports, and that hid a screen.** It said the console
+   was the port of `views/workspace/index.php`; that file is `Workspace::index` — legacy's `/dashboard`,
+   the workspace dashboard — while `/analysis` is `Welcome::index` → `views/welcome/index.php`. The
+   console consequently claimed a page it does not port, and row 3's absence list quietly lost the
+   workspace dashboard: it read *"the sports dashboard and the settings screens"* from this phase until
+   Phase 33 put the dashboard back on the list and ported it. The sentences above are corrected; the
+   error is recorded here because a record that only ever reads as if it had been right is not evidence.
+5. **`npm run check` could not pass on a clean checkout — and CI had been failing since Phase 29.** The
    console suites added between Phases 29 and 31 (and this one) assert that a bookmarked `/app/...` path answers
    the SPA shell with a 200; `public/app/` is generated and **git-ignored**, and without it every deep link is a
    404 **by design**. Locally the bundle was present, so the suite passed; in CI the release gate ran *before* the
@@ -94,7 +101,7 @@ the whole surface the console drives, and by requiring the declaration not to ca
    (`the built SPA shell is required: npm run build:client`) instead of letting a 404 read as a routing bug.
    Reproduced both ways locally: with `public/app/` moved aside the suite fails on that one message, and after a
    fresh `npm run build:client` the four console suites run 40/40.
-5. **A `.secondary-button` class was referenced but never defined.** Phase 31's console used it and it rendered
+6. **A `.secondary-button` class was referenced but never defined.** Phase 31's console used it and it rendered
    unstyled; styles.css now defines it (base, `:hover:not(:disabled)`, `:disabled`) immediately before
    `.danger-button`, whose existing shared disabled rule it inherits.
 
@@ -173,7 +180,7 @@ throttle).
 - The app README's test counts were **wrong and are corrected**: it claimed 1008 tests across 74 files; the
   suite is 1016 tests across **72** files, which is what the directory holds.
 - `UNFINISHED_MODULES.md` row 3's "Still absent" clause drops the analysis dashboard and gains the Phase 32
-  record; row 6's and row 7's "no UI" clauses become the ported chart and the console, and their "port the
+  record — **and it was wrong to drop the workspace dashboard with it, which Phase 33 restored and closed**; row 6's and row 7's "no UI" clauses become the ported chart and the console, and their "port the
   chart/dashboard UI with the app-shell workstream" actions are struck through as done; row 7's port-with-the-shell clause is satisfied and now names the console. `UNFINISHED_MODULES_INDEX.md`,
   `STATUS.md` and the app `README.md` carry the same corrections.
 

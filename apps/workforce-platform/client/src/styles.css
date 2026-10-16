@@ -428,8 +428,40 @@ button:focus-visible, input:focus-visible, a:focus-visible { outline: 2px solid 
 .status-list dt { color: #7f9184; font-size: .6rem; font-weight: 700; letter-spacing: .12em; text-transform: uppercase; }
 .status-list dd { margin: 0; color: #d3ddd1; }
 .status-list code { color: #a9c79a; font-size: .68rem; }
+/* Workspace dashboard (Phase 33): the port of legacy's `/dashboard` — the status
+   pills under the hero, the three quick actions (two of which name why they open
+   nothing here), the four KPI cards and the two panels from
+   `views/workspace/index.php`. Cell classes are the shell's own (`mono`, `dim`,
+   `num`), for the same reason the console tables use them. */
+.dash-status { display: flex; flex-wrap: wrap; gap: .35rem; margin-top: 1.1rem; }
+.dash-actions { display: flex; flex-wrap: wrap; align-items: center; gap: .6rem; }
+.dash-action-off { display: inline-flex; align-items: center; padding: .5rem .85rem; border: 1px dashed rgba(222, 239, 225, .18); border-radius: 6px; color: #7b8a7e; font-size: .6rem; letter-spacing: .07em; text-transform: uppercase; }
+.dash-notes { display: grid; gap: .3rem; margin: .8rem 0 0; padding: 0; list-style: none; color: #7f9184; font-size: .66rem; line-height: 1.55; }
+.dash-notes strong { color: #b9c9ba; }
+.dash-kpis { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: .8rem; }
+.dash-kpi { padding: .95rem 1rem 1.05rem; border: 1px solid var(--line); border-radius: 8px; background: rgba(9, 26, 20, .55); }
+.dash-kpi-top { display: flex; align-items: baseline; justify-content: space-between; gap: .5rem; }
+.dash-kpi-label { color: #7f9184; font-size: .57rem; font-weight: 700; letter-spacing: .12em; text-transform: uppercase; }
+.dash-kpi-value { margin: .5rem 0 .2rem; color: #e7f0e4; font-size: 1.85rem; letter-spacing: -.04em; }
+.dash-kpi-trend { color: #a9c79a; font-size: .64rem; }
+.dash-kpi-note { margin: .55rem 0 0; color: #7b8a7e; font-size: .61rem; line-height: 1.55; }
+.dash-panels { display: grid; grid-template-columns: minmax(0, 1.35fr) minmax(0, 1fr); gap: 1rem; }
+.dash-panels .panel { display: flex; flex-direction: column; }
+.panel-body { flex: 1 1 auto; }
+.panel-foot { display: flex; flex-wrap: wrap; align-items: baseline; justify-content: space-between; gap: .5rem .9rem; margin-top: 1rem; padding-top: .8rem; border-top: 1px solid var(--line); }
+.panel-foot-link { color: #b7e08d; font-size: .68rem; letter-spacing: .04em; text-decoration: none; }
+.panel-foot-link:hover { text-decoration: underline; }
+.panel-foot-note { color: #7b8a7e; font-size: .61rem; }
+.dash-empty { display: grid; gap: .7rem; justify-items: start; padding: 1.2rem 0; }
+.dash-feed { display: grid; gap: .5rem; margin: 0; padding: 0; list-style: none; }
+.dash-feed li { display: grid; grid-template-columns: auto minmax(0, 1fr) auto; align-items: center; gap: .55rem; padding: .5rem .6rem; border: 1px solid rgba(222, 239, 225, .08); border-radius: 6px; }
+.dash-feed-unread { border-color: rgba(193, 241, 139, .28); background: rgba(38, 78, 48, .14); }
+.dash-feed-title { color: #d3ddd1; font-size: .72rem; overflow-wrap: anywhere; }
+.dash-feed time { font-size: .61rem; }
 @media (max-width: 980px) {
   .workspace-body { grid-template-columns: 1fr; }
+  .dash-kpis { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .dash-panels { grid-template-columns: 1fr; }
   .app-nav { position: static; top: 0; flex-direction: row; flex-wrap: wrap; gap: .4rem; padding: 1rem 1.2rem 0; border-right: 0; border-bottom: 1px solid var(--line); }
   .nav-link { padding: .45rem .6rem; }
   .status-list { grid-template-columns: 1fr; }
@@ -475,6 +507,8 @@ button:focus-visible, input:focus-visible, a:focus-visible { outline: 2px solid 
   .workforce-start, .workforce-grid { grid-template-columns: 1fr; }
   .workforce-watchlist { grid-template-columns: 1fr; }
   .portfolio-meta { grid-template-columns: 1fr; }
+  .dash-kpis { grid-template-columns: 1fr; }
+  .panel-foot { align-items: flex-start; flex-direction: column; }
   .workspace-footer { align-items: flex-start; flex-direction: column; padding: 1rem; }
   .workspace-footer > span { text-align: left; }
 }

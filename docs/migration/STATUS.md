@@ -2,53 +2,82 @@
 
 **Updated:** 2026-10-16 · **Branch:** `arena/046b29ac-ai`
 
-## Current Phase 32 status (2026-10-16)
+## Current Phase 33 status (2026-10-16)
 
-**Row 8's console gap is closed, and F-29 is closed for `strategies`.** `/app/strategy` is the port
-of `views/strategy/index.php` and of the three posts behind it (`Strategy_lab::run_backtest`,
-`::optimize`, `::advance`), which the SPA performs as API calls instead of a redirect each: a
-backtest run against the version on screen, the returned report (every metric, the equity curve,
-the trades, the data provenance and the engine's own warnings), the stored history with its
-SIM/LIVE badge, the six-stage lifecycle stepper whose advance button always targets the server's
-own `nextStage`, the 70/30 optimizer with its finalists, overfit warnings and method note, and the
-strategy cards with legacy's badge colours.
+**Row 3's workspace dashboard is closed: `/app` is the port of legacy's `/dashboard`.** `Workspace::index`
+→ `views/workspace/index.php` is the page sign-in lands on, and the shell's signed-in home now renders
+it in legacy's own order: the `WINDELS AI WORKFORCE` hero with *"Welcome back, {first}"* (the first word
+of the display name, `Member` when unset), the three status pills — the trading state **replacing** the
+mode while the kill switch is engaged, which is what the page did — legacy's three quick actions, the
+four KPI cards with legacy's captions, the recent-activity table (Symbol, Timeframe, Bias, Completed;
+the bias in the shell's badge language and a **SIM** marker legacy's own dashboard could not show
+because its rows carried no provenance) and the notification feed that fetches eight and prints six.
+**No new HTTP route, migration, contract method or permission** — 146 routes before and after, and the
+four reads it makes all already existed.
 
-**The screen is session-only, like legacy's `Api_controller`.** Those routes were guarded by a
-session and no permission, so the exact-path route declares none; the one permissioned control the
-console can render — the human sign-off on an `ai`-sourced version — is `trading.control` on the
-route that already enforced it. A refused promotion renders the server's `reasons` **and**
-`warnings` verbatim: legacy's gates computed those advisories and `transition()` then discarded
-them on the way out (DV-3), so a console that showed only "rejected" would lose what a person acts
-on. **No new HTTP route, migration, contract method or permission** — 146 routes before and after.
+**The page's honesty rules are the point of the slice.** Two of the four reads are gated
+(`GET /trading/mode`, `GET /paper/accounts`, both `trading.view`) and are **not attempted** without it:
+the pills and cards name the gate rather than showing an error box for a request the viewer was never
+entitled to make. The language card is the one number no Node module can answer, so it shows an em dash
+and row 16 rather than a zero; the run count says it is the six most recent runs, not a lifetime total;
+the paper count says it is owner-scoped, because `GET /paper/accounts` is the viewer's accounts while
+legacy's `listAccounts()` read every row for any member. And two of the three quick actions — Paper
+trading and Learn a language — render as unavailable **with their reasons** (F-29 for the paper console,
+row 16 for language learning), because a link that 404s and a quiet omission are both worse than the
+sentence. The activity panel's foot says the same about legacy's `View analytics →`: it pointed at
+`/journal`, which this edition has not ported (row 18). Full record:
+[`PHASE33_WORKSPACE_DASHBOARD.md`](PHASE33_WORKSPACE_DASHBOARD.md).
 
-A third contract suite (`test/client_strategy_console.test.js`, 8 tests) imports the console's
-plain-ESM logic and the server's own contracts side by side: timeframes, market classes, stage
-order and bar bounds are read from the API's declarations rather than restated, the four request
-bodies are checked against `BACKTEST_BODY`/`OPTIMIZE_BODY`/`STATUS_BODY`/`HUMAN_SIGNOFF_BODY`
-property by property, the pre-flights are asserted **not** to refuse what the engine only clamps
-(60–5000 backtest bars, 420–2000 optimizer candles), and the route inventory is asserted to hold
-exactly one permissioned route on the console's whole surface. One defect was found and fixed
-against the live endpoint: `optimizeRecommendation` prefixed "keep current parameters — " onto a
-reason that already began with it, printing the phrase twice.
+**A correction came before the screen.** Phase 32's record attributed the AI Workforce console to
+`views/workspace/index.php`; that file is the dashboard, and `/analysis` is `views/welcome/index.php`.
+The error had quietly removed the workspace dashboard from row 3's absence list. It is corrected in the
+Phase 32 record, in this file and in the row-3 ledger text, and the dashboard it hid is now ported.
 
-Gates: `npm run check:workforce` **1008 / 1008** across 5 suites (1000 before), the client
-production build OK, `node tools/verify-install.mjs --require-bundle` **30/30**. Live, against the
-demo server on the console's own builders: a run 200 (240 equity points for 300 bars, 3 trades,
-synthetic provenance, both warnings), the history and detail reads, the optimizer 200 (18
-combinations, split 350/150, `adopt:false`, one overfit warning), transitions refused 409 with
-reasons *and* warnings, sign-off 409 for a builtin strategy, `/app/strategy` and both bundle
-assets 200. **Not run:** a real browser, real MySQL/MariaDB, any live provider, and no PHP↔Node
-numeric diff (F-26 remains open). Full record:
-[`PHASE31_STRATEGY_CONSOLE.md`](PHASE31_STRATEGY_CONSOLE.md).
+**F-29's residual scope is corrected, not just shortened.** It read *"still open for the Broker Center
+and the sports screens only"*; the legacy view directories say more: the consoles still absent are
+**paper, risk, execution, brokers, journal, sports** and the **admin control centre**, plus the screens
+of the modules that are not ported at all (leads, language learning). `RISK_REGISTER.md` carries the
+verified list. Row 3's remaining absences are stated the same way: the sports dashboard, the account
+screen's **avatar control** (`POST`/`DELETE /api/v1/account/avatar` exist and no control calls them) and
+the **admin control centre** (`views/admin/index.php`: the SMTP panel, the access-policy list and the
+feature-readiness table — its user table and the create/toggle forms are already at `/app/admin/users`,
+and the SMTP panel cannot be ported while there is no mail transport).
 
-F-29 now reads: closed for the audit browser (Phase 28), the portfolio optimizer (Phase 29), the
-lottery (Phase 30) and strategies (Phase 31); **still open for the Broker Center and the sports
-screens only**.
+Four defects were found and fixed on the way: `kpiCards` turned a null unread count into a confident
+**0** (`Number(null)` is 0 and finite — the exact failure the page exists to avoid, caught by the new
+suite's own no-zero assertion); the paper note explained the missing console without naming **F-29**;
+the readiness strip still claimed `TRADING MODE — Not enabled in this shell`, which stopped being true
+when Phase 32 made the mode real and writable, and is now `ORDER ROUTING — Simulation only · no live
+route`; and the shell's `mono`/`dim`/`num` class names are defined in no stylesheet (`.muted` is; recorded,
+not swept — defining them would restyle seventeen phases of reviewed screens, so it belongs to a
+stylesheet pass with its own before/after evidence).
+
+A fifth client contract suite (`test/client_dashboard.test.js`, 8 tests) asserts the page's vocabulary,
+its honesty rules (a member with nothing granted is told which gate stood there and gets **no `0`
+anywhere**), that every destination is a declared route and every missing one carries a reason, the two
+row shapes, that the four reads are the registered routes with the permissions the server enforces, the
+live behaviour as both the administrator and a member holding only the signed-in baseline (the two
+governance reads answer, or **403 `PERMISSION_DENIED`**), the screen and its bundle, and that the two
+absences the page explains are the ledger's own (`languageLearning` `not-ported`, `paperTrading`
+`ported`, and `/app/paper`, `/app/risk`, `/app/execution`, `/app/journal`, `/app/brokers`, `/app/sports`
+not declared). Gates: `npm run check:workforce` **1024 / 1024** across 5 suites (1016 before), the client
+build OK (`index-3X6YJttD.js` 419.51 kB / 115.71 kB gzip, `index-Cyo6EhCz.css` 38.08 kB / 8.29 kB gzip),
+`npm run verify:install -- --require-bundle` **30/30**, and a live probe driven by the module's own
+helpers (six SIM activity rows, unread 4, the pills `Kill switch active · 0 paper accounts · Language
+learning not ported`, `/app` plus both assets 200 with the bundle carrying the dashboard's strings, all
+four reads matching the route inventory). **Not run:** a real browser, real MySQL/MariaDB, any live
+provider, SMTP, and no PHP↔Node numeric diff (F-26 remains open).
+
+**The module counts are unchanged — 10 ported / 5 partial / 2 not-ported.** This phase closed a screen,
+not a ledger state.
+
+## Phase 32 status (2026-10-16) — superseded by Phase 33
 
 **Row 3's analysis dashboard is closed: `/app/analysis` is the AI Workforce console.** It is the port
-of `views/workspace/index.php` and of the market panel above it (`views/welcome/index.php` with
-`views/welcome/partials/chart.php`), driving the twelve analysis/market-data routes that already
-existed. A run is requested on the legacy page's own eight symbols and six timeframes, with
+of `views/welcome/index.php` (`/analysis` → `Welcome::index`) with the
+`views/welcome/partials/chart.php` chart behind it, driving the twelve analysis/market-data routes
+that already existed. **This record first said `views/workspace/index.php`, which is the dashboard,
+not the console** — Phase 33 records the correction and ports the screen the error had hidden. A run is requested on the legacy page's own eight symbols and six timeframes, with
 `marketClass` derived by the legacy rule; the result renders the headline, the synthetic-data banner
 built from the run's **own** provenance, the three meters, the consensus line naming its voting and
 abstaining agents, the nine signal rows, the five-agent panel, the four-round debate, the stored
@@ -103,12 +132,56 @@ provider, and no PHP↔Node numeric diff (F-26 remains open).
 its remaining absences are the **sports dashboard** (waiting on stake sizing and a verified vendor)
 and the **settings screens** (waiting on row 5's decisions).
 
+F-29 was written here as closed *"for the audit browser (Phase 28), the portfolio optimizer (Phase 29),
+the lottery (Phase 30) and strategies (Phase 31); still open for the Broker Center and the sports
+screens only"* — **a residual list that was too short.** The legacy view directories also hold console
+screens for paper (`views/paper/{index,account}.php`), risk (`views/risk/index.php`), execution and
+journal, none of which the SPA has. Phase 33 records the verified list. See the current section.
+
+## Phase 31 status (2026-10-16) — superseded by Phase 32
+
+**Row 8's console gap is closed, and F-29 is closed for `strategies`.** `/app/strategy` is the port
+of `views/strategy/index.php` and of the three posts behind it (`Strategy_lab::run_backtest`,
+`::optimize`, `::advance`), which the SPA performs as API calls instead of a redirect each: a
+backtest run against the version on screen, the returned report (every metric, the equity curve,
+the trades, the data provenance and the engine's own warnings), the stored history with its
+SIM/LIVE badge, the six-stage lifecycle stepper whose advance button always targets the server's
+own `nextStage`, the 70/30 optimizer with its finalists, overfit warnings and method note, and the
+strategy cards with legacy's badge colours.
+
+**The screen is session-only, like legacy's `Api_controller`.** Those routes were guarded by a
+session and no permission, so the exact-path route declares none; the one permissioned control the
+console can render — the human sign-off on an `ai`-sourced version — is `trading.control` on the
+route that already enforced it. A refused promotion renders the server's `reasons` **and**
+`warnings` verbatim: legacy's gates computed those advisories and `transition()` then discarded
+them on the way out (DV-3), so a console that showed only "rejected" would lose what a person acts
+on. **No new HTTP route, migration, contract method or permission** — 146 routes before and after.
+
+A third contract suite (`test/client_strategy_console.test.js`, 8 tests) imports the console's
+plain-ESM logic and the server's own contracts side by side: timeframes, market classes, stage
+order and bar bounds are read from the API's declarations rather than restated, the four request
+bodies are checked against `BACKTEST_BODY`/`OPTIMIZE_BODY`/`STATUS_BODY`/`HUMAN_SIGNOFF_BODY`
+property by property, the pre-flights are asserted **not** to refuse what the engine only clamps
+(60–5000 backtest bars, 420–2000 optimizer candles), and the route inventory is asserted to hold
+exactly one permissioned route on the console's whole surface. One defect was found and fixed
+against the live endpoint: `optimizeRecommendation` prefixed "keep current parameters — " onto a
+reason that already began with it, printing the phrase twice.
+
+Gates: `npm run check:workforce` **1008 / 1008** across 5 suites (1000 before), the client
+production build OK, `node tools/verify-install.mjs --require-bundle` **30/30**. Live, against the
+demo server on the console's own builders: a run 200 (240 equity points for 300 bars, 3 trades,
+synthetic provenance, both warnings), the history and detail reads, the optimizer 200 (18
+combinations, split 350/150, `adopt:false`, one overfit warning), transitions refused 409 with
+reasons *and* warnings, sign-off 409 for a builtin strategy, `/app/strategy` and both bundle
+assets 200. **Not run:** a real browser, real MySQL/MariaDB, any live provider, and no PHP↔Node
+numeric diff (F-26 remains open). Full record:
+[`PHASE31_STRATEGY_CONSOLE.md`](PHASE31_STRATEGY_CONSOLE.md).
+
 F-29 now reads: closed for the audit browser (Phase 28), the portfolio optimizer (Phase 29), the
 lottery (Phase 30) and strategies (Phase 31); **still open for the Broker Center and the sports
 screens only**.
 
-
-## Phase 31 status (2026-10-16) — superseded by Phase 32
+## Phase 30 status (2026-10-16) — superseded by Phase 31
 
 
 **Row 15 is closed and `lottery` is `ported`.** The lottery console screens — the module's last
