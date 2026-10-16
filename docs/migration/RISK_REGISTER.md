@@ -124,13 +124,15 @@ keeping the summary columns, or keeping evidence for any strategy past `BACKTEST
 and pruning only abandoned drafts. Recorded so the table does not grow silently while the
 question is unanswered.
 
-### F-29 — no ported module has a workspace console (open)
+### F-29 — ported domain APIs lack workspace consoles (open)
 
-The SPA ships identity, account, admin and status views and **nothing else**. Market data
-(Phase 4, 3 routes), analysis (Phase 5, 5 routes) and now the Strategy Lab (Phase 6, 11
-routes) are all reachable only with an API client. The legacy served each as a rendered page;
-`views/strategy/index.php` alone is 8 466 bytes of operator UI with forms for backtest,
-optimize and advance, and its four document routes remain unported.
+The SPA now ships identity, account, admin, status and an in-product notification inbox. The
+remaining product/domain APIs still have no operator console: market data (Phase 4), analysis
+(Phase 5), Strategy Lab (Phase 6), portfolio optimization (Phase 11), sports (Phases 15–20)
+and lottery (Phases 21–25). The legacy rendered these as pages; `views/strategy/index.php`
+alone is 8 466 bytes of operator UI with forms for backtest, optimize and advance, and its four
+document routes remain unported. The audit browser and portfolio optimizer APIs also still
+need workspace screens.
 
 Compounding it, `ModuleCards` labelled market intelligence *"Not yet ported to Node"* — false
 since Phase 5, and still on screen through Phase 6. Corrected in `a2bef0f` with a three-state
@@ -139,10 +141,9 @@ vocabulary (`live` / `api` / `planned`), because two states could not describe r
 here, which they cannot. The middle state is styled blue rather than the green used for
 `live`, since the colour is part of the claim.
 
-The label fix makes the gap visible instead of hiding it behind a claim that happens to be
-false in the other direction. Building the consoles is a separate, larger piece of work; if a
-future phase adds one it should establish the pattern for all three modules rather than for
-itself alone.
+The first shared-shell console is now the notification inbox. F-29 remains open until the
+remaining domain consoles are ported one module at a time; the notification view is not evidence
+that an unrelated API has a usable screen.
 
 ### F-30 — `maxCorrelatedPositions` is a declared risk limit with no enforcement (open)
 

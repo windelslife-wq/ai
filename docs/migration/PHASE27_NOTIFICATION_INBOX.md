@@ -6,7 +6,7 @@
 
 - Added the authenticated SPA route `/app/notifications` and workspace navigation entry.
 - Added typed client calls for the inbox, mark-one-read and mark-all-read endpoints.
-- Built the inbox view with unread count, unread-only filtering, broadcast labeling, severity/type/time metadata, bounded detail rendering, per-item acknowledgement, mark-all and retry/error/empty states.
+- Built a 200-row bounded inbox with unread count and navigation badge, unread/severity/type filters, broadcast/read labels, timestamp and expandable event details, per-item acknowledgement, mark-all and retry/error/empty states. Older history is not paginated.
 - Kept notification display informational: the screen does not offer governance or execution controls. API authorization remains authoritative.
 - Fixed a time-dependent lottery HTTP test fixture: it now builds an exact-match ticket from the opted-in sandbox draw actually returned, rather than assuming a fixed calendar date and PRNG offset.
 

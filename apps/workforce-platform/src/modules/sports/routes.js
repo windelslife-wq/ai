@@ -18,9 +18,10 @@
  * module's reads correctly and left another's open, so "legacy did it this way" is
  * evidence about a controller, never about the application.
  *
- * Since no ported module has a console screen (**F-29**), the list of what is *not*
- * ported travels in the response — the same decision as BC-10 in the broker port. A
- * module that reported only what it has would look complete.
+ * Since no domain module has a sports console screen (**F-29**), the list of what is
+ * *not* ported travels in the response — the same decision as BC-10 in the broker
+ * port. The shared shell has a notification inbox, not a sports surface, so a module
+ * that reported only what it has would still look complete.
  */
 
 import { AppError } from "../../http/errors.js";

@@ -36,6 +36,7 @@ test("the ticket lifecycle: create (validated), list own, check against the stor
   assert.equal(storedDraws.statusCode, 200, storedDraws.body);
   const matchingDraw = storedDraws.json().draws[0];
   assert.ok(matchingDraw, "the opted-in sandbox sync stores a draw");
+  assert.equal(matchingDraw.verification_status, "VERIFIED");
   const matchingNumbers = matchingDraw.payload;
 
   // Build an exact-match ticket from the draw actually returned by the opted-in
