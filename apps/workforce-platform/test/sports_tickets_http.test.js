@@ -12,6 +12,9 @@
  *  - A decision moves a ticket once, is audited, and is refused for a second decision.
  *  - Reading is `sports.view`; running and decisions are `sports.manage` and
  *    `sports.approve`. A read-only analyst can read and cannot act.
+ *  - Approval carries legacy's second guard (Phase 36): while the platform kill switch is
+ *    ACTIVE — which is how it boots — a decision is refused with 409 and changes nothing.
+ *    Settlement is not behind that guard, by legacy's own design.
  *  - A run that breaks is stored as NO_QUALIFIED_TICKET, as legacy stores it, with the error in
  *    its message and in `errors` (DV-23, user-chosen).
  *
@@ -123,6 +126,23 @@ async function decide(instance, headers, ticketId, body) {
   return instance.app.inject({ method: "POST", url: `/api/v1/sports/tickets/${ticketId}/decision`, headers, payload: body });
 }
 
+/**
+ * Release the platform kill switch, which boots ACTIVE (fail closed) on a fresh host.
+ *
+ * Phase 36 made this an operator step rather than test plumbing, because legacy has it:
+ * `Api_sports::decide_ticket` refuses with 409 while the switch is on. The release goes
+ * through the paper module's own route — an operator's action, not a shortcut around the
+ * guard under test.
+ */
+async function releaseKillSwitch(instance, headers) {
+  const response = await instance.app.inject({
+    method: "POST", url: "/api/v1/trading/kill-switch", headers,
+    payload: { active: false, reason: "operator released the switch before approving a ticket" },
+  });
+  assert.equal(response.statusCode, 200, response.body);
+  assert.equal(response.json().killSwitch.active, false);
+}
+
 test("a day of real fixtures produces one ticket, awaiting approval, with its legs and nothing executed", async (t) => {
   const instance = await createFileStoreApp({});
   t.after(() => instance.cleanup());
@@ -227,6 +247,7 @@ test("a decision moves a ticket once, is audited, and executes nothing; a second
   await seedRealFixtures(instance.store);
   await approveCalibration(instance, root.headers);
   const first = await runDaily(instance, root.headers);
+  await releaseKillSwitch(instance, root.headers);
 
   const approved = await decide(instance, root.headers, first.ticketId, { approve: true, reason: "reviewed" });
   assert.equal(approved.statusCode, 200, approved.body);
@@ -282,6 +303,44 @@ test("reading is sports.view; running and deciding are refused to a read-only an
   assert.equal(decision.statusCode, 403, "the analyst cannot approve a ticket");
   assert.equal(((await instance.app.inject({ method: "GET", url: `/api/v1/sports/tickets/${run.ticketId}`, headers: root.headers })).json().ticket).approval_status,
     "PENDING_USER_APPROVAL", "a refused decision changes nothing");
+});
+
+test("the kill switch blocks approval and nothing else: settlement stays available, as legacy's own refusal says", async (t) => {
+  const instance = await createFileStoreApp({});
+  t.after(() => instance.cleanup());
+  const root = await signIn(instance.app);
+  await grantApprover(instance.store);
+  await seedRealFixtures(instance.store);
+  await approveCalibration(instance, root.headers);
+  const run = await runDaily(instance, root.headers);
+
+  // The switch boots ACTIVE on a fresh host (`Platform::state()`), so the ticket the run
+  // just produced is already blocked. Both directions are refused, as `Sports::decide`
+  // refuses the action before it reads `approve`.
+  for (const approve of [true, false]) {
+    const refused = await decide(instance, root.headers, run.ticketId, { approve, reason: "not yet" });
+    assert.equal(refused.statusCode, 409, refused.body);
+    assert.equal(refused.json().error.code, "SPORTS_KILL_SWITCH_ACTIVE");
+    assert.equal(refused.json().error.message,
+      "kill switch is ACTIVE — approving new tickets is blocked until it is released (settlement remains available)");
+  }
+  const state = (await instance.app.inject({ method: "GET", url: `/api/v1/sports/tickets/${run.ticketId}`, headers: root.headers })).json();
+  assert.equal(state.ticket.approval_status, "PENDING_USER_APPROVAL", "a refusal under the switch changes nothing");
+  assert.equal(state.ticket.decided_by, null);
+  assert.equal((await instance.store.listAuditEvents({ action: "sports.ticket.approved" })).total, 0, "and audits nothing");
+
+  // Settlement is NOT behind the switch — the sentence above promises it, so it is
+  // asserted rather than assumed. The book can be closed while new approvals wait.
+  const settled = await instance.app.inject({ method: "POST", url: `/api/v1/sports/tickets/${run.ticketId}/settle`, headers: root.headers });
+  assert.equal(settled.statusCode, 200, settled.body);
+  assert.equal(settled.json().settlement.status, "PENDING", "no verified results are stored, so the settlement stays PENDING rather than inventing one");
+
+  // Release it, and the same request that was refused becomes a decision.
+  await releaseKillSwitch(instance, root.headers);
+  const approved = await decide(instance, root.headers, run.ticketId, { approve: true, reason: "switch released" });
+  assert.equal(approved.statusCode, 200, approved.body);
+  assert.equal(approved.json().approvalStatus, "APPROVED_NOT_EXECUTED");
+  assert.equal(approved.json().externalExecution, false);
 });
 
 test("a disabled module runs nothing, and the run says why", async (t) => {

@@ -2,7 +2,77 @@
 
 **Updated:** 2026-10-16 · **Branch:** `arena/046b29ac-ai`
 
-## Current Phase 35 status (2026-10-16)
+## Current Phase 36 status (2026-10-16)
+
+**Row 3 is closed: `/app/sports` is the port of `views/sports/index.php` (`Sports::index`) and
+`views/sports/tickets.php` (`Sports::tickets`) on one screen.** Today's intelligence, the ticket the daily
+run produced and the person's decision over it, the measured performance, the models and their
+calibrations, the provider boundary and the module's own statement of what it does not do. The sports
+dashboard was the last screen row 3 named, so the row now has **no screen left**: the settings gap closed
+in Phases 34–35, and the screens F-29 still names (paper, risk, execution, brokers, journal) belong to
+other modules. **146 routes before and after — no route, migration, contract method, permission or
+dependency was added.**
+
+**The console also closed a divergence it would otherwise have been a lie about.** `Api_sports::decide_ticket`
+refuses an approval while the platform kill switch is ACTIVE; the Node decision route did not.
+`assertKillSwitchReleased(paper)` now runs on `POST /sports/tickets/:ticketId/decision` **after** schema
+validation and **before** the decision, and refuses with **409 `SPORTS_KILL_SWITCH_ACTIVE`** carrying
+legacy's own sentence: *"kill switch is ACTIVE — approving new tickets is blocked until it is released
+(settlement remains available)"*. The state is read through the **paper service** (`tradingState()` →
+`publicTradingState` → `normalizeTradingState`) — the module that owns the switch and the only one that
+normalizes it — so only a stored `active: false` releases it and absent state, a missing governance surface
+or malformed rows **fail closed**, exactly as a fresh host boots ACTIVE. The refusal applies to **rejects
+too**, because legacy's guard was on the route rather than the verb; **settlement is deliberately not
+behind it**, which is what the message itself promises. The client reads the switch rather than assuming it:
+the notice appears only when the session holds `trading.view` (the gate on `GET /trading/mode`) and carries
+both sentences — the console's flash and the API's own answer to a decision taken now.
+
+**The screen's honesty rules are the dashboard's and the lottery console's.** `isDemoData` renders legacy's
+`demoBanner` verbatim and a host with **no provider configured** says so (the API's `DISABLED_NO_PROVIDER`
+fact, never a zero-valued health card); a provider with nothing observed renders `UNKNOWN`, never a
+fabricated health; `enabled` (the env switch) is shown beside `configuration.module_enabled` (the stored
+setting) because the API keeps those two apart; the mean confidence of a day with no predictions is an em
+dash, never `0`; `GET /sports/predictions` has **no instant filter**, so the day attribution is computed
+client-side and the panel says the counts are a floor when the page is full; each displayed fixture's
+quality is one `GET /sports/matches/:id/intelligence` (25 rows at most) and a fixture that was not assessed
+is marked *not assessed*; and `GET /sports/configuration` is **not attempted** without `sports.manage` —
+the panel names the gate instead of filling with a refusal.
+
+**The honesty corrections this phase had to make were in the ledger, not the screen.** `SPORTS_NOT_PORTED`
+was still listing *"the console screens"* after the console landed — a matrix named *not ported* may not
+name a surface that exists — and is now a **single entry, "stake sizing"**; external execution and an
+unverified vendor are stated in words rather than added as rows with a fabricated `state`. The
+`health.js` sports label loses `Not ported: stake sizing and the console screens (F-29)` and states the
+console, the F-29 closure, the guard and the one remaining entry instead; the module **stays `partial`**
+because no stake is sized, nothing is executed, no stored result is trusted before a person attests to it,
+and no provider has been verified against a real vendor. `src/modules/sports/sync.js`'s audit-vocabulary
+docblock no longer says the screens are missing. Four suites moved with the claims, each with its reason in
+the assertion: `test/sports.test.js` (2 → 1, plus a guard that no ported area re-enters the matrix),
+`test/sports_http.test.js`, `test/platform_findings.test.js` and `test/client_dashboard.test.js` (whose
+F-29 absence list loses `/app/sports` **because it is now declared**).
+
+An eleventh client contract suite (`test/client_sports_console.test.js`, **20 tests**, three of them over
+HTTP with the sandbox double-gate) pins the legacy views' own words (`readFileSync` against
+`application/views/sports/*.php`), every declared read and write against `GET /api/v1/system/routes` and the
+permission the server enforces, the single `assertKillSwitchReleased` call site (so settlement cannot grow
+one), the shapers against real payloads, and the live behaviour: a `sports.view` analyst reads everything it
+asks for, the decision route answers 409 under the boot switch with nothing changed, and after an operator
+releases the switch through `/api/v1/trading/kill-switch` the same request succeeds and a second one is
+`409 SPORTS_TICKET_ALREADY_DECIDED`. Gates: `npm run check:workforce` **1066 / 1066** (1045 before: +20
+console tests, +1 HTTP guard test), the eight client suites **89 / 89**, `npm run typecheck` clean,
+`npm run test:contracts` 12/12, the client build (`index-D7L0hs05.js` 472.30 kB / 129.00 kB gzip,
+`index-B_XlxOxv.css` 41.01 kB / 8.83 kB gzip) and `npm run verify:install -- --require-bundle`
+**30 / 30**, plus a **36 / 36** live probe (the demo store seeded with four "… Test" fixtures and an
+approved calibration, the daily ticket run through the API, an approval refused 409 with nothing changed).
+**Not run:** a real browser, real MySQL/MariaDB, any live provider, SMTP, cPanel/Passenger, and still no
+PHP↔Node numeric diff (F-26). Full record:
+[`PHASE36_SPORTS_DASHBOARD.md`](PHASE36_SPORTS_DASHBOARD.md).
+
+**F-29's residual list is now five: paper, risk, execution, brokers, journal** — sports left it whole,
+route included. **The module counts are unchanged — 10 ported / 5 partial / 2 not-ported:** this phase
+ported a screen and one legacy guard over routes that already existed.
+
+## Phase 35 status (2026-10-16) — superseded by Phase 36
 
 **The administrator control centre is closed: `/app/admin` is the port of `views/admin/index.php`**
 (`Admin::index`). It is the super administrator's page — `requireAdmin()` → `isAdmin()` →

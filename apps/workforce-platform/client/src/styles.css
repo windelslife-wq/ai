@@ -202,6 +202,31 @@ button:focus-visible, input:focus-visible, a:focus-visible { outline: 2px solid 
 .admin-role { display: inline-flex; align-items: baseline; gap: .4rem; padding: .2rem .5rem; border: 1px solid rgba(196, 181, 253, .3); border-radius: 99px; }
 .admin-role code { color: #c9bcf7; font-size: .62rem; }
 .admin-role em { color: #8b9a8e; font-size: .58rem; font-style: normal; }
+/* Sports Intelligence console (Phase 36): legacy's two-column board — today's
+   intelligence, the performance panels, models and the ticket history on the left; the
+   System panel, today's ticket with its decision controls, and the module's not-ported
+   boundary on the right. The risk meters are `index.php`'s `.meter` rows and the three
+   fills below extend the workforce console's palette with the amber and red legacy used
+   for MEDIUM and HIGH, plus a muted bar for the rejected bucket. */
+.sports-board { display: grid; grid-template-columns: minmax(0, 1.7fr) minmax(280px, 1fr); gap: 1.1rem; align-items: start; }
+.sports-main, .sports-side { display: flex; flex-direction: column; gap: 1.1rem; min-width: 0; }
+.sports-main > .panel, .sports-side > .panel { margin: 0; }
+.sports-kpis { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+.sports-pairs { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+.sports-meters { display: grid; gap: .45rem; margin: 1rem 0 .3rem; }
+.sports-meter-row { display: flex; justify-content: space-between; font-size: .68rem; color: #b9c7b8; }
+.sports-meter-bar { height: 6px; margin-top: .25rem; border-radius: 3px; background: rgba(222, 239, 225, .09); overflow: hidden; }
+.sports-meter-fill { height: 100%; }
+.meter-amber { background: #fbbf24; }
+.meter-red { background: #f87171; }
+.meter-muted { background: #7b8a7e; }
+.sports-ticket-head { display: flex; flex-wrap: wrap; align-items: center; gap: .5rem; margin-bottom: .8rem; }
+.sports-decide { display: flex; flex-direction: column; gap: .7rem; margin-top: 1rem; padding-top: .9rem; border-top: 1px solid var(--line); }
+.sports-decide > p { margin: 0; }
+.sports-inline-actions { display: flex; flex-wrap: wrap; gap: .7rem; }
+.sports-row-actions { display: flex; flex-wrap: wrap; gap: .5rem; white-space: nowrap; }
+.sports-row-actions .text-button { font-size: .64rem; }
+
 .audit-section-heading { display: flex; align-items: center; justify-content: space-between; gap: 1rem; margin-bottom: 1rem; }
 .audit-section-heading h2 { margin: 0; }
 .audit-section-heading p { margin: .35rem 0 0; font-size: .66rem; }
@@ -532,6 +557,8 @@ button:focus-visible, input:focus-visible, a:focus-visible { outline: 2px solid 
   .portfolio-assets-head { align-items: stretch; flex-direction: column; }
   .portfolio-report-heading { flex-direction: column; }
   .workforce-start, .workforce-grid { grid-template-columns: 1fr; }
+  .sports-board { grid-template-columns: 1fr; }
+  .sports-kpis, .sports-pairs { grid-template-columns: repeat(2, minmax(0, 1fr)); }
   .workforce-watchlist { grid-template-columns: 1fr; }
   .portfolio-meta { grid-template-columns: 1fr; }
   .dash-kpis { grid-template-columns: 1fr; }

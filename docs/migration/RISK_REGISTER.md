@@ -158,9 +158,13 @@ its SMTP panel needs a mail transport). The unported modules' own screens (`view
 `views/langlearn/*`) are the row 16/17 workstreams rather than this finding. F-29 stays open for
 those seven screens, and the dashboard's own quick actions name the two it touches rather than
 linking into the gap. Phase 34 added the account screen's avatar control, which is a settings control
-over routes that already existed rather than one of this finding's domain consoles, and Phase 35 ported
-the **admin control centre** (`/app/admin`), which leaves the residual list at six: **paper, risk,
-execution, brokers, journal and sports**.
+over routes that already existed rather than one of this finding's domain consoles, Phase 35 ported
+the **admin control centre** (`/app/admin`), and Phase 36 ported the **sports dashboard**
+(`/app/sports` — `views/sports/{index,tickets}.php`, row 3's last screen), which leaves the residual
+list at five: **paper, risk, execution, brokers and journal**. The sports console is also where the
+last *behavioural* half of parity for that module landed — the decision route now carries
+`Api_sports::decide_ticket`'s kill-switch refusal — so the entry leaves this finding whole rather
+than leaving a route behind.
 
 ### F-30 — `maxCorrelatedPositions` is a declared risk limit with no enforcement (open)
 

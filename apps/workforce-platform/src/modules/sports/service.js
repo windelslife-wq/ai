@@ -54,24 +54,31 @@ import { createHttpSportsProvider } from "./providers/http.js";
 /**
  * The parts of row 14 this port still does not contain, in legacy's own terms.
  *
- * Slice 5 empties this matrix down to three entries: stake sizing (which no slice
- * owns), the scheduled jobs (whose ported home is row 19, shared with the operations
- * cron), and the sports console screens (F-29; the shell's consoles cover portfolio
- * optimisation, the lottery and strategies, but no sports surface).
- * Settlement, verification, calibration fitting, backtesting, model drift monitoring
- * and performance analytics all graduated in slice 5, and were REMOVED from this list
- * rather than re-labelled: a matrix whose name is "not ported" must not contain an
- * entry that says otherwise.
+ * **One entry.** Slice 5 took settlement, verification, calibration fitting, backtesting,
+ * drift monitoring and performance analytics out of this list; row 19 took the scheduled
+ * jobs out; and Phase 36 took the console screens out — `Sports::index` and
+ * `Sports::tickets` are `/app/sports` now, which closes **F-29** for this module. What is
+ * left is the one thing no slice owns: stake sizing. Everything else left by being
+ * REMOVED rather than re-labelled, and a matrix whose name is "not ported" must not
+ * contain an entry that says otherwise.
  *
- * Surfaced by `status()` for the same reason the broker route surfaces its
- * `PLANNED` matrix (divergence BC-10): there is no sports console screen (**F-29**),
- * so a distinction that legacy showed an operator in a view has to travel in the API
- * response or it is lost. "Working" and "scaffolded, not yet ported" must not look
- * the same from the outside.
+ * Two things this matrix deliberately does **not** list, and why:
+ *
+ *  - *No external execution and no order path.* That is not a gap in the port; it is the
+ *    module's design, and legacy's (`Sports::index`: "approval never places a bet").
+ *    Listing it here would read as work outstanding.
+ *  - *No verified vendor.* Legacy never verified one either — its own providers were
+ *    registry rows with derived health — so this is parity rather than a shortfall. The
+ *    module's `partial` state and the ledger label carry the claim as prose, where it
+ *    belongs: `partial` is about the module's boundaries, not about unported slices.
+ *
+ * Surfaced by `status()` for the same reason the broker route surfaces its `PLANNED`
+ * matrix (divergence BC-10): a distinction legacy showed an operator in a view has to
+ * travel in the API response or it is lost. "Working" and "scaffolded, not yet ported"
+ * must not look the same from the outside — and neither must `partial` and `ported`.
  */
 export const SPORTS_NOT_PORTED = Object.freeze([
   Object.freeze({ area: "stake sizing", legacy: "stake_amount copied onto each ticket (TicketGovernance::record)", state: "not ported", detail: "No stake is sized from bankroll or edge: the configured fixed stake_amount is recorded on each ticket, as legacy does, and settlement's P/L is computed on it. Sizing is not ported, and no slice owns it yet." }),
-  Object.freeze({ area: "console screens", legacy: "Sports::index, Sports::tickets (views/sports/*.php)", state: "not ported", detail: "Both console views aggregate stored tickets and settled results. No sports console is ported yet (F-29); the shell's other consoles cover portfolio optimisation, the lottery and strategies, not sports. API reads exist under /sports/performance and /sports/tickets." }),
 ]);
 
 /**

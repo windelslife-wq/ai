@@ -1152,12 +1152,17 @@ test("F-02 the status surface is honest about unported modules, and F-03 the rou
   for (const pattern of [
     // The absence is stated as one list, so the list is pinned as a list rather than
     // as separate "no X" phrases that the label does not and should not repeat.
-    // Slice 5 shrank it to three and row 19 removed the cron from it: stake sizing
-    // and the console screens (F-29) are what no slice owns. Settlement, calibration fitting, backtests, drift and
-    // analytics came OUT of this list, and the assertion that they are gone is as
-    // important as the ones that remain: a ledger label is documentation, and a stale
-    // one is worse than none because it is read as current.
-    /not ported: stake sizing and the console screens \(f-29\)/i,
+    // Slice 5 shrank it; row 19 removed the cron; Phase 36 removed the console screens.
+    // Stake sizing is what no slice owns, and it is now the whole list — settlement,
+    // verification, calibration fitting, backtests, drift, analytics and the consoles
+    // came OUT of it, and the assertion that they are gone is as important as the ones
+    // that remain: a ledger label is documentation, and a stale one is worse than none
+    // because it is read as current.
+    /not ported: stake sizing\./i,
+    // Phase 36's two claims, in the label: the console exists, and the decision route
+    // carries legacy's kill-switch guard rather than only its permission.
+    /Phase 36 ported the console screens/i,
+    /settlement stays available/i,
     /no stored result is trusted before a person attests/i,
     /never verified against a vendor/i,
     /nineteen sports\.view reads, two sports\.manage reads, ten sports\.manage writes/i,
@@ -1209,7 +1214,7 @@ test("F-02 the status surface is honest about unported modules, and F-03 the rou
     assert.match(lotteryLabel, pattern);
   }
   assert.ok(!/console screens are not ported/i.test(lotteryLabel), "the ported label must not still carry the F-29 hedge");
-  assert.equal(body.modules.filter((module) => module.state === "partial").length, 5, "the public site (chat widget), execution (the remaining supervisor steps are broker-bound, no live route, no automated mode), scheduled jobs (no early-warning tiers, no sports cron), brokers (no verified adapter, no order routing) and sports (measured but person-gated: nothing executed, no stake sized, no stored result trusted before a person attests, no verified vendor and no console screens) remain partial — lottery left the list in Phase 30, when its last entry (the console screens) was ported and its own matrix went empty");
+  assert.equal(body.modules.filter((module) => module.state === "partial").length, 5, "the public site (chat widget), execution (the remaining supervisor steps are broker-bound, no live route, no automated mode), scheduled jobs (no early-warning tiers, no sports cron), brokers (no verified adapter, no order routing) and sports (measured, console ported and person-gated: nothing executed, no stake sized, no stored result trusted before a person attests, no verified vendor) remain partial — lottery left the list in Phase 30, when its last entry (the console screens) was ported and its own matrix went empty, and sports keeps its own place for the one entry no slice owns rather than for a missing screen");
   assert.equal(body.modules.filter((module) => module.state === "not-ported").length, 2, "language learning and lead discovery remain legacy-only");
   assert.equal(body.modules.length, 17, "the ledger keeps listing every module, ported or not");
   // The public status surface carries a market-data snapshot that must not have

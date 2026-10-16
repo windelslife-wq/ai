@@ -242,11 +242,11 @@ export async function buildApp({ config, store, logger = true, publicDir = path.
   // Broker Center (row 13): one read-only route. There is no order endpoint and no
   // connector-enable endpoint here — routing stays in the execution supervisor.
   await app.register(brokerRoutes, { prefix: "/api/v1", store, config, brokers });
-  // Sports Intelligence (row 14, slice 1): one read-only status route. Legacy's
-  // twenty-odd sports endpoints all read the eleven tables this slice does not
-  // create, so none of them is ported; a matches endpoint that answered from a live
-  // provider call would return a different thing under a familiar name.
-  await app.register(sportsRoutes, { prefix: "/api/v1", store, config, sports });
+  // Sports Intelligence (row 14): the stored reads, the ingestion writes, the decision
+  // chain, the ticket engine and the measured surface. The paper service is passed in as
+  // well, because the ticket decision route carries legacy's second guard — the platform
+  // kill switch (`Api_sports::decide_ticket`), which only the paper module normalizes.
+  await app.register(sportsRoutes, { prefix: "/api/v1", store, config, sports, paper });
   // Lottery Intelligence (row 15, slice 1): the foundation surface — status, rules,
   // draws, statistics, providers, health, jobs, and the two lottery.manage writes
   // (probe and sync). Legacy's thirty-odd other lottery endpoints read tables this

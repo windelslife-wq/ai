@@ -62,6 +62,24 @@ import {
   AVATAR_ACCEPT, AVATAR_HINT, AVATAR_NO_FILE_MESSAGE, AVATAR_REMOVED_NOTICE, AVATAR_UPLOADED_NOTICE,
   avatarFailureMessage, avatarView,
 } from "./avatar.js";
+// The Sports Intelligence console's module (Phase 36). `numberText` collides with the AI
+// Workforce block's own (line 49), so the sports one is aliased here rather than either
+// module's export being renamed; `TRADING_READ_PERMISSION` is not imported from this
+// module at all — the dashboard's export above is the same string, and
+// `test/client_sports_console.test.js` asserts the two modules agree on it.
+import {
+  SPORTS_APPROVE, SPORTS_COPY, SPORTS_EMPTY, SPORTS_MANAGE, SPORTS_PERMISSION, SPORTS_SETTLE, SPORTS_WINDOWS,
+  boundaryPanel, countText, dailyRunRows, dayWindow, emDash, holdsSportsPermission,
+  killSwitchNotice, killSwitchStateText, modelPanel, performanceCards, performanceWindow,
+  providerRows, qualityFromIntelligence, riskMeters, runStatusTone, syncRunRows, ticketRows, ticketView,
+  todayIntelligence, upcomingRows, utcDay,
+  numberText as sportsNumberText,
+  // The lottery module exports its own `providerTone` (line 22, over provider health
+  // states); the sports one is about the same idea on a different vocabulary, so it is
+  // aliased rather than merged — merging them would make one module's tone rule answer
+  // for another module's statuses.
+  providerTone as sportsProviderTone,
+} from "./sports.js";
 import { Link } from "./router.jsx";
 import { ConnectivityBanner, Field, Notice, StateBox, useResource } from "./ui.jsx";
 
@@ -193,6 +211,10 @@ export function WorkspaceNav({ permissions, current, signedIn = true, notificati
     { to: "/app/portfolio/optimizer", label: "Portfolio optimizer", permission: "trading.view" },
     { to: "/app/lottery", label: "Lottery operations", permission: "lottery.view" },
     { to: "/app/lottery/lab", label: "Lottery lab", permission: "lottery.view" },
+    // Row 3 (Phase 36): the sports console. Legacy's two pages (`Sports::index`,
+    // `Sports::tickets`) are one screen here, gated on the module's own read
+    // permission — the same gate every sports read carries on the server.
+    { to: "/app/sports", label: "Sports intelligence", permission: SPORTS_PERMISSION },
     { to: "/app/strategy", label: "Strategy Lab", permission: null },
     // Legacy's `Admin::index` was super-admin only; the directory and the trail
     // beside it were always `identity.users.view` surfaces. The port keeps both
@@ -533,8 +555,8 @@ export function WorkspaceDashboard({ user, permissions }) {
  * calling an API-only module "ported" implies an operator can use it here, and
  * they cannot. The shared shell now has an in-product notification inbox, the
  * workspace dashboard (the port of legacy's `/dashboard`, Phase 33) and the
- * portfolio-optimizer, lottery, Strategy Lab and AI Workforce consoles, so the cards
- * name the one each of them opens. The screens still absent — the sports dashboard,
+ * portfolio-optimizer, lottery, Strategy Lab, AI Workforce, administration and sports
+ * consoles, so the cards name the one each of them opens. The screens still absent —
  * the settings screens, and the paper, risk, execution, broker and journal screens —
  * are what F-29 still counts.
  */
@@ -542,7 +564,7 @@ export function ModuleCards() {
   const moduleCards = [
     { number: "01", title: "Market intelligence", text: "Multi-agent analysis, consensus, regime detection and a risk-reviewed proposal.", status: "Console available", tone: "live", foot: "PHASE 32 · /app/analysis", to: "/app/analysis" },
     { number: "02", title: "Strategy Lab", text: "Backtesting, walk-forward optimization, evidence-gated lifecycle and confidence calibration.", status: "Console available", tone: "live", foot: "PHASE 31 · /app/strategy", to: "/app/strategy" },
-    { number: "03", title: "Sports research", text: "Ingestion, decision chain, ticket engine, settlement and measured performance.", status: "Measured half ported · no console", tone: "api", foot: "PHASES 15–20 · /api/v1/sports" },
+    { number: "03", title: "Sports research", text: "Ingestion, decision chain, ticket engine, settlement and measured performance.", status: "Console available", tone: "live", foot: "PHASE 36 · /app/sports", to: "/app/sports", permission: SPORTS_PERMISSION },
     { number: "04", title: "Lottery tools", text: "Draw statistics, combinations, saved tickets and the no-look-ahead Strategy Lab.", status: "Console available", tone: "live", foot: "PHASE 30 · /app/lottery", to: "/app/lottery", permission: "lottery.view" },
     { number: "05", title: "Language learning", text: "Lessons, practice and learner progress.", status: "PHP only · not ported", tone: "planned", foot: "MIGRATION BACKLOG" },
     { number: "06", title: "Lead discovery", text: "Organization-aware discovery and pipeline tools.", status: "PHP only · not ported", tone: "planned", foot: "MIGRATION BACKLOG" },
@@ -925,6 +947,536 @@ export function AdminControlCentreView({ permissions }) {
           {features.data?.honesty ? <p className="muted">{features.data.honesty}</p> : null}
         </StateBox>
       </section>
+    </div>
+  );
+}
+
+/* ----------------------------------------------------------- sports console */
+
+/**
+ * The Sports Intelligence console (row 3, Phase 36): the port of `Sports::index` →
+ * `views/sports/index.php` and `Sports::tickets` → `views/sports/tickets.php`.
+ *
+ * Both legacy pages render the same five surfaces, so this screen is both of them in one
+ * flow: the dashboard's sections first (today's intelligence, the 30-day performance
+ * panel, models and calibration), then the tickets page's (the all-settlements
+ * performance panel, the ticket table with its approve/reject/settle actions, and the
+ * daily-run history), with the System panel, today's ticket and the module's not-ported
+ * boundary in the side column.
+ *
+ * Three things this screen does that the legacy pages did server-side, and says out loud
+ * instead of hiding:
+ *
+ *  - **The counts are of the pages that were read.** Today's predictions are attributed
+ *    to a UTC day here, because the port's `GET /sports/predictions` has no instant
+ *    filter; when the page came back full the panel says the counts are a floor.
+ *  - **Data quality is assessed on read per displayed fixture** (`/matches/:id/intelligence`,
+ *    divergence F-38), because the port has no read for the stored quality rows legacy's
+ *    page displayed. A fixture beyond the displayed rows is "not assessed" and the panel
+ *    says how many were assessed.
+ *  - **The kill switch is read, not assumed.** `sports.approve` is not enough to decide a
+ *    ticket: the platform switch must be released, exactly as `Api_sports::decide_ticket`
+ *    requires. The state is read under `trading.view`; when the session does not hold it
+ *    the screen says which gate stood there, and the API still refuses.
+ *
+ * The whole screen reads under `sports.view`, which is the route gate and the navigation
+ * entry's permission — declared in one place (`SPORTS_PERMISSION`) so the three cannot
+ * drift.
+ */
+export function SportsIntelligenceView({ permissions }) {
+  const day = utcDay(new Date());
+  const fixtures = dayWindow(day);
+  const thirtyDays = performanceWindow(day);
+  const canReadConfiguration = holdsSportsPermission(permissions, SPORTS_MANAGE);
+  const canApprove = holdsSportsPermission(permissions, SPORTS_APPROVE);
+  const canSettle = holdsSportsPermission(permissions, SPORTS_SETTLE);
+  const canReadTrading = holdsSportsPermission(permissions, TRADING_READ_PERMISSION);
+  const [action, setAction] = useState({ status: "idle", message: "" });
+  const [reason, setReason] = useState("");
+  const [rejectArmed, setRejectArmed] = useState(false);
+  const busy = action.status === "busy";
+
+  const status = useResource(() => endpoints.sportsStatus(), []);
+  const scheduled = useResource(
+    () => endpoints.sportsMatches(`?status=SCHEDULED&from=${fixtures.from}&to=${fixtures.to}&limit=${SPORTS_WINDOWS.scheduledFixtures}`),
+    [day],
+  );
+  const live = useResource(() => endpoints.sportsMatches(`?status=LIVE&limit=${SPORTS_WINDOWS.liveFixtures}`), []);
+  const predictions = useResource(() => endpoints.sportsPredictions(`?limit=${SPORTS_WINDOWS.predictions}`), []);
+  const runs = useResource(() => endpoints.sportsDailyRuns(`?limit=${SPORTS_WINDOWS.dailyRuns}`), []);
+  const tickets = useResource(() => endpoints.sportsTickets(`?limit=${SPORTS_WINDOWS.tickets}`), []);
+  const windowPerformance = useResource(
+    () => endpoints.sportsPerformance(`?from=${thirtyDays.from}&to=${thirtyDays.to}`),
+    [day],
+  );
+  const allPerformance = useResource(() => endpoints.sportsPerformance(), []);
+  const models = useResource(() => endpoints.sportsModels(), []);
+  const calibrations = useResource(() => endpoints.sportsCalibrations("?status=APPROVED"), []);
+  const syncRuns = useResource(() => endpoints.sportsSyncRuns(`?limit=${SPORTS_WINDOWS.syncRuns}`), []);
+  // The two `sports.manage` reads are not attempted without it: a refused read would fill
+  // the panel with an error box for a surface the session was never entitled to.
+  const configuration = useResource(
+    () => (canReadConfiguration ? endpoints.sportsConfiguration() : Promise.resolve(null)),
+    [canReadConfiguration],
+  );
+  const tradingState = useResource(
+    () => (canReadTrading ? endpoints.tradingMode() : Promise.resolve(null)),
+    [canReadTrading],
+  );
+
+  // Quality is one read per displayed fixture, so the ids are what the effect depends on.
+  const scheduledMatches = scheduled.data?.matches ?? [];
+  const listedIds = scheduledMatches.slice(0, SPORTS_WINDOWS.listedFixtures).map((match) => match.id);
+  const listedKey = listedIds.join(",");
+  const quality = useResource(async () => {
+    if (!listedIds.length) return { map: {}, assessed: [], failed: [] };
+    const results = await Promise.allSettled(listedIds.map((id) => endpoints.sportsMatchIntelligence(id)));
+    const map = {};
+    const assessed = [];
+    const failed = [];
+    results.forEach((result, index) => {
+      const id = listedIds[index];
+      if (result.status === "fulfilled") {
+        map[String(id)] = qualityFromIntelligence(result.value);
+        assessed.push(id);
+      } else {
+        failed.push(id);
+      }
+    });
+    return { map, assessed, failed };
+  }, [listedKey]);
+
+  const todaysRun = (runs.data?.runs ?? []).find((run) => run.run_date === day) ?? null;
+  const ticketId = todaysRun?.ticket_id ?? null;
+  const detail = useResource(
+    () => (ticketId ? endpoints.sportsTicket(ticketId) : Promise.resolve(null)),
+    [ticketId],
+  );
+
+  const board = todayIntelligence({ day, scheduled: scheduled.data, live: live.data, predictions: predictions.data });
+  const meters = riskMeters(board.riskDistribution);
+  const upcoming = upcomingRows({
+    matches: scheduledMatches,
+    quality: quality.data?.map ?? {},
+    assessed: quality.data?.assessed ?? [],
+  });
+  const windowPanel = performanceCards(windowPerformance.data, { kind: "window" });
+  const allPanel = performanceCards(allPerformance.data, { kind: "all" });
+  const modelList = modelPanel({ models: models.data, calibrations: calibrations.data });
+  const ticket = ticketView({
+    run: todaysRun,
+    ticket: detail.data?.ticket ?? null,
+    selections: detail.data?.selections ?? [],
+    matches: [...scheduledMatches, ...(live.data?.matches ?? [])],
+    engineMode: configuration.data?.configuration?.engine_mode ?? null,
+    canReadConfiguration,
+  });
+  const ticketList = ticketRows(tickets.data?.tickets);
+  const runList = dailyRunRows(runs.data?.runs);
+  const syncList = syncRunRows(syncRuns.data?.runs);
+  const providers = providerRows(status.data?.providers);
+  const boundary = boundaryPanel(status.data?.notPorted);
+  const killSwitch = killSwitchNotice(tradingState.data, permissions);
+  const providerless = status.status === "ready" && status.data?.providersConfigured !== true;
+  const demoData = status.status === "ready" && status.data?.isDemoData === true;
+  const qualityFailed = quality.data?.failed?.length ?? 0;
+
+  async function act(label, work, refresh = []) {
+    setAction({ status: "busy", message: `${label}…` });
+    try {
+      const message = await work();
+      setAction({ status: "done", message });
+      for (const resource of refresh) resource.retry();
+    } catch (error) {
+      // The server's own sentence — including the kill-switch refusal — rather than a
+      // client-side paraphrase of what might have gone wrong.
+      setAction({ status: "error", message: `${label}: ${error?.message || "the request failed."}` });
+    }
+  }
+
+  const refreshTicket = () => [runs, tickets, detail, allPerformance, windowPerformance, syncRuns];
+  const decide = (id, approve) => act(
+    approve ? "Approve" : "Reject",
+    async () => {
+      const payload = await endpoints.sportsDecideTicket(id, { approve, ...(reason ? { reason } : {}) });
+      setRejectArmed(false);
+      return `${SPORTS_COPY.decisionNotice(approve)} The API recorded ${payload.approvalStatus}.`;
+    },
+    refreshTicket(),
+  );
+  const settle = (id) => act(
+    "Settle",
+    async () => {
+      const payload = await endpoints.sportsSettleTicket(id);
+      return SPORTS_COPY.settlementNotice(payload?.settlement);
+    },
+    refreshTicket(),
+  );
+
+  return (
+    <div className="view">
+      <header className="view-header">
+        <div>
+          <div className="overline">{SPORTS_COPY.eyebrow.toUpperCase()} <span className="overline-line" /></div>
+          <h1>{SPORTS_COPY.title}.</h1>
+        </div>
+        <Link className="text-button" to="/app/">Back to overview</Link>
+      </header>
+      <p className="view-lede">{SPORTS_COPY.lede}</p>
+
+      {action.status === "idle" ? null : (
+        <Notice tone={action.status === "error" ? "error" : "info"}>{action.message}</Notice>
+      )}
+      {demoData ? <Notice tone="warn">{SPORTS_COPY.demoBanner}</Notice> : null}
+      {providerless ? <Notice tone="warn">{SPORTS_COPY.noProviderBanner}</Notice> : null}
+      {killSwitch ? (
+        <Notice tone="warn">
+          {killSwitch.text} The API's own answer to a decision taken now: <em>{killSwitch.api}</em>
+        </Notice>
+      ) : null}
+
+      <div className="sports-board">
+        <div className="sports-main">
+          <section className="panel">
+            <h2>{SPORTS_COPY.todayTitle(board.date)}</h2>
+            <StateBox status={scheduled.status} error={scheduled.error} retry={scheduled.retry} label="Loading stored fixtures"
+              empty={<p className="empty">{SPORTS_EMPTY.fixtures}</p>}>
+              <div className="dash-kpis">
+                <div className="dash-kpi"><div className="dash-kpi-label">Scheduled</div><p className="dash-kpi-value">{countText(board.upcomingCount)}</p><p className="dash-kpi-note">Stored fixtures kicking off today, from {`GET /sports/matches?status=SCHEDULED`} (up to {SPORTS_WINDOWS.scheduledFixtures}).</p></div>
+                <div className="dash-kpi"><div className="dash-kpi-label">Live</div><p className="dash-kpi-value">{countText(board.liveCount)}</p><p className="dash-kpi-note">Every stored LIVE fixture, not only today's — legacy's read had no date bound either.</p></div>
+                <div className="dash-kpi"><div className="dash-kpi-label">Qualified predictions</div><p className="dash-kpi-value up">{countText(board.qualifiedPredictions)}</p><p className="dash-kpi-note">Today's stored predictions whose decision is PREDICTION_READY.</p></div>
+                <div className="dash-kpi"><div className="dash-kpi-label">Rejected predictions</div><p className="dash-kpi-value down">{countText(board.rejectedPredictions)}</p><p className="dash-kpi-note">Today's stored predictions with any other decision.</p></div>
+                <div className="dash-kpi"><div className="dash-kpi-label">Avg confidence</div><p className="dash-kpi-value">{board.averageConfidence === null ? emDash() : `${sportsNumberText(board.averageConfidence, 1)}%`}</p><p className="dash-kpi-note">Mean of today's stored confidences; an em dash when the day has none, never a zero.</p></div>
+              </div>
+              <p className="muted">
+                Predictions are read newest-first (up to {SPORTS_WINDOWS.predictions}) and attributed to today by their
+                stored `created_at`, because this read has no instant filter on the port; legacy filtered the window
+                server-side. {board.predictionsTruncated ? "The page came back full, so these counts are a floor. " : ""}
+                {board.predictionsUndated ? `${board.predictionsUndated} stored prediction(s) carry no readable timestamp and were not counted.` : ""}
+              </p>
+              {meters.length ? (
+                <div className="sports-meters">
+                  {meters.map((meter) => (
+                    <div className="sports-meter" key={meter.key}>
+                      <div className="sports-meter-row"><span>{meter.label}</span><span className="muted">{countText(meter.count)}</span></div>
+                      <div className="sports-meter-bar"><div className={`sports-meter-fill ${meter.fill}`} style={{ width: `${meter.percent}%` }} /></div>
+                    </div>
+                  ))}
+                </div>
+              ) : null}
+              <div className="table-scroll">
+                <table className="data-table">
+                  <thead><tr><th>Kickoff (UTC)</th><th>Match</th><th>Competition</th><th>Data quality</th></tr></thead>
+                  <tbody>
+                    {upcoming.rows.length ? upcoming.rows.map((row) => (
+                      <tr key={row.key}>
+                        <td><code>{row.kickoff}</code></td>
+                        <td>{row.match}</td>
+                        <td className="muted">{row.competition}</td>
+                        <td>{row.quality ? `${row.quality.band} · ${Math.trunc(row.quality.score)}` : <span className="muted">not assessed</span>}</td>
+                      </tr>
+                    )) : (
+                      <tr><td colSpan={4} className="muted">{SPORTS_EMPTY.fixtures}</td></tr>
+                    )}
+                  </tbody>
+                </table>
+              </div>
+              <p className="muted">
+                Quality is assessed on read for the {upcoming.shown} fixture{upcoming.shown === 1 ? "" : "s"} shown
+                ({`GET /sports/matches/:matchId/intelligence`}), not read from a stored assessment row: the port has no
+                read for the stored quality rows legacy's page displayed (F-38).
+                {upcoming.total > upcoming.shown ? ` ${upcoming.total - upcoming.shown} further fixture(s) today are listed in the count but not assessed here.` : ""}
+                {qualityFailed ? ` ${qualityFailed} fixture(s) could not be assessed — the per-fixture read failed, and they are shown as not assessed rather than guessed.` : ""}
+              </p>
+            </StateBox>
+          </section>
+
+          <section className="panel">
+            <h2>{SPORTS_COPY.performanceTitle}</h2>
+            <StateBox status={windowPerformance.status} error={windowPerformance.error} retry={windowPerformance.retry} label="Loading the stored settlements">
+              {windowPanel.demoBanner ? <Notice tone="warn">{windowPanel.demoBanner}</Notice> : null}
+              <div className="dash-kpis sports-kpis">
+                {windowPanel.cards.map((card) => (
+                  <div className="dash-kpi" key={card.key}>
+                    <div className="dash-kpi-label">{card.label}</div>
+                    <p className={`dash-kpi-value ${card.tone}`}>{card.value}</p>
+                  </div>
+                ))}
+              </div>
+              {windowPanel.emptyNote ? <p className="muted">{windowPanel.emptyNote}</p> : null}
+              <p className="muted">
+                Window: {thirtyDays.from.slice(0, 10)} → {day} (UTC), the same thirty-day window legacy's dashboard asked for.
+              </p>
+            </StateBox>
+          </section>
+
+          <section className="panel">
+            <h2>{SPORTS_COPY.modelsTitle}</h2>
+            <StateBox status={models.status} error={models.error} retry={models.retry} label="Loading stored model versions"
+              empty={<p className="empty">{SPORTS_EMPTY.models}</p>}>
+              <div className="table-scroll">
+                <table className="data-table">
+                  <thead><tr><th>Model</th><th>Version</th><th>Features</th><th>Calibration</th><th>Status</th></tr></thead>
+                  <tbody>
+                    {modelList.rows.length ? modelList.rows.map((row) => (
+                      <tr key={row.key}>
+                        <td><b>{row.model}</b></td>
+                        <td><code>{row.version}</code></td>
+                        <td className="muted">{row.features}</td>
+                        <td className="muted">{row.calibration}</td>
+                        <td><span className="badge badge-gray">{row.status}</span></td>
+                      </tr>
+                    )) : (
+                      <tr><td colSpan={5} className="muted">{SPORTS_EMPTY.models}</td></tr>
+                    )}
+                  </tbody>
+                </table>
+              </div>
+              <p className="muted">{modelList.note}</p>
+              {calibrations.status === "error" ? (
+                <p className="muted">The approved-calibration count could not be read; the note above counts only what was read.</p>
+              ) : null}
+            </StateBox>
+          </section>
+
+          <section className="panel" id="sports-tickets">
+            <h2>{SPORTS_COPY.ticketsTitle}</h2>
+            <p className="muted">{SPORTS_COPY.ticketsLede}</p>
+          </section>
+
+          <section className="panel">
+            <h2>{SPORTS_COPY.ticketsPerformanceTitle}</h2>
+            <StateBox status={allPerformance.status} error={allPerformance.error} retry={allPerformance.retry} label="Loading every stored settlement">
+              {allPanel.demoBanner ? <Notice tone="warn">{allPanel.demoBanner}</Notice> : null}
+              <div className="dash-kpis sports-kpis">
+                {allPanel.cards.map((card) => (
+                  <div className="dash-kpi" key={card.key}>
+                    <div className="dash-kpi-label">{card.label}</div>
+                    <p className={`dash-kpi-value ${card.tone}`}>{card.value}</p>
+                  </div>
+                ))}
+              </div>
+              {allPanel.emptyNote ? <p className="muted">{allPanel.emptyNote}</p> : null}
+              <p className="muted">No window is applied: this is every stored settlement, as the tickets page asked for.</p>
+            </StateBox>
+          </section>
+
+          <section className="panel">
+            <h2>{SPORTS_COPY.ticketsTableTitle}</h2>
+            <StateBox status={tickets.status} error={tickets.error} retry={tickets.retry} label="Loading stored tickets"
+              empty={<p className="empty">{SPORTS_EMPTY.noTickets}</p>}>
+              <div className="table-scroll">
+                <table className="data-table">
+                  <thead><tr><th>Ticket</th><th>Created (UTC)</th><th className="num">Odds</th><th className="num">Sel.</th><th className="num">Conf.</th><th>Risk</th><th>Approval</th><th>Settlement</th><th className="num">P/L</th><th /></tr></thead>
+                  <tbody>
+                    {ticketList.map((row) => (
+                      <tr key={row.id}>
+                        <td><code>{row.id}</code></td>
+                        <td className="muted"><code>{row.createdAt}</code></td>
+                        <td className="num"><code>{row.odds}</code></td>
+                        <td className="num">{row.selectionCount}</td>
+                        <td className="num">{row.confidence}</td>
+                        <td><span className={`badge ${row.riskTone}`}>{row.risk}</span></td>
+                        <td><span className={`badge ${row.approvalTone}`}>{row.approvalStatus}</span></td>
+                        <td><span className={`badge ${row.settlementTone}`}>{row.settlementStatus}</span></td>
+                        <td className={`num ${row.pnlTone}`}>{row.pnl}</td>
+                        <td className="sports-row-actions">
+                          {row.decidable && canApprove ? (
+                            <>
+                              <button className="text-button" type="button" disabled={busy} onClick={() => void decide(row.id, true)}>{SPORTS_COPY.approveRowLabel}</button>
+                              <button className="text-button" type="button" disabled={busy} onClick={() => void decide(row.id, false)}>{SPORTS_COPY.rejectRowLabel}</button>
+                            </>
+                          ) : null}
+                          {row.settleable && canSettle ? (
+                            <button className="text-button" type="button" disabled={busy} onClick={() => void settle(row.id)}>{SPORTS_COPY.settleRowLabel}</button>
+                          ) : null}
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+              <ul className="dash-notes">
+                <li>
+                  {canApprove
+                    ? `Deciding a ticket is ${SPORTS_APPROVE} and is refused while the platform kill switch is ACTIVE.`
+                    : `Approval and rejection are not offered: this session does not hold ${SPORTS_APPROVE}.`}
+                </li>
+                <li>
+                  {canSettle
+                    ? `Settlement is ${SPORTS_SETTLE} and settles stored, attested results only.`
+                    : `Settlement is not offered: this session does not hold ${SPORTS_SETTLE}.`}
+                </li>
+                <li>{SPORTS_COPY.executionNote}</li>
+              </ul>
+            </StateBox>
+          </section>
+
+          <section className="panel">
+            <h2>{SPORTS_COPY.runsTitle}</h2>
+            <StateBox status={runs.status} error={runs.error} retry={runs.retry} label="Loading the daily runs"
+              empty={<p className="empty">{SPORTS_EMPTY.noRuns}</p>}>
+              <div className="table-scroll">
+                <table className="data-table">
+                  <thead><tr><th>Date</th><th>Status</th><th>Ticket</th><th className="num">Evaluated</th><th className="num">Recorded</th><th className="num">Rejected</th><th>Message</th></tr></thead>
+                  <tbody>
+                    {runList.map((row) => (
+                      <tr key={row.key}>
+                        <td><code>{row.date}</code></td>
+                        <td><span className={`badge ${row.statusTone}`}>{row.status}</span></td>
+                        <td className="muted"><code>{row.ticketId}</code></td>
+                        <td className="num">{row.evaluated}</td>
+                        <td className="num">{row.recorded}</td>
+                        <td className="num">{row.rejections}</td>
+                        <td className="muted">{row.message}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+              <p className="muted">
+                A run is opened by the sports cron or by <code>POST /sports/daily-tickets/run</code> (
+                {SPORTS_MANAGE}) — legacy's console carried no button for it either, so none is offered here.
+              </p>
+            </StateBox>
+          </section>
+        </div>
+
+        <div className="sports-side">
+          <section className="panel">
+            <h2>{SPORTS_COPY.systemTitle}</h2>
+            <StateBox status={status.status} error={status.error} retry={status.retry} label="Loading the module status">
+              <div className="dash-kpis sports-pairs">
+                <div className="dash-kpi"><div className="dash-kpi-label">Mode</div><p className="dash-kpi-value">{status.data?.mode ?? emDash()}</p></div>
+                <div className="dash-kpi"><div className="dash-kpi-label">Ticket engine</div><p className="dash-kpi-value">{status.data?.ticketEngine ?? emDash()}</p></div>
+                <div className="dash-kpi"><div className="dash-kpi-label">Module enabled</div><p className="dash-kpi-value">{status.data?.enabled ? "yes" : "no"}</p></div>
+                <div className="dash-kpi"><div className="dash-kpi-label">Kill switch</div><p className="dash-kpi-value">{killSwitchStateText(tradingState.data, permissions)}</p></div>
+              </div>
+              {status.data?.message ? <p className="muted">{status.data.message}</p> : null}
+              {providerless ? <p className="muted">No provider is configured, which is the state legacy reported as DISABLED_NO_PROVIDER. The module's own field is <code>ticketEngine: {status.data?.ticketEngine}</code> — the engine runs when a person asks, and there is nothing to ask it about until a provider is configured from the environment.</p> : null}
+              <div className="table-scroll">
+                <table className="data-table">
+                  <thead><tr><th>Provider</th><th>Health</th><th className="num">Reliability</th></tr></thead>
+                  <tbody>
+                    {providers.length ? providers.map((provider) => (
+                      <tr key={provider.key}>
+                        <td><b>{provider.code}</b>{provider.simulated ? <span className="muted"> · simulated</span> : null}</td>
+                        <td><span className={`badge ${sportsProviderTone(provider.status)}`}>{provider.status}</span> <span className="muted">{provider.detail}</span></td>
+                        <td className="num"><code>{provider.reliability}</code></td>
+                      </tr>
+                    )) : (
+                      <tr><td colSpan={3} className="muted">{SPORTS_EMPTY.providers}</td></tr>
+                    )}
+                  </tbody>
+                </table>
+              </div>
+              {canReadConfiguration && configuration.status === "ready" ? (
+                <p className="muted">
+                  Configuration version {configuration.data?.configuration?.version ?? emDash()} ·
+                  engine {configuration.data?.configuration?.engine_mode ?? emDash()} ·
+                  source {configuration.data?.source ?? emDash()} (read under {SPORTS_MANAGE}).
+                </p>
+              ) : (
+                <p className="muted">The active configuration is read under {SPORTS_MANAGE}; this session is not shown a mode it did not read.</p>
+              )}
+              <StateBox status={syncRuns.status} error={syncRuns.error} retry={syncRuns.retry} label="Loading stored sync runs"
+                empty={<p className="empty">{SPORTS_EMPTY.noSyncs}</p>}>
+                <div className="table-scroll">
+                  <table className="data-table">
+                    <thead><tr><th>Job</th><th>Status</th></tr></thead>
+                    <tbody>
+                      {syncList.map((row) => (
+                        <tr key={row.key}>
+                          <td><code title={row.executionKey}>{row.jobType}</code><br /><span className="muted">{row.startedAt}</span></td>
+                          <td><span className="badge badge-gray">{row.status}</span></td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              </StateBox>
+            </StateBox>
+          </section>
+
+          <section className="panel">
+            <h2>{SPORTS_COPY.todayTicketTitle}</h2>
+            <StateBox status={runs.status} error={runs.error} retry={runs.retry} label="Loading today's run"
+              empty={<p className="empty">{ticket.noRun}</p>}>
+              {todaysRun === null || detail.data?.ticket === null || detail.data?.ticket === undefined ? (
+                <p className="muted">{ticket.noRun || ticket.message}</p>
+              ) : (
+                <>
+                  <div className="sports-ticket-head">
+                    <span className={`badge ${runStatusTone(todaysRun.status)}`}>{ticket.status}</span>
+                    <span className="badge badge-gray">engine {ticket.engineLabel}</span>
+                  </div>
+                  <div className="dash-kpis sports-pairs">
+                    {ticket.cards.map((card) => (
+                      <div className="dash-kpi" key={card.key}>
+                        <div className="dash-kpi-label">{card.label}</div>
+                        <p className="dash-kpi-value">{card.value}</p>
+                      </div>
+                    ))}
+                  </div>
+                  <div className="table-scroll">
+                    <table className="data-table">
+                      <thead><tr><th>Selection</th><th className="num">Odds</th><th className="num">P(cal)</th><th className="num">EV</th><th>Status</th></tr></thead>
+                      <tbody>
+                        {ticket.legs.map((leg) => (
+                          <tr key={leg.key}>
+                            <td>{leg.matchLabel ? <span className="muted">{leg.matchLabel}<br /></span> : null}<b>{leg.selection}</b> <span className="muted">{leg.market}</span></td>
+                            <td className="num"><code>{leg.odds}</code></td>
+                            <td className="num"><code>{leg.calibratedProbability}</code></td>
+                            <td className={`num ${leg.expectedValueTone}`}><code>{leg.expectedValue}</code></td>
+                            <td><span className="badge badge-gray">{leg.status}</span></td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                  {ticket.pendingApproval && canApprove ? (
+                    <div className="sports-decide">
+                      <Field label="Reason (recorded with the decision)" htmlFor="sports-decision-reason">
+                        <input id="sports-decision-reason" name="reason" maxLength={500} value={reason} onChange={(event) => setReason(event.target.value)} />
+                      </Field>
+                      <div className="sports-inline-actions">
+                        <button className="primary-button" type="button" disabled={busy} onClick={() => void decide(detail.data.ticket.id, true)}>{SPORTS_COPY.approveLabel}</button>
+                        <button className="danger-button" type="button" disabled={busy} onClick={() => { if (rejectArmed) void decide(detail.data.ticket.id, false); else setRejectArmed(true); }}>
+                          {rejectArmed ? "Confirm reject" : SPORTS_COPY.rejectLabel}
+                        </button>
+                      </div>
+                      {rejectArmed ? <p className="muted">{SPORTS_COPY.rejectConfirm} Click again to record the rejection.</p> : null}
+                      <p className="muted">{SPORTS_COPY.executionNote}</p>
+                    </div>
+                  ) : null}
+                  {ticket.pendingApproval && !canApprove ? (
+                    <p className="muted">{SPORTS_COPY.executionNote} Approving or rejecting needs {SPORTS_APPROVE}, which this session does not hold.</p>
+                  ) : null}
+                  {ticket.pendingSettlement && canSettle ? (
+                    <button className="secondary-button" type="button" disabled={busy} onClick={() => void settle(detail.data.ticket.id)}>{SPORTS_COPY.settleLabel}</button>
+                  ) : null}
+                </>
+              )}
+            </StateBox>
+            <p className="muted"><a className="panel-foot-link" href="#sports-tickets">{SPORTS_COPY.ticketsLink}</a></p>
+          </section>
+
+          <section className="panel">
+            <h2>{SPORTS_COPY.boundaryTitle}</h2>
+            {boundary.residual.map((line) => <p className="muted" key={line}>{line}</p>)}
+            <ul className="dash-notes">
+              {boundary.rows.map((row) => (
+                <li key={row.key}><b>{row.area}</b> — {row.state}. {row.detail} <span className="muted">Legacy: <code>{row.legacy}</code></span></li>
+              ))}
+            </ul>
+            <p className="muted">
+              The sports module stays <code>partial</code> in the platform ledger with these entries named. The two
+              console screens left this matrix in this phase: <code>Sports::index</code> and <code>Sports::tickets</code>
+              are what this screen is.
+            </p>
+          </section>
+        </div>
+      </div>
     </div>
   );
 }

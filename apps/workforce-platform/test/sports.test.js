@@ -588,24 +588,25 @@ test("the not-ported matrix names every slice row 14 still owes", async () => {
   const service = createSportsService({ config: sportsConfig(), now: () => NOW });
   const report = await service.status();
   assert.equal(report.notPorted, SPORTS_NOT_PORTED);
-  // Two, down from six at slice 4's end. Slice 5 removed settlement and verification,
+  // One, down from six at slice 4's end. Slice 5 removed settlement and verification,
   // calibration fitting, backtesting, model monitoring and performance analytics, and
-  // row 19 removed the sports cron, which all now exist. What remains is what no slice
-  // owns: stake sizing and the console screens (F-29, platform-wide). Asserting the
-  // count moved DOWN is the point: a matrix that only ever grows is a matrix nobody
-  // checks for entries that are no longer true.
-  assert.equal(SPORTS_NOT_PORTED.length, 2);
+  // row 19 removed the sports cron, which all now exist; Phase 36 removed the console
+  // screens, which are `/app/sports` now (F-29, closed for this module). What remains is
+  // the one thing no slice owns: stake sizing. Asserting the count moved DOWN is the
+  // point: a matrix that only ever grows is a matrix nobody checks for entries that are
+  // no longer true.
+  assert.equal(SPORTS_NOT_PORTED.length, 1);
   const areas = SPORTS_NOT_PORTED.map((entry) => entry.area).join(" | ");
-  for (const expected of ["stake sizing", "console screens"]) {
+  for (const expected of ["stake sizing"]) {
     assert.match(areas, new RegExp(expected, "i"), `the matrix must name ${expected}`);
   }
   for (const entry of SPORTS_NOT_PORTED) {
     assert.ok(entry.legacy && entry.state && entry.detail, `${entry.area} must name its legacy class and its state`);
     assert.notEqual(entry.state, "ported", "this matrix lists what is NOT ported");
     // And ingestion, settlement, calibration fitting, backtesting, drift monitoring,
-    // performance analytics and the cron are no longer in it at all — not
-    // re-labelled, removed.
-    assert.ok(!/ingestion|settlement|calibration|backtest|drift|performance analytics|scheduled jobs/i.test(entry.area),
+    // performance analytics, the cron and the console screens are no longer in it at
+    // all — not re-labelled, removed.
+    assert.ok(!/ingestion|settlement|calibration|backtest|drift|performance analytics|scheduled jobs|console screen/i.test(entry.area),
       `"${entry.area}" is ported and must not appear in a not-ported matrix`);
   }
   // NV-6 is CLOSED since slice 5: the drift monitor publishes SPORTS_MODEL_DRIFT, so

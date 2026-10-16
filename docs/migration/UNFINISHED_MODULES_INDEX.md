@@ -20,7 +20,7 @@ already exist and pass tests in the PHP application; they are still unfinished a
 | 2 | `execution` | **Execution Supervisor and trading governance** | No live route and no automated mode; remaining supervisor steps are broker-bound (row 13). Whole live path is paper-only. |
 | 3 | `scheduledJobs` | **Scheduled jobs, CLI and resumable work** | Legacy early-warning tiers at 80/70/60 % of a limit (SJ-8); `EXCESSIVE_LEVERAGE` / `CORRELATED_POSITIONS` codes (SJ-9); no crontab installed on a real host. |
 | 4 | `brokers` | **Broker Center and broker connectors** | Ten adapters registered but all disabled by default; no order routing, no simulated bridge, no adapter verified against its provider (MT5 real-terminal validation outstanding). |
-| 5 | `sports` | **Sports intelligence** | Stake sizing; console screens (F-29); no live provider verified against a real vendor. |
+| 5 | `sports` | **Sports intelligence** | Stake sizing; no live provider verified against a real vendor. (The console screens left this row in Phase 36: `/app/sports` is `Sports::index` and `Sports::tickets`, and the decision route gained `Api_sports::decide_ticket`'s kill-switch refusal.) |
 
 ### Not ported (Node equivalent absent) — 2
 
@@ -43,7 +43,7 @@ matrix went empty — `lottery`.
 |---:|---|---|
 | 1 | Identity, authentication and legacy account import | Code present; no real-DB import rehearsal, no approval to import |
 | 2 | Account management, registration, **password reset** and admin users | Mostly ported; password reset not ported (`delivered: false`, no mail transport) |
-| 3 | **Shared app shell, dashboards, settings and navigation** | The sports dashboard is the last screen absent — the settings gap closed with the account screen's avatar control (Phase 34) and the administrator control centre (`/app/admin`, Phase 35); the portfolio-optimizer (Phase 29), lottery (Phase 30), Strategy Lab (Phase 31), AI Workforce (`/app/analysis`, Phase 32), workspace dashboard (`/app`, Phase 33), account avatar (Phase 34) and admin control centre (Phase 35) screens landed |
+| 3 | **Shared app shell, dashboards, settings and navigation** | **No screen left.** The sports dashboard landed in Phase 36 (`/app/sports`), closing the last one this row named — the settings gap closed with the account screen's avatar control (Phase 34) and the administrator control centre (`/app/admin`, Phase 35); the portfolio-optimizer (Phase 29), lottery (Phase 30), Strategy Lab (Phase 31), AI Workforce (`/app/analysis`, Phase 32), workspace dashboard (`/app`, Phase 33), account avatar (Phase 34), admin control centre (Phase 35) and sports console (Phase 36) screens landed |
 | 4 | Public website, help/contact and SEO | Chat widget + announcement bar not ported |
 | 5 | Notifications, audit browser, feature/status reporting | No outbound delivery channel, no retention policy decided (inbox + audit consoles exist) |
 | 6 | Market data and provider health | F-24 shared health store, F-25 live probe, F-26 PHP↔Node numeric diff |
@@ -72,8 +72,10 @@ host-verification reasons.
 
 - `apps/workforce-platform/` — Node modular monolith (`v0.23.0`); the 8 modules in section A.
   Consoles now exist for notifications, the audit trail, the portfolio optimizer, lottery (both
-  screens) and the Strategy Lab; the remaining F-29 gap is the analysis and sports dashboards, the
-  Broker Center console and settings.
+  screens), the Strategy Lab, the AI Workforce analysis run, the workspace dashboard, the admin
+  control centre and sports; the remaining F-29 gap is the paper, risk, execution, Broker Center and
+  journal screens (settings closed with the account avatar and the control centre, and no legacy
+  settings controller exists).
 - `apps/api/` — TypeScript Lead Discovery API (routes, pipeline, quality, providers).
 - `apps/web/` — Next.js `@lead-discovery/web` SPA for the same workstream.
 - `apps/football-predictions/` — independent Express/MySQL app with 29 tests; production verification pending.

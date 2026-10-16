@@ -176,6 +176,25 @@ export const endpoints = {
   // `trading.view` on the server, which is why the screen does not attempt it
   // without that permission.
   paperAccounts: () => api("/api/v1/paper/accounts"),
+  // Sports Intelligence console (Phase 36). Every read here is `sports.view` on the
+  // server except the active configuration, which is one of the module's two
+  // `sports.manage` reads; the two writes are `sports.approve` (the decision, which also
+  // needs a released kill switch) and `sports.settle`. The screen checks the same
+  // permissions before offering a control, and the server re-checks them either way.
+  sportsStatus: () => api("/api/v1/sports/status"),
+  sportsMatches: (query = "") => api(`/api/v1/sports/matches${query}`),
+  sportsMatchIntelligence: (matchId) => api(`/api/v1/sports/matches/${encodeURIComponent(matchId)}/intelligence`),
+  sportsPredictions: (query = "") => api(`/api/v1/sports/predictions${query}`),
+  sportsDailyRuns: (query = "") => api(`/api/v1/sports/daily-tickets${query}`),
+  sportsTickets: (query = "") => api(`/api/v1/sports/tickets${query}`),
+  sportsTicket: (ticketId) => api(`/api/v1/sports/tickets/${encodeURIComponent(ticketId)}`),
+  sportsDecideTicket: (ticketId, payload) => api(`/api/v1/sports/tickets/${encodeURIComponent(ticketId)}/decision`, { method: "POST", body: payload }),
+  sportsSettleTicket: (ticketId) => api(`/api/v1/sports/tickets/${encodeURIComponent(ticketId)}/settle`, { method: "POST", body: {} }),
+  sportsPerformance: (query = "") => api(`/api/v1/sports/performance${query}`),
+  sportsModels: () => api("/api/v1/sports/models"),
+  sportsCalibrations: (query = "") => api(`/api/v1/sports/calibrations${query}`),
+  sportsSyncRuns: (query = "") => api(`/api/v1/sports/sync-runs${query}`),
+  sportsConfiguration: () => api("/api/v1/sports/configuration"),
   notificationInbox: (query = "") => api(`/api/v1/notifications${query}`),
   markNotificationRead: (notificationId) => api(`/api/v1/notifications/${encodeURIComponent(notificationId)}/read`, { method: "POST", body: {} }),
   markAllNotificationsRead: () => api("/api/v1/notifications/read-all", { method: "POST", body: {} }),

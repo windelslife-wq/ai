@@ -19,7 +19,8 @@ import {
   AccountView, AdminControlCentreView, AdminUsersView, AnalysisWorkforceView, AuditView, Brand,
   InquiriesView, LoginPanel,
   LotteryLabView, LotteryOperationsView, ModuleCards, NotificationsView, NotFoundView, PortfolioOptimizerView,
-  RegisterPanel, StatusPill, StatusView, StrategyLabView, WorkspaceDashboard, WorkspaceNav,
+  RegisterPanel, SportsIntelligenceView, StatusPill, StatusView, StrategyLabView, WorkspaceDashboard,
+  WorkspaceNav,
 } from "./views.jsx";
 
 const NATIVE_BUILD = __NATIVE_BUILD__;
@@ -55,6 +56,11 @@ const ROUTES = [
   // nothing else — with the two governance controls inside gated server-side on
   // `trading.control`.
   { path: "/app/analysis", view: "analysis-workforce", requiresAuth: true },
+  // Row 3 (Phase 36): the Sports Intelligence console, the port of `Sports::index` and
+  // `Sports::tickets` on one screen. `sports.view` is the gate every sports read carries
+  // on the server — legacy's pages had no screen permission of their own, but its JSON
+  // API did, and this console reads that API.
+  { path: "/app/sports", view: "sports-intelligence", requiresAuth: true, permission: "sports.view" },
   // Row 3 (Phase 35): the administrator control centre. Legacy's `Admin::index` was
   // `requireAdmin()` — `system.super_admin`, a shortcut that also passes every
   // permission check — so a viewer holding only `identity.users.view` sees the
@@ -395,6 +401,7 @@ function SessionApp() {
       "lottery-lab": <LotteryLabView permissions={permissions} />,
       "strategy-lab": <StrategyLabView />,
       "analysis-workforce": <AnalysisWorkforceView permissions={permissions} />,
+      "sports-intelligence": <SportsIntelligenceView permissions={permissions} />,
       "admin-control-centre": <AdminControlCentreView permissions={permissions} />,
       "admin-users": <AdminUsersView user={user} permissions={permissions} />,
       audit: <AuditView />,
