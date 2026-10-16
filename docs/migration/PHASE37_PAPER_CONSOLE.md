@@ -79,8 +79,9 @@ method, no permission and no dependency.
 
 ## Tests
 
-`test/client_paper_console.test.js` — **29 tests**, hermetic (file adapter, `createFileStoreApp`, no
-network). Five of them build the real app and drive it over HTTP:
+`test/client_paper_console.test.js` — **29 tests**, hermetic (file adapter, `createFileStoreApp` with
+`MARKET_DATA_REAL_PROVIDERS=0` and `MARKET_DATA_ALLOW_SYNTHETIC=1`, no network). Five of them build the
+real app and drive it over HTTP:
 
 - the two legacy views are read with `readFileSync` and every heading, lede, empty state, table caption and
   footnote in `PAPER_COPY` is asserted against them, so a paraphrase fails the suite;
@@ -142,6 +143,21 @@ paper KPI card links to the console, `PAPER_NOTE` no longer cites F-29, and `/ap
   probe scripts were deleted; none of this is a product change.
 - **Not run:** a real browser (no rendering, no click-through of the forms), real MySQL/MariaDB (F-15), any
   live provider, SMTP, cPanel/Passenger, and still no PHP↔Node numeric diff (F-26).
+
+## The first CI run failed — and what it found
+
+The phase's first push (`f20bf70`) went red on the `javascript` job: the two HTTP tests that submit orders
+(the whole flow and the deploy/toggle flow) failed on the runner while passing in the sandbox. The cause is
+worth recording because it is a property of the *test*, not of the console: the suite's
+`createFileStoreApp` did not set `MARKET_DATA_REAL_PROVIDERS=0`, so the app registered the **real** provider
+chain (`src/config.js:595` defaults `realProviders` to `true`). In the sandbox an outbound fetch fails and
+the chain falls back to the synthetic provider, which is why the assertions held; on a GitHub runner with
+internet the same fetch **succeeds**, so the order the test submits is priced against a live BTCUSDT quote
+and the backtest the lifecycle chain depends on runs on live candles instead of the suite's own — different
+prices, different trades, different gates. Every other console suite and the module's own `paper_http` suite
+already set that flag for exactly this reason; this one now does too, and it asserts the consequence where
+it matters (the filled order's row is `synthetic: true`, the backtest's `dataProvenance.synthetic` is
+`true`), so a future configuration drift fails loudly on the assumption instead of silently on the price.
 
 ## After this phase
 

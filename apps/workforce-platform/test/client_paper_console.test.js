@@ -19,7 +19,8 @@
  *     the kill switch is ACTIVE (how it boots), release it, be refused again in
  *     ANALYSIS_ONLY, switch to PAPER_TRADING, fill, tick and close.
  *
- * Hermetic like the other client suites: the file adapter, `createFileStoreApp`, no network.
+ * Hermetic like the other client suites: the file adapter, `createFileStoreApp` with the
+ * synthetic provider chain alone, no network.
  */
 
 import assert from "node:assert/strict";
@@ -54,8 +55,22 @@ const LEGACY_CONTROLLER = path.join(REPO, "application", "controllers", "Paper.p
 const indexView = () => readFileSync(LEGACY_INDEX, "utf8");
 const accountView = () => readFileSync(LEGACY_ACCOUNT, "utf8");
 
+/**
+ * The suite is hermetic: `MARKET_DATA_REAL_PROVIDERS=0` settles the provider chain to the
+ * synthetic one, which is what the console suites and the module's own HTTP suite
+ * (`test/paper_http.test.js`) do. Without it the app registers the real providers, and a
+ * host with outbound access (CI) serves real quotes — the order flow then asserts against
+ * prices this suite never chose, which is exactly how Phase 37's first CI run failed.
+ * `MARKET_DATA_ALLOW_SYNTHETIC=1` is the market-data layer's own switch, deliberately
+ * separate from the paper governance flag the flow test turns on and off.
+ */
+const PAPER_ENV = {
+  MARKET_DATA_REAL_PROVIDERS: "0",
+  MARKET_DATA_ALLOW_SYNTHETIC: "1",
+};
+
 async function instance(t) {
-  const app = await createFileStoreApp({});
+  const app = await createFileStoreApp({ configOverrides: { env: PAPER_ENV } });
   t.after(() => app.cleanup());
   return app;
 }
@@ -671,6 +686,7 @@ test("the whole flow over HTTP: refused under the switch, refused in ANALYSIS_ON
   const filledResponse = await post(app.app, `/api/v1/paper/accounts/${accountId}/orders`, root.headers, order);
   assert.equal(filledResponse.statusCode, 201, filledResponse.body);
   const filled = orderOutcome(filledResponse.json());
+  assert.equal(filledResponse.json().order.synthetic, true, "this suite is hermetic: the fill came from the synthetic provider, not from a live feed");
   assert.equal(filled.tone, "ok");
   assert.match(filled.message, /^Order FILLED: BUY /);
   assert.match(filled.message, /BTCUSDT @ /);
@@ -717,6 +733,7 @@ test("the deploy form's own body is accepted once the strategy is deployable, an
   // through this form's own body.
   const backtest = await post(app.app, "/api/v1/backtesting/run", root.headers, { strategyId: "breakout", strategyVersion: "1.0.0", symbol: "BTCUSDT", marketClass: "crypto", timeframe: "15m", limit: 5000 });
   assert.equal(backtest.statusCode, 200, backtest.body);
+  assert.equal(backtest.json().dataProvenance.synthetic, true, "the lifecycle chain below is only meaningful on this suite's own data");
   for (const to of ["BACKTESTED", "VALIDATED", "RISK_REVIEWED"]) {
     const step = await post(app.app, "/api/v1/strategies/breakout/status", root.headers, { to, version: "1.0.0", reason: "paper console test" });
     assert.equal(step.statusCode, 200, `${to}: ${step.body}`);

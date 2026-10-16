@@ -50,7 +50,11 @@ refusing a `DRAFT` strategy until the lifecycle chain reaches `RISK_REVIEWED`. G
 `index-BbfC8AGb.css` 42.15 kB / 9.05 kB gzip) and `npm run verify:install -- --require-bundle` **30 / 30**,
 plus a **35 / 35** live probe against the demo host (the refusal stored and read back, the fill path, the
 tick, the close and the deployments table, `/app/paper` serving the shell, and the demo's governance state
-**restored exactly** afterwards: kill switch ACTIVE, `ANALYSIS_ONLY`, synthetic prices off).
+**restored exactly** afterwards: kill switch ACTIVE, `ANALYSIS_ONLY`, synthetic prices off). The phase's
+first push (`f20bf70`) went red on CI for a reason the record keeps: the new suite did not pin
+`MARKET_DATA_REAL_PROVIDERS=0`, so on a runner with internet the app served **live** quotes and the two
+order flows asserted against prices the suite never chose. Fixed in the follow-up commit — every assertion
+about a fill or a backtest now also states the synthetic provenance it depends on.
 **Not run:** a real browser, real MySQL/MariaDB, any live provider, SMTP, cPanel/Passenger, and still no
 PHP↔Node numeric diff (F-26). Full record: [`PHASE37_PAPER_CONSOLE.md`](PHASE37_PAPER_CONSOLE.md).
 
