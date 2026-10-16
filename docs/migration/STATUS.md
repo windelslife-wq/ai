@@ -2,7 +2,43 @@
 
 **Updated:** 2026-10-16 · **Branch:** `arena/046b29ac-ai`
 
-## Current Phase 29 status (2026-10-16)
+## Current Phase 30 status (2026-10-16)
+
+**Row 15 is closed and `lottery` is `ported`.** The lottery console screens — the module's last
+unported entry — landed as two exact-path SPA routes under `lottery.view`, the same permission
+legacy's `Lottery.php` required: `/app/lottery` (the port of `views/lottery/index.php` plus the
+surfaces the Node module added — the four KPI cards, provider health with its six legacy facts and
+the persisted history, the latest stored draw with its typed numbers and the rules-as-configuration
+note, the provider registry, a date-filtered draw browser, the seven statistics kinds, the AI
+decision reports with each stored payload, job runs, the performance overview and the module's own
+boundary) and `/app/lottery/lab` (the generator with locks and excludes, saved combinations,
+diversity, tickets as records, the Strategy Lab with its mandatory baseline, stored backtest
+reports, model versions). Only the provider probe, the sync and the system build are
+`lottery.manage`. **No new HTTP route, migration, contract method or permission** — 146 routes
+before and after.
+
+`LOTTERY_NOT_PORTED` went from one entry to **empty**, and `test/lottery_http.test.js` now asserts
+the empty list rather than naming the last area; `health.js` moved `lottery` to `ported` and its
+label names both screens by route. The ledger is **10 ported / 5 partial / 2 not-ported (17
+modules)**; the partial count in `test/platform_findings.test.js` moved 6 → 5 and the ported count
+9 → 10, each with its reason in the assertion. Two defects were fixed on the way: `POST
+/lottery/generate` was **silently stripping `locks` and `excludes`** at the request edge (the
+validator keeps only declared keys on an object node, so `{mains: [7, 21]}` reached the generator as
+`{}` — legacy forwards the array unchanged and lets the engine's `normalizeField` be the only
+validator; the two nodes are now `additionalProperties: true` passthroughs), and the console's mode
+list spelled the generator's `ANTI-POPULAR` as `ANTI_POPULAR`.
+
+A second contract suite (`test/client_lottery_console.test.js`, 13 tests) drives the console's own
+request builders against the live engine: every statistic kind, every generator mode, every
+backtest strategy and the comparison are exercised for real, the refusals on the other side of each
+one are asserted, and the normalisers are run against real payloads rather than fixtures. Full
+record: [`PHASE30_LOTTERY_CONSOLE.md`](PHASE30_LOTTERY_CONSOLE.md).
+
+Gates: `npm run check:workforce` **1000 / 1000** across 5 suites (986 before), client production
+build OK, `node tools/verify-install.mjs --require-bundle` **30/30**. **Not run:** a real browser,
+real MySQL/MariaDB, any live provider, and no PHP↔Node numeric diff (F-26 remains open).
+
+## Phase 29 status (2026-10-16) — superseded by Phase 30
 
 **Row 9's console gap is closed.** `/app/portfolio/optimizer` exposes the Phase 11 endpoint
 as a workspace screen, guarded by `trading.view` in both the exact-path SPA route and the
@@ -120,9 +156,10 @@ Gates on this branch: `npm test` **970 / 970** across **66** files, `npm run che
 001–019 against any database, any official feed, and a crontab — the CLI is proven by spawning
 the real tool against a real file store.
 
-**Still not ported (lottery):** the console screens only (F-29, platform-wide — no ported module
-has one). Platform-wide: F-15 (real MySQL), R-30 (file-adapter atomicity), row 22 (cutover), and
-the sports remainder (stake sizing, console screens).
+**Still not ported (lottery, as of Phase 25):** the console screens only (F-29, platform-wide — no
+ported module had one). **Closed in Phase 30** — see the current status above. Platform-wide: F-15
+(real MySQL), R-30 (file-adapter atomicity), row 22 (cutover), and the sports remainder (stake
+sizing, console screens).
 
 ## Phase 24 status (2026-10-13) — superseded by Phase 25
 

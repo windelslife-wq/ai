@@ -265,6 +265,45 @@ button:focus-visible, input:focus-visible, a:focus-visible { outline: 2px solid 
 .portfolio-disclaimer p { margin: 0 0 .5rem; font-size: .68rem; line-height: 1.7; }
 .workspace-card-link { text-decoration: none; }
 .workspace-card-link:hover { border-color: rgba(193, 241, 139, .4); }
+
+/* Lottery console (Phase 30): an operations board and a lab. The grid keeps the
+   evidence columns readable without a horizontal scroll on a laptop. */
+.lottery-head-actions { display: flex; flex-wrap: wrap; gap: 1rem; align-items: center; }
+.lottery-actions { display: flex; flex-wrap: wrap; align-items: center; gap: .8rem; }
+.lottery-actions .field-hint { flex: 1 1 260px; margin: 0; }
+.lottery-dismiss { margin-left: .8rem; }
+.lottery-grid { display: grid; grid-template-columns: minmax(0, 1.5fr) minmax(280px, 1fr); gap: 1.1rem; align-items: start; }
+.lottery-grid > .panel { margin: 0; }
+.lottery-subheading { margin: 1.3rem 0 .5rem; font-size: .78rem; }
+.lottery-provider-heading { display: flex; align-items: flex-start; justify-content: space-between; gap: 1rem; }
+.lottery-provider-name { color: #d3ddd1; font-size: .82rem; font-weight: 600; }
+.lottery-provider-heading p { margin: .3rem 0 0; font-size: .66rem; }
+.lottery-meta { display: grid; grid-template-columns: 11rem minmax(0, 1fr); gap: .4rem .9rem; margin: .9rem 0 0; font-size: .68rem; }
+.lottery-meta dt { color: #7f9184; font-size: .58rem; font-weight: 700; letter-spacing: .1em; text-transform: uppercase; }
+.lottery-meta dd { margin: 0; color: #d3ddd1; }
+.lottery-meta-wide { grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); }
+.lottery-metric-pair { display: flex; flex-direction: column; gap: .2rem; }
+.lottery-number-line { display: flex; align-items: baseline; gap: .8rem; margin: .6rem 0 0; }
+.lottery-number-line span { color: #7f9184; font-size: .58rem; font-weight: 700; letter-spacing: .12em; text-transform: uppercase; }
+.lottery-number-line b { color: var(--green); font-size: .95rem; letter-spacing: .06em; }
+.lottery-rules-note, .lottery-note { margin-top: .9rem; font-size: .64rem; line-height: 1.7; }
+.lottery-disclaimer { margin: .9rem 0 0; }
+.lottery-draw-filters { display: flex; flex-wrap: wrap; align-items: flex-end; gap: .7rem; }
+.lottery-draw-filters .field { min-width: 9rem; }
+.lottery-stat-controls { display: flex; flex-wrap: wrap; align-items: flex-end; gap: .7rem; }
+.lottery-stat-controls .field { min-width: 11rem; }
+.lottery-details { margin-top: .5rem; font-size: .66rem; }
+.lottery-details summary { cursor: pointer; color: #afbbb1; }
+.lottery-details pre { max-height: 320px; overflow: auto; padding: .8rem; border: 1px solid var(--line); border-radius: 6px; background: rgba(4, 12, 9, .7); font-size: .62rem; }
+.lottery-lines { display: flex; flex-direction: column; gap: .35rem; margin: .7rem 0 0; padding-left: 1.05rem; color: #a8b6aa; font-size: .68rem; line-height: 1.6; }
+.lottery-inline-actions { display: flex; flex-wrap: wrap; align-items: center; gap: .8rem; }
+.lottery-compare { margin: 0; padding: .6rem .8rem; border: 1px solid var(--line); border-radius: 6px; }
+.lottery-compare legend { padding: 0 .4rem; color: #7f9184; font-size: .58rem; font-weight: 700; letter-spacing: .1em; text-transform: uppercase; }
+.lottery-backtest-result, .lottery-ticket-result { margin-top: 1rem; padding-top: .9rem; border-top: 1px solid var(--line); }
+.lottery-ticket-result { margin-top: .6rem; padding-top: .6rem; }
+.lottery-ticket-result p { margin: 0; }
+.lottery-system-form { max-width: none; }
+.lottery-boundary { margin-top: .2rem; }
 .status-list { display: grid; grid-template-columns: 160px minmax(0, 1fr); gap: .55rem .9rem; margin: 0; font-size: .74rem; }
 .status-list dt { color: #7f9184; font-size: .6rem; font-weight: 700; letter-spacing: .12em; text-transform: uppercase; }
 .status-list dd { margin: 0; color: #d3ddd1; }

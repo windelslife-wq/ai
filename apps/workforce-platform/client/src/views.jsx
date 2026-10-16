@@ -15,6 +15,13 @@ import {
   OBJECTIVES, TIMEFRAMES, buildOptimizeBody, defaultForm, emptyAsset, formatNumber, formatPercent,
   formatWindowBound, isSimulation, provenanceBySymbol, provenanceLabel, reportSummary, validateOptimizeForm,
 } from "./portfolio.js";
+import {
+  BACKTEST_STRATEGIES, DEFAULT_TICKET_METHOD, GENERATOR_MODES, MAX_GENERATE_COUNT, STATISTICS_KINDS,
+  buildAnalyzeQuery, buildBacktestBody, buildCompareBody, buildGenerateBody, buildTicketBody, distributionMetrics,
+  drawNumbers, formatCount, formatDate, formatDateTime, generatedLineText, listToText,
+  matchDistribution, parseTicketLines, providerTone, statisticsRows, tierRows, validateAnalyzeForm,
+  validateGenerateForm, verificationTone,
+} from "./lottery.js";
 import { Link } from "./router.jsx";
 import { ConnectivityBanner, Field, Notice, StateBox, useResource } from "./ui.jsx";
 
@@ -140,6 +147,8 @@ export function WorkspaceNav({ permissions, current, signedIn = true, notificati
     { to: "/app/notifications", label: "Notifications", permission: null, unread: true },
     { to: "/app/status", label: "Platform status", permission: null },
     { to: "/app/portfolio/optimizer", label: "Portfolio optimizer", permission: "trading.view" },
+    { to: "/app/lottery", label: "Lottery operations", permission: "lottery.view" },
+    { to: "/app/lottery/lab", label: "Lottery lab", permission: "lottery.view" },
     { to: "/app/admin/users", label: "Users", permission: "identity.users.view" },
     { to: "/app/admin/audit", label: "Audit trail", permission: "identity.users.view" },
     { to: "/app/admin/inquiries", label: "Contact messages", permission: "system.super_admin" },
@@ -342,7 +351,7 @@ export function ModuleCards() {
     { number: "01", title: "Market intelligence", text: "Multi-agent analysis, consensus, regime detection and a risk-reviewed proposal.", status: "API ported · no console", tone: "api", foot: "PHASE 5 · /api/v1/analysis" },
     { number: "02", title: "Strategy Lab", text: "Backtesting, walk-forward optimization, evidence-gated lifecycle and confidence calibration.", status: "API ported · no console", tone: "api", foot: "PHASE 6 · /api/v1/strategies" },
     { number: "03", title: "Sports research", text: "Ingestion, decision chain, ticket engine, settlement and measured performance.", status: "Measured half ported · no console", tone: "api", foot: "PHASES 15–20 · /api/v1/sports" },
-    { number: "04", title: "Lottery tools", text: "Draw statistics, combinations, saved tickets and the no-look-ahead Strategy Lab.", status: "Slices 1–5 ported · no console", tone: "api", foot: "PHASES 21–25 · /api/v1/lottery" },
+    { number: "04", title: "Lottery tools", text: "Draw statistics, combinations, saved tickets and the no-look-ahead Strategy Lab.", status: "Console available", tone: "live", foot: "PHASE 30 · /app/lottery", to: "/app/lottery", permission: "lottery.view" },
     { number: "05", title: "Language learning", text: "Lessons, practice and learner progress.", status: "PHP only · not ported", tone: "planned", foot: "MIGRATION BACKLOG" },
     { number: "06", title: "Lead discovery", text: "Organization-aware discovery and pipeline tools.", status: "PHP only · not ported", tone: "planned", foot: "MIGRATION BACKLOG" },
     { number: "07", title: "Account & access", text: "Identity, permissions and audited activity.", status: "Foundation slice", tone: "live", foot: "ACTIVE FOUNDATION" },
@@ -1310,6 +1319,858 @@ export function StatusView() {
             </tbody>
           </table>
         </StateBox>
+      </section>
+    </div>
+  );
+}
+
+/* ------------------------------------------------------ lottery operations */
+
+/** Badge for a mutation the console is running, finished or failed. */
+function RunState({ state, onDismiss }) {
+  if (!state || state.status === "idle") return null;
+  if (state.status === "running") return <div className="state-box state-loading"><span className="state-dot" />{state.label}…</div>;
+  const tone = state.status === "error" ? "error" : "info";
+  return (
+    <Notice tone={tone}>
+      {state.message}
+      {onDismiss ? <button className="text-button lottery-dismiss" type="button" onClick={onDismiss}>Dismiss</button> : null}
+    </Notice>
+  );
+}
+
+/** A draw's numbers, mains then stars, from the typed rows when present. */
+function DrawNumbers({ draw }) {
+  return (
+    <>
+      <p className="lottery-number-line"><span>Mains</span><b>{listToText(drawNumbers(draw, "MAIN"))}</b></p>
+      <p className="lottery-number-line"><span>Lucky Stars</span><b>{listToText(drawNumbers(draw, "STAR"))}</b></p>
+    </>
+  );
+}
+
+function LotteryDrawTable({ draws }) {
+  if (!draws.length) return <p className="empty">No draws are stored. The console does not generate or substitute official results — run a sync when a provider is configured.</p>;
+  return (
+    <div className="scroll">
+      <table className="data-table">
+        <thead><tr><th>Draw date</th><th>Mains</th><th>Lucky Stars</th><th>Source</th><th>Verification</th><th>Jackpot (recorded)</th><th>Retrieved (UTC)</th></tr></thead>
+        <tbody>
+          {draws.map((draw) => (
+            <tr key={draw.id}>
+              <td><code>{draw.draw_date || "—"}</code></td>
+              <td>{listToText(drawNumbers(draw, "MAIN"))}</td>
+              <td>{listToText(drawNumbers(draw, "STAR"))}</td>
+              <td className="muted">{draw.source || "unknown"}{draw.payload?.source ? ` · ${draw.payload.source}` : ""}</td>
+              <td><span className={`badge ${verificationTone(draw.verification_status)}`}>{draw.verification_status || "UNKNOWN"}</span></td>
+              <td className="muted">{draw.jackpot ?? "—"}{Number(draw.rollover) === 1 ? " · rollover" : ""}</td>
+              <td className="muted">{formatDateTime(draw.retrieved_at)}</td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+    </div>
+  );
+}
+
+/**
+ * Lottery operations console (Phase 30, row 15) — the port of
+ * `application/views/lottery/index.php` plus the surfaces the Node module added
+ * afterwards (draws browser, statistics, jobs, performance).
+ *
+ * The screen is evidence-only apart from two administrator actions (a provider
+ * probe and a sync), and both are explicit POSTs under `lottery.manage`: the legacy
+ * console had the same rule, and no panel load may trigger outbound I/O.
+ */
+export function LotteryOperationsView({ permissions }) {
+  const canView = permissions.includes("lottery.view");
+  const canManage = permissions.includes("lottery.manage");
+  const [refresh, setRefresh] = useState(0);
+  const [drawFilters, setDrawFilters] = useState({ limit: 25, from: "", to: "" });
+  const [drawQuery, setDrawQuery] = useState({ limit: 25, from: "", to: "" });
+  const [statisticsKind, setStatisticsKind] = useState("numbers");
+  const [statisticsWindow, setStatisticsWindow] = useState(45);
+  const [run, setRun] = useState(null);
+
+  useEffect(() => { document.title = "Lottery operations · WINDELS AI WORKFORCE"; }, []);
+
+  const status = useResource(() => endpoints.lotteryStatus(), [refresh]);
+  const health = useResource(() => (canView ? endpoints.lotteryHealth() : Promise.resolve(null)), [canView, refresh]);
+  const providers = useResource(() => (canView ? endpoints.lotteryProviders() : Promise.resolve(null)), [canView, refresh]);
+  const draws = useResource(() => {
+    if (!canView) return Promise.resolve(null);
+    const params = new URLSearchParams({ limit: String(drawQuery.limit) });
+    if (drawQuery.from) params.set("from", drawQuery.from);
+    if (drawQuery.to) params.set("to", drawQuery.to);
+    return endpoints.lotteryDraws(`?${params.toString()}`);
+  }, [canView, drawQuery, refresh]);
+  const statistics = useResource(
+    () => (canView ? endpoints.lotteryStatistics(statisticsKind, `?window=${statisticsWindow}`) : Promise.resolve(null)),
+    [canView, statisticsKind, statisticsWindow, refresh],
+  );
+  const decisions = useResource(() => (canView ? endpoints.lotteryDecisions("?limit=10") : Promise.resolve(null)), [canView, refresh]);
+  const jobs = useResource(() => (canView ? endpoints.lotteryJobs("?limit=15") : Promise.resolve(null)), [canView, refresh]);
+  const performance = useResource(() => (canView ? endpoints.lotteryPerformance() : Promise.resolve(null)), [canView, refresh]);
+
+  const rules = status.data?.rules ?? null;
+  const live = health.data?.live ?? status.data?.provider ?? null;
+  const latestHealth = health.data?.latest ?? null;
+  const history = health.data?.history ?? [];
+  const registry = providers.data?.providers ?? [];
+  const drawRows = draws.data?.draws ?? [];
+  const lastDraw = status.data?.lastDraw ?? drawRows[0] ?? null;
+
+  async function manage(action) {
+    setRun({ status: "running", label: action === "probe" ? "Probing the provider" : "Syncing draw history" });
+    try {
+      if (action === "probe") {
+        const result = await endpoints.lotteryCheckProvider();
+        setRun({ status: "done", message: `Provider check recorded: ${result.provider ?? "unknown"} is ${result.live?.state ?? "UNKNOWN"}${result.persisted === false ? " (not persisted on this host)" : ""}. ${result.live?.message ?? ""}` });
+      } else {
+        const { result } = await endpoints.lotterySync({ limit: 200 });
+        setRun({ status: "done", message: `Sync ${result.status ?? "UNKNOWN"} via ${result.provider ?? "unknown"}: ${formatCount(result.imported)} imported, ${formatCount(result.unchanged)} unchanged, ${formatCount(result.failed)} failed, ${formatCount(result.conflicts)} conflicts.` });
+      }
+      setRefresh((value) => value + 1);
+    } catch (error) {
+      setRun({ status: "error", message: formFailure(error) });
+    }
+  }
+
+  if (!canView) {
+    return (
+      <div className="view">
+        <header className="view-header">
+          <div><div className="overline">LOTTERY · OPERATIONS <span className="overline-line" /></div><h1>Lottery operations.</h1></div>
+          <Link className="text-button" to="/app/">Back to overview</Link>
+        </header>
+        <section className="panel">
+          <h2>Permission required</h2>
+          <Notice tone="error">Your account does not have <code>lottery.view</code> permission for this console.</Notice>
+        </section>
+      </div>
+    );
+  }
+
+  return (
+    <div className="view">
+      <header className="view-header">
+        <div><div className="overline">LOTTERY · OPERATIONS <span className="overline-line" /></div><h1>Lottery operations.</h1></div>
+        <div className="lottery-head-actions">
+          <Link className="text-button" to="/app/lottery/lab">Open the lab →</Link>
+          <Link className="text-button" to="/app/">Back to overview</Link>
+        </div>
+      </header>
+
+      <Notice tone="warn">
+        Lottery draws are independent random events. Historical frequency, balance scores and generation modes do not predict or improve a line&apos;s chance of winning.
+        Sandbox records remain synthetic and are never presented as official results.
+      </Notice>
+
+      {canManage ? (
+        <div className="lottery-actions" aria-label="Lottery administrator actions">
+          <button className="secondary-button" type="button" onClick={() => manage("probe")} disabled={run?.status === "running"}>Check provider health</button>
+          <button className="primary-button" type="button" onClick={() => manage("sync")} disabled={run?.status === "running"}>Sync draw history</button>
+          <span className="field-hint">Health probes and synchronization requests are CSRF-protected and audited. Provider activation and credentials stay server-side.</span>
+        </div>
+      ) : null}
+      <RunState state={run} onDismiss={() => setRun(null)} />
+
+      <StateBox status={status.status} error={status.error} retry={status.retry} label="Loading lottery status">
+        <section className="system-status" aria-label="Lottery engine status">
+          <div className="system-status-heading"><span className="overline">ENGINE &amp; STORED EVIDENCE</span>
+            <span className={`badge ${providerTone(live?.state)}`}>{live?.state || "UNKNOWN"}</span>
+          </div>
+          <div className="status-grid">
+            <div><small>ENGINE STATE</small><strong>{status.data?.engine || "—"}</strong></div>
+            <div><small>TRACKED DRAWS</small><strong>{formatCount(status.data?.drawsTracked)}</strong></div>
+            <div><small>ACTIVE RULES</small><strong>{rules?.version ?? "—"}</strong><span className="muted">{formatCount(rules?.main?.count)} mains · {formatCount(rules?.stars?.count)} Lucky Stars</span></div>
+            <div><small>MODEL VERSION</small><strong>{status.data?.modelVersion || "—"}</strong></div>
+          </div>
+        </section>
+      </StateBox>
+
+      <div className="lottery-grid">
+        <section className="panel">
+          <h2>Provider health</h2>
+          <StateBox status={health.status} error={health.error} retry={health.retry} label="Loading provider health">
+            <div className="lottery-provider-heading">
+              <div>
+                <div className="lottery-provider-name">{health.data?.provider || "unknown"}</div>
+                <p className="muted">{live?.message || "Provider health is unavailable."}</p>
+              </div>
+              <span className={`badge ${providerTone(live?.state)}`}>{live?.state || "UNKNOWN"}</span>
+            </div>
+            <dl className="lottery-meta">
+              <dt>Source class</dt><dd>{live?.synthetic ? "Synthetic sandbox" : live?.licensed ? "Authorized provider" : "No live source confirmed"}</dd>
+              <dt>License metadata</dt><dd>{live?.licensed ? "Configured / confirmed" : "Not confirmed"}</dd>
+              <dt>Last recorded check</dt><dd>{latestHealth ? formatDateTime(latestHealth.observed_at) : "No persisted health check"}</dd>
+              <dt>Last response time</dt><dd>{latestHealth?.response_ms === undefined || latestHealth?.response_ms === null ? "—" : `${formatCount(latestHealth.response_ms)} ms`}</dd>
+              <dt>Last draw retrieved</dt><dd>{latestHealth?.last_draw_retrieved || "—"}</dd>
+              <dt>Synthetic data</dt><dd>{live?.synthetic || Number(latestHealth?.synthetic) === 1 ? "Yes — simulation only" : "No / not reported"}</dd>
+            </dl>
+            <h3 className="lottery-subheading">Health history</h3>
+            {history.length ? (
+              <div className="scroll">
+                <table className="data-table">
+                  <thead><tr><th>Observed (UTC)</th><th>State</th><th>Response</th><th>Records</th><th>Invalid</th><th>Data label</th></tr></thead>
+                  <tbody>
+                    {history.map((record) => (
+                      <tr key={record.id}>
+                        <td className="muted">{formatDateTime(record.observed_at)}</td>
+                        <td><span className="badge badge-muted">{record.status || "UNKNOWN"}</span></td>
+                        <td>{record.response_ms === null ? "—" : `${formatCount(record.response_ms)} ms`}</td>
+                        <td>{formatCount(record.records_received)}</td>
+                        <td>{formatCount(record.invalid_records)}</td>
+                        <td>{Number(record.synthetic) === 1 ? <span className="badge badge-warn">SYNTHETIC</span> : <span className="muted">reported live / unavailable</span>}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            ) : <p className="empty">No health observations have been saved yet. An administrator can record a probe when the source is configured.</p>}
+          </StateBox>
+        </section>
+
+        <aside className="panel">
+          <h2>Latest stored draw</h2>
+          {lastDraw ? (
+            <>
+              <dl className="lottery-meta">
+                <dt>Draw date</dt><dd>{formatDate(lastDraw.draw_date)}</dd>
+                <dt>Source</dt><dd>{lastDraw.source || "unknown"}</dd>
+                <dt>Verification</dt><dd><span className={`badge ${verificationTone(lastDraw.verification_status)}`}>{lastDraw.verification_status || "UNKNOWN"}</span></dd>
+                <dt>Retrieved</dt><dd>{formatDateTime(lastDraw.retrieved_at)}</dd>
+              </dl>
+              <DrawNumbers draw={lastDraw} />
+            </>
+          ) : <p className="empty">No draws are stored. The console does not generate or substitute official results.</p>}
+          <p className="muted lottery-rules-note">
+            Rules: {formatCount(rules?.main?.count)} mains from {formatCount(rules?.main?.min)}–{formatCount(rules?.main?.max)};
+            {" "}{formatCount(rules?.stars?.count)} Lucky Stars from {formatCount(rules?.stars?.min)}–{formatCount(rules?.stars?.max)}.
+            {" "}The schedule ({listToText(rules?.schedule?.days)} · {rules?.schedule?.time ?? "—"} {rules?.schedule?.timezone ?? ""}) is stored configuration, not an odds forecast.
+          </p>
+          <h3 className="lottery-subheading">Provider registry</h3>
+          {registry.length ? (
+            <div className="scroll">
+              <table className="data-table">
+                <thead><tr><th>Provider</th><th>Registry flag</th><th>Data class</th></tr></thead>
+                <tbody>
+                  {registry.map((entry) => (
+                    <tr key={entry.id ?? entry.provider_code}>
+                      <td><b>{entry.display_name || entry.provider_code || "Unknown"}</b><br /><span className="muted"><code>{entry.provider_code}</code></span></td>
+                      <td>{Number(entry.enabled) === 1 ? "Enabled" : "Not enabled"}</td>
+                      <td>{Number(entry.synthetic) === 1 ? <span className="badge badge-warn">SYNTHETIC</span> : "Non-synthetic"}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          ) : <p className="empty">No provider registry rows yet. A health probe or a successful ingestion creates a source record.</p>}
+          <p className="field-hint">Registry metadata does not activate a provider. Effective access is controlled by server-side environment settings and source authorization.</p>
+        </aside>
+      </div>
+
+      <section className="panel">
+        <div className="audit-section-heading">
+          <div><h2>Stored draws</h2><p className="muted">Every row is what the provider returned, with its source and verification state. A closed draw is not evidence of a verified one.</p></div>
+          <form className="lottery-draw-filters" onSubmit={(event) => { event.preventDefault(); setDrawQuery({ ...drawFilters }); }}>
+            <Field label="From" htmlFor="lottery-from"><input id="lottery-from" type="date" value={drawFilters.from} onChange={(event) => setDrawFilters((current) => ({ ...current, from: event.target.value }))} /></Field>
+            <Field label="To" htmlFor="lottery-to"><input id="lottery-to" type="date" value={drawFilters.to} onChange={(event) => setDrawFilters((current) => ({ ...current, to: event.target.value }))} /></Field>
+            <Field label="Rows" htmlFor="lottery-draw-limit">
+              <select id="lottery-draw-limit" value={drawFilters.limit} onChange={(event) => setDrawFilters((current) => ({ ...current, limit: Number(event.target.value) }))}>
+                {[10, 25, 50, 100].map((limit) => <option key={limit} value={limit}>{limit}</option>)}
+              </select>
+            </Field>
+            <button className="secondary-button" type="submit">Apply</button>
+          </form>
+        </div>
+        <StateBox status={draws.status} error={draws.error} retry={draws.retry} label="Loading stored draws">
+          <LotteryDrawTable draws={drawRows} />
+        </StateBox>
+      </section>
+
+      <section className="panel">
+        <div className="audit-section-heading">
+          <div>
+            <h2>Statistics</h2>
+            <p className="muted">Historical observations over the stored draws. Every figure describes the past; none is a probability of a future draw.</p>
+          </div>
+          <div className="lottery-stat-controls">
+            <Field label="Kind" htmlFor="lottery-stat-kind">
+              <select id="lottery-stat-kind" value={statisticsKind} onChange={(event) => setStatisticsKind(event.target.value)}>
+                {STATISTICS_KINDS.map((entry) => <option key={entry.value} value={entry.value}>{entry.label}</option>)}
+              </select>
+            </Field>
+            <Field label="Window (0 = all)" htmlFor="lottery-stat-window">
+              <input id="lottery-stat-window" type="number" min="0" max="10000" value={statisticsWindow}
+                onChange={(event) => setStatisticsWindow(Math.max(0, Number(event.target.value) || 0))} />
+            </Field>
+          </div>
+        </div>
+        <StateBox status={statistics.status} error={statistics.error} retry={statistics.retry} label="Loading statistics">
+          {statisticsKind === "distribution" ? (
+            <dl className="lottery-meta lottery-meta-wide">
+              {distributionMetrics(statistics.data?.data).map((pair) => (
+                <span className="lottery-metric-pair" key={pair.label}><dt>{pair.label}</dt><dd>{pair.value}</dd></span>
+              ))}
+            </dl>
+          ) : (() => {
+            const table = statisticsRows(statisticsKind, statistics.data?.data);
+            if (!table.rows.length) return <p className="empty">No observations for this kind yet — the table fills once draws are stored.</p>;
+            return (
+              <div className="scroll">
+                <table className="data-table">
+                  <thead><tr>{table.columns.map((column) => <th key={column}>{column}</th>)}</tr></thead>
+                  <tbody>{table.rows.map((row, index) => <tr key={index}>{row.map((cell, cellIndex) => <td key={cellIndex}>{cell}</td>)}</tr>)}</tbody>
+                </table>
+              </div>
+            );
+          })()}
+        </StateBox>
+        <p className="muted lottery-note">{statistics.data?.data?.disclaimer || statistics.data?.data?.observation || ""}</p>
+      </section>
+
+      <section className="panel">
+        <h2>AI decision reports <span className="badge badge-muted">Historical records · not predictions</span></h2>
+        <p className="muted">Each report records the model, mode, seed, dataset/rules version, actual factors and generated lines for reproducibility. Scores are balance statistics only — not probability estimates.</p>
+        <StateBox status={decisions.status} error={decisions.error} retry={decisions.retry} label="Loading decision reports">
+          {(decisions.data?.decisions ?? []).length ? (
+            <div className="scroll">
+              <table className="data-table">
+                <thead><tr><th>ID</th><th>Created</th><th>Mode</th><th>Model</th><th>Combination</th><th>Report</th></tr></thead>
+                <tbody>
+                  {(decisions.data?.decisions ?? []).map((row) => {
+                    const decision = row.decision ?? {};
+                    const inputs = decision.inputs ?? {};
+                    const lines = Array.isArray(decision.lines) ? decision.lines : [];
+                    return (
+                      <tr key={row.id}>
+                        <td><code>#{row.id}</code></td>
+                        <td className="muted">{formatDateTime(row.created_at)}</td>
+                        <td><span className="badge badge-muted">{row.mode || decision.mode || "UNKNOWN"}</span></td>
+                        <td>{row.model_version || decision.model || "—"}</td>
+                        <td>{row.combination_id ? <code>#{row.combination_id}</code> : "—"}</td>
+                        <td>
+                          <details className="lottery-details">
+                            <summary>Inspect report</summary>
+                            <dl className="lottery-meta">
+                              <dt>Method</dt><dd>{decision.factors?.method || "Not recorded"}</dd>
+                              <dt>Seed</dt><dd><code>{inputs.seed === undefined || inputs.seed === null ? "—" : String(inputs.seed)}</code></dd>
+                              <dt>Rules / dataset</dt><dd>{inputs.rulesVersion || "—"} · {inputs.datasetVersion || "—"}</dd>
+                              <dt>Generated lines</dt><dd>{formatCount(lines.length)}</dd>
+                            </dl>
+                            {lines.length ? <ul className="lottery-lines">{lines.map((line, index) => <li key={index}>{generatedLineText(line)}</li>)}</ul> : null}
+                            <details className="lottery-details"><summary>Full decision payload</summary><pre>{JSON.stringify(decision, null, 2)}</pre></details>
+                          </details>
+                        </td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
+            </div>
+          ) : (
+            <p className="empty">No decision reports stored yet. Generate a combination in the lab to create a report linked to its saved combination.</p>
+          )}
+        </StateBox>
+      </section>
+
+      <div className="lottery-grid">
+        <section className="panel">
+          <h2>Sync runs</h2>
+          <p className="muted">The ingestion evidence: one row per sync, system build or cron job, with its execution key.</p>
+          <StateBox status={jobs.status} error={jobs.error} retry={jobs.retry} label="Loading job runs">
+            {(jobs.data?.jobs ?? []).length ? (
+              <div className="scroll">
+                <table className="data-table">
+                  <thead><tr><th>Job</th><th>Status</th><th>Started</th><th>Ended</th><th>Processed</th><th>Created</th><th>Updated</th></tr></thead>
+                  <tbody>
+                    {(jobs.data?.jobs ?? []).map((job) => (
+                      <tr key={job.id}>
+                        <td><code>{job.job_type}</code></td>
+                        <td><span className={`badge ${String(job.status).toUpperCase() === "OK" ? "badge-live" : "badge-muted"}`}>{job.status}</span></td>
+                        <td className="muted">{formatDateTime(job.started_at)}</td>
+                        <td className="muted">{job.ended_at ? formatDateTime(job.ended_at) : "—"}</td>
+                        <td>{formatCount(job.records_processed)}</td>
+                        <td>{formatCount(job.records_created)}</td>
+                        <td>{formatCount(job.records_updated)}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            ) : <p className="empty">No job runs recorded yet. A sync or a system build writes one.</p>}
+          </StateBox>
+        </section>
+
+        <section className="panel">
+          <h2>Performance overview</h2>
+          <StateBox status={performance.status} error={performance.error} retry={performance.retry} label="Loading performance">
+            {(() => {
+              const data = performance.data;
+              if (!data) return null;
+              const tiers = tierRows(data.actualTicketResults?.byTier);
+              return (
+                <>
+                  <p className="muted">{data.label}</p>
+                  <h3 className="lottery-subheading">{data.actualTicketResults?.section}</h3>
+                  <dl className="lottery-meta">
+                    <dt>Tickets total</dt><dd>{formatCount(data.actualTicketResults?.ticketsTotal)}</dd>
+                    <dt>Tickets checked</dt><dd>{formatCount(data.actualTicketResults?.ticketsChecked)}</dd>
+                    <dt>Lines checked</dt><dd>{formatCount(data.actualTicketResults?.linesChecked)}</dd>
+                  </dl>
+                  {tiers.length ? (
+                    <table className="data-table"><thead><tr><th>Prize tier</th><th>Lines</th></tr></thead>
+                      <tbody>{tiers.map(([tier, count]) => <tr key={tier}><td>{tier}</td><td>{count}</td></tr>)}</tbody>
+                    </table>
+                  ) : <p className="empty">No checked lines yet — prize tiers appear here, never amounts.</p>}
+                  <h3 className="lottery-subheading">{data.historicalBacktestResults?.section}</h3>
+                  <p className="muted">{formatCount(data.historicalBacktestResults?.count)} stored backtest report(s). {data.historicalBacktestResults?.note}</p>
+                  {(data.historicalBacktestResults?.recent ?? []).length ? (
+                    <ul className="lottery-lines">
+                      {data.historicalBacktestResults.recent.map((row) => (
+                        <li key={row.id}>#{row.id} · {row.strategy} · {formatCount(row.drawsTested)} draws · {formatDate(row.periodFrom)} → {formatDate(row.periodTo)}</li>
+                      ))}
+                    </ul>
+                  ) : null}
+                  <h3 className="lottery-subheading">{data.demoSandboxData?.section}</h3>
+                  <p className="muted">{data.demoSandboxData?.provider} · {data.demoSandboxData?.state} · {formatCount(data.demoSandboxData?.drawsTracked)} draws tracked. {data.demoSandboxData?.note}</p>
+                  <p className="field-hint">{data.separationNote}</p>
+                </>
+              );
+            })()}
+          </StateBox>
+        </section>
+      </div>
+
+      <section className="panel lottery-boundary">
+        <h2>Module boundary</h2>
+        <p className="muted">Reported by <code>/api/v1/lottery/status</code> — what this module does not do.</p>
+        {(status.data?.notPorted ?? []).length ? (
+          <ul className="lottery-lines">
+            {status.data.notPorted.map((entry) => <li key={entry.area}><b>{entry.area}</b> — {entry.state}: {entry.detail}</li>)}
+          </ul>
+        ) : <p className="empty">The status route reports no unported area.</p>}
+        <p className="muted lottery-disclaimer">{status.data?.disclaimer}</p>
+      </section>
+    </div>
+  );
+}
+
+/* ------------------------------------------------------------- lottery lab */
+
+/**
+ * Lottery lab (Phase 30, row 15) — the writing half: the generator, combination
+ * history, the diversity check, saved tickets, the Strategy Lab and the model
+ * versions.
+ *
+ * Everything here either creates an **analysis record** (combination, decision,
+ * backtest) or a **saved ticket** — a record of numbers a person holds, never a
+ * purchase. Nothing in this screen can reach a payment path, and the ticket copy
+ * says so in the same words the module's own documentation uses.
+ */
+export function LotteryLabView({ permissions }) {
+  const canView = permissions.includes("lottery.view");
+  const canManage = permissions.includes("lottery.manage");
+  const [refresh, setRefresh] = useState(0);
+  const [generateForm, setGenerateForm] = useState({ mode: "BALANCED", count: 1, seed: "", locks: "", excludes: "" });
+  const [generate, setGenerate] = useState({ status: "idle", report: null, error: null, problems: [] });
+  const [ticketForm, setTicketForm] = useState({ name: "", drawDate: "", lines: "" });
+  const [ticketState, setTicketState] = useState({ status: "idle", error: null, problems: [], message: "" });
+  const [ticketResults, setTicketResults] = useState({});
+  const [backtestForm, setBacktestForm] = useState({ strategy: "RANDOM_BASELINE", lines: 1, window: 20 });
+  const [compareStrategies, setCompareStrategies] = useState(["RANDOM_BASELINE", "BALANCED_PROFILE"]);
+  const [backtest, setBacktest] = useState({ status: "idle", report: null, error: null });
+  const [systemForm, setSystemForm] = useState({ mains: "", stars: "" });
+  const [system, setSystem] = useState({ status: "idle", data: null, error: null });
+
+  useEffect(() => { document.title = "Lottery lab · WINDELS AI WORKFORCE"; }, []);
+
+  const combinations = useResource(() => (canView ? endpoints.lotteryCombinations("?limit=15") : Promise.resolve(null)), [canView, refresh]);
+  const tickets = useResource(() => (canView ? endpoints.lotteryTickets("?limit=25") : Promise.resolve(null)), [canView, refresh]);
+  const backtests = useResource(() => (canView ? endpoints.lotteryBacktests("?limit=10") : Promise.resolve(null)), [canView, refresh]);
+  const models = useResource(() => (canView ? endpoints.lotteryModels() : Promise.resolve(null)), [canView, refresh]);
+
+  async function runGenerate(event) {
+    event.preventDefault();
+    const problems = validateGenerateForm(generateForm);
+    if (problems.length) {
+      setGenerate({ status: "invalid", report: null, error: null, problems });
+      return;
+    }
+    setGenerate({ status: "running", report: null, error: null, problems: [] });
+    try {
+      const report = await endpoints.lotteryGenerate(buildGenerateBody(generateForm));
+      setGenerate({ status: "ready", report, error: null, problems: [] });
+      setRefresh((value) => value + 1);
+    } catch (error) {
+      setGenerate({ status: "error", report: null, error, problems: [] });
+    }
+  }
+
+  async function saveTicket(event) {
+    event.preventDefault();
+    const { lines, problems } = parseTicketLines(ticketForm.lines);
+    if (problems.length) {
+      setTicketState({ status: "invalid", error: null, problems, message: "" });
+      return;
+    }
+    setTicketState({ status: "running", error: null, problems: [], message: "" });
+    try {
+      await endpoints.lotteryCreateTicket(buildTicketBody(ticketForm, { lines }));
+      setTicketState({ status: "done", error: null, problems: [], message: "Ticket saved as a record. It is not a purchase and no money changed hands." });
+      setTicketForm({ name: "", drawDate: "", lines: "" });
+      setRefresh((value) => value + 1);
+    } catch (error) {
+      setTicketState({ status: "error", error, problems: [], message: formFailure(error) });
+    }
+  }
+
+  async function checkTicket(ticketId) {
+    setTicketResults((current) => ({ ...current, [ticketId]: { status: "running" } }));
+    try {
+      const result = await endpoints.lotteryCheckTicket(ticketId);
+      setTicketResults((current) => ({ ...current, [ticketId]: { status: "ready", result } }));
+      setRefresh((value) => value + 1);
+    } catch (error) {
+      setTicketResults((current) => ({ ...current, [ticketId]: { status: "error", message: formFailure(error) } }));
+    }
+  }
+
+  async function archiveTicket(ticketId) {
+    setTicketResults((current) => ({ ...current, [ticketId]: { status: "running" } }));
+    try {
+      await endpoints.lotteryDeleteTicket(ticketId);
+      setTicketResults((current) => ({ ...current, [ticketId]: { status: "archived" } }));
+      setRefresh((value) => value + 1);
+    } catch (error) {
+      setTicketResults((current) => ({ ...current, [ticketId]: { status: "error", message: formFailure(error) } }));
+    }
+  }
+
+  async function runBacktest(event) {
+    event.preventDefault();
+    setBacktest({ status: "running", report: null, error: null });
+    try {
+      const report = await endpoints.lotteryBacktest(buildBacktestBody(backtestForm));
+      setBacktest({ status: "ready", report, error: null });
+      setRefresh((value) => value + 1);
+    } catch (error) {
+      setBacktest({ status: "error", report: null, error });
+    }
+  }
+
+  async function runCompare() {
+    setBacktest({ status: "running", report: null, error: null });
+    try {
+      const report = await endpoints.lotteryBacktestCompare(buildCompareBody({ ...backtestForm, strategies: compareStrategies }));
+      setBacktest({ status: "ready", report, error: null });
+      setRefresh((value) => value + 1);
+    } catch (error) {
+      setBacktest({ status: "error", report: null, error });
+    }
+  }
+
+  async function runSystem(event, { background = false } = {}) {
+    event?.preventDefault();
+    setSystem({ status: "running", data: null, error: null });
+    const payload = {
+      mains: (systemForm.mains.match(/\d{1,2}/g) ?? []).map(Number),
+      stars: (systemForm.stars.match(/\d{1,2}/g) ?? []).map(Number),
+    };
+    try {
+      const data = background
+        ? await endpoints.lotterySystemBuild(payload)
+        : await endpoints.lotterySystem({ ...payload, page: 0, limit: 25 });
+      setSystem({ status: "ready", data, error: null });
+      setRefresh((value) => value + 1);
+    } catch (error) {
+      setSystem({ status: "error", data: null, error });
+    }
+  }
+
+  if (!canView) {
+    return (
+      <div className="view">
+        <header className="view-header">
+          <div><div className="overline">LOTTERY · LAB <span className="overline-line" /></div><h1>Lottery lab.</h1></div>
+          <Link className="text-button" to="/app/">Back to overview</Link>
+        </header>
+        <section className="panel">
+          <h2>Permission required</h2>
+          <Notice tone="error">Your account does not have <code>lottery.view</code> permission for this console.</Notice>
+        </section>
+      </div>
+    );
+  }
+
+  return (
+    <div className="view">
+      <header className="view-header">
+        <div><div className="overline">LOTTERY · LAB <span className="overline-line" /></div><h1>Lottery lab.</h1></div>
+        <div className="lottery-head-actions">
+          <Link className="text-button" to="/app/lottery">← Operations</Link>
+          <Link className="text-button" to="/app/">Back to overview</Link>
+        </div>
+      </header>
+
+      <Notice tone="warn">
+        Generation, scoring and backtests are <b>analysis records</b>, not predictions, and every report is a historical simulation where it replays the past.
+        Saved tickets are records of numbers you hold — the platform cannot buy a ticket.
+      </Notice>
+
+      <div className="lottery-grid">
+        <section className="panel">
+          <h2>Generate a combination</h2>
+          <form className="panel-form" onSubmit={runGenerate}>
+            <Field label="Mode" htmlFor="lottery-mode">
+              <select id="lottery-mode" value={generateForm.mode} onChange={(event) => setGenerateForm((current) => ({ ...current, mode: event.target.value }))}>
+                {GENERATOR_MODES.map((entry) => <option key={entry.value} value={entry.value}>{entry.label}</option>)}
+              </select>
+            </Field>
+            <Field label="Lines" htmlFor="lottery-count" error={generate.problems?.find((problem) => problem.field === "count")?.message} hint={`1–${MAX_GENERATE_COUNT}; each line is generated and stored with its report.`}>
+              <input id="lottery-count" type="number" min="1" max={MAX_GENERATE_COUNT} value={generateForm.count}
+                onChange={(event) => setGenerateForm((current) => ({ ...current, count: event.target.value }))} />
+            </Field>
+            <Field label="Seed (optional)" htmlFor="lottery-seed" error={generate.problems?.find((problem) => problem.field === "seed")?.message} hint="The same seed and dataset reproduce the same lines.">
+              <input id="lottery-seed" type="number" value={generateForm.seed} placeholder="blank = random"
+                onChange={(event) => setGenerateForm((current) => ({ ...current, seed: event.target.value }))} />
+            </Field>
+            <Field label="Locked numbers (optional)" htmlFor="lottery-locks" error={generate.problems?.find((problem) => problem.field === "locks")?.message}>
+              <input id="lottery-locks" value={generateForm.locks} placeholder="e.g. 7, 21"
+                onChange={(event) => setGenerateForm((current) => ({ ...current, locks: event.target.value }))} />
+            </Field>
+            <Field label="Excluded numbers (optional)" htmlFor="lottery-excludes" error={generate.problems?.find((problem) => problem.field === "excludes")?.message}>
+              <input id="lottery-excludes" value={generateForm.excludes} placeholder="e.g. 13"
+                onChange={(event) => setGenerateForm((current) => ({ ...current, excludes: event.target.value }))} />
+            </Field>
+            {generate.status === "invalid" ? (
+              <div className="notice notice-error" role="alert">
+                <ul className="portfolio-problems">{generate.problems.map((problem, index) => <li key={index}>{problem.message}</li>)}</ul>
+              </div>
+            ) : null}
+            {generate.status === "error" ? <div className="notice notice-error" role="alert">{formFailure(generate.error)}{generate.error?.code ? <span className="state-code"> {generate.error.code}</span> : null}</div> : null}
+            <button className="primary-button" type="submit" disabled={generate.status === "running"}>{generate.status === "running" ? "Generating…" : "Generate and store"}</button>
+          </form>
+        </section>
+
+        <section className="panel">
+          <h2>Generated report</h2>
+          {generate.status === "ready" && generate.report ? (
+            <>
+              <dl className="lottery-meta">
+                <dt>Model</dt><dd>{generate.report.model} · {generate.report.mode}</dd>
+                <dt>Seed</dt><dd><code>{generate.report.inputs?.seed ?? "—"}</code></dd>
+                <dt>Draws used</dt><dd>{formatCount(generate.report.inputs?.drawsUsed)} · dataset {generate.report.inputs?.datasetVersion || "—"}</dd>
+                <dt>Average balance score</dt><dd>{formatNumber(generate.report.averageBalanceScore, 1)}</dd>
+                <dt>Stored as</dt><dd>combination <code>#{generate.report.saved?.combinationId}</code> · decision <code>#{generate.report.saved?.decisionId}</code></dd>
+              </dl>
+              <ul className="lottery-lines">
+                {(generate.report.lines ?? []).map((line, index) => <li key={index}>{generatedLineText(line)} <span className="muted">score {formatNumber(line.score, 0)}</span></li>)}
+              </ul>
+              <details className="lottery-details">
+                <summary>Method and targets</summary>
+                <p className="muted">{(generate.report.factors?.method) || "—"}</p>
+                <dl className="lottery-meta">
+                  <dt>Sum range</dt><dd>{listToText(generate.report.factors?.targets?.sumRange)}</dd>
+                  <dt>Odd range</dt><dd>{listToText(generate.report.factors?.targets?.oddRange)}</dd>
+                  <dt>Low range</dt><dd>{listToText(generate.report.factors?.targets?.lowRange)}</dd>
+                  <dt>Max adjacent pairs</dt><dd>{formatCount(generate.report.factors?.targets?.maxAdjacentPairs)}</dd>
+                </dl>
+              </details>
+              <p className="muted">{generate.report.honestyNote}</p>
+            </>
+          ) : <p className="empty">No generation in this tab yet. Every generation is stored with its report so it can be reproduced.</p>}
+        </section>
+      </div>
+
+      <section className="panel">
+        <h2>Saved combinations</h2>
+        <StateBox status={combinations.status} error={combinations.error} retry={combinations.retry} label="Loading combinations">
+          {(combinations.data?.combinations ?? []).length ? (
+            <div className="scroll">
+              <table className="data-table">
+                <thead><tr><th>ID</th><th>Created</th><th>Mode</th><th>Model</th><th>Seed</th><th>Lines</th><th>Lines</th></tr></thead>
+                <tbody>
+                  {(combinations.data?.combinations ?? []).map((row) => (
+                    <tr key={row.id}>
+                      <td><code>#{row.id}</code></td>
+                      <td className="muted">{formatDateTime(row.created_at)}</td>
+                      <td><span className="badge badge-muted">{row.mode}</span></td>
+                      <td>{row.model_version || "—"}</td>
+                      <td><code>{row.seed ?? "—"}</code></td>
+                      <td>{formatCount(row.line_count)}</td>
+                      <td className="muted">{(row.lines ?? []).map((line) => generatedLineText(line)).join(" · ") || "—"}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          ) : <p className="empty">No combinations stored yet.</p>}
+        </StateBox>
+      </section>
+
+      <section className="panel">
+        <h2>Saved tickets</h2>
+        <p className="muted">Tickets are records of numbers you hold and are visible only to you. Checking compares them against a stored <b>VERIFIED</b> draw and reports official prize-tier labels — never an amount.</p>
+        <form className="panel-form" onSubmit={saveTicket}>
+          <Field label="Name" htmlFor="lottery-ticket-name"><input id="lottery-ticket-name" value={ticketForm.name} maxLength="200" placeholder="e.g. Friday family line" onChange={(event) => setTicketForm((current) => ({ ...current, name: event.target.value }))} /></Field>
+          <Field label="Draw date (optional)" htmlFor="lottery-ticket-date"><input id="lottery-ticket-date" type="date" value={ticketForm.drawDate} onChange={(event) => setTicketForm((current) => ({ ...current, drawDate: event.target.value }))} /></Field>
+          <Field label="Lines" htmlFor="lottery-ticket-lines" hint="One line per row: 1,2,3,4,5 | 1,2 (mains | Lucky Stars).">
+            <textarea id="lottery-ticket-lines" rows="3" value={ticketForm.lines} placeholder={"1,2,3,4,5 | 1,2"} onChange={(event) => setTicketForm((current) => ({ ...current, lines: event.target.value }))} />
+          </Field>
+          {ticketState.status === "invalid" ? (
+            <div className="notice notice-error" role="alert"><ul className="portfolio-problems">{ticketState.problems.map((problem, index) => <li key={index}>{problem}</li>)}</ul></div>
+          ) : null}
+          {ticketState.status === "error" ? <div className="notice notice-error" role="alert">{ticketState.message}</div> : null}
+          {ticketState.status === "done" ? <Notice tone="info">{ticketState.message}</Notice> : null}
+          <button className="secondary-button" type="submit" disabled={ticketState.status === "running"}>{ticketState.status === "running" ? "Saving…" : `Save ticket (${DEFAULT_TICKET_METHOD.toLowerCase()} method)`}</button>
+        </form>
+
+        <StateBox status={tickets.status} error={tickets.error} retry={tickets.retry} label="Loading tickets">
+          {(tickets.data?.tickets ?? []).length ? (
+            <div className="scroll">
+              <table className="data-table">
+                <thead><tr><th>ID</th><th>Name</th><th>Status</th><th>Draw date</th><th>Lines</th><th>Actions</th></tr></thead>
+                <tbody>
+                  {(tickets.data?.tickets ?? []).map((ticket) => {
+                    const state = ticketResults[ticket.id];
+                    return (
+                      <tr key={ticket.id}>
+                        <td><code>#{ticket.id}</code></td>
+                        <td>{ticket.name}</td>
+                        <td><span className="badge badge-muted">{ticket.status}</span></td>
+                        <td className="muted">{ticket.draw_date ? formatDate(ticket.draw_date) : "—"}</td>
+                        <td className="muted">{(ticket.lines ?? []).map((line) => generatedLineText(line)).join(" · ") || "—"}</td>
+                        <td>
+                          <div className="row-actions">
+                            <button className="text-button" type="button" onClick={() => checkTicket(ticket.id)} disabled={state?.status === "running"}>Check</button>
+                            <button className="text-button" type="button" onClick={() => archiveTicket(ticket.id)} disabled={state?.status === "running"}>Archive</button>
+                          </div>
+                          {state?.status === "ready" ? (
+                            <div className="lottery-ticket-result">
+                              <p className="muted">Against draw {state.result.drawDate} ({state.result.drawSource})</p>
+                              <ul className="lottery-lines">
+                                {(state.result.lines ?? []).map((line, index) => (
+                                  <li key={index}>{generatedLineText(line)} — {formatCount(line.mainMatches)} mains, {formatCount(line.starMatches)} stars{line.prizeTier ? ` · ${line.prizeTier}` : " · no prize tier"}</li>
+                                ))}
+                              </ul>
+                              <p className="field-hint">{state.result.note}</p>
+                            </div>
+                          ) : null}
+                          {state?.status === "archived" ? <p className="muted">Archived.</p> : null}
+                          {state?.status === "error" ? <p className="field-error" role="alert">{state.message}</p> : null}
+                        </td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
+            </div>
+          ) : <p className="empty">No saved tickets yet.</p>}
+        </StateBox>
+      </section>
+
+      <div className="lottery-grid">
+        <section className="panel">
+          <h2>Strategy Lab <span className="badge badge-muted">HISTORICAL SIMULATION</span></h2>
+          <form className="panel-form" onSubmit={runBacktest}>
+            <Field label="Strategy" htmlFor="lottery-strategy">
+              <select id="lottery-strategy" value={backtestForm.strategy} onChange={(event) => setBacktestForm((current) => ({ ...current, strategy: event.target.value }))}>
+                {BACKTEST_STRATEGIES.map((entry) => <option key={entry.value} value={entry.value}>{entry.label}</option>)}
+              </select>
+            </Field>
+            <Field label="Lines per draw" htmlFor="lottery-bt-lines"><input id="lottery-bt-lines" type="number" min="1" max="10" value={backtestForm.lines} onChange={(event) => setBacktestForm((current) => ({ ...current, lines: event.target.value }))} /></Field>
+            <Field label="Window" htmlFor="lottery-bt-window" hint="Draws replayed; blank or 0 uses the engine's own window."><input id="lottery-bt-window" type="number" min="0" max="100" value={backtestForm.window} onChange={(event) => setBacktestForm((current) => ({ ...current, window: event.target.value }))} /></Field>
+            <div className="lottery-inline-actions">
+              <button className="secondary-button" type="submit" disabled={backtest.status === "running"}>Run backtest</button>
+              <button className="text-button" type="button" onClick={runCompare} disabled={backtest.status === "running"}>Compare strategies</button>
+            </div>
+            <fieldset className="lottery-compare">
+              <legend>Strategies to compare (the random baseline is always included)</legend>
+              {BACKTEST_STRATEGIES.map((entry) => (
+                <label className="checkbox-row" key={entry.value} htmlFor={`compare-${entry.value}`}>
+                  <input id={`compare-${entry.value}`} type="checkbox" checked={compareStrategies.includes(entry.value)} disabled={entry.value === "RANDOM_BASELINE"}
+                    onChange={(event) => setCompareStrategies((current) => (event.target.checked ? [...current, entry.value] : current.filter((value) => value !== entry.value)))} />
+                  {entry.label}
+                </label>
+              ))}
+            </fieldset>
+          </form>
+          {backtest.status === "error" ? <div className="notice notice-error" role="alert">{formFailure(backtest.error)}{backtest.error?.code ? <span className="state-code"> {backtest.error.code}</span> : null}</div> : null}
+          {backtest.status === "running" ? <div className="state-box state-loading"><span className="state-dot" />Replaying stored draws…</div> : null}
+          {backtest.status === "ready" && backtest.report ? (
+            <div className="lottery-backtest-result">
+              <p className="muted">{backtest.report.label} · saved as <code>#{backtest.report.saved?.backtestId}</code></p>
+              <p className="muted">{backtest.report.period ? `${formatCount(backtest.report.period.drawsTested)} draws · ${formatDate(backtest.report.period.from)} → ${formatDate(backtest.report.period.to)} · ${formatCount(backtest.report.totalLines)} lines` : `${formatCount((backtest.report.strategies ?? []).length)} strategies compared`}</p>
+              <ul className="lottery-lines">
+                {(backtest.report.strategy ? [backtest.report] : (backtest.report.strategies ?? [])).map((report) => (
+                  <li key={report.strategy}>{report.strategy}: {matchDistribution(report).map((pair) => `${pair.label} ${pair.value}`).join(" · ")}</li>
+                ))}
+              </ul>
+              <p className="muted">{backtest.report.costNote} {backtest.report.winningsNote}</p>
+              <p className="muted">{backtest.report.note}</p>
+            </div>
+          ) : null}
+        </section>
+
+        <aside className="panel">
+          <h2>Stored backtests</h2>
+          <StateBox status={backtests.status} error={backtests.error} retry={backtests.retry} label="Loading backtests">
+            {(backtests.data?.backtests ?? []).length ? (
+              <ul className="lottery-lines">
+                {(backtests.data?.backtests ?? []).map((row) => (
+                  <li key={row.id}>#{row.id} · {row.strategy} · {formatCount(row.draws_tested)} draws · {formatDate(row.period_from)} → {formatDate(row.period_to)}</li>
+                ))}
+              </ul>
+            ) : <p className="empty">No stored backtest reports yet.</p>}
+          </StateBox>
+
+          <h2 className="lottery-subheading">Model versions</h2>
+          <StateBox status={models.status} error={models.error} retry={models.retry} label="Loading model versions">
+            {(models.data?.models ?? []).length ? (
+              <ul className="lottery-lines">
+                {(models.data?.models ?? []).map((model) => (
+                  <li key={model.id}>{model.model_name} v{model.model_version} · {model.status}
+                    <span className="muted"> · modes: {listToText(model.config?.generatorModes)} · backtests: {listToText(model.config?.backtesterStrategies)}</span>
+                  </li>
+                ))}
+              </ul>
+            ) : <p className="empty">No model versions recorded yet.</p>}
+          </StateBox>
+          <p className="field-hint">A model version is ensured once and never replaced, so a stored report always names the model that produced it.</p>
+        </aside>
+      </div>
+
+      <section className="panel">
+        <h2>System builder</h2>
+        <p className="muted">Expand a pool into its full combination grid. A system above the synchronous limit is queued for the lottery cron instead of being built in the request.</p>
+        <form className="panel-form lottery-system-form" onSubmit={(event) => runSystem(event)}>
+          <Field label="Main pool" htmlFor="lottery-sys-mains" hint="At least five numbers, e.g. 1,2,3,4,5,6"><input id="lottery-sys-mains" value={systemForm.mains} onChange={(event) => setSystemForm((current) => ({ ...current, mains: event.target.value }))} /></Field>
+          <Field label="Star pool" htmlFor="lottery-sys-stars" hint="Optional, e.g. 1,2,3"><input id="lottery-sys-stars" value={systemForm.stars} onChange={(event) => setSystemForm((current) => ({ ...current, stars: event.target.value }))} /></Field>
+          <div className="lottery-inline-actions">
+            <button className="secondary-button" type="submit" disabled={system.status === "running"}>Plan and preview</button>
+            {canManage ? <button className="text-button" type="button" onClick={(event) => runSystem(event, { background: true })} disabled={system.status === "running"}>Queue background build</button> : null}
+          </div>
+        </form>
+        {system.status === "error" ? <div className="notice notice-error" role="alert">{formFailure(system.error)}{system.error?.code ? <span className="state-code"> {system.error.code}</span> : null}</div> : null}
+        {system.status === "ready" && system.data ? (
+          <>
+            <dl className="lottery-meta">
+              <dt>Formula</dt><dd><code>{system.data.plan?.formula ?? "—"}</code></dd>
+              <dt>Total lines</dt><dd>{formatCount(system.data.plan?.totalLines ?? system.data.totalLines)}</dd>
+              <dt>Cost</dt><dd>{system.data.plan?.estimatedCost === null || system.data.plan?.estimatedCost === undefined ? system.data.plan?.costNote ?? "—" : system.data.plan.estimatedCost}</dd>
+              <dt>Queued</dt><dd>{system.data.queued ? "Yes — background build" : "No — built inline"}</dd>
+            </dl>
+            {system.data.note ? <p className="muted">{system.data.note}</p> : null}
+            {(system.data.lines ?? []).length ? (
+              <ul className="lottery-lines">
+                {system.data.lines.slice(0, 25).map((line, index) => <li key={index}>{generatedLineText({ mains: line.main ?? line.mains, stars: line.stars })}</li>)}
+              </ul>
+            ) : null}
+            {system.data.saved ? <p className="muted">Saved as {system.data.saved.combinationId ? `combination #${system.data.saved.combinationId}` : JSON.stringify(system.data.saved)}</p> : null}
+          </>
+        ) : null}
       </section>
     </div>
   );

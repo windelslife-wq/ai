@@ -82,18 +82,14 @@ export function prizeTier(mainMatches, starMatches) {
 
 /**
  * The parts of row 15 this port still does not contain, in legacy's own terms.
- * Slice 2 (combination intelligence, tickets, backtests, model versions) empties
- * the middle entries; slice 3 (the cron) removes the jobs entry. The console screens
- * stay until F-29 is lifted platform-wide. Removed, never re-labelled, as entries
- * become untrue.
+ *
+ * Slices 2–5 emptied the middle entries, and Phase 30 removed the last one: the
+ * console screens have a ported surface (/app/lottery and /app/lottery/lab), so the
+ * matrix is now EMPTY — the module claims nothing is missing, and a test asserts the
+ * empty list rather than letting a label imply it. Entries are removed as they become
+ * untrue, never re-labelled.
  */
-export const LOTTERY_NOT_PORTED = Object.freeze([
-  // Slices 2–5 removed the combination-intelligence, generation-persistence,
-  // tickets, backtest/model-version and scheduled-jobs entries: they became
-  // untrue, and untrue entries are removed, never re-labelled. What remains is
-  // what no slice has landed yet.
-  Object.freeze({ area: "console screens", legacy: "Lottery::index (views/lottery/*.php)", state: "not ported", detail: "No ported module has a console screen (F-29, platform-wide); the API reads exist under /lottery/*." }),
-]);
+export const LOTTERY_NOT_PORTED = Object.freeze([]);
 
 /**
  * Create the lottery service.

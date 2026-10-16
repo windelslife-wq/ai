@@ -91,8 +91,14 @@ const GENERATE_BODY = Object.freeze({
     mode: Object.freeze({ type: "string", maxLength: 32 }),
     count: Object.freeze({ type: "integer", min: 1, max: 1000 }),
     seed: Object.freeze({ type: "integer", nullable: true, min: -2_147_483_648, max: 2_147_483_647 }),
-    locks: Object.freeze({ type: "object" }),
-    excludes: Object.freeze({ type: "object" }),
+    // Both are PASSTHROUGHS, not keyed objects: legacy hands `$body['locks']` to the
+    // generator unchanged (`is_array` and nothing more), and the generator's
+    // `normalizeField` is the only validator, throwing legacy's exact messages that
+    // `guarded` translates to a 400. An `{type: "object"}` node with no declared
+    // properties keeps only declared keys, so `{mains: [7, 21]}` was being reduced to
+    // `{}` — the route accepted a lock and silently generated without it.
+    locks: Object.freeze({ type: "object", additionalProperties: true }),
+    excludes: Object.freeze({ type: "object", additionalProperties: true }),
     contextLines: Object.freeze({ type: "array" }),
   }),
 });

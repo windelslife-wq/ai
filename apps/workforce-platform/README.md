@@ -24,13 +24,13 @@ production replacement and no traffic has been cut over.
   flash for the no-script form path. The legacy public chat widget is **not**
   ported, so `publicSite` reports `partial`.
 - **Market data, analysis, the Strategy Lab, paper trading, persisted risk
-  governance, the paper-proposal workflow, operator notifications and the audit,
-  inbox and portfolio-optimizer consoles are ported**;
-  `/api/v1/system/status` states each module's acceptance level individually.
-  Brokers, sports and lottery are ported **in part** (`partial`, each with its own
-  stated remainder — no verified adapter, no stake sizing, no console screens);
-  language learning and lead discovery remain legacy-only. The status surface
-  reports each state rather than implying coverage.
+  governance, the paper-proposal workflow, operator notifications, lottery
+  intelligence and the audit, inbox, portfolio-optimizer and lottery consoles are
+  ported**; `/api/v1/system/status` states each module's acceptance level
+  individually. Brokers and sports are ported **in part** (`partial`, each with its
+  own stated remainder — no verified adapter, and for sports no stake sizing and no
+  console screens); language learning and lead discovery remain legacy-only. The
+  status surface reports each state rather than implying coverage.
 - **Operator notifications are ported** (migration `009`, `wf_notifications`): an
   unread-deduped notifier, broadcast plus targeted visibility, the three legacy
   `/api/v1/notifications` endpoints, and publishers for the kill switch, trading-mode
@@ -48,6 +48,20 @@ production replacement and no traffic has been cut over.
   override. Its console is available at `/app/portfolio/optimizer` (Phase 29, gated by
   `trading.view`); there is still **no saved-report history** — a run is returned, not
   stored, and the screen says so.
+- **Lottery intelligence is ported end to end** (row 15, Phases 21–30): the provider
+  boundary (no provider by default, the sandbox double-gated and labelled, the official
+  feed gated on an explicit https-only license), EuroMillions rules as versioned data,
+  validation before storage, idempotent ingestion that never overwrites a verified draw,
+  the statistics engine whose every output carries the independence disclaimer, the
+  five-mode generator, the diversity and system builders, saved tickets that are
+  **records of number lines, never purchases**, the no-look-ahead Strategy Lab whose
+  cost and winnings are honestly `null`, and the CLI cron. Its consoles are
+  `/app/lottery` (operations: engine state, stored evidence, provider health and
+  history, registry, a draw browser, the seven statistics kinds, AI decision reports
+  with each stored payload, job runs and the performance overview) and
+  `/app/lottery/lab` (generator with locks and excludes, combinations, tickets, the
+  Strategy Lab and model versions), both under `lottery.view` — only the probe, the
+  sync and the system build are `lottery.manage`.
   See [`docs/migration/PHASE11_PORTFOLIO_OPTIMIZER.md`](../../docs/migration/PHASE11_PORTFOLIO_OPTIMIZER.md)
   and [`docs/migration/PHASE29_PORTFOLIO_OPTIMIZER_CONSOLE.md`](../../docs/migration/PHASE29_PORTFOLIO_OPTIMIZER_CONSOLE.md).
 - **The audit browser is ported**: `GET /api/v1/admin/audit` serves the whole trail
@@ -102,7 +116,7 @@ login-attempt hash, not only the session cookie. `DB_*` are required only by the
 `npm run check` is the release gate: it verifies the installation (engines range,
 dependency set, required files, migrations, `.env.example` coverage, production
 config rules, reproducible icons, absence of static generated documents, built
-client bundle — **30 checks**) and then runs the suite — currently **986 tests** across 72 files.
+client bundle — **30 checks**) and then runs the suite — currently **1000 tests** across 73 files.
 `npm run build:icons` regenerates the PNG icon set; `npm run check:icons` proves
 the committed PNGs are byte-identical to what the generator produces.
 

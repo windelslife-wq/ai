@@ -1053,7 +1053,7 @@ test("F-02 the status surface is honest about unported modules, and F-03 the rou
   assert.equal(body.modules.find((module) => module.key === "identity").state, "ported");
   assert.equal(body.modules.find((module) => module.key === "marketData").state, "ported", "market data was ported in Phase 4");
   assert.equal(body.modules.find((module) => module.key === "analysis").state, "ported", "the analysis engines were ported in Phase 5");
-  assert.equal(body.modules.filter((module) => module.state === "ported").length, 9, "identity, market data, analysis, the portfolio optimizer, strategies, paper trading, risk, notifications and the audit browser have tested Node surfaces");
+  assert.equal(body.modules.filter((module) => module.state === "ported").length, 10, "identity, market data, analysis, the portfolio optimizer, strategies, paper trading, risk, notifications, the audit browser and lottery (Phase 30, when its last unported entry — the console screens — became a ported surface) have tested Node surfaces");
   // Notifications are stored and read in-product only; the module says so itself
   // rather than implying an alert reached a device or an email inbox.
   assert.equal(body.modules.find((module) => module.key === "notifications").state, "ported");
@@ -1150,18 +1150,21 @@ test("F-02 the status surface is honest about unported modules, and F-03 the rou
   // Phase 14 moves `brokers` from not-ported to partial: the connector boundary, the
   // normalized data contracts and the demo-only order gates are ported and tested,
   // while no adapter is verified against its provider and no order can be routed.
-  // Row 15 slice 1 moves `lottery` from not-ported to partial: the foundation
-  // (providers, rules, validation, ingestion, derived health, statistics) is ported
-  // and PHP-parity proven, while combination intelligence, tickets, backtests, the
-  // lottery cron and the console screens are not (F-29 keeps that list).
+  // Phase 30 moves `lottery` from partial to ported: slices 1–5 were the whole module
+  // and the console screens were its only remaining entry, so the ledger's state now
+  // has to name both screens rather than hedge. The status matrix is asserted empty in
+  // test/lottery_http.test.js — a `ported` label with a non-empty matrix would fail
+  // there, which is the point of splitting the two checks.
   const lotteryLabel = body.modules.find((module) => module.key === "lottery").label;
-  assert.equal(body.modules.find((module) => module.key === "lottery").state, "partial");
+  assert.equal(body.modules.find((module) => module.key === "lottery").state, "ported");
   for (const pattern of [
     /draw validation before storage/i,
     /never overwrites a VERIFIED draw/i,
     /independence DISCLAIMER/i,
     /a default host has no provider and fabricates nothing/i,
-    /the console screens are not ported \(f-29, platform-wide\)/i,
+    /phase 30 ported the console screens/i,
+    /the operations board at \/app\/lottery/i,
+    /the lab at \/app\/lottery\/lab/i,
     /systems consumer that finally drains the queued background builds/i,
     /nineteen lottery\.view reads/i,
     /eight lottery\.view POSTs/i,
@@ -1169,7 +1172,8 @@ test("F-02 the status surface is honest about unported modules, and F-03 the rou
   ]) {
     assert.match(lotteryLabel, pattern);
   }
-  assert.equal(body.modules.filter((module) => module.state === "partial").length, 6, "the public site (chat widget), execution (the remaining supervisor steps are broker-bound, no live route, no automated mode), scheduled jobs (no early-warning tiers, no sports/lottery cron), brokers (no verified adapter, no order routing), sports (measured but person-gated: nothing executed, no stake sized, no stored result trusted before a person attests, no verified vendor, no cron and no console screens) and lottery (slices 1–5 ported and proven for parity; only the console screens are missing, F-29) remain partial");
+  assert.ok(!/console screens are not ported/i.test(lotteryLabel), "the ported label must not still carry the F-29 hedge");
+  assert.equal(body.modules.filter((module) => module.state === "partial").length, 5, "the public site (chat widget), execution (the remaining supervisor steps are broker-bound, no live route, no automated mode), scheduled jobs (no early-warning tiers, no sports cron), brokers (no verified adapter, no order routing) and sports (measured but person-gated: nothing executed, no stake sized, no stored result trusted before a person attests, no verified vendor and no console screens) remain partial — lottery left the list in Phase 30, when its last entry (the console screens) was ported and its own matrix went empty");
   assert.equal(body.modules.filter((module) => module.state === "not-ported").length, 2, "language learning and lead discovery remain legacy-only");
   assert.equal(body.modules.length, 17, "the ledger keeps listing every module, ported or not");
   // The public status surface carries a market-data snapshot that must not have

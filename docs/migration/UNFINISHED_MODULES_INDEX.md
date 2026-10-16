@@ -1,6 +1,6 @@
 # Unfinished modules — name index
 
-**Compiled:** 2026-10-16 (updated after Phase 29) · **Source of truth:** the in-code ledger in
+**Compiled:** 2026-10-16 (updated after Phase 30) · **Source of truth:** the in-code ledger in
 `apps/workforce-platform/src/modules/platform/health.js` (served by `/api/v1/system/features`
 and `/api/v1/system/status`), cross-checked against `docs/migration/UNFINISHED_MODULES.md`
 and `docs/migration/STATUS.md`.
@@ -10,9 +10,9 @@ already exist and pass tests in the PHP application; they are still unfinished a
 
 ---
 
-## A. Platform status ledger — 17 modules, 8 unfinished (9 ported / 6 partial / 2 not-ported)
+## A. Platform status ledger — 17 modules, 7 unfinished (10 ported / 5 partial / 2 not-ported)
 
-### Partial (code exists, work remains) — 6
+### Partial (code exists, work remains) — 5
 
 | # | Module key | Name | What is still missing |
 |---:|---|---|---|
@@ -21,17 +21,18 @@ already exist and pass tests in the PHP application; they are still unfinished a
 | 3 | `scheduledJobs` | **Scheduled jobs, CLI and resumable work** | Legacy early-warning tiers at 80/70/60 % of a limit (SJ-8); `EXCESSIVE_LEVERAGE` / `CORRELATED_POSITIONS` codes (SJ-9); no crontab installed on a real host. |
 | 4 | `brokers` | **Broker Center and broker connectors** | Ten adapters registered but all disabled by default; no order routing, no simulated bridge, no adapter verified against its provider (MT5 real-terminal validation outstanding). |
 | 5 | `sports` | **Sports intelligence** | Stake sizing; console screens (F-29); no live provider verified against a real vendor. |
-| 6 | `lottery` | **Lottery intelligence and Operations console** | Console screens only (F-29, platform-wide); no authorized official feed configured. |
 
 ### Not ported (Node equivalent absent) — 2
 
 | # | Module key | Name | Existing code |
 |---:|---|---|---|
-| 7 | `languageLearning` | **Language learning / AI teacher** | PHP only: `application/libraries/Aegis/LangLearn/`, `application/views/langlearn/`, `tests/cases/36-language-teacher.php`. |
-| 8 | `leadDiscovery` | **Lead discovery** | PHP `application/libraries/LeadDiscovery/` + legacy Scout; separate Node/TypeScript stacks in `apps/api/` and `apps/web/`. |
+| 6 | `languageLearning` | **Language learning / AI teacher** | PHP only: `application/libraries/Aegis/LangLearn/`, `application/views/langlearn/`, `tests/cases/36-language-teacher.php`. |
+| 7 | `leadDiscovery` | **Lead discovery** | PHP `application/libraries/LeadDiscovery/` + legacy Scout; separate Node/TypeScript stacks in `apps/api/` and `apps/web/`. |
 
 Ported (for contrast): `identity`, `audit`, `notifications`, `marketData`, `analysis`,
-`portfolioOptimizer`, `strategies`, `paperTrading`, `risk`.
+`portfolioOptimizer`, `strategies`, `paperTrading`, `risk`, and — since Phase 30, when its
+last unported entry (the console screens) became a ported surface and its own `notPorted`
+matrix went empty — `lottery`.
 
 ---
 
@@ -51,7 +52,7 @@ Ported (for contrast): `identity`, `audit`, `notifications`, `marketData`, `anal
 | 12 | Execution Supervisor | Broker-bound steps outstanding (see row 13) |
 | 13 | Broker Center and broker connectors | Real-terminal/demo verification, order routing |
 | 14 | Sports intelligence | Stake sizing, console screens, live vendor |
-| 15 | Lottery intelligence and Operations console | Console screens |
+| 15 | Lottery intelligence and Operations console | **Ported** (Phase 30): both console screens land at `/app/lottery` and `/app/lottery/lab`, the module's `notPorted` matrix is empty, and `lottery` moved to `ported` in the ledger. What remains is host-level, not code: no authorized official feed configured |
 | 16 | **Language learning / AI teacher** | Node port absent |
 | 17 | **Lead Discovery: CI3 module + Scout consolidation** | Unity/consolidation decision outstanding |
 | 18 | **Chat, journal, trading tools and remaining platform surfaces** | Node equivalents absent; needs full controller/route/view inventory |
@@ -69,8 +70,8 @@ host-verification reasons.
 ## C. Unfinished build code — where it lives
 
 - `apps/workforce-platform/` — Node modular monolith (`v0.23.0`); the 8 modules in section A.
-  Consoles now exist for notifications, the audit trail and the portfolio optimizer; the remaining F-29 gap
-  is the analysis / strategy / sports / lottery dashboards and settings.
+  Consoles now exist for notifications, the audit trail, the portfolio optimizer and lottery (both
+  screens); the remaining F-29 gap is the analysis / strategy / sports dashboards and settings.
 - `apps/api/` — TypeScript Lead Discovery API (routes, pipeline, quality, providers).
 - `apps/web/` — Next.js `@lead-discovery/web` SPA for the same workstream.
 - `apps/football-predictions/` — independent Express/MySQL app with 29 tests; production verification pending.

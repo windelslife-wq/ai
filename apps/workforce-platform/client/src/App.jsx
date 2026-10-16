@@ -16,8 +16,9 @@ import { endpoints, setCsrfToken, setUnauthorizedHandler } from "./api.js";
 import { Link, matchRoute, RouterProvider, useRouter } from "./router.jsx";
 import { ConnectivityBanner, Notice, UpdateBanner } from "./ui.jsx";
 import {
-  AccountView, AdminUsersView, AuditView, Brand, InquiriesView, LoginPanel, ModuleCards,
-  NotificationsView, NotFoundView, PortfolioOptimizerView, RegisterPanel, StatusPill, StatusView, WorkspaceNav,
+  AccountView, AdminUsersView, AuditView, Brand, InquiriesView, LoginPanel, LotteryLabView,
+  LotteryOperationsView, ModuleCards, NotificationsView, NotFoundView, PortfolioOptimizerView, RegisterPanel,
+  StatusPill, StatusView, WorkspaceNav,
 } from "./views.jsx";
 
 const NATIVE_BUILD = __NATIVE_BUILD__;
@@ -37,6 +38,12 @@ const ROUTES = [
   // used, so a role without it sees the locked navigation entry and the denied
   // state rather than a form the server would refuse.
   { path: "/app/portfolio/optimizer", view: "portfolio-optimizer", requiresAuth: true, permission: "trading.view" },
+  // Row 15 (Phase 30): the lottery operations console and its lab. Both carry the
+  // module's own read gate (`lottery.view`); the two ingestion actions inside the
+  // operations screen are additionally gated on `lottery.manage` and checked again
+  // by the API, so a viewer never sees a control that would be refused.
+  { path: "/app/lottery", view: "lottery-operations", requiresAuth: true, permission: "lottery.view" },
+  { path: "/app/lottery/lab", view: "lottery-lab", requiresAuth: true, permission: "lottery.view" },
   { path: "/app/admin/users", view: "admin-users", requiresAuth: true, permission: "identity.users.view" },
   { path: "/app/admin/audit", view: "audit", requiresAuth: true, permission: "identity.users.view" },
   { path: "/app/admin/inquiries", view: "inquiries", requiresAuth: true, permission: "system.super_admin" },
@@ -368,6 +375,8 @@ function SessionApp() {
       notifications: <NotificationsView onNotificationsChanged={refreshNotifications} />,
       status: <StatusView />,
       "portfolio-optimizer": <PortfolioOptimizerView permissions={permissions} />,
+      "lottery-operations": <LotteryOperationsView permissions={permissions} />,
+      "lottery-lab": <LotteryLabView permissions={permissions} />,
       "admin-users": <AdminUsersView permissions={permissions} />,
       audit: <AuditView />,
       inquiries: <InquiriesView />,
