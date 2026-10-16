@@ -2,7 +2,64 @@
 
 **Updated:** 2026-10-16 · **Branch:** `arena/046b29ac-ai`
 
-## Current Phase 36 status (2026-10-16)
+## Current Phase 37 status (2026-10-16)
+
+**Row 10 has no screen left: `/app/paper` is the port of `views/paper/index.php` (`Paper::index`) and
+`views/paper/account.php` (`Paper::account`) on one screen.** The accounts board, the account console (its
+eight statistics, open positions with their close buttons, the orders table *including the rejected rows*,
+the closed positions the close journaled, the deployments and their tick), the order and deploy forms,
+legacy's three banners, the effective risk limits and the module's own statement of where its governance
+lives. **146 routes before and after — this phase adds no route, no migration, no repository method, no
+permission, no dependency and no server file at all**: the module's HTTP surface was ported in Phase 7, and
+this phase ported the screens over it.
+
+**The console reads governance rather than assuming it.** All three banners — the synthetic-paper one, the
+mode one and the kill-switch one — come from `GET /trading/mode`, and only an explicit `active: false`
+silences the third, so an absent switch field is not a released switch. The effective-limits panel reads the
+same sixteen persisted limits the Risk Engine enforces instead of a second copy of them. The three
+governance **writes** — trading mode, the kill switch and synthetic-paper prices — are `trading.control`
+acts the screen deliberately does **not** carry: they live on `/app/analysis`, the panel names them, and the
+suite asserts the view never posts them.
+
+**Refusal text is the server's own sentence everywhere.** An order refused under the switch is a stored
+`REJECTED` row whose `reject_reason` is what the console prints ("Kill switch is ACTIVE — all paper orders
+are blocked"); a fill is the API's own "Order FILLED: BUY …"; a rejection the Risk Engine wrote (the
+provenance refusal, the minimum risk/reward) prints verbatim. Nothing is paraphrased, softened or
+substituted with a client-side guess. A `null` balance, price, P&L or R renders an em dash, never a zero.
+
+**Two divergences are stated rather than hidden.** The port's paper reads are **owner-scoped** where
+legacy's `Paper::account($id)` and its order/position/deployment queries had no owner filter at all, and a
+foreign account is answered exactly as a missing one (`404 PAPER_ACCOUNT_NOT_FOUND`, no existence leak) —
+asserted against legacy's own controller source in the console suite. And legacy's order form labelled the
+risk field `Risk %` with `min="0.1" max="2"` while the engine multiplies equity by it as a **fraction**, so
+legacy's bounds meant 10 %–200 % of equity; the port keeps the fraction, names it (`Risk (fraction of
+equity)`) and bounds it by the contract's `1e-6`…`0.05`, with both labels pinned in the test so the change
+cannot later be mistaken for a transcription error.
+
+A twelfth client contract suite (`test/client_paper_console.test.js`, **29 tests**, five of them over HTTP)
+pins the two legacy views' own words (`readFileSync` against `application/views/paper/*.php`), `PAPER_COSTS`
+against the engine's own constants, the market-class and timeframe vocabularies against the server enums,
+every declared read and write against `GET /api/v1/system/routes` and the permission the server enforces
+(the `/api/v1/paper/` surface is 11 method+path entries), the shapers on empty and populated payloads, the
+form validators and body builders (a blank optional field is omitted so the server's defaults apply), and
+the live flow: create → refused by the switch → refused in `ANALYSIS_ONLY` → refused in `PAPER_TRADING` with
+synthetic prices off → filled → tick → close → read back from the closed table, plus the deploy route
+refusing a `DRAFT` strategy until the lifecycle chain reaches `RISK_REVIEWED`. Gates: `npm run check:workforce`
+**1095 / 1095** (1066 before: +29), the client suites **118 / 118**, `npm run typecheck` clean,
+`npm run test:contracts` 12/12, the client build (`index-BZ7bg51D.js` 509.21 kB / 137.59 kB gzip,
+`index-BbfC8AGb.css` 42.15 kB / 9.05 kB gzip) and `npm run verify:install -- --require-bundle` **30 / 30**,
+plus a **35 / 35** live probe against the demo host (the refusal stored and read back, the fill path, the
+tick, the close and the deployments table, `/app/paper` serving the shell, and the demo's governance state
+**restored exactly** afterwards: kill switch ACTIVE, `ANALYSIS_ONLY`, synthetic prices off).
+**Not run:** a real browser, real MySQL/MariaDB, any live provider, SMTP, cPanel/Passenger, and still no
+PHP↔Node numeric diff (F-26). Full record: [`PHASE37_PAPER_CONSOLE.md`](PHASE37_PAPER_CONSOLE.md).
+
+**F-29's residual list is now four: risk, execution, brokers, journal** — paper left it. **The module
+counts are unchanged — 10 ported / 5 partial / 2 not-ported:** this phase ported screens over routes that
+already existed.
+
+## Phase 36 status (2026-10-16) — superseded by Phase 37
+
 
 **Row 3 is closed: `/app/sports` is the port of `views/sports/index.php` (`Sports::index`) and
 `views/sports/tickets.php` (`Sports::tickets`) on one screen.** Today's intelligence, the ticket the daily

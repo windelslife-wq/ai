@@ -129,7 +129,8 @@ question is unanswered.
 The SPA now ships identity, account, admin, status and an in-product notification inbox. The
 remaining product/domain APIs still have no operator console: market data (Phase 4), analysis
 (Phase 5), Strategy Lab (Phase 6), portfolio optimization (Phase 11), sports (Phases 15–20)
-and lottery (Phases 21–25). The legacy rendered these as pages; `views/strategy/index.php`
+and lottery (Phases 21–25). *(Historical: every one of those six has since landed — see the
+phase updates below, which are the current state of this finding.)* The legacy rendered these as pages; `views/strategy/index.php`
 alone is 8 466 bytes of operator UI with forms for backtest, optimize and advance, and its four
 document routes remain unported. The audit browser and portfolio optimizer APIs also still
 need workspace screens.
@@ -165,6 +166,15 @@ list at five: **paper, risk, execution, brokers and journal**. The sports consol
 last *behavioural* half of parity for that module landed — the decision route now carries
 `Api_sports::decide_ticket`'s kill-switch refusal — so the entry leaves this finding whole rather
 than leaving a route behind.
+
+**Update (Phase 37).** The **paper console** landed (`/app/paper` —
+`views/paper/{index,account}.php`, row 10's own two screens), so the residual list is now **four:
+risk, execution, brokers and journal**. The paper console added no route: the module's HTTP surface
+was already ported in Phase 7, and this phase ported the screens over it (plus the dashboard note
+that had been saying the screen did not exist). It also recorded the one deliberate divergence the
+paper screens carry — the port's paper reads are owner-scoped while legacy's looked accounts up by
+id with no owner filter at all, asserted in `test/client_paper_console.test.js` against legacy's own
+controller source rather than described.
 
 ### F-30 — `maxCorrelatedPositions` is a declared risk limit with no enforcement (open)
 

@@ -172,10 +172,21 @@ export const endpoints = {
   tradingMode: () => api("/api/v1/trading/mode"),
   setTradingMode: (payload) => api("/api/v1/trading/mode", { method: "POST", body: payload }),
   setKillSwitch: (payload) => api("/api/v1/trading/kill-switch", { method: "POST", body: payload }),
-  // The dashboard's paper-account count (Phase 33). Owner-scoped and under
-  // `trading.view` on the server, which is why the screen does not attempt it
-  // without that permission.
-  paperAccounts: () => api("/api/v1/paper/accounts"),
+  // The paper trading console (Phase 37). Every read is `trading.view` on the server and
+  // every mutation is `trading.execute`; the screen checks the same permissions before it
+  // offers a control, and the API re-checks them either way. The dashboard's own
+  // paper-account count (Phase 33) uses the first of these.
+  paperAccounts: (query = "") => api(`/api/v1/paper/accounts${query}`),
+  paperAccount: (accountId) => api(`/api/v1/paper/accounts/${encodeURIComponent(accountId)}`),
+  paperOrders: (accountId, query = "") => api(`/api/v1/paper/accounts/${encodeURIComponent(accountId)}/orders${query}`),
+  paperPositions: (accountId, query = "") => api(`/api/v1/paper/accounts/${encodeURIComponent(accountId)}/positions${query}`),
+  paperCreateAccount: (payload) => api("/api/v1/paper/accounts", { method: "POST", body: payload }),
+  paperSubmitOrder: (accountId, payload) => api(`/api/v1/paper/accounts/${encodeURIComponent(accountId)}/orders`, { method: "POST", body: payload }),
+  paperClosePosition: (accountId, positionId) => api(`/api/v1/paper/accounts/${encodeURIComponent(accountId)}/positions/${encodeURIComponent(positionId)}/close`, { method: "POST", body: {} }),
+  paperTick: (accountId) => api(`/api/v1/paper/accounts/${encodeURIComponent(accountId)}/tick`, { method: "POST", body: {} }),
+  paperDeployments: (accountId) => api(`/api/v1/paper/accounts/${encodeURIComponent(accountId)}/deployments`),
+  paperDeployStrategy: (accountId, payload) => api(`/api/v1/paper/accounts/${encodeURIComponent(accountId)}/deployments`, { method: "POST", body: payload }),
+  paperToggleDeployment: (accountId, deploymentId, active) => api(`/api/v1/paper/accounts/${encodeURIComponent(accountId)}/deployments/${encodeURIComponent(deploymentId)}/toggle`, { method: "POST", body: { active } }),
   // Sports Intelligence console (Phase 36). Every read here is `sports.view` on the
   // server except the active configuration, which is one of the module's two
   // `sports.manage` reads; the two writes are `sports.approve` (the decision, which also

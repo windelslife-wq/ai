@@ -4,6 +4,12 @@ Rows 10 and 11 of [`UNFINISHED_MODULES.md`](UNFINISHED_MODULES.md). The Node
 implementation is simulation-only. This phase does **not** add a broker, an
 execution supervisor, or a live-order route.
 
+> **Later:** Phase 37 ported row 10's screens over these routes —
+> [`PHASE37_PAPER_CONSOLE.md`](PHASE37_PAPER_CONSOLE.md) (`/app/paper` is
+> `views/paper/{index,account}.php` on one screen). Nothing in this record changed: no
+> route, contract or rule moved, and the module's HTTP surface is still what section 2
+> below describes.
+
 ## 1. Implemented surface
 
 | Area | Node implementation | Scope |

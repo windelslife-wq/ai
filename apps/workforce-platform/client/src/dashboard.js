@@ -85,8 +85,13 @@ export const GATED_READS = Object.freeze([
 /** What the language card says instead of a count no module can answer (row 16). */
 export const LANGUAGE_NOTE = "Language learning is not ported in this edition (row 16), so there is no profile count to show.";
 
-/** What the paper destinations say: the API is ported, the screen is not (F-29). */
-export const PAPER_NOTE = "The paper module is ported as an API (`/api/v1/paper/…`) with no console screen in this edition (F-29), so this opens nothing.";
+/**
+ * What the paper destinations say now that the console exists (Phase 37). Until that phase
+ * this note said the API was ported and the screen was not (F-29, which was true when it
+ * was written); a note that keeps saying it after `/app/paper` ships sends a reader to
+ * re-port a screen they can already open.
+ */
+export const PAPER_NOTE = "Every order passes the kill switch, trading mode and Risk Engine; `POST /api/v1/paper/…` never leaves the process. The console at `/app/paper` reads `GET /api/v1/paper/accounts`.";
 
 /** `Welcome`'s greeting: the first word of the display name, `Member` when unset. */
 export function firstWord(name, fallback = "Member") {
@@ -147,7 +152,7 @@ export function dashboardPills({ permissions = [], state = null, accounts = null
 export function quickActions() {
   return [
     { key: "analysis", label: "Run AI analysis", to: "/app/analysis", note: "Legacy's `/analysis` page." },
-    { key: "paper", label: "Paper trading", to: null, note: PAPER_NOTE },
+    { key: "paper", label: "Paper trading", to: "/app/paper", note: PAPER_NOTE },
     { key: "languages", label: "Learn a language", to: null, note: LANGUAGE_NOTE },
   ];
 }
@@ -194,8 +199,8 @@ export function kpiCards({ permissions = [], runs = null, unread = null, account
         ? "Reading paper accounts needs trading.view."
         : accountCount === null
           ? "The account list could not be read."
-          : `Counted from GET /api/v1/paper/accounts, which is owner-scoped — legacy counted every row in the table. ${PAPER_NOTE}`,
-      to: null,
+          : "Counted from GET /api/v1/paper/accounts, which is owner-scoped — legacy counted every row in the table. The console at /app/paper opens the accounts this counts.",
+      to: "/app/paper",
     },
     {
       key: "alerts",

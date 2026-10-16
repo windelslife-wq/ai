@@ -80,6 +80,19 @@ import {
   // for another module's statuses.
   providerTone as sportsProviderTone,
 } from "./sports.js";
+// The paper trading console's module (Phase 37). Three names collide with blocks above —
+// `emDash` (sports), `priceText` (the AI Workforce block) and `pctText` (the Strategy
+// Lab's) — so the paper ones are aliased here rather than either module's export being
+// renamed; `test/client_paper_console.test.js` imports the module directly, so what is
+// tested is the unaliased function.
+import {
+  ORDER_SIDES, ORDER_TYPES, PAPER_BOUNDARY, PAPER_COPY, PAPER_EXECUTE, PAPER_MARKET_CLASSES,
+  PAPER_PERMISSION, PAPER_TIMEFRAMES, PAPER_WINDOWS,
+  accountCards, accountGate, accountOutcome, accountRows, accountSelection, banners, buildAccountBody,
+  buildDeployBody, buildOrderBody, closedRows, closeOutcome, deployOptions, deployOutcome,
+  deploymentRows, holdsPaperPermission, orderOutcome, orderRows, positionRows, riskLimitRows,
+  tickOutcome, toggleOutcome, validateAccountForm, validateDeployForm, validateOrderForm,
+} from "./paper.js";
 import { Link } from "./router.jsx";
 import { ConnectivityBanner, Field, Notice, StateBox, useResource } from "./ui.jsx";
 
@@ -215,6 +228,10 @@ export function WorkspaceNav({ permissions, current, signedIn = true, notificati
     // `Sports::tickets`) are one screen here, gated on the module's own read
     // permission — the same gate every sports read carries on the server.
     { to: "/app/sports", label: "Sports intelligence", permission: SPORTS_PERMISSION },
+    // Row 10 (Phase 37): the paper trading console. Legacy's two pages (`Paper::index`,
+    // `Paper::account`) are one screen here, gated on `trading.view` — the gate every
+    // paper read carries on the server, and the one legacy's own `Api_paper` used.
+    { to: "/app/paper", label: "Paper trading", permission: PAPER_PERMISSION },
     { to: "/app/strategy", label: "Strategy Lab", permission: null },
     // Legacy's `Admin::index` was super-admin only; the directory and the trail
     // beside it were always `identity.users.view` surfaces. The port keeps both
@@ -409,7 +426,7 @@ export function NotificationsView({ onNotificationsChanged }) {
  * actions, the four KPI cards, then the recent-activity table and the notification
  * feed. Its honesty rules live in `dashboard.js` and are visible here as their
  * consequences — a number with no source is not rendered as zero (the language card),
- * and a destination that does not exist is not a link (the paper console, F-29).
+ * and a destination that does not exist is not a link (the journal screen, F-29).
  *
  * Two of the four reads are permissioned (`GET /trading/mode` and
  * `GET /paper/accounts`, both `trading.view`). They are **not attempted** without it:
@@ -557,8 +574,7 @@ export function WorkspaceDashboard({ user, permissions }) {
  * workspace dashboard (the port of legacy's `/dashboard`, Phase 33) and the
  * portfolio-optimizer, lottery, Strategy Lab, AI Workforce, administration and sports
  * consoles, so the cards name the one each of them opens. The screens still absent —
- * the settings screens, and the paper, risk, execution, broker and journal screens —
- * are what F-29 still counts.
+ * the risk, execution, broker and journal screens — are what F-29 still counts.
  */
 export function ModuleCards() {
   const moduleCards = [
@@ -947,6 +963,515 @@ export function AdminControlCentreView({ permissions }) {
           {features.data?.honesty ? <p className="muted">{features.data.honesty}</p> : null}
         </StateBox>
       </section>
+    </div>
+  );
+}
+
+/* -------------------------------------------------------------- paper console */
+
+/**
+ * The paper trading console (row 10, Phase 37): the port of `Paper::index` →
+ * `views/paper/index.php` (the accounts board) and `Paper::account` →
+ * `views/paper/account.php` (one account's console).
+ *
+ * The board and the account console are the same screen here: "open console" selects an
+ * account instead of navigating to `/paper/{id}`, because the shell's router is exact-path
+ * by design — every `/app/...` path is a declared surface in the parity ledger, and a
+ * parameter would let an undeclared one render. The selection falls back to the first
+ * account when the chosen one is gone, so a stale choice renders the board rather than an
+ * empty page.
+ *
+ * What the screen does, in legacy's order: the three banners the API's own governance
+ * state produces, the accounts table, the create form, then the selected account's
+ * head, eight statistics, open positions with their close buttons, the orders table
+ * **including the rejected ones** (legacy's auditability rule), closed positions, the
+ * order and deployment forms, and the deployments table. One panel legacy did not have —
+ * the effective risk limits — is read from `GET /trading/mode` rather than restated in
+ * prose, because the port has the numbers and a restated number is the kind that drifts.
+ *
+ * What it deliberately does not have: any governance control. Trading mode, the kill
+ * switch and synthetic prices live on `/app/analysis` under `trading.control`, which is
+ * what legacy's own page said when it printed "switch to PAPER_TRADING on the Dashboard".
+ * The screen prints the switch's sentence and links there.
+ *
+ * Every mutation is checked against the session's permissions before it is offered, and
+ * the API re-checks it either way: a `trading.view`-only operator sees the whole board and
+ * is told which permission each control needs. Every answer the screen prints — a fill, a
+ * rejection and its reasons, a closed position and its P&L, a tick's counts — is the
+ * server's own response through `paper.js`'s outcome builders.
+ */
+export function PaperConsoleView({ permissions }) {
+  const canExecute = holdsPaperPermission(permissions, PAPER_EXECUTE);
+  const [selectedId, setSelectedId] = useState(null);
+  const [action, setAction] = useState({ status: "idle", tone: "ok", message: "" });
+  const [accountForm, setAccountForm] = useState({ name: "", startingBalance: "10000" });
+  const [accountErrors, setAccountErrors] = useState({});
+  const [orderForm, setOrderForm] = useState({ symbol: "BTCUSDT", side: "BUY", type: "MARKET", price: "", stopLoss: "", takeProfit: "", riskPct: "", reason: "", confidence: "" });
+  const [orderErrors, setOrderErrors] = useState({});
+  const [deployForm, setDeployForm] = useState({ strategyId: "", strategyVersion: "", symbol: "BTCUSDT", timeframe: "1h", marketClass: "crypto" });
+  const [deployErrors, setDeployErrors] = useState({});
+  const busy = action.status === "busy";
+
+  const state = useResource(() => endpoints.tradingMode(), []);
+  const accounts = useResource(() => endpoints.paperAccounts(`?limit=${PAPER_WINDOWS.accounts}`), []);
+  const strategies = useResource(() => endpoints.strategies(), []);
+
+  const rows = accountRows(accounts.data);
+  const selection = accountSelection(rows, selectedId);
+  const account = selection.selected;
+  const accountId = account?.id ?? null;
+
+  const summary = useResource(() => (accountId ? endpoints.paperAccount(accountId) : Promise.resolve(null)), [accountId]);
+  const orders = useResource(
+    () => (accountId ? endpoints.paperOrders(accountId, `?limit=${PAPER_WINDOWS.orders}`) : Promise.resolve(null)),
+    [accountId],
+  );
+  const closed = useResource(
+    () => (accountId ? endpoints.paperPositions(accountId, `?status=CLOSED&limit=${PAPER_WINDOWS.closed}`) : Promise.resolve(null)),
+    [accountId],
+  );
+  const deployments = useResource(() => (accountId ? endpoints.paperDeployments(accountId) : Promise.resolve(null)), [accountId]);
+
+  const limits = riskLimitRows(state.data?.riskLimits);
+  const notices = banners(state.data);
+  const cards = accountCards(summary.data);
+  const positions = positionRows(summary.data?.positions);
+  const orderList = orderRows(orders.data?.orders).slice(0, PAPER_WINDOWS.listedOrders);
+  const closedList = closedRows(closed.data?.closed);
+  const deploymentList = deploymentRows(deployments.data?.deployments);
+  const options = deployOptions(strategies.data);
+  const gate = accountGate({ selected: account, canExecute });
+
+  async function act(label, work, refresh = []) {
+    setAction({ status: "busy", tone: "ok", message: `${label}…` });
+    try {
+      const outcome = await work();
+      setAction({ status: "done", tone: outcome?.tone ?? "ok", message: outcome?.message ?? `${label} done.` });
+      for (const resource of refresh) resource.retry();
+    } catch (error) {
+      // The server's own sentence — a refused order's reasons included — rather than a
+      // client-side paraphrase of what might have gone wrong.
+      setAction({ status: "error", tone: "error", message: `${label}: ${formFailure(error)}` });
+    }
+  }
+
+  const refreshAccounts = () => [accounts, state];
+  const refreshAccount = () => [summary, orders, closed, deployments, accounts];
+
+  function createAccount(event) {
+    event.preventDefault();
+    const check = validateAccountForm(accountForm);
+    setAccountErrors(check.errors);
+    if (!check.ok) return;
+    void act("Create account", async () => {
+      const created = await endpoints.paperCreateAccount(buildAccountBody(accountForm));
+      const outcome = accountOutcome(created);
+      if (outcome.accountId !== null) setSelectedId(String(outcome.accountId));
+      setAccountForm({ name: "", startingBalance: "10000" });
+      return outcome;
+    }, refreshAccounts());
+  }
+
+  function submitOrder(event) {
+    event.preventDefault();
+    const check = validateOrderForm(orderForm);
+    setOrderErrors(check.errors);
+    if (!check.ok || !accountId) return;
+    void act("Submit order", async () => orderOutcome(await endpoints.paperSubmitOrder(accountId, buildOrderBody(orderForm))), refreshAccount());
+  }
+
+  function deployStrategy(event) {
+    event.preventDefault();
+    const check = validateDeployForm(deployForm);
+    setDeployErrors(check.errors);
+    if (!check.ok || !accountId) return;
+    void act("Deploy strategy", async () => deployOutcome(await endpoints.paperDeployStrategy(accountId, buildDeployBody(deployForm))), refreshAccount());
+  }
+
+  const closePosition = (positionId) => void act("Close position", async () => closeOutcome(await endpoints.paperClosePosition(accountId, positionId)), refreshAccount());
+  const runTick = () => void act(PAPER_COPY.tickLabel, async () => tickOutcome(await endpoints.paperTick(accountId)), refreshAccount());
+  const toggleDeployment = (deploymentId, active) => void act(
+    active ? "Resume deployment" : "Pause deployment",
+    async () => toggleOutcome(await endpoints.paperToggleDeployment(accountId, deploymentId, active)),
+    refreshAccount(),
+  );
+
+  return (
+    <div className="view paper-view">
+      <header className="view-header">
+        <div>
+          <div className="overline">{PAPER_COPY.eyebrow} <span className="overline-line" /></div>
+          <h1>{PAPER_COPY.title}.</h1>
+          <p className="view-lede">{PAPER_COPY.lede}</p>
+        </div>
+        {accountId ? <a className="text-button" href="#paper-account">{PAPER_COPY.backLabel}</a> : null}
+      </header>
+
+      {action.status !== "idle" ? (
+        <Notice tone={action.status === "busy" ? "info" : action.tone === "error" ? "error" : "ok"}>{action.message}</Notice>
+      ) : null}
+      {notices.map((banner) => <Notice tone={banner.tone} key={banner.key}><b>{banner.title}</b> — {banner.text}</Notice>)}
+      {!canExecute ? (
+        <Notice tone="warn">{PAPER_COPY.orderTitle}, closing positions, running ticks and deploying strategies need <code>{PAPER_EXECUTE}</code>. The tables, the summaries and the limits below are readable under <code>{PAPER_PERMISSION}</code>, which this session holds.</Notice>
+      ) : null}
+      {state.status === "ready" ? (
+        <p className="muted">
+          Trading mode, the kill switch and synthetic prices are governed under <code>{PAPER_CONTROL}</code> on the
+          {" "}<Link className="panel-foot-link" to="/app/analysis">AI Workforce console</Link>, which is where the port renders those controls — legacy's own page named the Dashboard for the same reason.
+        </p>
+      ) : null}
+
+      <div className="paper-board">
+        <div className="paper-main">
+          <section className="panel">
+            <h2>{PAPER_COPY.accountsTitle}</h2>
+            <p className="muted">{PAPER_COPY.accountsNote}</p>
+            <StateBox status={accounts.status} error={accounts.error} retry={accounts.retry} label="Loading accounts"
+              empty={<p className="empty">{PAPER_COPY.accountsEmpty}</p>}>
+              {rows.length === 0 ? (
+                <p className="empty">{PAPER_COPY.accountsEmpty}</p>
+              ) : (
+                <div className="table-scroll">
+                  <table className="data-table">
+                    <thead>
+                      <tr>
+                        <th>#</th><th>Name</th><th className="num">Balance</th><th className="num">Equity</th>
+                        <th className="num">Unrealized</th><th className="num">Daily P&amp;L</th><th className="num">Open</th><th />
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {rows.map((row) => (
+                        <tr key={row.key} className={row.key === account?.key ? "paper-row-selected" : undefined}>
+                          <td className="muted">{row.id}</td>
+                          <td><b>{row.name}</b></td>
+                          <td className="num"><code>{row.balance}</code></td>
+                          <td className="num"><code>{row.equity}</code></td>
+                          <td className={`num ${row.unrealizedTone}`}><code>{row.unrealized}</code></td>
+                          <td className={`num ${row.dailyTone}`}><code>{row.daily}</code></td>
+                          <td className="num">{row.open}</td>
+                          <td className="num">
+                            <button className="text-button" type="button" onClick={() => setSelectedId(row.key)}>{PAPER_COPY.openLabel}</button>
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              )}
+            </StateBox>
+          </section>
+
+          <section className="panel" id="paper-account">
+            <h2>{PAPER_COPY.accountTitle}{account ? ` #${account.id} — ${account.name}` : ""}</h2>
+            {!gate.show ? (
+              <p className="empty">{gate.reason}</p>
+            ) : (
+              <>
+                <div className="paper-account-head">
+                  <p className="muted">{PAPER_COPY.fillsNote}</p>
+                  <div className="paper-actions">
+                    {canExecute ? (
+                      <button className="primary-button" type="button" disabled={busy} onClick={runTick}>{PAPER_COPY.tickLabel}</button>
+                    ) : (
+                      <span className="muted">{PAPER_COPY.tickLabel} needs <code>{PAPER_EXECUTE}</code>.</span>
+                    )}
+                  </div>
+                </div>
+                {gate.readOnly ? <p className="muted">{gate.reason}</p> : null}
+                <p className="muted">{PAPER_COPY.tickNote}</p>
+
+                <StateBox status={summary.status} error={summary.error} retry={summary.retry} label="Loading the account summary">
+                  <div className="dash-kpis paper-stats">
+                    {cards.map((card) => (
+                      <div className="dash-kpi" key={card.key}>
+                        <div className="dash-kpi-label">{card.label}</div>
+                        <p className={`dash-kpi-value ${card.tone}`}>{card.value}</p>
+                      </div>
+                    ))}
+                  </div>
+                  {summary.data?.valuationAvailable === false ? (
+                    <Notice tone="warn">
+                      The API could not value every open position: {summary.data.valuationWarnings?.map((warning) => warning.symbol ?? warning.reason ?? JSON.stringify(warning)).join(", ") || "no mark was available"}.
+                      The equity and P&amp;L above are what it answered, not a re-computation here.
+                    </Notice>
+                  ) : null}
+
+                  <h3>{PAPER_COPY.positionsTitle}</h3>
+                  {positions.length === 0 ? (
+                    <p className="empty">{PAPER_COPY.positionsEmpty}</p>
+                  ) : (
+                    <div className="table-scroll">
+                      <table className="data-table">
+                        <thead>
+                          <tr>
+                            <th>#</th><th>Sym</th><th>Dir</th><th className="num">Units</th><th className="num">Entry</th>
+                            <th className="num">Price</th><th className="num">SL</th><th className="num">TP</th>
+                            <th className="num">P&amp;L</th><th className="num">R</th><th />
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {positions.map((position) => (
+                            <tr key={position.key}>
+                              <td className="muted">{position.id}</td>
+                              <td><b>{position.symbol}</b></td>
+                              <td className={position.directionTone} title={position.direction}>{position.glyph}</td>
+                              <td className="num"><code>{position.units}</code></td>
+                              <td className="num"><code>{position.entry}</code></td>
+                              <td className="num"><code>{position.current}</code></td>
+                              <td className="num down"><code>{position.stopLoss}</code></td>
+                              <td className="num up"><code>{position.takeProfit}</code></td>
+                              <td className={`num ${position.pnlTone}`}><code>{position.pnl}</code></td>
+                              <td className="num muted"><code>{position.r}</code></td>
+                              <td className="num">
+                                {canExecute ? (
+                                  <button className="danger-button" type="button" disabled={busy} onClick={() => closePosition(position.id)}>close</button>
+                                ) : <span className="muted">close</span>}
+                              </td>
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
+                    </div>
+                  )}
+                  {positions.some((position) => position.synthetic) ? (
+                    <p className="muted">A position can be marked synthetic by the API's own valuation provenance (<code>valuation_synthetic</code>) — that is the quote the mark came from, and the banner above says whether synthetic pricing is on at all.</p>
+                  ) : null}
+                </StateBox>
+              </>
+            )}
+          </section>
+
+          <section className="panel">
+            <h2>{PAPER_COPY.ordersTitle}</h2>
+            <StateBox status={orders.status} error={orders.error} retry={orders.retry} label="Loading orders"
+              empty={<p className="empty">{PAPER_COPY.ordersEmpty}</p>}>
+              {orderList.length === 0 ? (
+                <p className="empty">{PAPER_COPY.ordersEmpty}</p>
+              ) : (
+                <div className="table-scroll">
+                  <table className="data-table">
+                    <thead>
+                      <tr>
+                        <th>#</th><th>Time</th><th>Sym</th><th>Side</th><th className="num">Units</th>
+                        <th className="num">Price/Fill</th><th>Status</th><th>Reason</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {orderList.map((order) => (
+                        <tr key={order.key}>
+                          <td className="muted">{order.id}</td>
+                          <td className="muted">{order.time}</td>
+                          <td>{order.symbol}</td>
+                          <td className={order.sideTone}>{order.side}</td>
+                          <td className="num"><code>{order.units}</code></td>
+                          <td className="num"><code>{order.price}</code></td>
+                          <td><span className={`badge ${order.statusTone}`}>{order.status}</span></td>
+                          <td className="muted paper-reason" title={order.reason}>{order.reason}</td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              )}
+            </StateBox>
+            <p className="muted">
+              Rejections are kept: an order the Risk Engine vetoed is a stored row, not a message that vanished.
+              The table shows the {PAPER_WINDOWS.listedOrders} most recent of up to {PAPER_WINDOWS.orders} read.
+            </p>
+          </section>
+
+          <section className="panel">
+            <h2>{PAPER_COPY.closedTitle}</h2>
+            <StateBox status={closed.status} error={closed.error} retry={closed.retry} label="Loading closed positions"
+              empty={<p className="empty">{PAPER_COPY.closedEmpty}</p>}>
+              {closedList.length === 0 ? (
+                <p className="empty">{PAPER_COPY.closedEmpty}</p>
+              ) : (
+                <div className="table-scroll">
+                  <table className="data-table">
+                    <thead>
+                      <tr><th>#</th><th>Sym</th><th>Dir</th><th className="num">Entry</th><th className="num">Exit</th><th className="num">P&amp;L</th><th>Exit reason</th><th>Closed</th></tr>
+                    </thead>
+                    <tbody>
+                      {closedList.map((row) => (
+                        <tr key={row.key}>
+                          <td className="muted">{row.id}</td>
+                          <td>{row.symbol}</td>
+                          <td className={row.directionTone} title={row.direction}>{row.glyph}</td>
+                          <td className="num"><code>{row.entry}</code></td>
+                          <td className="num"><code>{row.exit}</code></td>
+                          <td className={`num ${row.pnlTone}`}><code>{row.pnl}</code></td>
+                          <td className="muted">{row.exitReason}</td>
+                          <td className="muted">{row.closedAt}</td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              )}
+            </StateBox>
+          </section>
+        </div>
+
+        <div className="paper-side">
+          <section className="panel">
+            <h2>{PAPER_COPY.createTitle}</h2>
+            <form className="paper-form" onSubmit={createAccount}>
+              <Field label={PAPER_COPY.nameLabel} htmlFor="paper-account-name" error={accountErrors.name}>
+                <input id="paper-account-name" name="name" maxLength={60} placeholder={PAPER_COPY.namePlaceholder}
+                  value={accountForm.name} onChange={(event) => setAccountForm({ ...accountForm, name: event.target.value })} />
+              </Field>
+              <Field label={PAPER_COPY.balanceLabel} htmlFor="paper-account-balance" error={accountErrors.startingBalance}
+                hint="1 to 10,000,000, as `ACCOUNT_CREATE_BODY` bounds it.">
+                <input id="paper-account-balance" name="startingBalance" type="number" step="0.01" min="1" max="10000000"
+                  value={accountForm.startingBalance} onChange={(event) => setAccountForm({ ...accountForm, startingBalance: event.target.value })} />
+              </Field>
+              <button className="primary-button" type="submit" disabled={busy || !canExecute}>{PAPER_COPY.createLabel}</button>
+              {!canExecute ? <p className="muted">Creating an account needs <code>{PAPER_EXECUTE}</code>.</p> : null}
+            </form>
+            <p className="muted">{PAPER_COPY.createNote}</p>
+          </section>
+
+          <section className="panel">
+            <h2>{PAPER_COPY.orderTitle}</h2>
+            <form className="paper-form" onSubmit={submitOrder}>
+              <div className="paper-form-row">
+                <Field label="Symbol" htmlFor="paper-order-symbol" error={orderErrors.symbol}>
+                  <input id="paper-order-symbol" name="symbol" maxLength={24} value={orderForm.symbol}
+                    onChange={(event) => setOrderForm({ ...orderForm, symbol: event.target.value })} />
+                </Field>
+                <Field label="Side" htmlFor="paper-order-side" error={orderErrors.side}>
+                  <select id="paper-order-side" name="side" value={orderForm.side} onChange={(event) => setOrderForm({ ...orderForm, side: event.target.value })}>
+                    {ORDER_SIDES.map((side) => <option key={side} value={side}>{side}</option>)}
+                  </select>
+                </Field>
+              </div>
+              <div className="paper-form-row">
+                <Field label="Type" htmlFor="paper-order-type" error={orderErrors.type}>
+                  <select id="paper-order-type" name="type" value={orderForm.type} onChange={(event) => setOrderForm({ ...orderForm, type: event.target.value })}>
+                    {ORDER_TYPES.map((type) => <option key={type} value={type}>{type}</option>)}
+                  </select>
+                </Field>
+                <Field label="Limit price" htmlFor="paper-order-price" error={orderErrors.price} hint="Limit orders fill on the next tick.">
+                  <input id="paper-order-price" name="price" type="number" step="any" value={orderForm.price}
+                    onChange={(event) => setOrderForm({ ...orderForm, price: event.target.value })} />
+                </Field>
+              </div>
+              <div className="paper-form-row">
+                <Field label="Stop loss *" htmlFor="paper-order-stop" error={orderErrors.stopLoss}>
+                  <input id="paper-order-stop" name="stopLoss" type="number" step="any" value={orderForm.stopLoss}
+                    onChange={(event) => setOrderForm({ ...orderForm, stopLoss: event.target.value })} />
+                </Field>
+                <Field label="Take profit" htmlFor="paper-order-target" error={orderErrors.takeProfit} hint="Blank uses the engine's 3R default.">
+                  <input id="paper-order-target" name="takeProfit" type="number" step="any" value={orderForm.takeProfit}
+                    onChange={(event) => setOrderForm({ ...orderForm, takeProfit: event.target.value })} />
+                </Field>
+              </div>
+              <div className="paper-form-row">
+                <Field label="Risk (fraction of equity)" htmlFor="paper-order-risk" error={orderErrors.riskPct}
+                  hint="0.01 = 1%; at most 0.05. Blank uses the persisted default.">
+                  <input id="paper-order-risk" name="riskPct" type="number" step="0.001" min="0.000001" max="0.05" value={orderForm.riskPct}
+                    onChange={(event) => setOrderForm({ ...orderForm, riskPct: event.target.value })} />
+                </Field>
+                <Field label="Confidence 0–1" htmlFor="paper-order-confidence" error={orderErrors.confidence}>
+                  <input id="paper-order-confidence" name="confidence" type="number" step="0.01" min="0" max="1" value={orderForm.confidence}
+                    onChange={(event) => setOrderForm({ ...orderForm, confidence: event.target.value })} />
+                </Field>
+              </div>
+              <Field label="Reason (journaled)" htmlFor="paper-order-reason">
+                <input id="paper-order-reason" name="reason" maxLength={500} placeholder="e.g. demand zone reclaim" value={orderForm.reason}
+                  onChange={(event) => setOrderForm({ ...orderForm, reason: event.target.value })} />
+              </Field>
+              <button className="primary-button" type="submit" disabled={busy || !canExecute || !accountId}>{PAPER_COPY.orderSubmit}</button>
+            </form>
+            <p className="muted">{PAPER_COPY.orderNote}</p>
+          </section>
+
+          <section className="panel">
+            <h2>{PAPER_COPY.deployTitle}</h2>
+            <form className="paper-form" onSubmit={deployStrategy}>
+              <Field label="Strategy" htmlFor="paper-deploy-strategy" error={deployErrors.strategyId}
+                hint="Only a strategy at RISK_REVIEWED or beyond can be deployed; the API refuses the rest.">
+                <select id="paper-deploy-strategy" name="strategyId" value={deployForm.strategyId}
+                  onChange={(event) => {
+                    const chosen = options.find((option) => option.strategyId === event.target.value);
+                    setDeployForm({ ...deployForm, strategyId: event.target.value, strategyVersion: chosen?.version ?? "" });
+                  }}>
+                  <option value="">Choose a strategy…</option>
+                  {options.map((option) => (
+                    <option key={option.key} value={option.strategyId}>{option.strategyId} ({option.lifecycle})</option>
+                  ))}
+                </select>
+              </Field>
+              <div className="paper-form-row">
+                <Field label="Symbol" htmlFor="paper-deploy-symbol" error={deployErrors.symbol}>
+                  <input id="paper-deploy-symbol" name="symbol" value={deployForm.symbol}
+                    onChange={(event) => setDeployForm({ ...deployForm, symbol: event.target.value })} />
+                </Field>
+                <Field label="TF" htmlFor="paper-deploy-timeframe" error={deployErrors.timeframe}>
+                  <select id="paper-deploy-timeframe" name="timeframe" value={deployForm.timeframe}
+                    onChange={(event) => setDeployForm({ ...deployForm, timeframe: event.target.value })}>
+                    {PAPER_TIMEFRAMES.map((timeframe) => <option key={timeframe} value={timeframe}>{timeframe}</option>)}
+                  </select>
+                </Field>
+              </div>
+              <Field label="Market class" htmlFor="paper-deploy-class" error={deployErrors.marketClass}>
+                <select id="paper-deploy-class" name="marketClass" value={deployForm.marketClass}
+                  onChange={(event) => setDeployForm({ ...deployForm, marketClass: event.target.value })}>
+                  {PAPER_MARKET_CLASSES.map((marketClass) => <option key={marketClass} value={marketClass}>{marketClass}</option>)}
+                </select>
+              </Field>
+              <button className="secondary-button" type="submit" disabled={busy || !canExecute || !accountId}>{PAPER_COPY.deploySubmit}</button>
+            </form>
+            <p className="muted">{PAPER_COPY.deployNote}</p>
+            {deploymentList.length === 0 ? (
+              <p className="empty">{PAPER_COPY.deploymentsEmpty}</p>
+            ) : (
+              <div className="table-scroll">
+                <table className="data-table">
+                  <thead><tr><th>Strategy</th><th>Sym</th><th>Last signal</th><th>Status</th><th /></tr></thead>
+                  <tbody>
+                    {deploymentList.map((deployment) => (
+                      <tr key={deployment.key}>
+                        <td className="mono">{deployment.strategy}{deployment.version ? `@${deployment.version}` : ""}</td>
+                        <td className="mono">{deployment.symbol}</td>
+                        <td className="muted mono">{deployment.lastSignal}</td>
+                        <td><span className={`badge ${deployment.tone}`}>{deployment.status}</span></td>
+                        <td className="num">
+                          {canExecute ? (
+                            <button className="text-button" type="button" disabled={busy} onClick={() => toggleDeployment(deployment.id, !deployment.active)}>{deployment.toggleLabel}</button>
+                          ) : <span className="muted">{deployment.toggleLabel}</span>}
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            )}
+          </section>
+
+          <section className="panel">
+            <h2>{PAPER_COPY.limitsTitle}</h2>
+            <p className="muted">{PAPER_COPY.limitsNote}</p>
+            <StateBox status={state.status} error={state.error} retry={state.retry} label="Loading the trading state">
+              {limits.length === 0 ? (
+                <p className="empty">The API answered a trading state with no limits, which this edition does not expect.</p>
+              ) : (
+                <div className="status-list">
+                  {limits.map((limit) => (
+                    <div className="status-row" key={limit.key}><span>{limit.label}</span><b>{limit.value}</b></div>
+                  ))}
+                </div>
+              )}
+            </StateBox>
+          </section>
+
+          <section className="panel">
+            <h2>{PAPER_COPY.boundaryTitle}</h2>
+            {PAPER_BOUNDARY.map((line) => <p className="muted" key={line}>{line}</p>)}
+          </section>
+        </div>
+      </div>
     </div>
   );
 }

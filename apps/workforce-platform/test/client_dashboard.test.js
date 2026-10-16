@@ -81,7 +81,7 @@ test("the dashboard's windows, actions and cards are the ones views/workspace/in
 
   const actions = quickActions();
   assert.deepEqual(actions.map((action) => action.label), ["Run AI analysis", "Paper trading", "Learn a language"]);
-  assert.deepEqual(actions.map((action) => action.to), ["/app/analysis", null, null], "only the analysis action has a screen here");
+  assert.deepEqual(actions.map((action) => action.to), ["/app/analysis", "/app/paper", null], "the analysis and paper actions have screens; the language row does not");
 
   const cards = kpiCards({ permissions: [], runs: { runs: [] }, unread: 0, accounts: { accounts: [] } });
   assert.deepEqual(cards.map((card) => card.label), ["AI workforce runs", "Language profiles", "Paper accounts", "Unread alerts"]);
@@ -165,7 +165,8 @@ test("a number with no source is named, not rendered as zero", () => {
   assert.match(read.find((card) => card.key === "runs").note, /not a lifetime total/, "the count is the window, and says so");
   assert.equal(read.find((card) => card.key === "alerts").value, "3");
   assert.match(read.find((card) => card.key === "accounts").note, /owner-scoped/, "the count is the viewer's, not the table's");
-  assert.match(read.find((card) => card.key === "accounts").note, /F-29/);
+  assert.match(read.find((card) => card.key === "accounts").note, /\/app\/paper/, "and the note says where to read the accounts it counts");
+  assert.equal(read.find((card) => card.key === "accounts").to, "/app/paper");
 });
 
 test("a destination this edition does not have is not offered as a link", () => {
@@ -187,10 +188,13 @@ test("a destination this edition does not have is not offered as a link", () => 
     }
   }
 
-  // The premises of the two notes, checked against the router itself.
-  assert.ok(!declared.has("/app/paper"), "the paper note's premise: there is no paper console route");
+  // The premises of the two notes, checked against the router itself. The paper console
+  // arrived in Phase 37, so its note no longer states a gap — it links, and what it links
+  // to has to be a declared route.
+  assert.ok(declared.has("/app/paper"), "the paper console is declared, so its card and quick action open it");
   assert.ok(!declared.has("/app/journal"), "the activity foot's premise: there is no journal route");
-  assert.match(PAPER_NOTE, /F-29/);
+  assert.ok(!/F-29/.test(PAPER_NOTE), "F-29 counted the paper screen as absent; the note must not keep saying so");
+  assert.match(PAPER_NOTE, /kill switch/);
   assert.match(LANGUAGE_NOTE, /row 16/);
 });
 
@@ -331,7 +335,11 @@ test("against the running API: a member reads what the dashboard shows, and the 
   assert.deepEqual(memberPills.map((pill) => pill.text), ["Trading state needs trading.view", "Paper accounts need trading.view", "Language learning not ported"]);
   const memberCards = kpiCards({ permissions: member.permissions, runs: null, unread: null, accounts: null });
   assert.equal(memberCards.find((card) => card.key === "accounts").value, "—");
-  assert.equal(memberCards.find((card) => card.key === "accounts").to, null);
+  // The card still opens the console for a session that cannot read the count: the shell's
+  // own route gate names the missing permission, which is more use than a card that is
+  // silently not a link. The note carries the same sentence the pill does.
+  assert.equal(memberCards.find((card) => card.key === "accounts").to, "/app/paper");
+  assert.match(memberCards.find((card) => card.key === "accounts").note, /needs trading\.view/);
 });
 
 // -------------------------------------------------------------------- the screen
@@ -382,7 +390,7 @@ test("the two absences the page explains are the ledger's and the router's own",
   const language = modules.find((module) => module.key === "languageLearning");
   const paper = modules.find((module) => module.key === "paperTrading");
   assert.equal(language.state, "not-ported", "the language card's premise: there is no Node module to count profiles from");
-  assert.equal(paper.state, "ported", "the paper note's premise: the module is ported as an API");
+  assert.equal(paper.state, "ported", "the paper note's premise: the module is ported, and now screened");
 
   const routes = (await get(instance, "/api/v1/system/routes")).json().routes;
   assert.ok(routes.some((route) => route.path.startsWith("/api/v1/paper/")), "the paper note names a surface that exists");
@@ -393,10 +401,13 @@ test("the two absences the page explains are the ledger's and the router's own",
   // `/app/sports` left this list in Phase 36: F-29 counted the sports screens as absent,
   // and that count is what this assertion was about — the console exists now, so keeping
   // the path here would pin a screen as missing after it shipped.
-  for (const missing of ["/app/paper", "/app/risk", "/app/execution", "/app/journal", "/app/brokers"]) {
+  // `/app/paper` left this list in Phase 37, for the reason `/app/sports` left it in 36.
+  for (const missing of ["/app/risk", "/app/execution", "/app/journal", "/app/brokers"]) {
     assert.ok(!declared.has(missing), `${missing} is named as an open screen in F-29 and must not be declared here`);
   }
-  assert.ok(declared.has("/app/sports"), "the sports console is declared, and the F-29 list above is about the screens still absent");
+  for (const landed of ["/app/sports", "/app/paper"]) {
+    assert.ok(declared.has(landed), `${landed} is declared, and the F-29 list above is about the screens still absent`);
+  }
   // The module counts are untouched by this phase: the dashboard is a screen for the
   // shell, not a promotion for a module.
   assert.equal(modules.filter((module) => module.state === "ported").length, 10);

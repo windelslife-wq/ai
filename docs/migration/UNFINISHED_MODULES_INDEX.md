@@ -43,16 +43,16 @@ matrix went empty — `lottery`.
 |---:|---|---|
 | 1 | Identity, authentication and legacy account import | Code present; no real-DB import rehearsal, no approval to import |
 | 2 | Account management, registration, **password reset** and admin users | Mostly ported; password reset not ported (`delivered: false`, no mail transport) |
-| 3 | **Shared app shell, dashboards, settings and navigation** | **No screen left.** The sports dashboard landed in Phase 36 (`/app/sports`), closing the last one this row named — the settings gap closed with the account screen's avatar control (Phase 34) and the administrator control centre (`/app/admin`, Phase 35); the portfolio-optimizer (Phase 29), lottery (Phase 30), Strategy Lab (Phase 31), AI Workforce (`/app/analysis`, Phase 32), workspace dashboard (`/app`, Phase 33), account avatar (Phase 34), admin control centre (Phase 35) and sports console (Phase 36) screens landed |
+| 3 | **Shared app shell, dashboards, settings and navigation** | **No screen left.** The sports dashboard landed in Phase 36 (`/app/sports`), closing the last one this row named — the settings gap closed with the account screen's avatar control (Phase 34) and the administrator control centre (`/app/admin`, Phase 35); the portfolio-optimizer (Phase 29), lottery (Phase 30), Strategy Lab (Phase 31), AI Workforce (`/app/analysis`, Phase 32), workspace dashboard (`/app`, Phase 33), account avatar (Phase 34), admin control centre (Phase 35), sports console (Phase 36) and paper console (Phase 37) screens landed |
 | 4 | Public website, help/contact and SEO | Chat widget + announcement bar not ported |
 | 5 | Notifications, audit browser, feature/status reporting | No outbound delivery channel, no retention policy decided (inbox + audit consoles exist) |
 | 6 | Market data and provider health | F-24 shared health store, F-25 live probe, F-26 PHP↔Node numeric diff |
-| 7 | Analysis engines, agents, consensus/debate | R-26 route limits, R-27 retention for `wf_analysis_runs.payload`, screens |
+| 7 | Analysis engines, agents, consensus/debate | R-26 route limits, R-27 retention for `wf_analysis_runs.payload` (the screen landed in Phase 32, `/app/analysis`) |
 | 8 | Strategy Lab, lifecycle, backtesting, analytics | **Closed for the screen** (Phase 31, `/app/strategy`); what remains is not a screen but the PHP↔Node evidence-threshold diff (F-26) |
 | 9 | Research-only portfolio optimization | **Closed for the screen** (Phase 29, `/app/portfolio/optimizer`); saved reports deliberately absent |
 | 12 | Execution Supervisor | Broker-bound steps outstanding (see row 13) |
 | 13 | Broker Center and broker connectors | Real-terminal/demo verification, order routing |
-| 14 | Sports intelligence | Stake sizing, console screens, live vendor |
+| 14 | Sports intelligence | Stake sizing, live vendor (the console landed in Phase 36, `/app/sports`) |
 | 15 | Lottery intelligence and Operations console | **Ported** (Phase 30): both console screens land at `/app/lottery` and `/app/lottery/lab`, the module's `notPorted` matrix is empty, and `lottery` moved to `ported` in the ledger. What remains is host-level, not code: no authorized official feed configured |
 | 16 | **Language learning / AI teacher** | Node port absent |
 | 17 | **Lead Discovery: CI3 module + Scout consolidation** | Unity/consolidation decision outstanding |
@@ -64,7 +64,7 @@ matrix went empty — `lottery`.
 | 23 | **PWA + Capacitor release readiness** | Code closed; no real-browser/Lighthouse verification, native sign-in disabled, no SDK build/signing |
 
 Rows 10 (paper trading) and 11 (risk center) are ported in code and appear here only for
-host-verification reasons.
+host-verification reasons; row 10's two screens landed in Phase 37 (`/app/paper`).
 
 ---
 
@@ -73,7 +73,7 @@ host-verification reasons.
 - `apps/workforce-platform/` — Node modular monolith (`v0.23.0`); the 8 modules in section A.
   Consoles now exist for notifications, the audit trail, the portfolio optimizer, lottery (both
   screens), the Strategy Lab, the AI Workforce analysis run, the workspace dashboard, the admin
-  control centre and sports; the remaining F-29 gap is the paper, risk, execution, Broker Center and
+  control centre, sports and paper; the remaining F-29 gap is the risk, execution, Broker Center and
   journal screens (settings closed with the account avatar and the control centre, and no legacy
   settings controller exists).
 - `apps/api/` — TypeScript Lead Discovery API (routes, pipeline, quality, providers).

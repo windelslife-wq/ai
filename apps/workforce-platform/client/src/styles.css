@@ -510,6 +510,22 @@ button:focus-visible, input:focus-visible, a:focus-visible { outline: 2px solid 
 .dash-feed-unread { border-color: rgba(193, 241, 139, .28); background: rgba(38, 78, 48, .14); }
 .dash-feed-title { color: #d3ddd1; font-size: .72rem; overflow-wrap: anywhere; }
 .dash-feed time { font-size: .61rem; }
+.view-lede { max-width: 62ch; margin: .7rem 0 0; color: #a9b7ab; font-size: .78rem; line-height: 1.6; }
+.paper-board { display: grid; grid-template-columns: minmax(0, 1.7fr) minmax(300px, 1fr); gap: 1.1rem; align-items: start; margin-top: 1.1rem; }
+.paper-main, .paper-side { display: flex; flex-direction: column; gap: 1.1rem; min-width: 0; }
+.paper-main > .panel, .paper-side > .panel { margin: 0; }
+.paper-side .panel { display: flex; flex-direction: column; gap: .6rem; }
+.paper-account-head { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: .8rem; margin: .6rem 0 .2rem; }
+.paper-account-head > p { margin: 0; }
+.paper-actions { display: flex; flex-wrap: wrap; gap: .6rem; }
+.paper-stats { grid-template-columns: repeat(4, minmax(0, 1fr)); }
+.paper-row-selected { background: rgba(38, 78, 48, .18); }
+.paper-form { display: flex; flex-direction: column; gap: .7rem; margin: .4rem 0 0; }
+.paper-form-row { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: .7rem; }
+.paper-form .primary-button, .paper-form .secondary-button { width: 100%; }
+.paper-reason { max-width: 260px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.paper-view .panel h3 { margin: 1.1rem 0 .5rem; font-size: .82rem; color: #d3ddd1; }
+.paper-view table .danger-button { padding: .28rem .6rem; font-size: .58rem; }
 @media (max-width: 980px) {
   .workspace-body { grid-template-columns: 1fr; }
   .dash-kpis { grid-template-columns: repeat(2, minmax(0, 1fr)); }
@@ -558,7 +574,10 @@ button:focus-visible, input:focus-visible, a:focus-visible { outline: 2px solid 
   .portfolio-report-heading { flex-direction: column; }
   .workforce-start, .workforce-grid { grid-template-columns: 1fr; }
   .sports-board { grid-template-columns: 1fr; }
+  .paper-board { grid-template-columns: 1fr; }
+  .paper-stats { grid-template-columns: repeat(2, minmax(0, 1fr)); }
   .sports-kpis, .sports-pairs { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .paper-form-row { grid-template-columns: 1fr; }
   .workforce-watchlist { grid-template-columns: 1fr; }
   .portfolio-meta { grid-template-columns: 1fr; }
   .dash-kpis { grid-template-columns: 1fr; }
