@@ -25,8 +25,8 @@ production replacement and no traffic has been cut over.
   ported, so `publicSite` reports `partial`.
 - **Market data, analysis, the Strategy Lab, paper trading, persisted risk
   governance, the paper-proposal workflow, operator notifications, lottery
-  intelligence and the audit, inbox, portfolio-optimizer and lottery consoles are
-  ported**; `/api/v1/system/status` states each module's acceptance level
+  intelligence and the audit, inbox, portfolio-optimizer, lottery and Strategy Lab
+  consoles are ported**; `/api/v1/system/status` states each module's acceptance level
   individually. Brokers and sports are ported **in part** (`partial`, each with its
   own stated remainder — no verified adapter, and for sports no stake sizing and no
   console screens); language learning and lead discovery remain legacy-only. The
@@ -64,6 +64,20 @@ production replacement and no traffic has been cut over.
   sync and the system build are `lottery.manage`.
   See [`docs/migration/PHASE11_PORTFOLIO_OPTIMIZER.md`](../../docs/migration/PHASE11_PORTFOLIO_OPTIMIZER.md)
   and [`docs/migration/PHASE29_PORTFOLIO_OPTIMIZER_CONSOLE.md`](../../docs/migration/PHASE29_PORTFOLIO_OPTIMIZER_CONSOLE.md).
+- **The Strategy Lab console is at `/app/strategy`** (Phase 31, row 8): it runs a
+  backtest against the version on screen and renders the report it returns — every
+  metric, the equity curve, the trades, the data provenance (a synthetic run is
+  labelled SIMULATION on the row and in the report) and the engine's own warnings —
+  plus the stored history, the six-stage lifecycle stepper whose advance button
+  always targets the server's `nextStage`, and the 70/30 optimizer with its finalist
+  table. The screen is **session-only, like legacy's `Api_controller`**: it declares
+  no permission, and the one permissioned control it renders — the human sign-off for
+  an `ai`-sourced version — is `trading.control` on the route itself. Journal reads
+  and the model analytics stay under `/journal/*` rather than an alias (DV-8). A
+  refused promotion is shown with the server's reasons **and** warnings verbatim:
+  `views/strategy/index.php` flashed both, and a console that showed only "rejected"
+  would lose exactly what a person acts on.
+  See [`docs/migration/PHASE31_STRATEGY_CONSOLE.md`](../../docs/migration/PHASE31_STRATEGY_CONSOLE.md).
 - **The audit browser is ported**: `GET /api/v1/admin/audit` serves the whole trail
   filterable by actor, action prefix, entity and inclusive UTC window, paginated,
   with every event carrying a resolved `actor {userId, username, kind}`. It is
@@ -116,7 +130,7 @@ login-attempt hash, not only the session cookie. `DB_*` are required only by the
 `npm run check` is the release gate: it verifies the installation (engines range,
 dependency set, required files, migrations, `.env.example` coverage, production
 config rules, reproducible icons, absence of static generated documents, built
-client bundle — **30 checks**) and then runs the suite — currently **1000 tests** across 73 files.
+client bundle — **30 checks**) and then runs the suite — currently **1008 tests** across 74 files.
 `npm run build:icons` regenerates the PNG icon set; `npm run check:icons` proves
 the committed PNGs are byte-identical to what the generator produces.
 

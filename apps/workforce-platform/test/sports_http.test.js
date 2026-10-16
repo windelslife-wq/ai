@@ -94,7 +94,7 @@ test("a default host configures no provider, fabricates nothing, and lists what 
   assert.match(body.notice, /nothing is fabricated/i);
 
   // The honesty matrix travels in the response because no ported module has a
-  // console screen (F-29) — the same decision as BC-10 in the broker port.
+  // SPORTS console screen (F-29) — the same decision as BC-10 in the broker port.
   // Slice 5 empties the matrix down to three: settlement, verification, calibration
   // fitting, backtesting, drift monitoring and performance analytics all exist now,
   // and left the matrix rather than being re-labelled.

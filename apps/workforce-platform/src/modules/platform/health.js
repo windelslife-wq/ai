@@ -55,7 +55,12 @@ export const MODULE_STATUS = Object.freeze([
   // is still no saved-report history: a run is returned and the console says so,
   // because the only durable trace is the audit event the server writes.
   { key: "portfolioOptimizer", label: "Research-only portfolio optimization, long-only mean-variance, with its console at /app/portfolio/optimizer (no saved reports — a run is returned, not stored)", state: "ported", tests: "unit + http + client contract" },
-  { key: "strategies", label: "Strategy lab, lifecycle, backtesting and durable AI review", state: "ported", tests: "unit + http + persistence" },
+  {
+    key: "strategies",
+    label: "Strategy lab, lifecycle, backtesting and durable AI review, with its console at /app/strategy (Phase 31): a backtest runs against the version on screen and shows the report, its equity curve, trades, provenance and warnings, the stored history, the six-stage lifecycle stepper (Request advance, always to the server's own nextStage) and the 70/30 optimizer with its finalist table. Like legacy's Api_controller the screen is session-only — no screen permission — and the one permissioned control on it, the human sign-off for an ai-sourced version, is the route's own trading.control write. Journal reads and the model/decision analytics stay under /journal/* rather than an alias (DV-8)",
+    state: "ported",
+    tests: "unit + http + persistence + client contract",
+  },
   { key: "paperTrading", label: "Owner-scoped simulation accounts, orders, fills and deployments", state: "ported", tests: "unit + http + persistence" },
   { key: "risk", label: "Risk engine, persisted limits, kill switch and paper-portfolio monitor", state: "ported", tests: "unit + http + persistence" },
   // Phase 8A adds human-reviewed paper proposals; Phase 13 reconciles them against

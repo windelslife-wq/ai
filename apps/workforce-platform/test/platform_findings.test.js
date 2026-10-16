@@ -1078,6 +1078,26 @@ test("F-02 the status surface is honest about unported modules, and F-03 the rou
   assert.match(body.modules.find((module) => module.key === "portfolioOptimizer").label, /research-only/i);
   assert.match(body.modules.find((module) => module.key === "portfolioOptimizer").label, /\/app\/portfolio\/optimizer/);
   assert.match(body.modules.find((module) => module.key === "portfolioOptimizer").label, /no saved reports/i);
+  // Phase 6 ports the strategy lab and Phase 31 adds its console (row 8's last
+  // entry). `strategies` was already `ported` — the console gap was the module's
+  // only recorded absence — so what the label has to carry now is the shape of the
+  // screen, because `ported` alone would not distinguish a session-only console
+  // whose one permissioned control is the API's own sign-off from one that invents
+  // a screen permission legacy never had.
+  assert.equal(body.modules.find((module) => module.key === "strategies").state, "ported");
+  const strategiesLabel = body.modules.find((module) => module.key === "strategies").label;
+  for (const pattern of [
+    /Strategy lab, lifecycle, backtesting and durable AI review/i,
+    /console at \/app\/strategy/i,
+    /six-stage lifecycle stepper/i,
+    /70\/30 optimizer/i,
+    /session-only/i,
+    /trading\.control/,
+    /DV-8/,
+  ]) {
+    assert.match(strategiesLabel, pattern);
+  }
+  assert.ok(!/console screens are not ported/i.test(strategiesLabel), "the strategy console is ported; the F-29 hedge for this module is closed");
   // Phase 7 adds persisted governance and account-scoped paper risk. Phase 8A
   // adds human-reviewed paper proposals, not the full supervisor or a live route.
   assert.equal(body.modules.find((module) => module.key === "paperTrading").state, "ported");

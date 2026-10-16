@@ -140,6 +140,18 @@ export const endpoints = {
   lotteryPerformance: () => api("/api/v1/lottery/performance"),
   lotteryCheckProvider: () => api("/api/v1/lottery/providers/check", { method: "POST", body: {} }),
   lotterySync: (payload = {}) => api("/api/v1/lottery/sync", { method: "POST", body: payload }),
+  // Strategy Lab (Phase 31). The module's routes are session-only — no permission —
+  // which is legacy's own guard (`Api_controller`, no `PUBLIC_ACTIONS` entry), so
+  // the console passes no permission to the route table either. The sign-off route
+  // is the one exception and needs `trading.control`; the server checks it.
+  strategies: () => api("/api/v1/strategies"),
+  strategyDetail: (strategyId, query = "") => api(`/api/v1/strategies/${encodeURIComponent(strategyId)}${query}`),
+  strategyTransition: (strategyId, payload) => api(`/api/v1/strategies/${encodeURIComponent(strategyId)}/status`, { method: "POST", body: payload }),
+  strategySignOff: (strategyId, payload) => api(`/api/v1/strategies/${encodeURIComponent(strategyId)}/sign-off`, { method: "POST", body: payload }),
+  strategyOptimize: (strategyId, payload) => api(`/api/v1/strategies/${encodeURIComponent(strategyId)}/optimize`, { method: "POST", body: payload }),
+  runBacktest: (payload) => api("/api/v1/backtesting/run", { method: "POST", body: payload }),
+  backtestHistory: (query = "") => api(`/api/v1/backtesting/results${query}`),
+  backtestResult: (backtestId) => api(`/api/v1/backtesting/results/${encodeURIComponent(backtestId)}`),
   notificationInbox: (query = "") => api(`/api/v1/notifications${query}`),
   markNotificationRead: (notificationId) => api(`/api/v1/notifications/${encodeURIComponent(notificationId)}/read`, { method: "POST", body: {} }),
   markAllNotificationsRead: () => api("/api/v1/notifications/read-all", { method: "POST", body: {} }),

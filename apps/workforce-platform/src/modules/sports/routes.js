@@ -20,8 +20,9 @@
  *
  * Since no domain module has a sports console screen (**F-29**), the list of what is
  * *not* ported travels in the response — the same decision as BC-10 in the broker
- * port. The shared shell has a notification inbox, not a sports surface, so a module
- * that reported only what it has would still look complete.
+ * port. The shell's other consoles cover portfolio optimisation, the lottery and
+ * strategies — not sports (**F-29**) — so a module that reported only what it has
+ * would still look complete.
  */
 
 import { AppError } from "../../http/errors.js";

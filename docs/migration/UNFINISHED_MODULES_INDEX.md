@@ -1,6 +1,6 @@
 # Unfinished modules — name index
 
-**Compiled:** 2026-10-16 (updated after Phase 30) · **Source of truth:** the in-code ledger in
+**Compiled:** 2026-10-16 (updated after Phase 31) · **Source of truth:** the in-code ledger in
 `apps/workforce-platform/src/modules/platform/health.js` (served by `/api/v1/system/features`
 and `/api/v1/system/status`), cross-checked against `docs/migration/UNFINISHED_MODULES.md`
 and `docs/migration/STATUS.md`.
@@ -30,7 +30,8 @@ already exist and pass tests in the PHP application; they are still unfinished a
 | 7 | `leadDiscovery` | **Lead discovery** | PHP `application/libraries/LeadDiscovery/` + legacy Scout; separate Node/TypeScript stacks in `apps/api/` and `apps/web/`. |
 
 Ported (for contrast): `identity`, `audit`, `notifications`, `marketData`, `analysis`,
-`portfolioOptimizer`, `strategies`, `paperTrading`, `risk`, and — since Phase 30, when its
+`portfolioOptimizer`, `strategies` (its console landed in Phase 31, closing the module's last
+recorded entry), `paperTrading`, `risk`, and — since Phase 30, when its
 last unported entry (the console screens) became a ported surface and its own `notPorted`
 matrix went empty — `lottery`.
 
@@ -42,12 +43,12 @@ matrix went empty — `lottery`.
 |---:|---|---|
 | 1 | Identity, authentication and legacy account import | Code present; no real-DB import rehearsal, no approval to import |
 | 2 | Account management, registration, **password reset** and admin users | Mostly ported; password reset not ported (`delivered: false`, no mail transport) |
-| 3 | **Shared app shell, dashboards, settings and navigation** | Domain dashboards (analysis, strategy, sports, lottery) and settings screens absent; the portfolio-optimizer screen landed in Phase 29 |
+| 3 | **Shared app shell, dashboards, settings and navigation** | The analysis and sports dashboards and the settings screens are absent; the portfolio-optimizer (Phase 29), lottery (Phase 30) and Strategy Lab (Phase 31) screens landed |
 | 4 | Public website, help/contact and SEO | Chat widget + announcement bar not ported |
 | 5 | Notifications, audit browser, feature/status reporting | No outbound delivery channel, no retention policy decided (inbox + audit consoles exist) |
 | 6 | Market data and provider health | F-24 shared health store, F-25 live probe, F-26 PHP↔Node numeric diff |
 | 7 | Analysis engines, agents, consensus/debate | R-26 route limits, R-27 retention for `wf_analysis_runs.payload`, screens |
-| 8 | Strategy Lab, lifecycle, backtesting, analytics | Four legacy document routes (`/strategy`, `/strategy/backtest`, `/strategy/optimize`, `/strategy/advance`) and `views/strategy/index.php` (F-29) |
+| 8 | Strategy Lab, lifecycle, backtesting, analytics | **Closed for the screen** (Phase 31, `/app/strategy`); what remains is not a screen but the PHP↔Node evidence-threshold diff (F-26) |
 | 9 | Research-only portfolio optimization | **Closed for the screen** (Phase 29, `/app/portfolio/optimizer`); saved reports deliberately absent |
 | 12 | Execution Supervisor | Broker-bound steps outstanding (see row 13) |
 | 13 | Broker Center and broker connectors | Real-terminal/demo verification, order routing |
@@ -70,8 +71,9 @@ host-verification reasons.
 ## C. Unfinished build code — where it lives
 
 - `apps/workforce-platform/` — Node modular monolith (`v0.23.0`); the 8 modules in section A.
-  Consoles now exist for notifications, the audit trail, the portfolio optimizer and lottery (both
-  screens); the remaining F-29 gap is the analysis / strategy / sports dashboards and settings.
+  Consoles now exist for notifications, the audit trail, the portfolio optimizer, lottery (both
+  screens) and the Strategy Lab; the remaining F-29 gap is the analysis and sports dashboards, the
+  Broker Center console and settings.
 - `apps/api/` — TypeScript Lead Discovery API (routes, pipeline, quality, providers).
 - `apps/web/` — Next.js `@lead-discovery/web` SPA for the same workstream.
 - `apps/football-predictions/` — independent Express/MySQL app with 29 tests; production verification pending.

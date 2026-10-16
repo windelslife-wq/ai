@@ -22,6 +22,22 @@ import {
   matchDistribution, parseTicketLines, providerTone, statisticsRows, tierRows, validateAnalyzeForm,
   validateGenerateForm, verificationTone,
 } from "./lottery.js";
+// The three aliases below collide by name with the portfolio optimizer's own
+// exports (both modules have a timeframe list and an optimize form) — aliasing
+// here keeps each module's vocabulary natural instead of prefixing every export
+// in one of them. `test/client_strategy_console.test.js` imports the module
+// directly, so what is tested is the unaliased function.
+import {
+  BACKTEST_BARS, LIFECYCLE_ORDER, OPTIMIZE_BARS, RETIRED_STAGE, SYMBOLS,
+  TIMEFRAMES as STRATEGY_TIMEFRAMES,
+  backtestSummary, buildSignOffBody, buildTransitionBody, finalistRows,
+  buildBacktestBody as buildStrategyBacktestBody,
+  historyRows, lifecycleTone, marketClassFor, metricPairs, needsSignOff, optimizeHeadline, optimizeRecommendation,
+  pctText, plainNumber, provenanceNote, ratioPctText, stageSteps, transitionFailure,
+  buildOptimizeBody as buildStrategyOptimizeBody,
+  validateBacktestForm, validateSignOffForm,
+  validateOptimizeForm as validateStrategyOptimizeForm,
+} from "./strategy.js";
 import { Link } from "./router.jsx";
 import { ConnectivityBanner, Field, Notice, StateBox, useResource } from "./ui.jsx";
 
@@ -149,6 +165,7 @@ export function WorkspaceNav({ permissions, current, signedIn = true, notificati
     { to: "/app/portfolio/optimizer", label: "Portfolio optimizer", permission: "trading.view" },
     { to: "/app/lottery", label: "Lottery operations", permission: "lottery.view" },
     { to: "/app/lottery/lab", label: "Lottery lab", permission: "lottery.view" },
+    { to: "/app/strategy", label: "Strategy Lab", permission: null },
     { to: "/app/admin/users", label: "Users", permission: "identity.users.view" },
     { to: "/app/admin/audit", label: "Audit trail", permission: "identity.users.view" },
     { to: "/app/admin/inquiries", label: "Contact messages", permission: "system.super_admin" },
@@ -342,14 +359,15 @@ export function NotificationsView({ onNotificationsChanged }) {
  * engine, and it stayed on screen through Phase 6 — an understatement that would
  * have someone re-port a finished module. The opposite error is just as bad:
  * calling an API-only module "ported" implies an operator can use it here, and
- * they cannot. The shared shell now has an in-product notification inbox, but
- * domain consoles (analysis, strategy, portfolio, sports and lottery) remain open
- * work under F-29; the inbox does not imply those APIs have usable screens.
+ * they cannot. The shared shell now has an in-product notification inbox plus the
+ * portfolio-optimizer, lottery and Strategy Lab consoles, so the cards name the one
+ * each of them opens; the analysis and sports dashboards and the settings screens
+ * remain open work under F-29.
  */
 export function ModuleCards() {
   const moduleCards = [
     { number: "01", title: "Market intelligence", text: "Multi-agent analysis, consensus, regime detection and a risk-reviewed proposal.", status: "API ported · no console", tone: "api", foot: "PHASE 5 · /api/v1/analysis" },
-    { number: "02", title: "Strategy Lab", text: "Backtesting, walk-forward optimization, evidence-gated lifecycle and confidence calibration.", status: "API ported · no console", tone: "api", foot: "PHASE 6 · /api/v1/strategies" },
+    { number: "02", title: "Strategy Lab", text: "Backtesting, walk-forward optimization, evidence-gated lifecycle and confidence calibration.", status: "Console available", tone: "live", foot: "PHASE 31 · /app/strategy", to: "/app/strategy" },
     { number: "03", title: "Sports research", text: "Ingestion, decision chain, ticket engine, settlement and measured performance.", status: "Measured half ported · no console", tone: "api", foot: "PHASES 15–20 · /api/v1/sports" },
     { number: "04", title: "Lottery tools", text: "Draw statistics, combinations, saved tickets and the no-look-ahead Strategy Lab.", status: "Console available", tone: "live", foot: "PHASE 30 · /app/lottery", to: "/app/lottery", permission: "lottery.view" },
     { number: "05", title: "Language learning", text: "Lessons, practice and learner progress.", status: "PHP only · not ported", tone: "planned", foot: "MIGRATION BACKLOG" },
@@ -2172,6 +2190,409 @@ export function LotteryLabView({ permissions }) {
           </>
         ) : null}
       </section>
+    </div>
+  );
+}
+
+/* ------------------------------------------------------------ strategy lab */
+
+/** The lifecycle stepper, with legacy's "Paper trading (deploy)" label kept. */
+function StrategySteps({ lifecycle }) {
+  const steps = stageSteps(lifecycle);
+  const retired = String(lifecycle ?? "").toUpperCase() === RETIRED_STAGE;
+  return (
+    <ol className="strategy-steps">
+      {steps.map((step) => (
+        <li key={step.stage} className={`strategy-step strategy-step-${step.state}`}>
+          <span className="strategy-step-mark" aria-hidden="true">{step.state === "done" ? "✓" : step.state === "current" ? "•" : "·"}</span>
+          <span>{step.label}</span>
+          {step.state === "current" ? <span className="badge badge-sky">current</span> : null}
+        </li>
+      ))}
+      {retired ? <li className="strategy-step strategy-step-retired"><span className="strategy-step-mark" aria-hidden="true">■</span><span>Retired</span></li> : null}
+    </ol>
+  );
+}
+
+/** Metrics as a definition list — every figure comes from the report. */
+function MetricsList({ metrics }) {
+  return (
+    <dl className="strategy-metrics">
+      {metricPairs(metrics).map((pair) => (
+        <span className="strategy-metric" key={pair.label}>
+          <dt>{pair.label}</dt>
+          <dd>{pair.value}</dd>
+        </span>
+      ))}
+    </dl>
+  );
+}
+
+/**
+ * Strategy Lab console (Phase 31, row 8) — the port of `views/strategy/index.php`
+ * and of the three form posts behind it (`Strategy_lab::run_backtest`,
+ * `::optimize`, `::advance`), which the SPA performs as API calls instead of a
+ * redirect each.
+ *
+ * The screen inherits legacy's own guard: those routes are session-only, with no
+ * permission (`Api_controller`, no `PUBLIC_ACTIONS` entry) — so this console
+ * declares no permission either, and the only permissioned control it can render
+ * is the human sign-off, which the API checks under `trading.control` anyway.
+ *
+ * Nothing here claims a result is live: every report carries its provenance, the
+ * SIMULATION badge is on the row and the report, and a synthetic run is never
+ * presented as market performance.
+ */
+export function StrategyLabView() {
+  const [selected, setSelected] = useState("");
+  const [backtest, setBacktest] = useState({ strategyId: "", strategyVersion: "", symbol: "BTCUSDT", timeframe: "1h", limit: BACKTEST_BARS.default, allowShorts: false });
+  const [optimizer, setOptimizer] = useState({ strategyId: "", strategyVersion: "", symbol: "BTCUSDT", timeframe: "1h", limit: OPTIMIZE_BARS.default, register: false });
+  const [advance, setAdvance] = useState({ reason: "" });
+  const [signOff, setSignOff] = useState({ reason: "" });
+  const [run, setRun] = useState(null);
+  const [report, setReport] = useState(null);
+  const [optimizeReport, setOptimizeReport] = useState(null);
+  const [busy, setBusy] = useState(false);
+
+  useEffect(() => { document.title = "Strategy Lab · WINDELS AI WORKFORCE"; }, []);
+
+  const list = useResource(() => endpoints.strategies(), []);
+  const strategies = list.data?.strategies ?? [];
+  const detail = strategies.find((entry) => entry.strategyId === selected) ?? strategies[0] ?? null;
+  const latest = detail?.latest ?? null;
+  const strategyId = detail?.strategyId ?? "";
+  const history = useResource(
+    () => (strategyId ? endpoints.backtestHistory(`?strategyId=${encodeURIComponent(strategyId)}&limit=15`) : Promise.resolve({ results: [] })),
+    [strategyId],
+  );
+
+  // The forms follow the selection, so a run is always recorded against the
+  // strategy and version on screen rather than whatever was typed before.
+  useEffect(() => {
+    if (!detail) return;
+    setBacktest((current) => ({ ...current, strategyId, strategyVersion: latest?.version ?? "" }));
+    setOptimizer((current) => ({ ...current, strategyId, strategyVersion: latest?.version ?? "" }));
+  }, [strategyId, latest?.version]);
+
+  async function submit(action) {
+    setRun(null);
+    const problems = action === "backtest" ? validateBacktestForm(backtest) : action === "optimize" ? validateStrategyOptimizeForm(optimizer) : [];
+    if (problems.length) {
+      setRun({ status: "error", message: problems.map((problem) => problem.message).join(" ") });
+      return;
+    }
+    setBusy(true);
+    try {
+      if (action === "backtest") {
+        const result = await endpoints.runBacktest(buildStrategyBacktestBody(backtest));
+        setReport(result);
+        setOptimizeReport(null);
+        setRun({ status: "done", message: backtestSummary(result) });
+        history.retry();
+      } else if (action === "optimize") {
+        const result = await endpoints.strategyOptimize(strategyId, buildStrategyOptimizeBody(optimizer));
+        setOptimizeReport(result);
+        setReport(null);
+        const bits = [optimizeHeadline(result), optimizeRecommendation(result)];
+        if (result.registeredVariant) bits.push(`registered variant @${result.registeredVariant.version} (DRAFT, source ai — human sign-off required)`);
+        for (const warning of result.overfitWarnings ?? []) bits.push(`⚠ ${warning}`);
+        setRun({ status: "done", message: `Optimization complete — ${bits.filter(Boolean).join(" · ")}` });
+        list.retry();
+      } else if (action === "advance") {
+        const target = latest?.nextStage;
+        const result = await endpoints.strategyTransition(strategyId, buildTransitionBody({ to: target, version: latest?.version, reason: advance.reason }));
+        setRun({ status: "done", message: `Strategy advanced to ${result.strategy?.lifecycle ?? target}` });
+        setAdvance({ reason: "" });
+        list.retry();
+      } else if (action === "signOff") {
+        const problems2 = validateSignOffForm(signOff);
+        if (problems2.length) {
+          setRun({ status: "error", message: problems2.map((problem) => problem.message).join(" ") });
+          return;
+        }
+        await endpoints.strategySignOff(strategyId, buildSignOffBody({ version: latest?.version, reason: signOff.reason }));
+        setRun({ status: "done", message: `Human risk sign-off recorded for ${strategyId}@${latest?.version}.` });
+        setSignOff({ reason: "" });
+        list.retry();
+      }
+    } catch (error) {
+      const { reasons, warnings } = transitionFailure(error);
+      const extra = reasons.length ? ` ${reasons.join(" · ")}` : "";
+      const caution = warnings.length ? ` Warnings: ${warnings.join(" · ")}` : "";
+      setRun({ status: "error", message: `${formFailure(error)}${extra}${caution}` });
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  const rows = historyRows(history.data?.results);
+
+  return (
+    <div className="view">
+      <header className="view-header">
+        <div><div className="overline">STRATEGY LAB <span className="overline-line" /></div><h1>Versioned strategies, evidence-gated.</h1></div>
+        <Link className="text-button" to="/app/">Back to overview</Link>
+      </header>
+
+      <Notice tone="warn">
+        Walk-forward optimization recommends new parameters <b>only</b> when they survive out-of-sample verification and
+        beat the baseline there. A registered variant is source <code>ai</code> and starts at DRAFT — it needs a human
+        sign-off before it can reach paper or live stages, and nothing on this screen deploys it.
+      </Notice>
+
+      <RunState state={run} onDismiss={() => setRun(null)} />
+
+      <StateBox status={list.status} error={list.error} retry={list.retry} label="Loading strategies">
+        {strategies.length === 0 ? (
+          <p className="empty">No strategies are registered on this platform yet.</p>
+        ) : (
+          <div className="strategy-grid">
+            <div className="strategy-main">
+              {latest ? (
+                <section className="panel">
+                  <div className="audit-section-heading">
+                    <div>
+                      <h2>{latest.name}</h2>
+                      <p className="muted"><code>{latest.strategy_id}</code> v{latest.version} · source <code>{latest.source}</code> · {latest.description}</p>
+                    </div>
+                    <span className={`badge ${lifecycleTone(latest.lifecycle)}`}>{latest.lifecycle}</span>
+                  </div>
+                  <StrategySteps lifecycle={latest.lifecycle} />
+                  <p className="muted lottery-note">
+                    params: {Object.entries(latest.params ?? {}).map(([key, value]) => `${key}=${value}`).join(", ") || "—"}
+                    {" · "}class(es): {listToText(latest.market_classes)} · timeframes: {listToText(latest.timeframes)} · shorts {latest.supportsShorts ? "supported" : "not supported"}
+                  </p>
+                  {latest.human_signoff ? (
+                    <p className="muted lottery-note">
+                      Human sign-off recorded {formatDateTime(latest.human_signoff.at)}: {latest.human_signoff.reason}
+                    </p>
+                  ) : null}
+
+                  {latest.nextStage ? (
+                    <div className="strategy-advance">
+                      <Field label="Reason (optional)" htmlFor="strategy-advance-reason">
+                        <input id="strategy-advance-reason" type="text" value={advance.reason} maxLength={500}
+                          onChange={(event) => setAdvance({ reason: event.target.value })} placeholder="advanced from Strategy Lab" />
+                      </Field>
+                      <button className="primary-button" type="button" disabled={busy} onClick={() => submit("advance")}>
+                        Request advance → {latest.nextStage}
+                      </button>
+                      <span className="field-hint">A refusal is the lifecycle's own evidence gate: the reasons are shown verbatim, and stages may not be skipped.</span>
+                    </div>
+                  ) : <p className="muted lottery-note">This version is at the end of its lifecycle; retirement is the only remaining transition.</p>}
+
+                  {needsSignOff(latest) ? (
+                    <div className="strategy-signoff">
+                      <h3 className="lottery-subheading">Human risk sign-off (trading.control)</h3>
+                      <Field label="Review reason" htmlFor="strategy-signoff-reason" hint="Required for an AI-generated variant; kept with the strategy's record.">
+                        <input id="strategy-signoff-reason" type="text" value={signOff.reason} maxLength={1000}
+                          onChange={(event) => setSignOff({ reason: event.target.value })} />
+                      </Field>
+                      <button className="secondary-button" type="button" disabled={busy} onClick={() => submit("signOff")}>Record sign-off</button>
+                    </div>
+                  ) : null}
+                </section>
+              ) : null}
+
+              {latest ? (
+                <section className="panel">
+                  <h2>Backtest runner</h2>
+                  <form className="strategy-form" onSubmit={(event) => { event.preventDefault(); submit("backtest"); }}>
+                    <Field label="Symbol" htmlFor="backtest-symbol">
+                      <select id="backtest-symbol" value={backtest.symbol} onChange={(event) => setBacktest((current) => ({ ...current, symbol: event.target.value }))}>
+                        {SYMBOLS.map((entry) => <option key={entry.value} value={entry.value}>{entry.value}</option>)}
+                      </select>
+                    </Field>
+                    <Field label="Timeframe" htmlFor="backtest-timeframe">
+                      <select id="backtest-timeframe" value={backtest.timeframe} onChange={(event) => setBacktest((current) => ({ ...current, timeframe: event.target.value }))}>
+                        {STRATEGY_TIMEFRAMES.map((entry) => <option key={entry.value} value={entry.value}>{entry.label}</option>)}
+                      </select>
+                    </Field>
+                    <Field label="Bars" htmlFor="backtest-limit" hint={`${BACKTEST_BARS.min}–${BACKTEST_BARS.max}; the engine clamps`}>
+                      <input id="backtest-limit" type="number" min={BACKTEST_BARS.min} max={BACKTEST_BARS.max} step="100" value={backtest.limit}
+                        onChange={(event) => setBacktest((current) => ({ ...current, limit: event.target.value }))} />
+                    </Field>
+                    <label className="strategy-check">
+                      <input type="checkbox" checked={backtest.allowShorts === true}
+                        onChange={(event) => setBacktest((current) => ({ ...current, allowShorts: event.target.checked }))} />
+                      allow shorts
+                    </label>
+                    <button className="primary-button" type="submit" disabled={busy}>▶ Run backtest</button>
+                  </form>
+                  <p className="field-hint">Fills at the NEXT bar open after a signal, half-spread + slippage + commission per side, stop-before-target when a bar touches both, hard look-ahead guard.</p>
+
+                  {report ? (
+                    <div className="strategy-report">
+                      <h3 className="lottery-subheading">Result — {report.request?.strategyId}@{report.request?.strategyVersion} on {report.request?.symbol} {report.request?.timeframe}</h3>
+                      <p className="muted">{provenanceNote(report.dataProvenance)}</p>
+                      {report.dataProvenance?.synthetic ? <Notice tone="warn">These fills were simulated on SYNTHETIC candles. They measure the strategy's logic, not market performance.</Notice> : null}
+                      <MetricsList metrics={report.metrics} />
+                      {(report.warnings ?? []).length ? (
+                        <ul className="strategy-warnings">{report.warnings.map((warning, index) => <li key={index}>{warning}</li>)}</ul>
+                      ) : null}
+                      <p className="muted lottery-note">
+                        {formatCount((report.trades ?? []).length)} trade(s) simulated · {(report.equityCurve ?? []).length} equity points · {report.request?.allowShorts ? "shorts allowed" : "shorts ignored"} · risk {(Number(report.request?.riskPct ?? 0) * 100).toFixed(2)}% per trade · fees {report.request?.feeBps}bps + spread {report.request?.spreadBps}bps + slippage {report.request?.slippageBps}bps
+                      </p>
+                      <details className="lottery-details">
+                        <summary>Simulated trades</summary>
+                        <div className="scroll">
+                          <table className="data-table">
+                            <thead><tr><th>Direction</th><th>Entry</th><th>Exit</th><th>Entry price</th><th>Exit price</th><th>P&L</th><th>R</th><th>Reason</th></tr></thead>
+                            <tbody>
+                              {(report.trades ?? []).map((trade, index) => (
+                                <tr key={index}>
+                                  <td>{trade.direction}</td>
+                                  <td className="muted">{formatDateTime(trade.entryTime)}</td>
+                                  <td className="muted">{formatDateTime(trade.exitTime)}</td>
+                                  <td>{plainNumber(trade.entryPrice, 4)}</td>
+                                  <td>{plainNumber(trade.exitPrice, 4)}</td>
+                                  <td className={Number(trade.pnl) >= 0 ? "strategy-up" : "strategy-down"}>{plainNumber(trade.pnl, 2)}</td>
+                                  <td>{plainNumber(trade.rMultiple, 2)}</td>
+                                  <td className="muted">{trade.exitReason ?? "—"}</td>
+                                </tr>
+                              ))}
+                            </tbody>
+                          </table>
+                        </div>
+                      </details>
+                    </div>
+                  ) : null}
+                </section>
+              ) : null}
+
+              {latest ? (
+                <section className="panel">
+                  <h2>Optimizer — walk-forward parameter search</h2>
+                  <form className="strategy-form" onSubmit={(event) => { event.preventDefault(); submit("optimize"); }}>
+                    <Field label="Symbol" htmlFor="optimize-symbol">
+                      <select id="optimize-symbol" value={optimizer.symbol} onChange={(event) => setOptimizer((current) => ({ ...current, symbol: event.target.value }))}>
+                        {SYMBOLS.map((entry) => <option key={entry.value} value={entry.value}>{entry.value}</option>)}
+                      </select>
+                    </Field>
+                    <Field label="Timeframe" htmlFor="optimize-timeframe">
+                      <select id="optimize-timeframe" value={optimizer.timeframe} onChange={(event) => setOptimizer((current) => ({ ...current, timeframe: event.target.value }))}>
+                        {STRATEGY_TIMEFRAMES.map((entry) => <option key={entry.value} value={entry.value}>{entry.label}</option>)}
+                      </select>
+                    </Field>
+                    <Field label="Bars" htmlFor="optimize-limit" hint={`${OPTIMIZE_BARS.min}–${OPTIMIZE_BARS.max}; the engine clamps`}>
+                      <input id="optimize-limit" type="number" min={OPTIMIZE_BARS.min} max={OPTIMIZE_BARS.max} step="20" value={optimizer.limit}
+                        onChange={(event) => setOptimizer((current) => ({ ...current, limit: event.target.value }))} />
+                    </Field>
+                    <label className="strategy-check">
+                      <input type="checkbox" checked={optimizer.register === true}
+                        onChange={(event) => setOptimizer((current) => ({ ...current, register: event.target.checked }))} />
+                      register variant
+                    </label>
+                    <button className="secondary-button" type="submit" disabled={busy}>⚙ Optimize</button>
+                  </form>
+                  <p className="field-hint">
+                    Grid search on the first 70% (in-sample), verification on the last 30% (out-of-sample). A candidate is
+                    recommended ONLY if it survives out-of-sample and beats the baseline there; in-sample-only performance
+                    is never adopted. Registered variants are source <b>ai</b> — DRAFT lifecycle, human sign-off required.
+                  </p>
+
+                  {optimizeReport ? (
+                    <div className="strategy-report">
+                      <h3 className="lottery-subheading">Optimization — {optimizeReport.request?.strategyId} on {optimizeReport.request?.symbol} {optimizeReport.request?.timeframe}</h3>
+                      <p className="muted">{optimizeHeadline(optimizeReport)} · {provenanceNote(optimizeReport.dataProvenance)}</p>
+                      <p className={optimizeReport.recommendation?.adopt ? "strategy-up" : "muted"}>{optimizeRecommendation(optimizeReport)}</p>
+                      {optimizeReport.registeredVariant ? (
+                        <p className="muted">Registered variant v{optimizeReport.registeredVariant.version} — source <code>ai</code>, lifecycle DRAFT. {optimizeReport.registeredVariant.note}</p>
+                      ) : null}
+                      {(optimizeReport.overfitWarnings ?? []).length ? (
+                        <ul className="strategy-warnings">{optimizeReport.overfitWarnings.map((warning, index) => <li key={index}>{warning}</li>)}</ul>
+                      ) : null}
+                      {finalistRows(optimizeReport).length ? (
+                        <div className="scroll">
+                          <table className="data-table">
+                            <thead><tr><th>Params</th><th>In-sample return</th><th>Out-of-sample return</th><th>OOS trades</th></tr></thead>
+                            <tbody>
+                              {finalistRows(optimizeReport).map((row, index) => (
+                                <tr key={index}>
+                                  <td><code>{Object.entries(row.params).map(([key, value]) => `${key}=${value}`).join(", ")}</code></td>
+                                  <td>{pctText(row.inSample)}</td>
+                                  <td>{pctText(row.outOfSample)}</td>
+                                  <td>{plainNumber(row.trades, 0)}</td>
+                                </tr>
+                              ))}
+                            </tbody>
+                          </table>
+                        </div>
+                      ) : null}
+                      <details className="lottery-details">
+                        <summary>Baseline and search space</summary>
+                        <dl className="lottery-meta">
+                          <dt>Baseline params</dt><dd><code>{Object.entries(optimizeReport.baseline?.params ?? {}).map(([key, value]) => `${key}=${value}`).join(", ")}</code></dd>
+                          <dt>Baseline in-sample</dt><dd>{pctText(optimizeReport.baseline?.inSample?.totalReturnPct)}</dd>
+                          <dt>Baseline out-of-sample</dt><dd>{pctText(optimizeReport.baseline?.outOfSample?.totalReturnPct)}</dd>
+                          <dt>Grid</dt><dd><code>{JSON.stringify(optimizeReport.searchSpace?.grid ?? {})}</code></dd>
+                        </dl>
+                        <p className="muted">{optimizeReport.methodNote}</p>
+                      </details>
+                    </div>
+                  ) : null}
+                </section>
+              ) : null}
+
+              <section className="panel">
+                <h2>Backtest history {latest ? `— ${latest.strategy_id}` : ""}</h2>
+                <StateBox status={history.status} error={history.error} retry={history.retry} label="Loading backtests">
+                  {rows.length ? (
+                    <div className="scroll">
+                      <table className="data-table">
+                        <thead><tr><th>Date</th><th>Sym</th><th>TF</th><th>Trades</th><th>Return</th><th>Win%</th><th>PF</th><th>Sharpe</th><th>MaxDD</th><th>Data</th></tr></thead>
+                        <tbody>
+                          {rows.map((row) => (
+                            <tr key={row.id}>
+                              <td className="muted">{formatDateTime(row.created)}</td>
+                              <td>{row.symbol}</td>
+                              <td className="muted">{row.timeframe}</td>
+                              <td>{plainNumber(row.metrics.trades, 0)}</td>
+                              <td className={Number(row.metrics.totalReturnPct) >= 0 ? "strategy-up" : "strategy-down"}>{pctText(row.metrics.totalReturnPct)}</td>
+                              <td>{ratioPctText(row.metrics.winRate)}</td>
+                              <td>{plainNumber(row.metrics.profitFactor, 2)}</td>
+                              <td>{plainNumber(row.metrics.sharpe, 2)}</td>
+                              <td className="strategy-down">{pctText(row.metrics.maxDrawdownPct, 1)}</td>
+                              <td>{row.synthetic ? <span className="badge badge-warn">SIM</span> : <span className="badge badge-live">LIVE</span>}</td>
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
+                    </div>
+                  ) : <p className="empty">No backtests recorded for this strategy yet. A run records itself as lifecycle evidence.</p>}
+                </StateBox>
+              </section>
+            </div>
+
+            <aside className="strategy-list">
+              <h2>Strategies</h2>
+              {strategies.map((entry) => {
+                const record = entry.latest ?? {};
+                const isSelected = entry.strategyId === strategyId;
+                return (
+                  <button key={entry.strategyId} type="button" className={`strategy-card${isSelected ? " strategy-card-selected" : ""}`}
+                    onClick={() => setSelected(entry.strategyId)} aria-pressed={isSelected}>
+                    <span className="strategy-card-head">
+                      <code>{entry.strategyId}</code>
+                      <span className="muted">v{record.version}</span>
+                      <span className={`badge ${lifecycleTone(record.lifecycle)}`}>{record.lifecycle}</span>
+                    </span>
+                    <span className="muted strategy-card-name">{record.name}</span>
+                    <span className="muted strategy-card-params">
+                      {Object.entries(record.params ?? {}).map(([key, value]) => `${key}=${value}`).join(", ")}
+                    </span>
+                    {entry.versions?.length > 1 ? <span className="muted">{entry.versions.length} versions</span> : null}
+                  </button>
+                );
+              })}
+              <p className="field-hint">
+                A version is a separate record: a registered variant does not replace the version it came from, and
+                backtests stay attached to the version that produced them.
+              </p>
+            </aside>
+          </div>
+        )}
+      </StateBox>
     </div>
   );
 }

@@ -2,7 +2,51 @@
 
 **Updated:** 2026-10-16 · **Branch:** `arena/046b29ac-ai`
 
-## Current Phase 30 status (2026-10-16)
+## Current Phase 31 status (2026-10-16)
+
+**Row 8's console gap is closed, and F-29 is closed for `strategies`.** `/app/strategy` is the port
+of `views/strategy/index.php` and of the three posts behind it (`Strategy_lab::run_backtest`,
+`::optimize`, `::advance`), which the SPA performs as API calls instead of a redirect each: a
+backtest run against the version on screen, the returned report (every metric, the equity curve,
+the trades, the data provenance and the engine's own warnings), the stored history with its
+SIM/LIVE badge, the six-stage lifecycle stepper whose advance button always targets the server's
+own `nextStage`, the 70/30 optimizer with its finalists, overfit warnings and method note, and the
+strategy cards with legacy's badge colours.
+
+**The screen is session-only, like legacy's `Api_controller`.** Those routes were guarded by a
+session and no permission, so the exact-path route declares none; the one permissioned control the
+console can render — the human sign-off on an `ai`-sourced version — is `trading.control` on the
+route that already enforced it. A refused promotion renders the server's `reasons` **and**
+`warnings` verbatim: legacy's gates computed those advisories and `transition()` then discarded
+them on the way out (DV-3), so a console that showed only "rejected" would lose what a person acts
+on. **No new HTTP route, migration, contract method or permission** — 146 routes before and after.
+
+A third contract suite (`test/client_strategy_console.test.js`, 8 tests) imports the console's
+plain-ESM logic and the server's own contracts side by side: timeframes, market classes, stage
+order and bar bounds are read from the API's declarations rather than restated, the four request
+bodies are checked against `BACKTEST_BODY`/`OPTIMIZE_BODY`/`STATUS_BODY`/`HUMAN_SIGNOFF_BODY`
+property by property, the pre-flights are asserted **not** to refuse what the engine only clamps
+(60–5000 backtest bars, 420–2000 optimizer candles), and the route inventory is asserted to hold
+exactly one permissioned route on the console's whole surface. One defect was found and fixed
+against the live endpoint: `optimizeRecommendation` prefixed "keep current parameters — " onto a
+reason that already began with it, printing the phrase twice.
+
+Gates: `npm run check:workforce` **1008 / 1008** across 5 suites (1000 before), the client
+production build OK, `node tools/verify-install.mjs --require-bundle` **30/30**. Live, against the
+demo server on the console's own builders: a run 200 (240 equity points for 300 bars, 3 trades,
+synthetic provenance, both warnings), the history and detail reads, the optimizer 200 (18
+combinations, split 350/150, `adopt:false`, one overfit warning), transitions refused 409 with
+reasons *and* warnings, sign-off 409 for a builtin strategy, `/app/strategy` and both bundle
+assets 200. **Not run:** a real browser, real MySQL/MariaDB, any live provider, and no PHP↔Node
+numeric diff (F-26 remains open). Full record:
+[`PHASE31_STRATEGY_CONSOLE.md`](PHASE31_STRATEGY_CONSOLE.md).
+
+F-29 now reads: closed for the audit browser (Phase 28), the portfolio optimizer (Phase 29), the
+lottery (Phase 30) and strategies (Phase 31); **still open for the Broker Center and the sports
+screens only**.
+
+## Phase 30 status (2026-10-16) — superseded by Phase 31
+
 
 **Row 15 is closed and `lottery` is `ported`.** The lottery console screens — the module's last
 unported entry — landed as two exact-path SPA routes under `lottery.view`, the same permission

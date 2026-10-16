@@ -56,8 +56,8 @@ import { createHttpSportsProvider } from "./providers/http.js";
  *
  * Slice 5 empties this matrix down to three entries: stake sizing (which no slice
  * owns), the scheduled jobs (whose ported home is row 19, shared with the operations
- * cron), and the sports console screens (F-29; the shared shell only has a
- * notification inbox, not a sports surface).
+ * cron), and the sports console screens (F-29; the shell's consoles cover portfolio
+ * optimisation, the lottery and strategies, but no sports surface).
  * Settlement, verification, calibration fitting, backtesting, model drift monitoring
  * and performance analytics all graduated in slice 5, and were REMOVED from this list
  * rather than re-labelled: a matrix whose name is "not ported" must not contain an
@@ -71,7 +71,7 @@ import { createHttpSportsProvider } from "./providers/http.js";
  */
 export const SPORTS_NOT_PORTED = Object.freeze([
   Object.freeze({ area: "stake sizing", legacy: "stake_amount copied onto each ticket (TicketGovernance::record)", state: "not ported", detail: "No stake is sized from bankroll or edge: the configured fixed stake_amount is recorded on each ticket, as legacy does, and settlement's P/L is computed on it. Sizing is not ported, and no slice owns it yet." }),
-  Object.freeze({ area: "console screens", legacy: "Sports::index, Sports::tickets (views/sports/*.php)", state: "not ported", detail: "Both console views aggregate stored tickets and settled results. No sports console is ported yet (F-29); the shared shell currently offers only the notification inbox. API reads exist under /sports/performance and /sports/tickets." }),
+  Object.freeze({ area: "console screens", legacy: "Sports::index, Sports::tickets (views/sports/*.php)", state: "not ported", detail: "Both console views aggregate stored tickets and settled results. No sports console is ported yet (F-29); the shell's other consoles cover portfolio optimisation, the lottery and strategies, not sports. API reads exist under /sports/performance and /sports/tickets." }),
 ]);
 
 /**

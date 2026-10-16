@@ -304,6 +304,47 @@ button:focus-visible, input:focus-visible, a:focus-visible { outline: 2px solid 
 .lottery-ticket-result p { margin: 0; }
 .lottery-system-form { max-width: none; }
 .lottery-boundary { margin-top: .2rem; }
+
+/* Strategy Lab console (Phase 31): a two-column board — the selected strategy's
+   lifecycle, evidence and forms on the left, the version list on the right. The
+   stage stepper keeps the legacy page's vocabulary and colour language. */
+.badge-gray { border-color: rgba(222, 239, 225, .16); color: #9fb0a3; }
+.badge-sky { border-color: rgba(125, 211, 252, .4); color: #8ed0f5; }
+.badge-violet { border-color: rgba(196, 181, 253, .4); color: #c9bcf7; }
+.badge-green { border-color: rgba(193, 241, 139, .4); color: #b7e08d; }
+.badge-red { border-color: rgba(248, 113, 113, .4); color: #f0a2a2; }
+.strategy-grid { display: grid; grid-template-columns: minmax(0, 1.6fr) minmax(240px, 1fr); gap: 1.1rem; align-items: start; }
+.strategy-main { display: flex; flex-direction: column; gap: 1.1rem; min-width: 0; }
+.strategy-main > .panel { margin: 0; }
+.strategy-list { display: flex; flex-direction: column; gap: .6rem; }
+.strategy-list h2 { margin: 0 0 .2rem; }
+.strategy-card { display: flex; flex-direction: column; gap: .35rem; padding: .8rem .9rem; border: 1px solid var(--line); border-radius: 8px; background: rgba(6, 16, 12, .5); color: inherit; text-align: left; cursor: pointer; }
+.strategy-card:hover { border-color: rgba(193, 241, 139, .3); }
+.strategy-card-selected { border-color: rgba(193, 241, 139, .45); background: rgba(12, 26, 18, .7); }
+.strategy-card-head { display: flex; align-items: center; gap: .5rem; flex-wrap: wrap; }
+.strategy-card-head .badge { margin-left: auto; }
+.strategy-card-name { font-size: .68rem; }
+.strategy-card-params { font-size: .6rem; font-family: ui-monospace, "SFMono-Regular", Menlo, monospace; }
+.strategy-steps { display: flex; flex-wrap: wrap; gap: .4rem .9rem; margin: .9rem 0 .2rem; padding: 0; list-style: none; font-size: .66rem; }
+.strategy-step { display: flex; align-items: center; gap: .35rem; color: #7f9184; }
+.strategy-step-done { color: #a8b6aa; }
+.strategy-step-current { color: var(--green); font-weight: 600; }
+.strategy-step-retired { color: #f0a2a2; }
+.strategy-step-mark { display: inline-flex; align-items: center; justify-content: center; width: 1.05rem; height: 1.05rem; border: 1px solid var(--line); border-radius: 99px; font-size: .58rem; }
+.strategy-advance, .strategy-signoff { display: flex; flex-wrap: wrap; align-items: flex-end; gap: .8rem; margin-top: 1rem; padding-top: .9rem; border-top: 1px solid var(--line); }
+.strategy-signoff { flex-direction: column; align-items: flex-start; }
+.strategy-signoff .field { width: 100%; }
+.strategy-form { display: flex; flex-wrap: wrap; align-items: flex-end; gap: .8rem; margin-bottom: .5rem; }
+.strategy-form .field { min-width: 8rem; }
+.strategy-check { display: flex; align-items: center; gap: .4rem; padding-bottom: .35rem; font-size: .68rem; color: #a8b6aa; }
+.strategy-report { margin-top: 1rem; padding-top: .9rem; border-top: 1px solid var(--line); }
+.strategy-metrics { display: grid; grid-template-columns: repeat(auto-fit, minmax(140px, 1fr)); gap: .6rem .9rem; margin: .9rem 0 0; }
+.strategy-metric { display: flex; flex-direction: column; gap: .15rem; }
+.strategy-metric dt { color: #7f9184; font-size: .56rem; font-weight: 700; letter-spacing: .1em; text-transform: uppercase; }
+.strategy-metric dd { margin: 0; color: #d3ddd1; font-size: .8rem; }
+.strategy-warnings { margin: .8rem 0 0; padding-left: 1.05rem; color: #d8bd7c; font-size: .66rem; line-height: 1.7; }
+.strategy-up { color: #b7e08d; }
+.strategy-down { color: #f0a2a2; }
 .status-list { display: grid; grid-template-columns: 160px minmax(0, 1fr); gap: .55rem .9rem; margin: 0; font-size: .74rem; }
 .status-list dt { color: #7f9184; font-size: .6rem; font-weight: 700; letter-spacing: .12em; text-transform: uppercase; }
 .status-list dd { margin: 0; color: #d3ddd1; }

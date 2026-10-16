@@ -18,7 +18,7 @@ import { ConnectivityBanner, Notice, UpdateBanner } from "./ui.jsx";
 import {
   AccountView, AdminUsersView, AuditView, Brand, InquiriesView, LoginPanel, LotteryLabView,
   LotteryOperationsView, ModuleCards, NotificationsView, NotFoundView, PortfolioOptimizerView, RegisterPanel,
-  StatusPill, StatusView, WorkspaceNav,
+  StatusPill, StatusView, StrategyLabView, WorkspaceNav,
 } from "./views.jsx";
 
 const NATIVE_BUILD = __NATIVE_BUILD__;
@@ -44,6 +44,11 @@ const ROUTES = [
   // by the API, so a viewer never sees a control that would be refused.
   { path: "/app/lottery", view: "lottery-operations", requiresAuth: true, permission: "lottery.view" },
   { path: "/app/lottery/lab", view: "lottery-lab", requiresAuth: true, permission: "lottery.view" },
+  // Row 8 (Phase 31): the Strategy Lab console. Session-only on purpose — legacy's
+  // `Api_controller` guarded those routes with authentication alone (no permission),
+  // and the port kept that, so declaring one here would hide a screen the API serves.
+  // The human sign-off inside it is gated on `trading.control` by the server.
+  { path: "/app/strategy", view: "strategy-lab", requiresAuth: true },
   { path: "/app/admin/users", view: "admin-users", requiresAuth: true, permission: "identity.users.view" },
   { path: "/app/admin/audit", view: "audit", requiresAuth: true, permission: "identity.users.view" },
   { path: "/app/admin/inquiries", view: "inquiries", requiresAuth: true, permission: "system.super_admin" },
@@ -377,6 +382,7 @@ function SessionApp() {
       "portfolio-optimizer": <PortfolioOptimizerView permissions={permissions} />,
       "lottery-operations": <LotteryOperationsView permissions={permissions} />,
       "lottery-lab": <LotteryLabView permissions={permissions} />,
+      "strategy-lab": <StrategyLabView />,
       "admin-users": <AdminUsersView permissions={permissions} />,
       audit: <AuditView />,
       inquiries: <InquiriesView />,
