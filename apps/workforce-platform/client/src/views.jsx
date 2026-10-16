@@ -127,6 +127,7 @@ export function WorkspaceNav({ permissions, current }) {
   const entries = [
     { to: "/app/", label: "Overview", permission: null },
     { to: "/app/account", label: "Account", permission: null },
+    { to: "/app/notifications", label: "Notifications", permission: null },
     { to: "/app/status", label: "Platform status", permission: null },
     { to: "/app/admin/users", label: "Users", permission: "identity.users.view" },
     { to: "/app/admin/inquiries", label: "Contact messages", permission: "system.super_admin" },
@@ -532,6 +533,88 @@ export function InquiriesView() {
             ))}
           </ul>
           <Pagination meta={{ total: inquiries.data?.total }} applied={applied} onNavigate={(offset) => setApplied((current) => ({ ...current, offset }))} />
+        </StateBox>
+      </section>
+    </div>
+  );
+}
+
+/* --------------------------------------------------------- notifications */
+
+export function NotificationsView() {
+  const [unreadOnly, setUnreadOnly] = useState(false);
+  const [busyId, setBusyId] = useState(null);
+  const [message, setMessage] = useState(null);
+  const query = unreadOnly ? "?unread=1&limit=100" : "?limit=100";
+  const inbox = useResource(() => endpoints.notifications(query), [query]);
+
+  async function markRead(notification) {
+    setBusyId(notification.id);
+    setMessage(null);
+    try {
+      await endpoints.markNotificationRead(notification.id);
+      setMessage({ tone: "ok", text: "Notification marked as read." });
+      inbox.retry();
+    } catch (error) {
+      setMessage({ tone: "error", text: formFailure(error) });
+    } finally {
+      setBusyId(null);
+    }
+  }
+
+  async function markAllRead() {
+    setBusyId("all");
+    setMessage(null);
+    try {
+      const result = await endpoints.markAllNotificationsRead();
+      setMessage({ tone: "ok", text: `${Number(result?.markedRead || 0)} notification${Number(result?.markedRead || 0) === 1 ? "" : "s"} marked as read.` });
+      inbox.retry();
+    } catch (error) {
+      setMessage({ tone: "error", text: formFailure(error) });
+    } finally {
+      setBusyId(null);
+    }
+  }
+
+  useEffect(() => { document.title = "Notifications · WINDELS AI WORKFORCE"; }, []);
+
+  return (
+    <div className="view">
+      <header className="view-header">
+        <div><div className="overline">WORKSPACE <span className="overline-line" /></div><h1>Notifications.</h1></div>
+        <Link className="text-button" to="/app/">Back to overview</Link>
+      </header>
+      <p className="muted">Operational alerts and notices visible to your account. Notifications are informational; they do not authorize or execute actions.</p>
+      {message ? <Notice tone={message.tone}>{message.text}</Notice> : null}
+      <section className="panel">
+        <div className="panel-heading-row">
+          <div><h2>Inbox</h2><p className="muted">{Number(inbox.data?.unread || 0)} unread</p></div>
+          <div className="panel-actions">
+            <label className="toggle-label"><input type="checkbox" checked={unreadOnly} onChange={(event) => setUnreadOnly(event.target.checked)} /> Unread only</label>
+            <button className="text-button" type="button" disabled={busyId !== null || !inbox.data?.unread} onClick={() => void markAllRead()}>
+              {busyId === "all" ? "Marking…" : "Mark all read"}
+            </button>
+          </div>
+        </div>
+        <StateBox status={inbox.status} error={inbox.error} retry={inbox.retry} label="Loading notifications"
+          empty={<p className="empty">{unreadOnly ? "You have no unread notifications." : "No notifications have been recorded for your account."}</p>}>
+          <ul className="activity-list notification-list">
+            {(inbox.data?.notifications || []).map((notification) => (
+              <li key={notification.id} className={`notification-item${notification.unread ? " notification-unread" : ""}`}>
+                <div className="notification-copy">
+                  <div className="notification-title-row">
+                    <strong>{notification.title}</strong>
+                    <span className={`badge badge-${notification.severity === "critical" || notification.severity === "warning" ? "warn" : "muted"}`}>{notification.severity}</span>
+                    {notification.unread ? <span className="badge badge-warn">unread</span> : <span className="badge badge-muted">read</span>}
+                  </div>
+                  <div className="notification-meta"><code>{notification.type}</code><time dateTime={notification.createdAt}>{String(notification.createdAt || "").replace("T", " ").slice(0, 19)}</time>{notification.broadcast ? <span>Shared notice</span> : null}</div>
+                  {notification.detail && Object.keys(notification.detail).length ? <pre className="notification-detail">{JSON.stringify(notification.detail, null, 2)}</pre> : null}
+                </div>
+                {notification.unread ? <button className="text-button" type="button" disabled={busyId !== null} onClick={() => void markRead(notification)}>{busyId === notification.id ? "Saving…" : "Mark read"}</button> : null}
+              </li>
+            ))}
+          </ul>
+          <p className="muted">Showing up to {inbox.data?.limit || 100} recent notifications.</p>
         </StateBox>
       </section>
     </div>
