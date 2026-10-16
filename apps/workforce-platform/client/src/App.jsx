@@ -17,7 +17,7 @@ import { Link, matchRoute, RouterProvider, useRouter } from "./router.jsx";
 import { ConnectivityBanner, Notice, UpdateBanner } from "./ui.jsx";
 import {
   AccountView, AdminUsersView, Brand, InquiriesView, LoginPanel, ModuleCards,
-  NotFoundView, RegisterPanel, StatusPill, StatusView, WorkspaceNav,
+  NotificationsView, NotFoundView, RegisterPanel, StatusPill, StatusView, WorkspaceNav,
 } from "./views.jsx";
 
 const NATIVE_BUILD = __NATIVE_BUILD__;
@@ -30,6 +30,7 @@ const NATIVE_BUILD = __NATIVE_BUILD__;
 const ROUTES = [
   { path: "/app", view: "workspace", requiresAuth: true },
   { path: "/app/account", view: "account", requiresAuth: true },
+  { path: "/app/notifications", view: "notifications", requiresAuth: true },
   { path: "/app/status", view: "status" },
   { path: "/app/admin/users", view: "admin-users", requiresAuth: true, permission: "identity.users.view" },
   { path: "/app/admin/inquiries", view: "inquiries", requiresAuth: true, permission: "system.super_admin" },
@@ -356,6 +357,7 @@ function SessionApp() {
     {
       workspace: <WorkspaceOverview user={user} permissions={permissions} health={health} />,
       account: <AccountView user={user} permissions={permissions} onSessionChanged={applySession} />,
+      notifications: <NotificationsView />,
       status: <StatusView />,
       "admin-users": <AdminUsersView permissions={permissions} />,
       inquiries: <InquiriesView />,
