@@ -147,6 +147,8 @@ the committed PNGs are byte-identical to what the generator produces.
 | `npm run prune:analysis` | Analysis-run retention (R-27). Measures by default; `--apply` deletes, `--batch` bounds each `DELETE`, `--days N` overrides `ANALYSIS_RETENTION_DAYS`. Deletion is irreversible and removes evidence, so take a backup first. |
 | `npm run jobs` | The scheduled operations sweep — portfolio risk across every owner, plus stale execution-proposal expiry. **Measures and writes nothing**, and takes no lock. |
 | `npm run jobs:apply` | The same sweep for real, under a `wf_job_locks` row: expires proposals, publishes `PORTFOLIO_RISK` and `PROPOSAL_EXPIRED` notifications, records one `system.job.run` audit event as the system actor. |
+| `npm run sports:jobs` | The sports cron (`tools/sports-jobs.mjs`): nine jobs in legacy's order — fixtures, odds, results, quality, ticket, settlement, performance, monitoring, cleanup — CLI-only, no HTTP route. Each job takes a `wf_job_locks` marker whose expiry **is** its window, and the syncs keep their per-provider execution keys, so firing it twice cannot double-write. `--job <name>`, `--date`, `--json`, `--now`; exit 1 when any job FAILED. |
+| `npm run lottery:jobs` | The lottery cron (`tools/lottery-jobs.mjs`): seven jobs in legacy's order — sync, health, statistics, systems (the consumer for the queued background builds the API creates), tickets, backtests, cleanup. Idempotent by execution key on `wf_lottery_sync_runs`; a failed run's key still blocks its window. `--job <name>`, `--date`, `--json`, `--now`; exit 1 when any job FAILED. |
 
 Backup, restore, the retention prune, the importers and the scheduled jobs are CLI-only; the
 web process never reads `LEGACY_DB_*`, and **no HTTP route can run a job or touch a lock**.
@@ -183,9 +185,25 @@ exits 0. Exit 1 means refused, failed, or completed with a stage error, which is
 a cron that exits 0 while one of its two jobs is broken is how a job stops running and nobody
 notices for a month.
 
-Not yet verified on a real host: no crontab was installed and no Passenger instance ran this,
-so the line above is reasoned from cPanel's documented behaviour rather than observed. See
-`docs/migration/PHASE12_SCHEDULED_JOBS.md` §"Not exercised, and therefore not claimed".
+The sports and lottery jobs get **their own lines** rather than being folded into that sweep —
+they have their own logs, their own schedules and their own idempotency mechanism, and each file's
+header comment carries the exact line to paste:
+
+```
+# sports — hourly
+0 * * * * cd /home/USER/apps/workforce-platform && . /home/USER/wf-cron.env && /usr/local/bin/node tools/sports-jobs.mjs --json >> /home/USER/logs/workforce-sports-cron.log 2>&1
+# lottery — once a day, after the draw results land
+30 5 * * * cd /home/USER/apps/workforce-platform && . /home/USER/wf-cron.env && /usr/local/bin/node tools/lottery-jobs.mjs --json >> /home/USER/logs/workforce-lottery-cron.log 2>&1
+```
+
+Unlike the operations sweep they have **no dry run** — legacy's sports and lottery jobs have no
+measure-only form, so their execution keys and window locks are the safety, and pointing cron at
+either file cannot double-write however often it fires.
+
+Not yet verified on a real host: no crontab was installed and no Passenger instance ran any of
+these three lines, so they are reasoned from cPanel's documented behaviour rather than observed.
+See `docs/migration/PHASE12_SCHEDULED_JOBS.md` §"Not exercised, and therefore not claimed",
+`docs/migration/PHASE20_SPORTS_CRON.md` and `docs/migration/PHASE25_LOTTERY_CRON.md`.
 
 ## Development
 
