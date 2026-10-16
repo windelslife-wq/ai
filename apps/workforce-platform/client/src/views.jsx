@@ -135,6 +135,7 @@ export function WorkspaceNav({ permissions, current, signedIn = true, notificati
     { to: "/app/notifications", label: "Notifications", permission: null, unread: true },
     { to: "/app/status", label: "Platform status", permission: null },
     { to: "/app/admin/users", label: "Users", permission: "identity.users.view" },
+    { to: "/app/admin/audit", label: "Audit trail", permission: "identity.users.view" },
     { to: "/app/admin/inquiries", label: "Contact messages", permission: "system.super_admin" },
   ];
   return (
@@ -491,6 +492,212 @@ export function AccountView({ user, permissions, onSessionChanged }) {
         {permissions.length ? (
           <ul className="permission-list vertical">{permissions.map((permission) => <li key={permission}><code>{permission}</code></li>)}</ul>
         ) : <p className="empty">No permissions are assigned to your account. Surfaces that need one will refuse you.</p>}
+      </section>
+    </div>
+  );
+}
+
+/* ---------------------------------------------------------- audit browser */
+
+const DEFAULT_AUDIT_FILTERS = Object.freeze({
+  action: "",
+  entityType: "",
+  entityId: "",
+  actorMode: "any",
+  actorId: "",
+  from: "",
+  to: "",
+  sort: "createdAt",
+  direction: "desc",
+  limit: 50,
+  offset: 0,
+});
+
+function auditLocalTimeToUtc(value) {
+  if (!value) return "";
+  const date = new Date(value);
+  return Number.isFinite(date.getTime()) ? date.toISOString() : "";
+}
+
+function formatAuditTime(value) {
+  const date = new Date(value);
+  return Number.isFinite(date.getTime())
+    ? new Intl.DateTimeFormat(undefined, { dateStyle: "medium", timeStyle: "medium", timeZoneName: "short" }).format(date)
+    : String(value || "Time unavailable");
+}
+
+function auditActorLabel(actor) {
+  if (!actor || typeof actor !== "object") return "Actor unavailable";
+  if (actor.kind === "system") return "System";
+  if (actor.kind === "user") {
+    const name = actor.username || "Deleted user";
+    return actor.userId == null ? name : `${name} · user #${actor.userId}`;
+  }
+  return "Actor unavailable";
+}
+
+function auditDetailsText(value) {
+  if (value === undefined || value === null) return "No details recorded.";
+  try {
+    return JSON.stringify(value, null, 2) ?? String(value);
+  } catch {
+    return String(value);
+  }
+}
+
+/** Read-only, permission-gated workspace view over the platform audit API. */
+export function AuditView() {
+  const [draft, setDraft] = useState(() => ({ ...DEFAULT_AUDIT_FILTERS }));
+  const [applied, setApplied] = useState(() => ({ ...DEFAULT_AUDIT_FILTERS }));
+  const params = new URLSearchParams({
+    limit: String(applied.limit),
+    offset: String(applied.offset),
+    sort: applied.sort,
+    direction: applied.direction,
+  });
+  if (applied.action) params.set("action", applied.action);
+  if (applied.entityType) params.set("entityType", applied.entityType);
+  if (applied.entityId) params.set("entityId", applied.entityId);
+  if (applied.actorMode === "system") params.set("actor", "system");
+  if (applied.actorMode === "user" && applied.actorId) params.set("actor", applied.actorId);
+  const from = auditLocalTimeToUtc(applied.from);
+  const to = auditLocalTimeToUtc(applied.to);
+  if (from) params.set("from", from);
+  if (to) params.set("to", to);
+  const query = params.toString();
+  const audit = useResource(() => endpoints.adminAudit(`?${query}`), [query]);
+  const events = audit.data?.events || [];
+  const meta = audit.data?.meta || null;
+
+  useEffect(() => { document.title = "Audit trail · WINDELS AI WORKFORCE"; }, []);
+
+  function applyFilters(event) {
+    event.preventDefault();
+    setApplied({
+      ...draft,
+      action: draft.action.trim(),
+      entityType: draft.entityType.trim(),
+      entityId: draft.entityId.trim(),
+      actorId: draft.actorId.trim(),
+      limit: Number(draft.limit),
+      offset: 0,
+    });
+  }
+
+  function clearFilters() {
+    const cleared = { ...DEFAULT_AUDIT_FILTERS };
+    setDraft(cleared);
+    setApplied(cleared);
+  }
+
+  const emptyMessage = meta?.total === 0
+    ? <p className="empty">No audit events match these filters.</p>
+    : <p className="empty">No events are returned for this page. Try the previous page or adjust the filters.</p>;
+
+  return (
+    <div className="view">
+      <header className="view-header">
+        <div><div className="overline">ADMINISTRATION <span className="overline-line" /></div><h1>Audit trail.</h1></div>
+        <Link className="text-button" to="/app/">Back to overview</Link>
+      </header>
+
+      <Notice tone="warn">
+        Platform-wide audit events may include sensitive account and operational details. Access requires <code>identity.users.view</code>. This screen is read-only: it cannot edit or delete evidence.
+      </Notice>
+
+      <section className="panel">
+        <div className="audit-section-heading">
+          <div><h2>Filter events</h2><p className="muted">Filters are applied on the server; time inputs use your local timezone and are sent as UTC.</p></div>
+        </div>
+        <form className="panel-form inline audit-filters" onSubmit={applyFilters}>
+          <Field label="Action prefix" htmlFor="audit-action" hint="Matches the action and its dotted descendants.">
+            <input id="audit-action" maxLength="96" value={draft.action} onChange={(event) => setDraft((current) => ({ ...current, action: event.target.value }))} placeholder="governance" />
+          </Field>
+          <Field label="Entity type" htmlFor="audit-entity-type">
+            <input id="audit-entity-type" maxLength="64" value={draft.entityType} onChange={(event) => setDraft((current) => ({ ...current, entityType: event.target.value }))} placeholder="identity, notification…" />
+          </Field>
+          <Field label="Entity ID" htmlFor="audit-entity-id">
+            <input id="audit-entity-id" maxLength="96" value={draft.entityId} onChange={(event) => setDraft((current) => ({ ...current, entityId: event.target.value }))} placeholder="exact ID" />
+          </Field>
+          <Field label="Actor" htmlFor="audit-actor-mode">
+            <select id="audit-actor-mode" value={draft.actorMode} onChange={(event) => setDraft((current) => ({ ...current, actorMode: event.target.value }))}>
+              <option value="any">Any actor</option>
+              <option value="system">System events</option>
+              <option value="user">User ID</option>
+            </select>
+          </Field>
+          {draft.actorMode === "user" ? (
+            <Field label="User ID" htmlFor="audit-actor-id">
+              <input id="audit-actor-id" type="text" inputMode="numeric" maxLength="16" pattern="[1-9][0-9]{0,15}" value={draft.actorId} onChange={(event) => setDraft((current) => ({ ...current, actorId: event.target.value }))} required placeholder="e.g. 42" />
+            </Field>
+          ) : null}
+          <Field label="From" htmlFor="audit-from" hint="Inclusive; converted to UTC.">
+            <input id="audit-from" type="datetime-local" value={draft.from} onChange={(event) => setDraft((current) => ({ ...current, from: event.target.value }))} />
+          </Field>
+          <Field label="To" htmlFor="audit-to" hint="Inclusive; converted to UTC.">
+            <input id="audit-to" type="datetime-local" value={draft.to} onChange={(event) => setDraft((current) => ({ ...current, to: event.target.value }))} />
+          </Field>
+          <Field label="Sort by" htmlFor="audit-sort">
+            <select id="audit-sort" value={draft.sort} onChange={(event) => setDraft((current) => ({ ...current, sort: event.target.value }))}>
+              <option value="createdAt">Created time</option>
+              <option value="action">Action</option>
+              <option value="id">Event ID</option>
+            </select>
+          </Field>
+          <Field label="Direction" htmlFor="audit-direction">
+            <select id="audit-direction" value={draft.direction} onChange={(event) => setDraft((current) => ({ ...current, direction: event.target.value }))}>
+              <option value="desc">Newest first</option>
+              <option value="asc">Oldest first</option>
+            </select>
+          </Field>
+          <Field label="Rows per page" htmlFor="audit-limit">
+            <select id="audit-limit" value={draft.limit} onChange={(event) => setDraft((current) => ({ ...current, limit: Number(event.target.value) }))}>
+              {[25, 50, 100, 200].map((limit) => <option key={limit} value={limit}>{limit}</option>)}
+            </select>
+          </Field>
+          <div className="audit-filter-actions">
+            <button className="primary-button" type="submit">Apply filters</button>
+            <button className="text-button" type="button" onClick={clearFilters}>Clear</button>
+          </div>
+        </form>
+      </section>
+
+      <section className="panel">
+        <div className="audit-section-heading">
+          <div>
+            <h2>Platform events</h2>
+            <p className="muted">{meta ? `Showing ${events.length} of ${meta.total} matching events.` : "The trail is read-only and paginated."}</p>
+          </div>
+          {meta?.mutable === false ? <span className="badge badge-live">READ ONLY</span> : null}
+        </div>
+        <StateBox status={audit.status} error={audit.error} retry={audit.retry} label="Loading audit events" empty={emptyMessage}>
+          <ul className="audit-list">
+            {events.map((event) => {
+              const entityType = event.entityType || "—";
+              const entityId = event.entityId == null || event.entityId === "" ? "—" : event.entityId;
+              return (
+                <li className="audit-card" key={event.id}>
+                  <article>
+                    <div className="audit-card-heading">
+                      <span className="badge badge-muted">Event #{event.id}</span>
+                      <time dateTime={event.createdAt}>{formatAuditTime(event.createdAt)}</time>
+                    </div>
+                    <h3><code>{event.action || "Unknown action"}</code></h3>
+                    <dl className="audit-meta">
+                      <dt>Actor</dt><dd>{auditActorLabel(event.actor)}</dd>
+                      <dt>Entity</dt><dd><code>{entityType}</code> · {entityId}</dd>
+                    </dl>
+                    <details className="audit-details">
+                      <summary>View event details</summary>
+                      <pre>{auditDetailsText(event.details)}</pre>
+                    </details>
+                  </article>
+                </li>
+              );
+            })}
+          </ul>
+          <Pagination meta={meta} applied={applied} onNavigate={(offset) => setApplied((current) => ({ ...current, offset }))} />
+        </StateBox>
       </section>
     </div>
   );

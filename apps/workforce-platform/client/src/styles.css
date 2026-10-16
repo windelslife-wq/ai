@@ -175,6 +175,25 @@ button:focus-visible, input:focus-visible, a:focus-visible { outline: 2px solid 
 .activity-list li { display: flex; flex-wrap: wrap; gap: .7rem; align-items: baseline; padding-bottom: .45rem; border-bottom: 1px solid rgba(222, 239, 225, .06); color: #93a398; font-size: .68rem; }
 .activity-list code { color: #a9c79a; }
 .activity-entity { color: #7b8c80; }
+.audit-section-heading { display: flex; align-items: center; justify-content: space-between; gap: 1rem; margin-bottom: 1rem; }
+.audit-section-heading h2 { margin: 0; }
+.audit-section-heading p { margin: .35rem 0 0; font-size: .66rem; }
+.audit-filters > .field { flex: 1 1 190px; min-width: min(100%, 170px); max-width: 300px; }
+.audit-filter-actions { display: flex; flex: 0 0 auto; flex-wrap: wrap; align-items: center; gap: .6rem; padding-bottom: .1rem; }
+.audit-list { display: flex; flex-direction: column; gap: .7rem; margin: 0; padding: 0; list-style: none; }
+.audit-card { border: 1px solid var(--line); border-radius: 6px; background: rgba(6, 17, 13, .45); }
+.audit-card article { padding: .9rem 1rem; }
+.audit-card-heading { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: .7rem; }
+.audit-card-heading time { color: #7b8c80; font-size: .64rem; }
+.audit-card h3 { margin: .75rem 0 .4rem; overflow-wrap: anywhere; font-size: .78rem; font-weight: 600; }
+.audit-card h3 code { color: #d3e4ca; }
+.audit-meta { display: grid; grid-template-columns: 4.25rem minmax(0, 1fr); gap: .35rem .7rem; margin: .65rem 0 0; font-size: .67rem; }
+.audit-meta dt { color: #7f9184; font-size: .58rem; font-weight: 700; letter-spacing: .08em; text-transform: uppercase; }
+.audit-meta dd { min-width: 0; margin: 0; color: #aebcaf; overflow-wrap: anywhere; }
+.audit-meta code { color: #a9c79a; }
+.audit-details { margin-top: .7rem; color: #92a196; font-size: .66rem; }
+.audit-details summary { width: fit-content; cursor: pointer; }
+.audit-details pre { max-height: 20rem; max-width: 100%; margin: .55rem 0 0; padding: .7rem; overflow: auto; border: 1px solid rgba(222, 239, 225, .08); border-radius: 4px; background: rgba(3, 11, 8, .55); color: #a9c79a; font-size: .62rem; white-space: pre-wrap; overflow-wrap: anywhere; }
 .permission-list.vertical { display: flex; flex-direction: column; gap: .3rem; margin: 0; padding: 0; list-style: none; }
 .permission-list.vertical code, .permission-list-inline code { color: #adc79c; font-size: .66rem; }
 .permission-list-inline { display: inline-flex; flex-wrap: wrap; gap: .4rem; }
@@ -252,6 +271,10 @@ button:focus-visible, input:focus-visible, a:focus-visible { outline: 2px solid 
   .notification-panel-heading { align-items: flex-start; flex-direction: column; }
   .notification-card-heading { align-items: flex-start; flex-direction: column; }
   .notification-read-all { width: auto; }
+  .audit-section-heading { align-items: flex-start; flex-direction: column; }
+  .audit-filter-actions { width: 100%; }
+  .audit-card-heading { align-items: flex-start; flex-direction: column; }
+  .audit-meta { grid-template-columns: 3.8rem minmax(0, 1fr); }
   .workspace-footer { align-items: flex-start; flex-direction: column; padding: 1rem; }
   .workspace-footer > span { text-align: left; }
 }
