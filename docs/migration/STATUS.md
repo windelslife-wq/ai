@@ -2,7 +2,72 @@
 
 **Updated:** 2026-10-16 · **Branch:** `arena/046b29ac-ai`
 
-## Current Phase 34 status (2026-10-16)
+## Current Phase 35 status (2026-10-16)
+
+**The administrator control centre is closed: `/app/admin` is the port of `views/admin/index.php`**
+(`Admin::index`). It is the super administrator's page — `requireAdmin()` → `isAdmin()` →
+`can($user, 'system.super_admin')`, the gate the route keeps — and it carries legacy's four statistics
+with legacy's captions, the access-policy list, the user directory's entry point, the SMTP panel (stated
+as unported) and the feature-readiness table. With it, row 3's settings gap is complete: there is no
+legacy settings controller, so **the sports dashboard is the last screen row 3 names. 146 routes before
+and after — no route, migration, contract method or permission was added, and no server file was touched
+in this phase.**
+
+**The screen's honesty rules are the same ones the dashboard set.** `Users` reads the directory's
+`meta.total`, not the length of a page; `Strategies` reports the number legacy counted — the **version
+rows**, because `Api_strategies::index()` groups `strategy_id → versions` and
+`count($this->Aegis_model->strategies->all())` counted rows — and names the group count beside it;
+`Lottery draws` reads `drawsTracked`; and `Languages`, the one card no Node module can answer, prints an
+em dash and *"language learning is not ported (row 16)"* instead of a zero. The readiness table is
+`GET /system/status` → `modules` (17 rows, 10 ported / 5 partial / 2 not-ported) with the checks behind
+each row and the server's own legend; the two rows with nothing listed are exactly the two unported
+modules, and the table says "not stated". Legacy's own table was `Api_system::FEATURES` — TESTED /
+IMPLEMENTED / PLANNED about the PHP build — and those words are not reused, because in Node they would be
+a claim this edition cannot support. The SMTP panel is labelled `not-ported` and names the two ledger rows
+that wait on a transport (password reset `delivered: false`, and row 5's delivery decision), rather than
+showing a form that could only fail.
+
+**The access-policy panel now states machine-readable keys, and the suite holds it to the server's
+grants.** Legacy's five hand-written lines are transcribed (plus the `platform_member` baseline the panel
+never named); each row carries the role keys it describes and how many permissions each holds, asserted
+against `src/db/platform-baseline.js` — the Node mirror of `tools/rbac.php` — so a seeded grant that
+drifts from the screen fails the tests. The super administrator's row says "all 14 permissions", which is
+both the seeded vocabulary and true at runtime through the service's short-circuit, and the screen mirrors
+that shortcut (`holdsPermission`) so it withholds exactly the reads the API refuses and no more.
+
+**Auditing `AdminUsersView` for the same policy found three controls that could never have worked, now
+fixed.** The create form's role `<select>` offered `member`, `analyst`, `operator`, `supervisor`,
+`compliance_officer`, `admin`, `super_admin`; `POST /admin/users` validates against the eight seeded
+roles, so **six of the seven options were refused** `INVALID_REQUEST` and the account screen could only
+ever create super administrators. The options are now `GET /admin/roles`'s `assignable` list in the
+server's order. The status button sent `suspended` where `USER_STATUS_UPDATE` accepts `active` /
+`disabled`; it now says what legacy's page said — **Deactivate / Activate** — and the directory filter is
+`any / active / disabled`. And the signed-in administrator's own row was offered a toggle the API refuses
+(`SELF_DEACTIVATION`); it now reads "Current account", as legacy's table did.
+
+A tenth client contract suite (`test/client_admin_console.test.js`, 10 tests; two of them seed the real
+platform baseline) pins the page's text, the policy-versus-grants claims, the four cards (no fabricated
+zero), the ledger and its legend, the SMTP panel's named rows, every read as a registered route, the live
+behaviour for the administrator and for a member holding only the signed-in baseline (403
+`PERMISSION_DENIED` on the two administration reads, while the session-only strategy list still
+answers), the store's single unassignable role, and the three fixes above — every offered role accepted,
+every refused one refused, both status values accepted and `suspended` not. Gates: `npm run
+check:workforce` **1045 / 1045** (1035 before), the six client suites **69 / 69**, `npm run typecheck`
+clean, the client build (`index-B-yTeuEP.js` 433.76 kB / 119.52 kB gzip, `index-CmBSwtE7.css` 39.72 kB /
+8.64 kB gzip), `npm run verify:install -- --require-bundle` **30 / 30**, and a **36 / 36** live probe
+against the demo store (a member created through the API with `platform_member`, then refused the two
+administration reads; `/app/admin` 200; the served bundle carrying the panel's strings and none of the
+three stale vocabularies). The demo store was re-seeded for this phase — the sandbox restart had left it
+without accounts — and the demo host ran with `RATE_LIMIT_LOGIN_MAX=50` so repeated probes do not trip
+the login limiter; neither is a product change. **Not run:** a real browser, real MySQL/MariaDB, any live
+provider, SMTP, and no PHP↔Node numeric diff (F-26 remains open). Full record:
+[`PHASE35_ADMIN_CONTROL_CENTRE.md`](PHASE35_ADMIN_CONTROL_CENTRE.md).
+
+**F-29's residual list shrinks by one: the admin control centre is now ported**, leaving paper, risk,
+execution, brokers, journal and sports. **The module counts are unchanged — 10 ported / 5 partial /
+2 not-ported:** this phase ported a screen over routes that already existed.
+
+## Phase 34 status (2026-10-16) — superseded by Phase 35
 
 **The account screen's profile image is closed: `/app/account` now drives the two routes that had no
 caller.** `POST`/`DELETE /api/v1/account/avatar` and the private read `GET /api/v1/files/avatars/:fileId`

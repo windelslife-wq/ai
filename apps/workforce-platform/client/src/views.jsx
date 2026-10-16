@@ -55,6 +55,10 @@ import {
   activityRows, alertRows, countLabel, dashboardPills, firstWord, kpiCards, quickActions,
 } from "./dashboard.js";
 import {
+  ACCESS_POLICY, ACTIVATE_LABEL, ADMIN_COPY, DEACTIVATE_LABEL, SMTP_PANEL, USER_STATUS, USERS_LIST_QUERY,
+  acceptanceTone, featureRows, holdsPermission, legendRows, roleOptions, statCards, unassignableRoles,
+} from "./admin.js";
+import {
   AVATAR_ACCEPT, AVATAR_HINT, AVATAR_NO_FILE_MESSAGE, AVATAR_REMOVED_NOTICE, AVATAR_UPLOADED_NOTICE,
   avatarFailureMessage, avatarView,
 } from "./avatar.js";
@@ -190,6 +194,10 @@ export function WorkspaceNav({ permissions, current, signedIn = true, notificati
     { to: "/app/lottery", label: "Lottery operations", permission: "lottery.view" },
     { to: "/app/lottery/lab", label: "Lottery lab", permission: "lottery.view" },
     { to: "/app/strategy", label: "Strategy Lab", permission: null },
+    // Legacy's `Admin::index` was super-admin only; the directory and the trail
+    // beside it were always `identity.users.view` surfaces. The port keeps both
+    // gates as they are rather than widening either.
+    { to: "/app/admin", label: "Control centre", permission: "system.super_admin" },
     { to: "/app/admin/users", label: "Users", permission: "identity.users.view" },
     { to: "/app/admin/audit", label: "Audit trail", permission: "identity.users.view" },
     { to: "/app/admin/inquiries", label: "Contact messages", permission: "system.super_admin" },
@@ -777,6 +785,150 @@ export function AccountView({ user, permissions, onSessionChanged }) {
   );
 }
 
+/* -------------------------------------------- administrator control centre */
+
+/**
+ * `views/admin/index.php` → `Admin::index` (row 3, Phase 35).
+ *
+ * Legacy's page in one screen: the four statistics with legacy's captions, the
+ * access policy, the user directory's entry point (the table, create form and
+ * deactivate controls have lived at `/app/admin/users` since the identity slice)
+ * and the feature-readiness table. The SMTP panel cannot be ported and says why.
+ *
+ * Two reads are permissioned (`identity.users.view`) and are not attempted without
+ * it, and no card prints a number the server did not send: the language count has
+ * no Node module behind it and renders an em dash with row 16, exactly as the
+ * workspace dashboard's language card does.
+ */
+export function AdminControlCentreView({ permissions }) {
+  // `holdsPermission` mirrors the server's super-admin shortcut, so this panel
+  // withholds exactly the reads the API would refuse and no more.
+  const canReadDirectory = holdsPermission(permissions, "identity.users.view");
+  const users = useResource(() => (canReadDirectory ? endpoints.adminUsers(USERS_LIST_QUERY) : Promise.resolve(null)), [canReadDirectory]);
+  const roles = useResource(() => (canReadDirectory ? endpoints.adminRoles() : Promise.resolve(null)), [canReadDirectory]);
+  const strategies = useResource(() => endpoints.strategies(), []);
+  const lottery = useResource(() => endpoints.lotteryStatus(), []);
+  const status = useResource(() => endpoints.status(), []);
+  const features = useResource(() => endpoints.features(), []);
+
+  const cards = statCards({ permissions, users: users.data, strategies: strategies.data, lottery: lottery.data });
+  const modules = featureRows(status.data?.modules);
+  const legend = legendRows(features.data?.legend);
+  const assignable = roles.data?.assignable || [];
+  const unassignable = unassignableRoles(roles.data?.roles, assignable);
+
+  return (
+    <div className="view">
+      <header className="view-header">
+        <div>
+          <div className="overline">{ADMIN_COPY.eyebrow.toUpperCase()} <span className="overline-line" /></div>
+          <h1>{ADMIN_COPY.title}.</h1>
+        </div>
+        <Link className="text-button" to="/app/">Back to overview</Link>
+      </header>
+      <p className="view-lede">{ADMIN_COPY.lede}</p>
+
+      <div className="dash-kpis">
+        {cards.map((card) => (
+          <div className="dash-kpi" key={card.key}>
+            <div className="dash-kpi-label">{card.label}</div>
+            <p className="dash-kpi-value">{card.value}</p>
+            <p className="dash-kpi-note">{card.caption}</p>
+            {card.note ? <p className="dash-kpi-note">{card.note}</p> : null}
+          </div>
+        ))}
+      </div>
+
+      <section className="panel">
+        <h2>{ADMIN_COPY.directoryTitle}</h2>
+        <p className="muted">{ADMIN_COPY.directoryNote}</p>
+        <p className="muted">
+          The directory, the create form and the deactivate controls are on <Link className="panel-foot-link" to="/app/admin/users">User accounts</Link>
+          {" "}· the read-only event trail is on <Link className="panel-foot-link" to="/app/admin/audit">Audit trail</Link>
+          {" "}· the public contact inbox is on <Link className="panel-foot-link" to="/app/admin/inquiries">Contact messages</Link>.
+        </p>
+        {canReadDirectory ? null : (
+          <Notice tone="warn">This session does not hold <code>identity.users.view</code>, so the directory is not linked to as if it were open, and its two reads were not attempted.</Notice>
+        )}
+      </section>
+
+      <section className="panel">
+        <h2>{ADMIN_COPY.policyTitle}</h2>
+        <ul className="admin-policy">
+          {ACCESS_POLICY.map((entry) => (
+            <li key={entry.key}>
+              <div className="admin-policy-head">
+                <b>{entry.title}</b>
+                <span className="muted">{entry.detail}</span>
+              </div>
+              <div className="admin-policy-roles">
+                {entry.roles.map((role) => (
+                  <span className="admin-role" key={role.key} title={role.permissions === null ? "every permission in the vocabulary" : role.permissions.join(", ")}>
+                    <code>{role.key}</code>
+                    {role.permissions === null
+                      ? <em>all {roles.data?.permissions?.length ?? "…"} permissions</em>
+                      : <em>{role.permissions.length} permission{role.permissions.length === 1 ? "" : "s"}</em>}
+                  </span>
+                ))}
+              </div>
+            </li>
+          ))}
+        </ul>
+        <StateBox status={canReadDirectory ? roles.status : "ready"} error={roles.error} retry={roles.retry} label="Loading the role vocabulary"
+          empty={<p className="empty">The role vocabulary was not read.</p>}>
+          <p className="muted">
+            This deployment offers <b>{assignable.length}</b> role{assignable.length === 1 ? "" : "s"} at account creation
+            {" "}(<code>{assignable.join(" · ") || "none"}</code>) and holds <b>{roles.data?.permissions?.length ?? 0}</b> permission{roles.data?.permissions?.length === 1 ? "" : "s"} in its vocabulary.
+          </p>
+        </StateBox>
+        {unassignable.length ? (
+          <p className="muted">
+            The store also holds {unassignable.map((role) => role.key).join(", ")} — a legacy-schema role the create API does not accept, kept so an imported row still resolves.
+          </p>
+        ) : null}
+        <p className="muted">{ADMIN_COPY.policyFoot}</p>
+      </section>
+
+      <section className="panel">
+        <h2>{SMTP_PANEL.title} <span className={`badge ${acceptanceTone(SMTP_PANEL.state)}`}>{SMTP_PANEL.state}</span></h2>
+        <ul className="dash-notes">
+          {SMTP_PANEL.lines.map((line) => <li key={line}>{line}</li>)}
+        </ul>
+      </section>
+
+      <section className="panel">
+        <h2>{ADMIN_COPY.readinessTitle}</h2>
+        <StateBox status={status.status} error={status.error} retry={status.retry} label="Loading the module ledger"
+          empty={<p className="empty">The module ledger was not read.</p>}>
+          <div className="table-scroll">
+            <table className="data-table">
+              <thead><tr><th>Module</th><th>Acceptance</th><th>Scope</th><th>Checks behind it</th></tr></thead>
+              <tbody>
+                {modules.map((row) => (
+                  <tr key={row.key}>
+                    <td><code>{row.key}</code></td>
+                    <td><span className={`badge ${row.tone}`}>{row.stateLabel}</span></td>
+                    <td className="muted">{row.label}</td>
+                    <td className="muted">{row.tests || "not stated"}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+          {legend.length ? (
+            <ul className="dash-notes">
+              {legend.map((row) => (
+                <li key={row.state}><span className={`badge ${row.tone}`}>{row.state}</span> — {row.text}</li>
+              ))}
+            </ul>
+          ) : null}
+          {features.data?.honesty ? <p className="muted">{features.data.honesty}</p> : null}
+        </StateBox>
+      </section>
+    </div>
+  );
+}
+
 /* ---------------------------------------------------------- audit browser */
 
 const DEFAULT_AUDIT_FILTERS = Object.freeze({
@@ -1326,18 +1478,30 @@ function PortfolioReport({ report }) {
 
 /* ------------------------------------------------------------ admin users */
 
-export function AdminUsersView({ permissions }) {
+export function AdminUsersView({ permissions, user = null }) {
   const [query, setQuery] = useState({ search: "", status: "", limit: 25, offset: 0 });
   const [applied, setApplied] = useState({ search: "", status: "", limit: 25, offset: 0 });
   const [message, setMessage] = useState(null);
   const [busy, setBusy] = useState(false);
-  const [draft, setDraft] = useState({ email: "", displayName: "", password: "", role: "member", username: "" });
+  const [draft, setDraft] = useState({ email: "", displayName: "", password: "", role: "", username: "" });
   const canManage = permissions.includes("identity.users.manage");
 
   const params = new URLSearchParams({ limit: String(applied.limit), offset: String(applied.offset), sort: "id", direction: "asc" });
   if (applied.search) params.set("search", applied.search);
   if (applied.status) params.set("status", applied.status);
   const users = useResource(() => endpoints.adminUsers(`?${params.toString()}`), [params.toString()]);
+  // The role list the create form may offer is the server's own `assignable` set
+  // (`GET /admin/roles` → `contracts.ADMIN_ROLES`). The form used to hard-code a
+  // list of its own — `member`, `analyst`, `operator`, `supervisor`,
+  // `compliance_officer`, `admin` — six of which `POST /admin/users` refuses, so
+  // every account created from it except `super_admin` failed validation.
+  const roles = useResource(() => (canManage ? endpoints.adminRoles() : Promise.resolve(null)), [canManage]);
+  const options = roleOptions(roles.data?.assignable, roles.data?.roles);
+
+  useEffect(() => {
+    if (!options.length) return;
+    setDraft((current) => (options.some((option) => option.value === current.role) ? current : { ...current, role: options[0].value }));
+  }, [options.map((option) => option.value).join(",")]);
 
   async function create(event) {
     event.preventDefault();
@@ -1348,7 +1512,7 @@ export function AdminUsersView({ permissions }) {
       if (draft.username) payload.username = draft.username;
       const created = await endpoints.adminCreateUser(payload);
       setMessage({ tone: "ok", text: `Created ${created.username} (${created.role}).` });
-      setDraft({ email: "", displayName: "", password: "", role: "member", username: "" });
+      setDraft({ email: "", displayName: "", password: "", role: draft.role, username: "" });
       users.retry();
     } catch (error) {
       setMessage({ tone: "error", text: formFailure(error) });
@@ -1357,12 +1521,16 @@ export function AdminUsersView({ permissions }) {
     }
   }
 
-  async function setStatus(user, status) {
+  // Legacy's `Admin::toggle_user` posted the intended state and its page wrote the
+  // word for the current one: Deactivate / Activate. The route accepts exactly
+  // `active` and `disabled` (`USER_STATUS_UPDATE`), so the button that sent
+  // "suspended" could never have worked — the schema refused it before the handler.
+  async function setStatus(account, status) {
     setBusy(true);
     setMessage(null);
     try {
-      await endpoints.adminSetUserStatus(user.id, { status });
-      setMessage({ tone: "ok", text: `${user.username} is now ${status}.` });
+      await endpoints.adminSetUserStatus(account.id, { status });
+      setMessage({ tone: "ok", text: `${account.username} is now ${status}.` });
       users.retry();
     } catch (error) {
       setMessage({ tone: "error", text: formFailure(error) });
@@ -1389,19 +1557,21 @@ export function AdminUsersView({ permissions }) {
               <input id="nu-password" type="password" autoComplete="new-password" maxLength="1024" value={draft.password} onChange={(event) => setDraft((current) => ({ ...current, password: event.target.value }))} required />
             </Field>
             <Field label="Role" htmlFor="nu-role">
-              <select id="nu-role" value={draft.role} onChange={(event) => setDraft((current) => ({ ...current, role: event.target.value }))}>
-                <option value="member">member</option>
-                <option value="analyst">analyst</option>
-                <option value="operator">operator</option>
-                <option value="supervisor">supervisor</option>
-                <option value="compliance_officer">compliance_officer</option>
-                <option value="admin">admin</option>
-                <option value="super_admin">super_admin</option>
+              <select id="nu-role" value={draft.role} onChange={(event) => setDraft((current) => ({ ...current, role: event.target.value }))} required>
+                {options.length
+                  ? options.map((option) => <option key={option.value} value={option.value}>{option.label} ({option.value})</option>)
+                  : <option value="">{roles.status === "error" ? "roles could not be read" : "loading roles…"}</option>}
               </select>
             </Field>
             <Field label="Username (optional)" htmlFor="nu-username"><input id="nu-username" maxLength="64" value={draft.username} onChange={(event) => setDraft((current) => ({ ...current, username: event.target.value }))} /></Field>
-            <button className="primary-button" type="submit" disabled={busy}>Create</button>
+            <button className="primary-button" type="submit" disabled={busy || !draft.role}>Create</button>
           </form>
+          {roles.status === "error" ? <Notice tone="warn">The role list could not be read, so the form offers none: {formFailure(roles.error)}</Notice> : null}
+          {options.length ? (
+            <p className="muted">
+              {options.length} roles are assignable here, and they are the server's own list — the create API refuses any other. The policy behind them is on <Link className="panel-foot-link" to="/app/admin">the control centre</Link>.
+            </p>
+          ) : null}
         </section>
       ) : null}
 
@@ -1410,11 +1580,13 @@ export function AdminUsersView({ permissions }) {
         <form className="panel-form inline" onSubmit={(event) => { event.preventDefault(); setApplied({ ...query, offset: 0 }); }}>
           <Field label="Search" htmlFor="u-search"><input id="u-search" maxLength="80" value={query.search} onChange={(event) => setQuery((current) => ({ ...current, search: event.target.value }))} placeholder="username, email or ID" /></Field>
           <Field label="Status" htmlFor="u-status">
+            {/* `LIST_USERS_QUERY.status` accepts exactly these two values
+                (`USER_STATUS_VALUES`); "suspended" and "pending" were filter
+                options the server answered 400 for. */}
             <select id="u-status" value={query.status} onChange={(event) => setQuery((current) => ({ ...current, status: event.target.value }))}>
               <option value="">any</option>
-              <option value="active">active</option>
-              <option value="suspended">suspended</option>
-              <option value="pending">pending</option>
+              <option value={USER_STATUS.active}>active</option>
+              <option value={USER_STATUS.disabled}>disabled</option>
             </select>
           </Field>
           <button className="primary-button" type="submit">Apply</button>
@@ -1434,9 +1606,15 @@ export function AdminUsersView({ permissions }) {
                   <td>{row.lastLoginAt || row.last_login_at ? String(row.lastLoginAt || row.last_login_at).replace("T", " ").slice(0, 19) : <span className="muted">never</span>}</td>
                   {canManage ? (
                     <td className="row-actions">
-                      {row.status === "active"
-                        ? <button className="text-button" type="button" disabled={busy} onClick={() => void setStatus(row, "suspended")}>Suspend</button>
-                        : <button className="text-button" type="button" disabled={busy} onClick={() => void setStatus(row, "active")}>Activate</button>}
+                      {/* Legacy left the signed-in administrator's own row without a
+                          control ("Current account"); the API refuses it anyway
+                          (SELF_DEACTIVATION), and offering a button whose only
+                          outcome is a refusal is worse than saying so. */}
+                      {user && Number(row.id) === Number(user.id)
+                        ? <span className="muted">Current account</span>
+                        : row.status === USER_STATUS.active
+                          ? <button className="text-button" type="button" disabled={busy} onClick={() => void setStatus(row, USER_STATUS.disabled)}>{DEACTIVATE_LABEL}</button>
+                          : <button className="text-button" type="button" disabled={busy} onClick={() => void setStatus(row, USER_STATUS.active)}>{ACTIVATE_LABEL}</button>}
                     </td>
                   ) : null}
                 </tr>

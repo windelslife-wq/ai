@@ -126,6 +126,7 @@ button:focus-visible, input:focus-visible, a:focus-visible { outline: 2px solid 
 .nav-unread-badge { display: inline-flex; min-width: 1.2rem; height: 1.2rem; align-items: center; justify-content: center; padding: 0 .3rem; border: 1px solid rgba(193, 241, 139, .35); border-radius: 99px; background: rgba(193, 241, 139, .1); color: #c1f18b; font-size: .56rem; font-weight: 700; line-height: 1; }
 .signed-in-as { color: #8b9a8e; font-size: .68rem; }
 .view { display: flex; flex-direction: column; gap: 1.6rem; }
+.view-lede { max-width: 720px; margin: -.7rem 0 0; color: #9aaba0; font-size: .8rem; line-height: 1.7; }
 .view-header { display: flex; align-items: flex-end; justify-content: space-between; gap: 1.5rem; padding-bottom: 1rem; border-bottom: 1px solid var(--line); }
 .view-header h1 { margin: .8rem 0 0; font-size: clamp(1.8rem, 3.4vw, 2.6rem); font-weight: 520; letter-spacing: -.05em; line-height: 1.05; }
 .panel { padding: 1.15rem 1.25rem 1.35rem; border: 1px solid var(--line); border-radius: 8px; background: rgba(9, 26, 20, .55); }
@@ -190,6 +191,17 @@ button:focus-visible, input:focus-visible, a:focus-visible { outline: 2px solid 
 .avatar-pick:focus-within { outline: 2px solid var(--green); outline-offset: 3px; }
 .avatar-file { position: absolute; width: 1px; height: 1px; opacity: 0; overflow: hidden; }
 .avatar-hint { color: #8b9a8e; font-size: .64rem; }
+/* Administrator control centre: legacy's `.policy-list` access panel, with each row
+   carrying the machine-readable role keys it describes (`.admin-role`). */
+.admin-policy { display: grid; gap: .75rem; margin: 0 0 1rem; padding: 0; list-style: none; }
+.admin-policy > li { padding: .7rem .8rem; border: 1px solid var(--line); border-radius: 6px; }
+.admin-policy-head { display: flex; flex-wrap: wrap; align-items: baseline; gap: .3rem .7rem; }
+.admin-policy-head b { color: #d6e1d5; font-size: .78rem; font-weight: 600; }
+.admin-policy-head span { font-size: .68rem; }
+.admin-policy-roles { display: flex; flex-wrap: wrap; gap: .4rem; margin-top: .55rem; }
+.admin-role { display: inline-flex; align-items: baseline; gap: .4rem; padding: .2rem .5rem; border: 1px solid rgba(196, 181, 253, .3); border-radius: 99px; }
+.admin-role code { color: #c9bcf7; font-size: .62rem; }
+.admin-role em { color: #8b9a8e; font-size: .58rem; font-style: normal; }
 .audit-section-heading { display: flex; align-items: center; justify-content: space-between; gap: 1rem; margin-bottom: 1rem; }
 .audit-section-heading h2 { margin: 0; }
 .audit-section-heading p { margin: .35rem 0 0; font-size: .66rem; }

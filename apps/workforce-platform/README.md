@@ -26,14 +26,14 @@ production replacement and no traffic has been cut over.
 - **Market data, analysis, the Strategy Lab, paper trading, persisted risk
   governance, the paper-proposal workflow, operator notifications and lottery
   intelligence are ported**, as are the audit, inbox, portfolio-optimizer, lottery,
-  Strategy Lab and AI Workforce consoles; `/api/v1/system/status` states each module's
-  acceptance level individually. Brokers and sports are ported **in part** (`partial`,
-  each with its own stated remainder — no verified adapter, and for sports no stake
-  sizing and no vendor); language learning and lead discovery remain legacy-only, and
-  two screens of the shared shell are still absent — the sports dashboard and the
-  admin control centre (the settings gap's other half; the account screen's own
-  settings control landed in Phase 34). The status surface reports each state rather than implying
-  coverage.
+  Strategy Lab, AI Workforce, workspace-dashboard and administrator-control-centre
+  screens; `/api/v1/system/status` states each module's acceptance level individually.
+  Brokers and sports are ported **in part** (`partial`, each with its own stated
+  remainder — no verified adapter, and for sports no stake sizing and no vendor);
+  language learning and lead discovery remain legacy-only, and
+  one screen of the shared shell is still absent — the sports dashboard (the settings
+  gap and the admin control centre both closed in Phases 34–35). The status surface
+  reports each state rather than implying coverage.
 - **Operator notifications are ported** (migration `009`, `wf_notifications`): an
   unread-deduped notifier, broadcast plus targeted visibility, the three legacy
   `/api/v1/notifications` endpoints, and publishers for the kill switch, trading-mode
@@ -105,6 +105,19 @@ production replacement and no traffic has been cut over.
   with image storage switched off is named with its remedy (`UPLOADS_ENABLED=1`) instead of a
   3600-second retry.
   See [`docs/migration/PHASE34_ACCOUNT_AVATAR.md`](../../docs/migration/PHASE34_ACCOUNT_AVATAR.md).
+- **The administrator control centre is `/app/admin`** (Phase 35, row 3) — the port of
+  `views/admin/index.php` (`Admin::index`), gated on `system.super_admin` as `requireAdmin()` was:
+  legacy's four statistics with legacy's captions (the language card renders an em dash and **row 16**
+  rather than a zero, and the strategy card counts the version rows legacy counted), the access-policy
+  list with machine-readable role and permission keys the suite holds to the seeded grants, the
+  directory's entry point, the SMTP panel stated as `not-ported` with the ledger rows that wait on a
+  transport, and the feature-readiness table built from `GET /system/status`'s own ledger and
+  `GET /system/features`' own legend. Auditing the directory for the same policy fixed three controls
+  that could never have worked: the create form's role list offered seven options of which only
+  `super_admin` was accepted, the toggle sent `suspended` where the schema accepts `active`/`disabled`,
+  and the signed-in administrator's own row offered a toggle the API refuses with `SELF_DEACTIVATION`.
+  No route, migration, contract method or permission was added.
+  See [`docs/migration/PHASE35_ADMIN_CONTROL_CENTRE.md`](../../docs/migration/PHASE35_ADMIN_CONTROL_CENTRE.md).
 - **The AI Workforce console is at `/app/analysis`** (Phase 32, row 3): it requests a run
   on the legacy page's own symbols and timeframes, with `marketClass` derived by legacy's
   rule, and renders the run's headline, its **own** provenance (a synthetic run is labelled

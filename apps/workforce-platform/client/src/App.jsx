@@ -16,7 +16,8 @@ import { endpoints, setCsrfToken, setUnauthorizedHandler } from "./api.js";
 import { Link, matchRoute, RouterProvider, useRouter } from "./router.jsx";
 import { ConnectivityBanner, Notice, UpdateBanner } from "./ui.jsx";
 import {
-  AccountView, AdminUsersView, AnalysisWorkforceView, AuditView, Brand, InquiriesView, LoginPanel,
+  AccountView, AdminControlCentreView, AdminUsersView, AnalysisWorkforceView, AuditView, Brand,
+  InquiriesView, LoginPanel,
   LotteryLabView, LotteryOperationsView, ModuleCards, NotificationsView, NotFoundView, PortfolioOptimizerView,
   RegisterPanel, StatusPill, StatusView, StrategyLabView, WorkspaceDashboard, WorkspaceNav,
 } from "./views.jsx";
@@ -54,6 +55,13 @@ const ROUTES = [
   // nothing else — with the two governance controls inside gated server-side on
   // `trading.control`.
   { path: "/app/analysis", view: "analysis-workforce", requiresAuth: true },
+  // Row 3 (Phase 35): the administrator control centre. Legacy's `Admin::index` was
+  // `requireAdmin()` — `system.super_admin`, a shortcut that also passes every
+  // permission check — so a viewer holding only `identity.users.view` sees the
+  // locked entry and a screen that names the gate. The two administration reads it
+  // needs are not attempted without that permission; its module ledger and the
+  // statistics it can source without it still render.
+  { path: "/app/admin", view: "admin-control-centre", requiresAuth: true, permission: "system.super_admin" },
   { path: "/app/admin/users", view: "admin-users", requiresAuth: true, permission: "identity.users.view" },
   { path: "/app/admin/audit", view: "audit", requiresAuth: true, permission: "identity.users.view" },
   { path: "/app/admin/inquiries", view: "inquiries", requiresAuth: true, permission: "system.super_admin" },
@@ -387,7 +395,8 @@ function SessionApp() {
       "lottery-lab": <LotteryLabView permissions={permissions} />,
       "strategy-lab": <StrategyLabView />,
       "analysis-workforce": <AnalysisWorkforceView permissions={permissions} />,
-      "admin-users": <AdminUsersView permissions={permissions} />,
+      "admin-control-centre": <AdminControlCentreView permissions={permissions} />,
+      "admin-users": <AdminUsersView user={user} permissions={permissions} />,
       audit: <AuditView />,
       inquiries: <InquiriesView />,
     }[route.view]
