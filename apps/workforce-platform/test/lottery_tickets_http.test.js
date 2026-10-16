@@ -32,20 +32,23 @@ test("the ticket lifecycle: create (validated), list own, check against the stor
   t.after(() => instance.cleanup());
   const headers = await signIn(instance.app);
   await instance.app.inject({ method: "POST", url: "/api/v1/lottery/sync", headers, payload: { limit: 6 } });
-  const targetDraw = (await instance.store.listLotteryDraws({ lotteryCode: "EUROMILLIONS" }, 1))[0];
-  assert.ok(targetDraw, "the explicit sandbox sync stores a draw");
-  assert.equal(targetDraw.verification_status, "VERIFIED");
+  const storedDraws = await instance.app.inject({ method: "GET", url: "/api/v1/lottery/draws?limit=1", headers });
+  assert.equal(storedDraws.statusCode, 200, storedDraws.body);
+  const matchingDraw = storedDraws.json().draws[0];
+  assert.ok(matchingDraw, "the opted-in sandbox sync stores a draw");
+  assert.equal(matchingDraw.verification_status, "VERIFIED");
+  const matchingNumbers = matchingDraw.payload;
 
-  // Build an exact-match line from the stored draw, not from a clock-sensitive
-  // hard-coded PRNG position: the sandbox walks backwards from the current date.
+  // Build an exact-match ticket from the draw actually returned by the opted-in
+  // sandbox; do not pin the test to a calendar date or a time-dependent PRNG offset.
   const created = await instance.app.inject({
     method: "POST",
     url: "/api/v1/lottery/tickets",
     headers,
     payload: {
       name: "My week",
-      lines: [{ mains: [...targetDraw.payload.main].reverse(), stars: [...targetDraw.payload.stars].reverse() }],
-      drawDate: targetDraw.draw_date,
+      lines: [{ mains: [...matchingNumbers.main].reverse(), stars: [...matchingNumbers.stars].reverse() }],
+      drawDate: matchingDraw.draw_date,
       configuration: { note: "the big one" },
     },
   });
@@ -53,8 +56,8 @@ test("the ticket lifecycle: create (validated), list own, check against the stor
   const ticket = created.json().ticket;
   assert.equal(ticket.name, "My week");
   assert.equal(ticket.status, "OPEN");
-  assert.deepEqual(ticket.lines[0].mains, [...targetDraw.payload.main].sort((a, b) => a - b), "the line is stored SORTED, whatever order arrived");
-  assert.equal(ticket.draw_date, targetDraw.draw_date);
+  assert.deepEqual(ticket.lines[0].mains, [...matchingNumbers.main].sort((a, b) => a - b), "the line is stored SORTED, whatever order arrived");
+  assert.equal(ticket.draw_date, matchingDraw.draw_date);
   assert.equal(ticket.configuration.note, "the big one");
 
   // Validation refusals are legacy's strings, one bad line rejects the ticket.
@@ -78,7 +81,7 @@ test("the ticket lifecycle: create (validated), list own, check against the stor
   const checked = await instance.app.inject({ method: "POST", url: "/api/v1/lottery/tickets/1/check", headers, payload: {} });
   assert.equal(checked.statusCode, 200, checked.body);
   const result = checked.json();
-  assert.equal(result.drawDate, targetDraw.draw_date);
+  assert.equal(result.drawDate, matchingDraw.draw_date);
   assert.equal(result.lines[0].mainMatches, 5);
   assert.equal(result.lines[0].starMatches, 2);
   assert.equal(result.lines[0].prizeTier, "TIER_1 (5 mains + 2 stars)");

@@ -1,8 +1,26 @@
 # JavaScript / Node.js / cPanel migration status
 
-**Updated:** 2026-10-13 · **Branch:** `arena/653d6218-ai`
+**Updated:** 2026-10-15 · **Branch:** `arena/3ec00218-ai`
 
-## Current Phase 26 status (2026-10-13)
+## Current Phase 27 status (2026-10-15)
+
+The first shared-shell console for the existing notifications API is now available at
+`/app/notifications`: unread count/filter, broadcast labels, severity/type/time, bounded
+details, single/all mark-read, and loading/error/empty states. The SPA uses the existing
+permission-checked API; no notification publisher or governance action was added.
+The screen closes one of the app-shell gaps but leaves the audit browser, portfolio
+optimizer, settings and domain dashboards outstanding. Notification delivery and the
+retention decision remain open. Record: [`PHASE27_NOTIFICATION_INBOX.md`](PHASE27_NOTIFICATION_INBOX.md).
+
+The old lottery ticket lifecycle test also depended on a fixed sandbox date and PRNG
+offset. It now derives its exact-match ticket from the draw returned by its own opted-in
+sandbox, so it remains deterministic across calendar dates.
+
+Gates on this branch: client production build passed; `npm run check:workforce` passed
+(30/30 install checks, 975/975 tests). **Not run:** real MySQL/MariaDB, a real browser,
+SMTP, official feeds, or cPanel deployment.
+
+## Phase 26 status (2026-10-13) — superseded by Phase 27
 
 **R-30 is closed**: the file adapter's aggregate writes are single-record atomic. A new internal
 `mutateBatch` appends one `{"op":"batch","changes":[…]}` WAL record — applied whole on replay, a
