@@ -54,6 +54,10 @@ import {
   DASHBOARD_COPY, DASHBOARD_WINDOWS, PANEL_FEET, TRADING_READ_PERMISSION,
   activityRows, alertRows, countLabel, dashboardPills, firstWord, kpiCards, quickActions,
 } from "./dashboard.js";
+import {
+  AVATAR_ACCEPT, AVATAR_HINT, AVATAR_NO_FILE_MESSAGE, AVATAR_REMOVED_NOTICE, AVATAR_UPLOADED_NOTICE,
+  avatarFailureMessage, avatarView,
+} from "./avatar.js";
 import { Link } from "./router.jsx";
 import { ConnectivityBanner, Field, Notice, StateBox, useResource } from "./ui.jsx";
 
@@ -565,6 +569,8 @@ export function ModuleCards() {
 
 export function AccountView({ user, permissions, onSessionChanged }) {
   const [message, setMessage] = useState(null);
+  const [avatarMessage, setAvatarMessage] = useState(null);
+  const [chosenFile, setChosenFile] = useState(null);
   const [displayName, setDisplayName] = useState(user.displayName || "");
   const [username, setUsername] = useState(user.username || "");
   const [email, setEmail] = useState(user.email || "");
@@ -590,6 +596,30 @@ export function AccountView({ user, permissions, onSessionChanged }) {
     }
   }
 
+  /**
+   * The avatar control. Both routes answer with the stored URL, but the session
+   * (and so `user.avatarUrl`, and every other view that renders the account) only
+   * learns about it when `/auth/me` is re-read — the same refresh the legacy
+   * `Auth::reestablishIdentity()` performed after each change.
+   */
+  async function runAvatar(notice, call) {
+    setBusy(true);
+    setAvatarMessage(null);
+    try {
+      await call();
+      const me = await endpoints.me();
+      onSessionChanged?.(me);
+      setAvatarMessage({ tone: "ok", text: notice });
+    } catch (error) {
+      setAvatarMessage({ tone: "error", text: avatarFailureMessage(error) });
+    } finally {
+      setChosenFile(null);
+      setBusy(false);
+    }
+  }
+
+  const avatar = avatarView(user);
+
   return (
     <div className="view">
       <header className="view-header">
@@ -600,6 +630,52 @@ export function AccountView({ user, permissions, onSessionChanged }) {
 
       <section className="panel">
         <h2>Profile</h2>
+        {/* Legacy's hero: the stored image when there is one, the display name's
+            initial when there is not — never a placeholder that pretends to be a
+            picture, and never an empty circle. */}
+        <div className="account-hero">
+          {avatar.kind === "image"
+            ? <img className="avatar-lg" src={avatar.url} alt="Profile image" />
+            : <div className="avatar-lg avatar-lg--initial" aria-hidden="true">{avatar.initials}</div>}
+          <div className="account-hero-id">
+            <h3>{user.displayName || user.username}</h3>
+            <p className="muted">@{user.username}{user.email ? ` · ${user.email}` : ""}</p>
+          </div>
+        </div>
+        <div className="avatar-actions">
+          <label className="text-button avatar-pick">
+            Upload image
+            <input
+              id="avatar-file"
+              className="avatar-file"
+              type="file"
+              name="avatar"
+              accept={AVATAR_ACCEPT}
+              onChange={(event) => setChosenFile(event.target.files?.[0] || null)}
+            />
+          </label>
+          <button
+            className="primary-button"
+            type="button"
+            disabled={busy}
+            onClick={() => {
+              if (!chosenFile) { setAvatarMessage({ tone: "error", text: AVATAR_NO_FILE_MESSAGE }); return; }
+              const form = new FormData();
+              form.append("avatar", chosenFile);
+              void runAvatar(AVATAR_UPLOADED_NOTICE, () => endpoints.uploadAvatar(form));
+            }}
+          >
+            Save image
+          </button>
+          {avatar.kind === "image" ? (
+            <button className="text-button" type="button" disabled={busy}
+              onClick={() => void runAvatar(AVATAR_REMOVED_NOTICE, () => endpoints.removeAvatar())}>
+              Remove image
+            </button>
+          ) : null}
+          <span className="avatar-hint">{chosenFile ? `Chosen: ${chosenFile.name}` : AVATAR_HINT}</span>
+        </div>
+        {avatarMessage ? <Notice tone={avatarMessage.tone === "ok" ? "info" : "error"}>{avatarMessage.text}</Notice> : null}
         <form className="panel-form" onSubmit={(event) => { event.preventDefault(); void submit("Display name", () => endpoints.updateProfile({ displayName })); }}>
           <Field label="Display name" htmlFor="acct-display" error={null}>
             <input id="acct-display" maxLength="120" value={displayName} onChange={(event) => setDisplayName(event.target.value)} required />

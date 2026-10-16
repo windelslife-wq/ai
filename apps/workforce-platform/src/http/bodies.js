@@ -15,16 +15,21 @@ import { AppError } from "./errors.js";
 const MAX_MULTIPART_PARTS = 24;
 const MAX_FIELD_BYTES = 16 * 1024;
 
-export async function readRawBody(request, limitBytes) {
+/**
+ * `message` lets a route that knows what the body means (an avatar upload, say)
+ * replace the byte count with its own sentence. The limit still applies; only the
+ * wording changes, so a 413 never reaches a member as "must not exceed 2162688
+ * bytes" when the route can say why.
+ */
+export async function readRawBody(request, limitBytes, { message = null } = {}) {
+  const tooLarge = () => AppError.tooLarge(message || `The request body must not exceed ${limitBytes} bytes`);
   const declared = Number(request.headers["content-length"] || 0);
-  if (Number.isFinite(declared) && declared > limitBytes) {
-    throw AppError.tooLarge(`The request body must not exceed ${limitBytes} bytes`);
-  }
+  if (Number.isFinite(declared) && declared > limitBytes) throw tooLarge();
   const chunks = [];
   let size = 0;
   for await (const chunk of request) {
     size += chunk.length;
-    if (size > limitBytes) throw AppError.tooLarge(`The request body must not exceed ${limitBytes} bytes`);
+    if (size > limitBytes) throw tooLarge();
     chunks.push(chunk);
   }
   return { buffer: Buffer.concat(chunks), size };
@@ -83,7 +88,7 @@ function parseContentDisposition(value) {
 /**
  * @returns {{fields: Record<string, string>, files: Array<{field: string, filename: string|null, contentType: string, data: Buffer, size: number}>}}
  */
-export function parseMultipart(buffer, boundary, { maxFileBytes = 2 * 1024 * 1024 } = {}) {
+export function parseMultipart(buffer, boundary, { maxFileBytes = 2 * 1024 * 1024, message = null } = {}) {
   if (!boundary) throw AppError.unsupportedMediaType("multipart/form-data requires a boundary");
   const delimiter = Buffer.from(`--${boundary}`);
   const parts = [];
@@ -123,7 +128,9 @@ export function parseMultipart(buffer, boundary, { maxFileBytes = 2 * 1024 * 102
       continue;
     }
     if (data.length > maxFileBytes) {
-      throw AppError.tooLarge(`The uploaded file must not exceed ${maxFileBytes} bytes`);
+      // Same override as `readRawBody`: a part over the route's limit is the
+      // route's refusal to word, not a byte count handed to the member.
+      throw AppError.tooLarge(message || `The uploaded file must not exceed ${maxFileBytes} bytes`);
     }
     files.push({ field: name, filename, contentType, data, size: data.length });
   }

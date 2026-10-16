@@ -145,7 +145,7 @@ The first shared-shell console is now the notification inbox. F-29 remains open 
 remaining domain consoles are ported one module at a time; the notification view is not evidence
 that an unrelated API has a usable screen.
 
-**Update (Phases 28–33).** The consoles landed for the audit browser (28), the portfolio optimizer
+**Update (Phases 28–34).** The consoles landed for the audit browser (28), the portfolio optimizer
 (29), the lottery (30), strategies (31), the analysis engines (32) and now the shared shell's own
 **workspace dashboard** (33, `/app` — `views/workspace/index.php`, legacy's `/dashboard`). The
 residual list was also **wrong before Phase 33**: it said *"still open for the Broker Center and the
@@ -157,7 +157,9 @@ centre** (`views/admin/index.php`; its user table and create/toggle forms are at
 its SMTP panel needs a mail transport). The unported modules' own screens (`views/leads/`,
 `views/langlearn/*`) are the row 16/17 workstreams rather than this finding. F-29 stays open for
 those seven screens, and the dashboard's own quick actions name the two it touches rather than
-linking into the gap.
+linking into the gap. Phase 34 added the account screen's avatar control, which is a settings control
+over routes that already existed rather than one of this finding's domain consoles — the seven above
+are still the residual list.
 
 ### F-30 — `maxCorrelatedPositions` is a declared risk limit with no enforcement (open)
 

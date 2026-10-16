@@ -67,13 +67,16 @@ async function parseError(response) {
 export async function api(path, { method = "GET", body, headers = {}, signal } = {}) {
   const unsafe = !["GET", "HEAD", "OPTIONS"].includes(method);
   const requestHeaders = new Headers(headers);
-  if (body !== undefined && !requestHeaders.has("content-type")) requestHeaders.set("content-type", "application/json");
+  // A multipart body must keep the browser's own content-type — it carries the
+  // boundary — so the JSON default and the stringify step both skip it.
+  const multipart = typeof FormData !== "undefined" && body instanceof FormData;
+  if (body !== undefined && !multipart && !requestHeaders.has("content-type")) requestHeaders.set("content-type", "application/json");
   if (unsafe && csrfToken && !requestHeaders.has("x-csrf-token")) requestHeaders.set("x-csrf-token", csrfToken);
 
   const response = await fetch(`${API_BASE}${path}`, {
     method,
     headers: requestHeaders,
-    body: body === undefined ? undefined : typeof body === "string" ? body : JSON.stringify(body),
+    body: body === undefined ? undefined : multipart || typeof body === "string" ? body : JSON.stringify(body),
     credentials: "include",
     signal,
   });
@@ -102,6 +105,10 @@ export const endpoints = {
   updateUsername: (payload) => api("/api/v1/account/username", { method: "PATCH", body: payload }),
   updateEmail: (payload) => api("/api/v1/account/email", { method: "PATCH", body: payload }),
   changePassword: (payload) => api("/api/v1/account/password", { method: "PUT", body: payload }),
+  // Multipart (see `api`): the FormData carries its own boundary, and the
+  // server sniffs the bytes — the field name `avatar` matches the legacy input.
+  uploadAvatar: (formData) => api("/api/v1/account/avatar", { method: "POST", body: formData }),
+  removeAvatar: () => api("/api/v1/account/avatar", { method: "DELETE", body: {} }),
   adminUsers: (query = "") => api(`/api/v1/admin/users${query}`),
   adminCreateUser: (payload) => api("/api/v1/admin/users", { method: "POST", body: payload }),
   adminSetUserStatus: (userId, payload) => api(`/api/v1/admin/users/${userId}/status`, { method: "PATCH", body: payload }),

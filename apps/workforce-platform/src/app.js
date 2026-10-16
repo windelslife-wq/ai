@@ -541,7 +541,11 @@ export async function buildApp({ config, store, logger = true, publicDir = path.
       return;
     }
     const limit = route.options?.config?.multipart ? config.uploads.bodyLimitBytes : config.bodyLimitBytes;
-    const { buffer } = await readRawBody(request, limit);
+    // A route that knows what its body means can word the oversize refusal itself
+    // (the avatar upload says "Profile image must be 2 MB or smaller"); the limit
+    // is unchanged, only the sentence.
+    const oversizeMessage = route.options?.config?.oversizeMessage || null;
+    const { buffer } = await readRawBody(request, limit, { message: oversizeMessage });
     request.rawBody = buffer;
     const type = contentTypeOf(request);
     if (type === "application/json" || type === "text/json") {
@@ -556,7 +560,7 @@ export async function buildApp({ config, store, logger = true, publicDir = path.
       if (!route.options?.config?.multipart) {
         throw AppError.unsupportedMediaType("This endpoint does not accept multipart uploads");
       }
-      const { fields, files } = parseMultipart(buffer, boundaryOf(request), { maxFileBytes: config.uploads.maxBytes });
+      const { fields, files } = parseMultipart(buffer, boundaryOf(request), { maxFileBytes: config.uploads.maxBytes, message: oversizeMessage });
       request.body = fields;
       request.upload = { fields, file: files[0] || null, files };
       return;

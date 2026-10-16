@@ -175,6 +175,21 @@ button:focus-visible, input:focus-visible, a:focus-visible { outline: 2px solid 
 .activity-list li { display: flex; flex-wrap: wrap; gap: .7rem; align-items: baseline; padding-bottom: .45rem; border-bottom: 1px solid rgba(222, 239, 225, .06); color: #93a398; font-size: .68rem; }
 .activity-list code { color: #a9c79a; }
 .activity-entity { color: #7b8c80; }
+/* Account profile image: legacy's 84px circular hero, its hidden file input and
+   its action row (assets/css/aegis.css `.avatar-*`), in the workspace palette. */
+.account-hero { display: flex; align-items: center; gap: .9rem; padding: .1rem 0 .5rem; }
+.account-hero-id h3 { margin: 0; color: #d6e1d5; font-size: .95rem; font-weight: 600; }
+.account-hero-id p { margin: .2rem 0 0; font-size: .68rem; }
+.avatar-lg { flex: none; width: 84px; height: 84px; border: 2px solid var(--line); border-radius: 50%; object-fit: cover; }
+.avatar-lg--initial { display: grid; place-items: center; background: linear-gradient(135deg, #2f6b3c, #1d4a30); color: #e6f2e0; font-size: 2rem; font-weight: 800; }
+.avatar-actions { display: flex; flex-wrap: wrap; align-items: center; gap: .9rem; margin: .2rem 0 .9rem; }
+.avatar-actions .primary-button { min-height: 38px; margin: 0; }
+/* The input is visually hidden inside its label, as in the legacy form, so the
+   label is what the pointer and the focus ring land on. */
+.avatar-pick { position: relative; cursor: pointer; color: #b7e08d; }
+.avatar-pick:focus-within { outline: 2px solid var(--green); outline-offset: 3px; }
+.avatar-file { position: absolute; width: 1px; height: 1px; opacity: 0; overflow: hidden; }
+.avatar-hint { color: #8b9a8e; font-size: .64rem; }
 .audit-section-heading { display: flex; align-items: center; justify-content: space-between; gap: 1rem; margin-bottom: 1rem; }
 .audit-section-heading h2 { margin: 0; }
 .audit-section-heading p { margin: .35rem 0 0; font-size: .66rem; }

@@ -31,7 +31,8 @@ production replacement and no traffic has been cut over.
   each with its own stated remainder — no verified adapter, and for sports no stake
   sizing and no vendor); language learning and lead discovery remain legacy-only, and
   two screens of the shared shell are still absent — the sports dashboard and the
-  settings screens. The status surface reports each state rather than implying
+  admin control centre (the settings gap's other half; the account screen's own
+  settings control landed in Phase 34). The status surface reports each state rather than implying
   coverage.
 - **Operator notifications are ported** (migration `009`, `wf_notifications`): an
   unread-deduped notifier, broadcast plus targeted visibility, the three legacy
@@ -93,6 +94,17 @@ production replacement and no traffic has been cut over.
   `listAccounts()` read every row), and the Paper trading and Learn a language quick actions render
   as unavailable with their reasons (F-29, row 16) instead of linking into a gap.
   See [`docs/migration/PHASE33_WORKSPACE_DASHBOARD.md`](../../docs/migration/PHASE33_WORKSPACE_DASHBOARD.md).
+- **The account screen's profile image is live at `/app/account`** (Phase 34, row 3): the 84px
+  hero (the stored image, or the display name's initial when there is none), legacy's
+  `Upload image` / `Save image` / `Remove image` labels, its `accept` list and hint line and its
+  two notices, driving `POST`/`DELETE /api/v1/account/avatar` — routes that had **no caller**
+  until this screen. No route, migration, contract method or permission was added, and the control
+  states no rule of its own: the refusals are the server's (`Choose an image to upload`, `Only PNG,
+  JPEG, GIF or WebP images are allowed`, `Profile image must be 2 MB or smaller`, the rate-limited
+  retry), the oversized upload was made to answer in megabytes rather than a byte count, and a host
+  with image storage switched off is named with its remedy (`UPLOADS_ENABLED=1`) instead of a
+  3600-second retry.
+  See [`docs/migration/PHASE34_ACCOUNT_AVATAR.md`](../../docs/migration/PHASE34_ACCOUNT_AVATAR.md).
 - **The AI Workforce console is at `/app/analysis`** (Phase 32, row 3): it requests a run
   on the legacy page's own symbols and timeframes, with `marketClass` derived by legacy's
   rule, and renders the run's headline, its **own** provenance (a synthetic run is labelled

@@ -23,6 +23,18 @@ import * as contracts from "./contracts.js";
 
 const OBJECT = (schema) => ({ type: "object", additionalProperties: false, ...schema });
 
+/**
+ * The avatar size refusal, worded once. It is the route's own check *and* the
+ * body reader's `oversizeMessage`, so a profile image past the limit always
+ * answers with the legacy sentence ("Profile image must be 2 MB or smaller.")
+ * whichever layer meets the limit first — the HTTP layer would otherwise refuse
+ * the same upload with a byte count, which is true but not a reason a member can
+ * act on.
+ */
+function profileImageTooLargeMessage(uploads) {
+  return `Profile image must be ${Math.floor(uploads.maxBytes / 1024 / 1024)} MB or smaller`;
+}
+
 function withSessionCookie(reply, config, token, expiresAt) {
   const maxAge = Math.max(0, Math.round((new Date(expiresAt).getTime() - Date.now()) / 1000));
   reply.header("set-cookie", sessionCookie(config.cookieName, token, { maxAge, secure: config.secureCookie }));
@@ -191,7 +203,7 @@ export function identityRoutes(app, { store, config, loginGuard }) {
   // ---- avatar upload / download / removal -----------------------------------
   app.post("/account/avatar", {
     preHandler: [authenticate, csrf],
-    config: { rateLimit: { max: 10, windowMs: 600_000 }, multipart: true },
+    config: { rateLimit: { max: 10, windowMs: 600_000 }, multipart: true, oversizeMessage: profileImageTooLargeMessage(config.uploads) },
   }, async (request, reply) => {
     if (!config.uploads.enabled) {
       throw AppError.unavailable("Profile image storage is not enabled on this host", { code: "UPLOADS_DISABLED", retryAfter: 3600 });
@@ -199,7 +211,7 @@ export function identityRoutes(app, { store, config, loginGuard }) {
     const file = request.upload?.file;
     if (!file?.data?.length) throw AppError.badRequest("Choose an image to upload", { code: "NO_FILE" });
     if (file.data.length > config.uploads.maxBytes) {
-      throw AppError.tooLarge(`Profile image must be ${Math.floor(config.uploads.maxBytes / 1024 / 1024)} MB or smaller`);
+      throw AppError.tooLarge(profileImageTooLargeMessage(config.uploads));
     }
     // Content sniffing decides the type; the client's filename and MIME never do.
     // `validateImageUpload` also refuses an absurd resolution, so a small file

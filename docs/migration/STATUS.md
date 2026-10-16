@@ -2,7 +2,65 @@
 
 **Updated:** 2026-10-16 · **Branch:** `arena/046b29ac-ai`
 
-## Current Phase 33 status (2026-10-16)
+## Current Phase 34 status (2026-10-16)
+
+**The account screen's profile image is closed: `/app/account` now drives the two routes that had no
+caller.** `POST`/`DELETE /api/v1/account/avatar` and the private read `GET /api/v1/files/avatars/:fileId`
+have existed since the identity slice while legacy's `/account` hero — the 84px circle, the upload form
+with its `accept` list and hint line, and the remove form that appears only when an image exists — was
+dropped in the port. The control carries legacy's own words (`Upload image`, `Save image`,
+`Remove image`, `Your profile image has been updated.` / `…removed.`), the initials fallback
+(`preg_replace('/[^A-Za-z0-9 ]/','')`, first character uppercased, `W` when nothing is left) and the
+session reload `Auth::reestablishIdentity()` performed. **No new HTTP route, migration, contract method
+or permission**: the server registers 146 routes before and after, and the screen adds no rule of its own
+— the accepted formats, the 2 MB cap, the content sniffing, the private storage and the audit trail were
+already the routes'.
+
+**Its refusals are the routes' own reasons, never a generic failure.** `avatarFailureMessage`
+(`client/src/avatar.js`) renders the server's message for every code: `Choose an image to upload`
+(`NO_FILE`), `Only PNG, JPEG, GIF or WebP images are allowed` (`UNSUPPORTED_TYPE`),
+`Profile image must be 2 MB or smaller` (413), `RATE_LIMITED` plus the `retry-after` to wait for, and —
+for `UPLOADS_DISABLED` — the server's sentence **plus the operator's remedy** (`UPLOADS_ENABLED=1`) and
+deliberately **no** retry advice, because that state carries `retryAfter: 3600` and "try again in about
+3600s" would be a lie about a switched-off feature. The bundle keeps no second copy of that sentence.
+
+**One parity defect and one latent one were fixed to make that true.** The route's own size refusal
+(legacy's `Profile image must be 2 MB or smaller`) was **unreachable**: `readRawBody` and
+`parseMultipart` answered first with byte counts (`must not exceed 2162688 bytes`), so a member
+uploading a 3 MB photo would have been told a number on a screen that says "up to 2 MB". Both layers now
+accept the route's `config.oversizeMessage`, declared once by the avatar route through
+`profileImageTooLargeMessage(config.uploads)` — the limit is unchanged, only the sentence. And `api()`
+had no multipart path: it set a JSON content type and ran `JSON.stringify(body)`, so the upload would
+have gone out as `{}` and been refused `MALFORMED_MULTIPART`; the multipart branch keeps the browser's
+boundary and still attaches the CSRF header.
+
+An 11-test client contract suite (`test/client_account_avatar.test.js`) pins the vocabulary against
+`views/auth/account.php`, the initials rule case by case (including the one deliberate deviation: legacy
+rendered a blank circle for `" Ada"`), the route inventory (session-only mutations, the rate-limited
+upload, the private read as the only way to the bytes), every refusal above, and the whole lifecycle —
+201, `/auth/me` agreeing, the bytes back byte-for-byte with `cache-control: private`, an anonymous read
+401, a replacement deleting the file it replaced, another member 403 `NOT_OWNER`, a missing CSRF token
+403 `CSRF_INVALID`, removal clearing the path and the file and falling back to initials, and both audit
+actions present. Gates: `npm run check:workforce` **1035 / 1035** (1024 before; one earlier run of the
+same command reported a single failure whose name was not captured, and the next full run plus three
+focused runs of the six client suites — 59 / 59 each — were green: recorded, unexplained),
+`test/client_account_avatar` **11 / 11**, the suites that exercise the changed body reader **62 / 62**,
+the client build (`index-CC_niHxZ.js` 421.96 kB / 116.41 kB gzip, `index-DF950OMU.css` 38.95 kB /
+8.48 kB gzip), `npm run verify:install -- --require-bundle` **30 / 30**, and a live probe against the
+demo store **21 / 21** (a real multipart upload over HTTP, the private read compared byte-for-byte, a
+text file named `.png` refused in the legacy words, a 3 MB upload refused as
+`Profile image must be 2 MB or smaller`, and the served bundle carrying the control's strings).
+**Not run:** a real browser, real MySQL/MariaDB, any live provider, SMTP, and no PHP↔Node numeric diff
+(F-26 remains open). Full record: [`PHASE34_ACCOUNT_AVATAR.md`](PHASE34_ACCOUNT_AVATAR.md).
+
+**Row 3 now owes the sports dashboard and the admin control centre** — nothing else in the settings gap:
+there is no legacy settings controller, and the avatar control was its first half (the admin control
+centre is the second; its SMTP panel cannot be ported while the platform has no mail transport). F-29's
+residual console list (paper, risk, execution, brokers, journal, sports, the admin control centre) is
+unchanged. **The module counts are unchanged — 10 ported / 5 partial / 2 not-ported:** wiring a control
+to existing routes is not a promotion.
+
+## Phase 33 status (2026-10-16) — superseded by Phase 34
 
 **Row 3's workspace dashboard is closed: `/app` is the port of legacy's `/dashboard`.** `Workspace::index`
 → `views/workspace/index.php` is the page sign-in lands on, and the shell's signed-in home now renders
