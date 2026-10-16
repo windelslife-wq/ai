@@ -151,6 +151,13 @@ const server = http.createServer(async (req, res) => {
 });
 
 await installSchema();
+// Dev-bridge demo operator is intentionally NOT auto-bootstrapped here so the
+// web-based /setup (first super-admin sign-up) flow is reachable on a fresh
+// database. Operators who prefer a preseeded demo account can set
+// AEGIS_BOOTSTRAP_DEMO=1 before starting the runtime.
+if (process.env.AEGIS_BOOTSTRAP_DEMO === '1') {
+  await bootstrapDemoOperator();
+}
 startSimBridgeMonitor();
 
 /* -------------------------------------------------------------------------
@@ -375,7 +382,6 @@ function readBody(req) {
   });
 }
 
-await bootstrapDemoOperator();
 server.listen(PORT, HOST, () => {
   console.log(`[aegis] CodeIgniter 3 app serving on http://${HOST}:${PORT} (WASM PHP ${PHP_VERSION}, sqlite dev driver)`);
 });
