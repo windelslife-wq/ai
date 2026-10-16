@@ -1,8 +1,26 @@
 # JavaScript / Node.js / cPanel migration status
 
-**Updated:** 2026-10-15 · **Branch:** `arena/3ec00218-ai`
+**Updated:** 2026-10-16 · **Branch:** `arena/3ec00218-ai`
 
-## Current Phase 27 status (2026-10-15)
+## Current Phase 28 status (2026-10-16)
+
+The existing platform-wide audit API now has a read-only workspace console at
+`/app/admin/audit`. It is guarded by `identity.users.view` in both the exact-path SPA
+route and the API. Filters cover action prefix, entity type/ID, system or user actor,
+and an inclusive local-time window normalized to UTC; indexed sorts and bounded
+pagination are exposed without adding any mutation, export, redaction or deletion path.
+The server-resolved actor, event entity, timestamp and JSON details are visible, along
+with loading/error/empty states and the API's `mutable: false` signal. Record:
+[`PHASE28_AUDIT_BROWSER_SCREEN.md`](PHASE28_AUDIT_BROWSER_SCREEN.md). The API contract and
+storage are unchanged from Phase 10; no retention policy or historical audit import is
+implemented. The portfolio optimizer screen, settings and domain dashboards remain
+separate work.
+
+Gates on this branch: client production build passed; `npm run check:workforce` passed
+(30/30 install checks, 975/975 tests). **Not run:** a real browser, MySQL/MariaDB,
+SMTP, official feeds, or cPanel deployment.
+
+## Phase 27 status (2026-10-15) — superseded by Phase 28
 
 The first shared-shell console for the existing notifications API is now available at
 `/app/notifications`: unread count/filter, broadcast labels, severity/type/time, bounded

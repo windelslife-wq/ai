@@ -710,10 +710,12 @@ below). Route count: **38 at Phase 5 → 49 at Phase 6 → 69 after Phase 7 → 
 
 **Not ported:** the four legacy document routes `/strategy`, `/strategy/backtest`,
 `/strategy/optimize`, `/strategy/advance` and `views/strategy/index.php`. Recorded
-as **F-29** — no ported module (market data, analysis or strategies) has a
-workspace console.
+as **F-29** — market data, analysis, strategies and other domain APIs still lack their
+legacy-equivalent workspace consoles; the shared shell does have the notification inbox
+and audit browser (Phases 27–28).
 
 Workspace SPA surfaces declared by the client router: `/app/`, `/app/login`, `/app/register`,
-`/app/account`, `/app/status`, `/app/admin/users` (`identity.users.view`),
-`/app/admin/inquiries` (`system.super_admin`). Undeclared `/app/*` paths render an explicit
-"nothing is served here" view rather than a blank screen.
+`/app/account`, `/app/notifications`, `/app/status`, `/app/admin/users` (`identity.users.view`),
+`/app/admin/audit` (`identity.users.view`), `/app/admin/inquiries` (`system.super_admin`).
+Undeclared `/app/*` paths render an explicit "nothing is served here" view rather than a blank
+screen.

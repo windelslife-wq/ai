@@ -16,7 +16,7 @@ import { endpoints, setCsrfToken, setUnauthorizedHandler } from "./api.js";
 import { Link, matchRoute, RouterProvider, useRouter } from "./router.jsx";
 import { ConnectivityBanner, Notice, UpdateBanner } from "./ui.jsx";
 import {
-  AccountView, AdminUsersView, Brand, InquiriesView, LoginPanel, ModuleCards,
+  AccountView, AdminUsersView, AuditView, Brand, InquiriesView, LoginPanel, ModuleCards,
   NotificationsView, NotFoundView, RegisterPanel, StatusPill, StatusView, WorkspaceNav,
 } from "./views.jsx";
 
@@ -33,6 +33,7 @@ const ROUTES = [
   { path: "/app/notifications", view: "notifications", requiresAuth: true },
   { path: "/app/status", view: "status" },
   { path: "/app/admin/users", view: "admin-users", requiresAuth: true, permission: "identity.users.view" },
+  { path: "/app/admin/audit", view: "audit", requiresAuth: true, permission: "identity.users.view" },
   { path: "/app/admin/inquiries", view: "inquiries", requiresAuth: true, permission: "system.super_admin" },
   { path: "/app/login", view: "login", guestOnly: true },
   { path: "/app/register", view: "register", guestOnly: true },
@@ -362,6 +363,7 @@ function SessionApp() {
       notifications: <NotificationsView onNotificationsChanged={refreshNotifications} />,
       status: <StatusView />,
       "admin-users": <AdminUsersView permissions={permissions} />,
+      audit: <AuditView />,
       inquiries: <InquiriesView />,
     }[route.view]
   );

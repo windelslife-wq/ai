@@ -107,6 +107,7 @@ export const endpoints = {
   adminSetUserStatus: (userId, payload) => api(`/api/v1/admin/users/${userId}/status`, { method: "PATCH", body: payload }),
   adminRoles: () => api("/api/v1/admin/roles"),
   adminInquiries: (query = "") => api(`/api/v1/admin/inquiries${query}`),
+  adminAudit: (query = "") => api(`/api/v1/admin/audit${query}`),
   notificationInbox: (query = "") => api(`/api/v1/notifications${query}`),
   markNotificationRead: (notificationId) => api(`/api/v1/notifications/${encodeURIComponent(notificationId)}/read`, { method: "POST", body: {} }),
   markAllNotificationsRead: () => api("/api/v1/notifications/read-all", { method: "POST", body: {} }),
