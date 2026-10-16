@@ -17,7 +17,7 @@ import { Link, matchRoute, RouterProvider, useRouter } from "./router.jsx";
 import { ConnectivityBanner, Notice, UpdateBanner } from "./ui.jsx";
 import {
   AccountView, AdminUsersView, Brand, InquiriesView, LoginPanel, ModuleCards,
-  NotFoundView, RegisterPanel, StatusPill, StatusView, WorkspaceNav,
+  NotificationsView, NotFoundView, RegisterPanel, StatusPill, StatusView, WorkspaceNav,
 } from "./views.jsx";
 
 const NATIVE_BUILD = __NATIVE_BUILD__;
@@ -30,6 +30,7 @@ const NATIVE_BUILD = __NATIVE_BUILD__;
 const ROUTES = [
   { path: "/app", view: "workspace", requiresAuth: true },
   { path: "/app/account", view: "account", requiresAuth: true },
+  { path: "/app/notifications", view: "notifications", requiresAuth: true },
   { path: "/app/status", view: "status" },
   { path: "/app/admin/users", view: "admin-users", requiresAuth: true, permission: "identity.users.view" },
   { path: "/app/admin/inquiries", view: "inquiries", requiresAuth: true, permission: "system.super_admin" },
@@ -68,7 +69,7 @@ function EntryLayout({ children, side, health, online }) {
   );
 }
 
-function WorkspaceShell({ user, permissions, health, current, busy, onLogout, children }) {
+function WorkspaceShell({ user, permissions, health, current, busy, onLogout, notificationVersion = 0, children }) {
   return (
     <div className="workspace-view">
       <header className="workspace-header">
@@ -80,7 +81,7 @@ function WorkspaceShell({ user, permissions, health, current, busy, onLogout, ch
         </div>
       </header>
       <div className="workspace-body">
-        <WorkspaceNav permissions={permissions} current={current} />
+        <WorkspaceNav permissions={permissions} current={current} signedIn={Boolean(user)} notificationVersion={notificationVersion} />
         <main className="workspace-main">{children}</main>
       </div>
       <footer className="workspace-footer">
@@ -146,6 +147,8 @@ function SessionApp() {
   const [fieldErrors, setFieldErrors] = useState({});
   const [online, setOnline] = useState(navigator.onLine);
   const [afterLogin, setAfterLogin] = useState(null);
+  const [notificationVersion, setNotificationVersion] = useState(0);
+  const refreshNotifications = useCallback(() => setNotificationVersion((value) => value + 1), []);
 
   const applySession = useCallback((payload) => {
     setSession({ user: payload.user, permissions: payload.permissions || [] });
@@ -311,7 +314,7 @@ function SessionApp() {
       <div className="app-shell">
         <UpdateBanner />
         {user ? (
-          <WorkspaceShell user={user} permissions={permissions} health={health} current={path} busy={busy} onLogout={logout}>
+          <WorkspaceShell user={user} permissions={permissions} health={health} current={path} busy={busy} onLogout={logout} notificationVersion={notificationVersion}>
             <NotFoundView path={path} />
           </WorkspaceShell>
         ) : (
@@ -356,6 +359,7 @@ function SessionApp() {
     {
       workspace: <WorkspaceOverview user={user} permissions={permissions} health={health} />,
       account: <AccountView user={user} permissions={permissions} onSessionChanged={applySession} />,
+      notifications: <NotificationsView onNotificationsChanged={refreshNotifications} />,
       status: <StatusView />,
       "admin-users": <AdminUsersView permissions={permissions} />,
       inquiries: <InquiriesView />,
@@ -365,7 +369,7 @@ function SessionApp() {
   return (
     <div className="app-shell">
       <UpdateBanner />
-      <WorkspaceShell user={user} permissions={permissions} health={health} current={route.path} busy={busy} onLogout={logout}>
+      <WorkspaceShell user={user} permissions={permissions} health={health} current={route.path} busy={busy} onLogout={logout} notificationVersion={notificationVersion}>
         <ConnectivityBanner />
         {body}
       </WorkspaceShell>

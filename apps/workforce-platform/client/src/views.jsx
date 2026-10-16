@@ -123,10 +123,16 @@ export function RegisterPanel({ onRegister, busy, error, fieldErrors, native }) 
 
 /* ------------------------------------------------------------- workspace */
 
-export function WorkspaceNav({ permissions, current }) {
+export function WorkspaceNav({ permissions, current, signedIn = true, notificationVersion = 0 }) {
+  const inbox = useResource(
+    () => signedIn ? endpoints.notificationInbox("?limit=1") : Promise.resolve({ unread: 0 }),
+    [signedIn, notificationVersion],
+  );
+  const unreadCount = Math.max(0, Number(inbox.data?.unread) || 0);
   const entries = [
     { to: "/app/", label: "Overview", permission: null },
     { to: "/app/account", label: "Account", permission: null },
+    { to: "/app/notifications", label: "Notifications", permission: null, unread: true },
     { to: "/app/status", label: "Platform status", permission: null },
     { to: "/app/admin/users", label: "Users", permission: "identity.users.view" },
     { to: "/app/admin/inquiries", label: "Contact messages", permission: "system.super_admin" },
@@ -141,13 +147,166 @@ export function WorkspaceNav({ permissions, current }) {
             to={entry.to}
             className={`nav-link${current === entry.to ? " nav-current" : ""}${allowed ? "" : " nav-locked"}`}
             aria-current={current === entry.to ? "page" : undefined}
+            aria-label={entry.unread && inbox.status === "ready" && unreadCount > 0 ? `Notifications, ${unreadCount} unread` : undefined}
           >
-            {entry.label}
+            <span>{entry.label}</span>
+            {entry.unread && inbox.status === "ready" && unreadCount > 0
+              ? <span className="nav-unread-badge" aria-hidden="true">{unreadCount > 99 ? "99+" : unreadCount}</span>
+              : null}
             {allowed ? null : <span className="nav-lock" title={`Requires ${entry.permission}`}>🔒</span>}
           </Link>
         );
       })}
     </nav>
+  );
+}
+
+const NOTIFICATION_TYPES = Object.freeze([
+  "KILL_SWITCH",
+  "TRADING_MODE_CHANGED",
+  "TRADE_APPROVAL_REQUESTED",
+  "PROPOSAL_EXPIRED",
+  "ORDER_FILLED",
+  "EXECUTION_FAILED",
+  "ROUTING_BLOCKED",
+  "PORTFOLIO_RISK",
+  "BROKER_CONNECTED",
+  "BROKER_DISCONNECTED",
+  "SPORTS_MODEL_DRIFT",
+]);
+
+function notificationDate(value) {
+  const date = new Date(value);
+  return Number.isFinite(date.getTime())
+    ? new Intl.DateTimeFormat(undefined, { dateStyle: "medium", timeStyle: "short" }).format(date)
+    : String(value || "Time unavailable");
+}
+
+/** In-product notification inbox backed only by the authenticated inbox APIs. */
+export function NotificationsView({ onNotificationsChanged }) {
+  const [draftFilters, setDraftFilters] = useState({ unread: false, severity: "", type: "" });
+  const [appliedFilters, setAppliedFilters] = useState({ unread: false, severity: "", type: "" });
+  const [busyId, setBusyId] = useState(null);
+  const [message, setMessage] = useState(null);
+  const params = new URLSearchParams({ limit: "200" });
+  if (appliedFilters.unread) params.set("unread", "1");
+  if (appliedFilters.severity) params.set("severity", appliedFilters.severity);
+  if (appliedFilters.type) params.set("type", appliedFilters.type);
+  const query = params.toString();
+  const inbox = useResource(() => endpoints.notificationInbox(`?${query}`), [query]);
+  const notifications = inbox.data?.notifications || [];
+  const unreadCount = Math.max(0, Number(inbox.data?.unread) || 0);
+
+  async function markRead(notificationId) {
+    setBusyId(String(notificationId));
+    setMessage(null);
+    try {
+      await endpoints.markNotificationRead(notificationId);
+      setMessage({ tone: "info", text: "Notification marked as read." });
+      inbox.retry();
+      onNotificationsChanged?.();
+    } catch (error) {
+      setMessage({ tone: "error", text: formFailure(error) });
+      // A concurrent read elsewhere is a normal 404 from the API; refresh the
+      // inbox so the screen converges on the server's current read state.
+      if (error?.status === 404) inbox.retry();
+    } finally {
+      setBusyId(null);
+    }
+  }
+
+  async function markAllRead() {
+    setBusyId("all");
+    setMessage(null);
+    try {
+      const result = await endpoints.markAllNotificationsRead();
+      const count = Number(result?.markedRead) || 0;
+      setMessage({ tone: "info", text: count ? `${count} notification${count === 1 ? "" : "s"} marked as read.` : "There were no unread notifications to update." });
+      inbox.retry();
+      onNotificationsChanged?.();
+    } catch (error) {
+      setMessage({ tone: "error", text: formFailure(error) });
+    } finally {
+      setBusyId(null);
+    }
+  }
+
+  const noMatches = notifications.length === 0
+    ? <p className="empty">{appliedFilters.unread || appliedFilters.severity || appliedFilters.type ? "No notifications match these filters." : "You are all caught up. There are no notifications to show."}</p>
+    : null;
+
+  return (
+    <div className="view">
+      <header className="view-header">
+        <div><div className="overline">WORKSPACE INBOX <span className="overline-line" /></div><h1>Notifications.</h1></div>
+        <Link className="text-button" to="/app/">Back to overview</Link>
+      </header>
+
+      <Notice tone="info">This is an in-product inbox for stored alerts. Email and device delivery are not configured; no external delivery is claimed.</Notice>
+      {message ? <Notice tone={message.tone}>{message.text}</Notice> : null}
+
+      <section className="panel">
+        <div className="notification-panel-heading">
+          <div><h2>Inbox</h2><p className="muted">{unreadCount} unread notification{unreadCount === 1 ? "" : "s"} across your inbox.</p></div>
+          {unreadCount > 0 ? <button className="primary-button notification-read-all" type="button" onClick={markAllRead} disabled={busyId !== null}>{busyId === "all" ? "Updating…" : "Mark all as read"}</button> : null}
+        </div>
+        <form className="panel-form inline notification-filters" onSubmit={(event) => { event.preventDefault(); setAppliedFilters({ ...draftFilters }); }}>
+          <Field label="Severity" htmlFor="notification-severity">
+            <select id="notification-severity" value={draftFilters.severity} onChange={(event) => setDraftFilters((current) => ({ ...current, severity: event.target.value }))}>
+              <option value="">All severities</option>
+              <option value="critical">Critical</option>
+              <option value="warning">Warning</option>
+              <option value="info">Info</option>
+            </select>
+          </Field>
+          <Field label="Type" htmlFor="notification-type">
+            <select id="notification-type" value={draftFilters.type} onChange={(event) => setDraftFilters((current) => ({ ...current, type: event.target.value }))}>
+              <option value="">All types</option>
+              {NOTIFICATION_TYPES.map((type) => <option key={type} value={type}>{type.replaceAll("_", " ")}</option>)}
+            </select>
+          </Field>
+          <label className="checkbox-row notification-unread-filter" htmlFor="notification-unread">
+            <input id="notification-unread" type="checkbox" checked={draftFilters.unread} onChange={(event) => setDraftFilters((current) => ({ ...current, unread: event.target.checked }))} />
+            <span>Unread only</span>
+          </label>
+          <button className="primary-button" type="submit">Apply filters</button>
+        </form>
+      </section>
+
+      <section className="panel">
+        <div className="notification-panel-heading">
+          <div><h2>Recent alerts</h2><p className="muted">Showing {inbox.data?.returned ?? 0} of up to 200 latest notifications. Older history is not paginated yet.</p></div>
+          <button className="text-button" type="button" onClick={inbox.retry} disabled={inbox.status === "loading"}>Refresh</button>
+        </div>
+        <StateBox status={inbox.status} error={inbox.error} retry={inbox.retry} label="Loading notifications" empty={noMatches}>
+          <ul className="notification-list">
+            {notifications.map((notification) => {
+              const detail = notification.detail && typeof notification.detail === "object" ? notification.detail : {};
+              const hasDetail = Object.keys(detail).length > 0;
+              return (
+                <li className={`notification-card${notification.unread ? " notification-unread" : ""}`} key={notification.id}>
+                  <article>
+                    <div className="notification-card-heading">
+                      <div className="notification-labels">
+                        <span className={`badge notification-severity notification-severity-${notification.severity}`}>{notification.severity}</span>
+                        <code>{notification.type}</code>
+                        {notification.broadcast ? <span className="badge badge-muted">Broadcast</span> : null}
+                        {!notification.unread ? <span className="badge badge-muted">Read</span> : null}
+                      </div>
+                      <time dateTime={notification.createdAt}>{notificationDate(notification.createdAt)}</time>
+                    </div>
+                    <h3>{notification.title}</h3>
+                    {notification.broadcast ? <p className="notification-visibility">Visible to all signed-in operators.</p> : null}
+                    {hasDetail ? <details className="notification-details"><summary>View event details</summary><pre>{JSON.stringify(detail, null, 2)}</pre></details> : null}
+                    {notification.unread ? <button className="text-button notification-mark-read" type="button" onClick={() => markRead(notification.id)} disabled={busyId !== null}>{busyId === String(notification.id) ? "Updating…" : "Mark as read"}</button> : null}
+                  </article>
+                </li>
+              );
+            })}
+          </ul>
+        </StateBox>
+      </section>
+    </div>
   );
 }
 
@@ -167,9 +326,9 @@ export function WorkspaceNav({ permissions, current }) {
  * engine, and it stayed on screen through Phase 6 — an understatement that would
  * have someone re-port a finished module. The opposite error is just as bad:
  * calling an API-only module "ported" implies an operator can use it here, and
- * they cannot. No module console exists yet for ANY ported module, which is
- * recorded as finding F-29 in docs/migration/PHASE6_STRATEGIES.md rather than
- * papered over by a vaguer label.
+ * they cannot. The shared shell now has an in-product notification inbox, but
+ * domain consoles (analysis, strategy, portfolio, sports and lottery) remain open
+ * work under F-29; the inbox does not imply those APIs have usable screens.
  */
 export function ModuleCards() {
   const moduleCards = [
@@ -180,6 +339,7 @@ export function ModuleCards() {
     { number: "05", title: "Language learning", text: "Lessons, practice and learner progress.", status: "Not yet ported to Node", tone: "planned", foot: "MIGRATION BACKLOG" },
     { number: "06", title: "Lead discovery", text: "Organization-aware discovery and pipeline tools.", status: "Not yet ported to Node", tone: "planned", foot: "MIGRATION BACKLOG" },
     { number: "07", title: "Account & access", text: "Identity, permissions and audited activity.", status: "Foundation slice", tone: "live", foot: "ACTIVE FOUNDATION" },
+    { number: "08", title: "Notifications", text: "Review stored alerts, filter the inbox and mark items read.", status: "Inbox available", tone: "live", foot: "PHASE 9 · /app/notifications" },
   ];
   const labelClass = { live: "live-label", api: "api-label", planned: "planned-label" };
   return (
