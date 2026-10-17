@@ -55,6 +55,8 @@ import { lotteryRoutes } from "./modules/lottery/routes.js";
 import { createLotteryService } from "./modules/lottery/service.js";
 import { leadDiscoveryRoutes } from "./modules/leads/routes.js";
 import { createLeadDiscoveryService } from "./modules/leads/service.js";
+import { languageLearningRoutes } from "./modules/language/routes.js";
+import { createLanguageLearningService } from "./modules/language/service.js";
 import { createBrokerRegistry } from "./modules/brokers/registry.js";
 
 const JSON_TYPE = "application/json; charset=utf-8";
@@ -213,6 +215,7 @@ export async function buildApp({ config, store, logger = true, publicDir = path.
   // ensured lazily on the first call that needs it, so booting stays read-free.
   const lottery = createLotteryService({ config, store });
   const leads = createLeadDiscoveryService({ config, store });
+  const languageLearning = createLanguageLearningService({ store });
 
   // The status surface reports the notification module alongside market data and
   // analysis, so an operator can see that alerts are stored-and-read only and that
@@ -279,6 +282,12 @@ export async function buildApp({ config, store, logger = true, publicDir = path.
   // health, business search, duplicate review, collections, pipeline, coverage,
   // search history, and CSV-safe export.
   await app.register(leadDiscoveryRoutes, { prefix: "/api/v1", store, config, service: leads });
+  // AI Language Learning & AI Teacher (row 16 — Phase 46): 20 languages (18 CEFR +
+  // Japanese JLPT N5–N1 + Mandarin Chinese HSK 1–6), placement assessment,
+  // 5-module curriculum path, checkpoints, guided lessons, conversations, writing
+  // feedback, grammar explain-simply, vocabulary SRS, listening & speaking
+  // practice, adaptive weakness engine, daily study plan, mastery, and translator.
+  await app.register(languageLearningRoutes, { prefix: "/api/v1", store, config, service: languageLearning });
 
   /**
    * Scheduled operations (row 19): the portfolio risk sweep and the cross-owner

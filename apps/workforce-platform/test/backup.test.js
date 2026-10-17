@@ -155,7 +155,7 @@ test("F-13 the MySQL row counts cover every table the migrations create, and not
   // NOT counted here would be backed up without this test ever proving it can be
   // restored. The number moving is the point: it forces whoever adds a table to look
   // at whether the restore path covers it.
-  assert.equal(tables.length, 65, `expected the 65 tables the migrations create, got: ${tables.join(", ")}`);
+  assert.equal(tables.length, 81, `expected the 81 tables the migrations create, got: ${tables.join(", ")}`);
   assert.ok(!tables.includes("wf_user_files"), "the phantom table must stay out — counting it broke MySQL backups");
   for (const expected of [
     "wf_analysis_runs",
@@ -207,6 +207,23 @@ test("F-13 the MySQL row counts cover every table the migrations create, and not
     "wf_lead_duplicate_candidates",
     "wf_lead_duplicate_resolutions",
     "wf_lead_export_history",
+    // Migration 021 (row 16 — Phase 46): AI Language Learning & AI Teacher tables.
+    "wf_languages",
+    "wf_user_language_profiles",
+    "wf_language_assessments",
+    "wf_learning_paths",
+    "wf_learning_modules",
+    "wf_lesson_attempts",
+    "wf_language_progress",
+    "wf_study_sessions",
+    "wf_conversation_sessions",
+    "wf_writing_attempts",
+    "wf_vocabulary",
+    "wf_user_vocabulary",
+    "wf_listening_attempts",
+    "wf_speaking_attempts",
+    "wf_daily_learning_plans",
+    "wf_ai_learning_recommendations",
   ]) {
     assert.ok(tables.includes(expected), `${expected} must be counted`);
   }
@@ -298,6 +315,22 @@ test("F-13 the MySQL row counts cover every table the migrations create, and not
       leadDuplicateCandidates: "wf_lead_duplicate_candidates",
       leadDuplicateResolutions: "wf_lead_duplicate_resolutions",
       leadExportHistory: "wf_lead_export_history",
+      languages: "wf_languages",
+      userLanguageProfiles: "wf_user_language_profiles",
+      languageAssessments: "wf_language_assessments",
+      learningPaths: "wf_learning_paths",
+      learningModules: "wf_learning_modules",
+      lessonAttempts: "wf_lesson_attempts",
+      languageProgress: "wf_language_progress",
+      studySessions: "wf_study_sessions",
+      conversationSessions: "wf_conversation_sessions",
+      writingAttempts: "wf_writing_attempts",
+      vocabulary: "wf_vocabulary",
+      userVocabulary: "wf_user_vocabulary",
+      listeningAttempts: "wf_listening_attempts",
+      speakingAttempts: "wf_speaking_attempts",
+      dailyLearningPlans: "wf_daily_learning_plans",
+      aiLearningRecommendations: "wf_ai_learning_recommendations",
     };
     const stats = await store.stats();
     for (const collection of Object.keys(stats)) {

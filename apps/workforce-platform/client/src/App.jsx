@@ -17,7 +17,7 @@ import { Link, matchRoute, RouterProvider, useRouter } from "./router.jsx";
 import { ConnectivityBanner, Notice, UpdateBanner } from "./ui.jsx";
 import {
   AccountView, AdminControlCentreView, AdminUsersView, AnalysisWorkforceView, AuditView, Brand,
-  BrokerCenterView, ChatWidget, ExecutionView, InquiriesView, JournalView, LeadDiscoveryView, LoginPanel,
+  BrokerCenterView, ChatWidget, ExecutionView, InquiriesView, JournalView, LanguageLearningView, LeadDiscoveryView, LoginPanel,
   LotteryLabView, LotteryOperationsView, ModuleCards, NotificationsView, NotFoundView, PortfolioOptimizerView,
   PaperConsoleView, RegisterPanel, RiskCenterView, SportsIntelligenceView, StatusPill, StatusView, StrategyLabView, WorkspaceDashboard,
   WorkspaceNav,
@@ -89,6 +89,10 @@ const ROUTES = [
   // Every route requires `system.authenticated`, which every signed-in account holds.
   { path: "/app/leads", view: "lead-discovery", requiresAuth: true, permission: "system.authenticated" },
   { path: "/app/leads/pipeline", view: "lead-pipeline", requiresAuth: true, permission: "system.authenticated" },
+  // Row 16 (Phase 46): the AI Language Learning & AI Teacher console (`Lang_learn::index` and `Lang_learn::teacher`).
+  // Every route requires `system.authenticated`, which every signed-in account holds.
+  { path: "/app/languages", view: "language-learning", requiresAuth: true, permission: "system.authenticated" },
+  { path: "/app/languages/teacher", view: "language-teacher", requiresAuth: true, permission: "system.authenticated" },
   // Row 3 (Phase 35): the administrator control centre. Legacy's `Admin::index` was
   // `requireAdmin()` — `system.super_admin`, a shortcut that also passes every
   // permission check — so a viewer holding only `identity.users.view` sees the
@@ -438,6 +442,8 @@ function SessionApp() {
       "broker-center": <BrokerCenterView permissions={permissions} />,
       "lead-discovery": <LeadDiscoveryView initialTab="discovery" />,
       "lead-pipeline": <LeadDiscoveryView initialTab="pipeline" />,
+      "language-learning": <LanguageLearningView initialTab="catalog" />,
+      "language-teacher": <LanguageLearningView initialTab="teacher" />,
       "admin-control-centre": <AdminControlCentreView permissions={permissions} />,
       "admin-users": <AdminUsersView user={user} permissions={permissions} />,
       audit: <AuditView />,

@@ -72,6 +72,7 @@ export const TRADING_READ_PERMISSION = "trading.view";
 export const OPEN_READS = Object.freeze([
   Object.freeze({ key: "runs", path: "/api/v1/analysis/history", query: `limit=${DASHBOARD_WINDOWS.runs}`, permission: null }),
   Object.freeze({ key: "inbox", path: "/api/v1/notifications", query: `limit=${DASHBOARD_WINDOWS.inbox}`, permission: "system.authenticated" }),
+  Object.freeze({ key: "profiles", path: "/api/v1/language-learning/profiles", permission: "system.authenticated" }),
 ]);
 
 /** The two the router refuses without the permission above. */
@@ -80,8 +81,8 @@ export const GATED_READS = Object.freeze([
   Object.freeze({ key: "accounts", path: "/api/v1/paper/accounts", permission: TRADING_READ_PERMISSION }),
 ]);
 
-/** What the language card says instead of a count no module can answer (row 16). */
-export const LANGUAGE_NOTE = "Language learning is not ported in this edition (row 16), so there is no profile count to show.";
+/** What the language destinations say now that the console exists (row 16 — Phase 46). */
+export const LANGUAGE_NOTE = "Counted from GET /api/v1/language-learning/profiles across all 20 authored languages (row 16 — Phase 46). The console at /app/languages and /app/languages/teacher opens the profiles this counts.";
 
 /**
  * What the paper destinations say now that the console exists (Phase 37). Until that phase
@@ -113,7 +114,7 @@ export function countLabel(count, singular, plural = `${singular}s`) {
  * `GET /paper/accounts` payload; both are null when the viewer lacks
  * `trading.view` or the read failed, and a refused read is named as such.
  */
-export function dashboardPills({ permissions = [], state = null, accounts = null } = {}) {
+export function dashboardPills({ permissions = [], state = null, accounts = null, profiles = null } = {}) {
   const canRead = permissions.includes(TRADING_READ_PERMISSION);
   const pills = [];
 
@@ -137,21 +138,23 @@ export function dashboardPills({ permissions = [], state = null, accounts = null
     pills.push({ key: "accounts", tone: "badge-gray", text: countLabel(accountCount, "paper account") });
   }
 
-  // No module, no count: legacy printed `N language profile(s)` from its own
-  // language service, which this edition does not have (row 16).
-  pills.push({ key: "languages", tone: "badge-muted", text: "Language learning not ported" });
+  const profileCount = Array.isArray(profiles?.profiles) ? profiles.profiles.length : null;
+  if (profileCount === null) {
+    pills.push({ key: "languages", tone: "badge-muted", text: "Language profiles unread" });
+  } else {
+    pills.push({ key: "languages", tone: "badge-gray", text: countLabel(profileCount, "language profile") });
+  }
   return pills;
 }
 
 /**
- * Legacy's three quick actions in its order. `to` is null where this edition has
- * no screen to open, and `note` is the reason — never a silent omission.
+ * Legacy's three quick actions in its order. All three now open real console screens.
  */
 export function quickActions() {
   return [
     { key: "analysis", label: "Run AI analysis", to: "/app/analysis", note: "Legacy's `/analysis` page." },
     { key: "paper", label: "Paper trading", to: "/app/paper", note: PAPER_NOTE },
-    { key: "languages", label: "Learn a language", to: null, note: LANGUAGE_NOTE },
+    { key: "languages", label: "Learn a language", to: "/app/languages", note: LANGUAGE_NOTE },
   ];
 }
 
@@ -159,10 +162,11 @@ export function quickActions() {
  * Legacy's four KPI cards: AI workforce runs, language profiles, paper accounts,
  * unread alerts. Each card carries a value plus the caveat its number needs.
  */
-export function kpiCards({ permissions = [], runs = null, unread = null, accounts = null } = {}) {
+export function kpiCards({ permissions = [], runs = null, unread = null, accounts = null, profiles = null } = {}) {
   const canRead = permissions.includes(TRADING_READ_PERMISSION);
   const runCount = Array.isArray(runs?.runs) ? runs.runs.length : null;
   const accountCount = Array.isArray(accounts?.accounts) ? accounts.accounts.length : null;
+  const profileCount = Array.isArray(profiles?.profiles) ? profiles.profiles.length : null;
   // `null` is "not read", which is not the same as zero: `Number(null)` is 0 and
   // finite, so a null would otherwise become a confident "0 unread alerts".
   const unreadCount = unread === null || unread === undefined || unread === ""
@@ -183,10 +187,10 @@ export function kpiCards({ permissions = [], runs = null, unread = null, account
     {
       key: "languages",
       label: "Language profiles",
-      value: "—",
-      trend: "Not in this edition",
-      note: LANGUAGE_NOTE,
-      to: null,
+      value: profileCount === null ? "—" : String(profileCount),
+      trend: "Active language profiles",
+      note: profileCount === null ? "The language profile list could not be read." : LANGUAGE_NOTE,
+      to: "/app/languages",
     },
     {
       key: "accounts",

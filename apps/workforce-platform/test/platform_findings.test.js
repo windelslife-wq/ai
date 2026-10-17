@@ -649,7 +649,12 @@ test("F-01 the durable file adapter replays its log, survives a torn write, and 
     // Row 17 (migration 020): organization-scoped Lead Discovery collections, same.
     leadOrganizations: 0, leadOrganizationMembers: 0, leads: 0, leadNotes: 0,
     leadActivities: 0, leadCollections: 0, leadCollectionLeads: 0, leadSearchHistory: 0,
-    leadDuplicateCandidates: 0, leadDuplicateResolutions: 0, leadExportHistory: 0 });
+    leadDuplicateCandidates: 0, leadDuplicateResolutions: 0, leadExportHistory: 0,
+    // Row 16 (migration 021): AI Language Learning & AI Teacher collections, same.
+    languages: 0, userLanguageProfiles: 0, languageAssessments: 0, learningPaths: 0,
+    learningModules: 0, lessonAttempts: 0, languageProgress: 0, studySessions: 0,
+    conversationSessions: 0, writingAttempts: 0, vocabulary: 0, userVocabulary: 0,
+    listeningAttempts: 0, speakingAttempts: 0, dailyLearningPlans: 0, aiLearningRecommendations: 0 });
 
   await reopened.compact();
   const compacted = (await readFile(fileStorePaths(dir).log, "utf8")).trim();
@@ -682,7 +687,7 @@ test("F-01 the file store and the SQL store implement one repository contract, s
     () => assertRepositoryContract({ adapter: "stub", capabilities: {}, readiness: async () => ({}) }, { adapter: "stub" }),
     /does not implement the repository contract.*findUserByIdentifier/s,
   );
-  assert.equal(REPOSITORY_METHODS.length, 210, "8 identity + 6 sessions + 9 RBAC + 2 admin + 4 audit/profile + 2 contact intake + 4 analysis runs + 11 Strategy Lab (including persisted human sign-off) + 23 paper trading + 3 execution proposal reads (2 owner-scoped + 1 cross-owner for the scheduled job) + 6 operator notifications + 5 job locks + 2 job state + 22 sports foundation (3 provider registry + 4 health including retention + 4 fixtures + 4 odds + 2 results + 2 quality + 3 sync runs) + 12 sports intelligence (2 model versions + 4 predictions + 3 configuration + 3 calibration) + 13 ticket writes and reads (9 slice 4 + 4 slice-5 settlement updates and recovery) + 11 settlement, measurement and snapshot methods (2 result attestation + 2 outcome reads + 2 model metrics + 3 backtests + 2 performance snapshots) + 23 lottery foundation (1 game registry + 2 rules + 2 provider registry + 3 health + 5 draws + 4 draw numbers + 3 sync runs + 2 stats reads + 1 audit) + 6 lottery combinations and AI decisions (slice 2, migration 017) + 7 saved tickets and lines (slice 3, migration 018) + 5 backtest reports and model versions (slice 4, migration 019) + 22 Lead Discovery (row 17, migration 020) + 1 readiness + 3 row-5 retention (audit, notifications, backtests)");
+  assert.equal(REPOSITORY_METHODS.length, 250, "8 identity + 6 sessions + 9 RBAC + 2 admin + 4 audit/profile + 2 contact intake + 4 analysis runs + 11 Strategy Lab (including persisted human sign-off) + 23 paper trading + 3 execution proposal reads (2 owner-scoped + 1 cross-owner for the scheduled job) + 6 operator notifications + 5 job locks + 2 job state + 22 sports foundation (3 provider registry + 4 health including retention + 4 fixtures + 4 odds + 2 results + 2 quality + 3 sync runs) + 12 sports intelligence (2 model versions + 4 predictions + 3 configuration + 3 calibration) + 13 ticket writes and reads (9 slice 4 + 4 slice-5 settlement updates and recovery) + 11 settlement, measurement and snapshot methods (2 result attestation + 2 outcome reads + 2 model metrics + 3 backtests + 2 performance snapshots) + 23 lottery foundation (1 game registry + 2 rules + 2 provider registry + 3 health + 5 draws + 4 draw numbers + 3 sync runs + 2 stats reads + 1 audit) + 6 lottery combinations and AI decisions (slice 2, migration 017) + 7 saved tickets and lines (slice 3, migration 018) + 5 backtest reports and model versions (slice 4, migration 019) + 22 Lead Discovery (row 17, migration 020) + 40 Language Learning & AI Teacher (row 16, migration 021) + 1 readiness + 3 row-5 retention (audit, notifications, backtests)");
 
   // The 22 sports foundation methods, the 12 decision-chain methods (migration 012)
   // and the slice-5 settlement-and-measurement methods (migration 014) are named here
@@ -1063,7 +1068,7 @@ test("F-02 the status surface is honest about unported modules, and F-03 the rou
   assert.doesNotMatch(publicSiteLabel, /chat assistant not ported/i);
   assert.equal(body.modules.find((module) => module.key === "marketData").state, "ported", "market data was ported in Phase 4");
   assert.equal(body.modules.find((module) => module.key === "analysis").state, "ported", "the analysis engines were ported in Phase 5");
-  assert.equal(body.modules.filter((module) => module.state === "ported").length, 13, "identity, the public site (Phase 43, when the grounded chat assistant and floating widget closed its last unported surface), market data, analysis, the portfolio optimizer, strategies, paper trading, risk, notifications, the audit browser, scheduled jobs (Phase 44, when the 80/70/60% early-warning tiers, leverage check and correlation-group enforcement closed SJ-8, SJ-9 and F-30), lottery (Phase 30, when its last unported entry — the console screens — became a ported surface) and lead discovery (Phase 45, row 17) have tested Node surfaces");
+  assert.equal(body.modules.filter((module) => module.state === "ported").length, 14, "identity, the public site (Phase 43, when the grounded chat assistant and floating widget closed its last unported surface), market data, analysis, the portfolio optimizer, strategies, paper trading, risk, notifications, the audit browser, scheduled jobs (Phase 44, when the 80/70/60% early-warning tiers, leverage check and correlation-group enforcement closed SJ-8, SJ-9 and F-30), lottery (Phase 30, when its last unported entry — the console screens — became a ported surface), lead discovery (Phase 45, row 17), and language learning (Phase 46, row 16) have tested Node surfaces");
   // Notifications are stored and read in-product only; the module says so itself
   // rather than implying an alert reached a device or an email inbox.
   assert.equal(body.modules.find((module) => module.key === "notifications").state, "ported");
@@ -1235,7 +1240,8 @@ test("F-02 the status surface is honest about unported modules, and F-03 the rou
   }
   assert.ok(!/console screens are not ported/i.test(lotteryLabel), "the ported label must not still carry the F-29 hedge");
   assert.equal(body.modules.filter((module) => module.state === "partial").length, 3, "execution (the remaining supervisor steps are broker-bound, no live route, no automated mode), brokers (no verified adapter, no order routing) and sports (measured, console ported and person-gated: nothing executed, no stake sized, no stored result trusted before a person attests, no verified vendor) remain partial — lottery left the list in Phase 30, the public site left it in Phase 43 when the grounded chat assistant and floating widget landed, and scheduled jobs left it in Phase 44 when the 80/70/60% early-warning tiers, leverage check and correlation-group enforcement landed");
-  assert.equal(body.modules.filter((module) => module.state === "not-ported").length, 1, "language learning remains legacy-only");
+  assert.equal(body.modules.filter((module) => module.state === "not-ported").length, 0, "Phase 46 ported languageLearning, so zero modules remain not-ported");
+  assert.equal(body.modules.filter((module) => module.state === "ported").length, 14, "14 modules are ported as of Phase 46");
   assert.equal(body.modules.length, 17, "the ledger keeps listing every module, ported or not");
   assert.ok(body.chat && body.chat.privateDataAccess === false, "status reports the credential-free public chat assistant snapshot");
   assert.equal("apiKey" in body.chat, false, "AI_CHAT_API_KEY must never appear in /api/v1/system/status");

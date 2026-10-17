@@ -2,7 +2,29 @@
 
 **Updated:** 2026-10-17 · **Branch:** `arena/0d5104b6-ai`
 
-## Current Phase 45 status (2026-10-17)
+## Current Phase 46 status (2026-10-17)
+
+**Row 16 (`languageLearning`) is ported end to end across schema, dual-adapter repository, 20-language
+registry, placement assessment staircase, curriculum path, AI teacher, vocabulary SRS, listening &
+speaking practice, adaptive learning engine, deterministic translator, 33 HTTP routes, and the
+workspace console (`/app/languages` and `/app/languages/teacher`), advancing `languageLearning` from
+`not-ported` to `ported` and moving the 17-module ledger to 14 ported / 3 partial / 0 not-ported.**
+
+**16-table schema and 40-method dual-adapter persistence (`021_language_learning.sql`).** Migration
+`021_language_learning.sql` creates the 16 `wf_*` Language Learning tables (`65 → 81` tables total,
+`20 → 21` required migrations), and `src/persistence/contract.js` (`210 → 250` methods),
+`src/persistence/file-store.js`, and `src/db/language-repository.js` implement all 40 Language
+Learning repository methods across both adapters.
+
+**5-phase Language Learning & AI Teacher service and console (`src/modules/language/`,
+`client/src/language.js`).** Ports `LanguageRegistry` (20 languages), `ItemBanks`, `Curriculum`,
+`TeacherContent`, `VocabularyBank` (200 words), `Translator`, and `createLanguageLearningService`
+(`LangLearnService`, `TeacherService`, `VocabularyService`, `AudioPracticeService`,
+`AdaptiveLearningService`, `Translator`), exposed over 33 `/api/v1/language-learning/*` routes and
+screened at `/app/languages` and `/app/languages/teacher` (with `/app` dashboard integration). Full
+record: [`PHASE46_LANGUAGE_LEARNING.md`](PHASE46_LANGUAGE_LEARNING.md).
+
+## Phase 45 status (2026-10-17) — superseded by Phase 46
 
 **Row 17 (`leadDiscovery`) is ported end to end across schema, dual-adapter repository, provider
 boundary, deduplicator, 23 HTTP routes, and the workspace console (`/app/leads` and

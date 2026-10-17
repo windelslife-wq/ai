@@ -140,6 +140,12 @@ import {
   buildExportPreviewSummary, formatProviderBadge, parseLeadMetadata,
   validateCollectionName, validateLeadNoteBody, validateLeadSearchQuery,
 } from "./leads.js";
+import {
+  CONVERSATION_CORRECTION_MODES, LANGUAGE_COPY, LANGUAGE_PERMISSION, LANGUAGE_TABS,
+  LISTENING_MODES, VOCABULARY_REVIEW_MODES,
+  formatCapabilityBadges, formatProficiencyBadge, summarizeDailyPlan,
+  validateTranslationInput, validateWritingInput,
+} from "./language.js";
 import { Link } from "./router.jsx";
 import { ConnectivityBanner, Field, Notice, StateBox, useResource } from "./ui.jsx";
 
@@ -295,6 +301,10 @@ export function WorkspaceNav({ permissions, current, signedIn = true, notificati
     // Every endpoint requires `system.authenticated`, which every signed-in account holds.
     { to: "/app/leads", label: "Lead Discovery", permission: LEADS_PERMISSION },
     { to: "/app/leads/pipeline", label: "Lead Pipeline", permission: LEADS_PERMISSION },
+    // Row 16 (Phase 46): the AI Language Learning & AI Teacher console (`/app/languages` and `/app/languages/teacher`).
+    // Every endpoint requires `system.authenticated`, which every signed-in account holds.
+    { to: "/app/languages", label: "Language Learning", permission: LANGUAGE_PERMISSION },
+    { to: "/app/languages/teacher", label: "AI Teacher", permission: LANGUAGE_PERMISSION },
     // Legacy's `Admin::index` was super-admin only; the directory and the trail
     // beside it were always `identity.users.view` surfaces. The port keeps both
     // gates as they are rather than widening either.
@@ -503,10 +513,11 @@ export function WorkspaceDashboard({ user, permissions }) {
   const accounts = useResource(() => (canReadTrading ? endpoints.paperAccounts() : Promise.resolve(null)), [canReadTrading]);
   const runs = useResource(() => endpoints.analysisHistory(`?limit=${DASHBOARD_WINDOWS.runs}`), []);
   const inbox = useResource(() => endpoints.notificationInbox(`?limit=${DASHBOARD_WINDOWS.inbox}`), []);
+  const profiles = useResource(() => endpoints.langProfiles(), []);
 
-  const pills = dashboardPills({ permissions, state: state.data, accounts: accounts.data });
+  const pills = dashboardPills({ permissions, state: state.data, accounts: accounts.data, profiles: profiles.data });
   const actions = quickActions();
-  const cards = kpiCards({ permissions, runs: runs.data, unread: inbox.data?.unread, accounts: accounts.data });
+  const cards = kpiCards({ permissions, runs: runs.data, unread: inbox.data?.unread, accounts: accounts.data, profiles: profiles.data });
   const activity = activityRows(runs.data);
   const alerts = alertRows(inbox.data);
   const offActions = actions.filter((action) => !action.to);
@@ -6607,4 +6618,1111 @@ export function LeadDiscoveryView({ initialTab = "discovery" }) {
     </div>
   );
 }
+
+// ------------------------------------------------------------ row 16: AI Language Learning & AI Teacher
+
+export function LanguageLearningView({ initialTab = "catalog" }) {
+  const [tab, setTab] = useState(initialTab);
+  const [languages, setLanguages] = useState([]);
+  const [profiles, setProfiles] = useState([]);
+  const [selectedProfileId, setSelectedProfileId] = useState(null);
+  const [goalInput, setGoalInput] = useState("Conversational fluency");
+  const [explanationLanguage, setExplanationLanguage] = useState("en");
+  const [notice, setNotice] = useState(null);
+  const [busy, setBusy] = useState(false);
+
+  // Active profile resources
+  const [assessment, setAssessment] = useState(null);
+  const [pathState, setPathState] = useState(null);
+  const [progress, setProgress] = useState(null);
+  const [activeLesson, setActiveLesson] = useState(null);
+  const [lessonAnswers, setLessonAnswers] = useState({});
+  const [activeCheckpoint, setActiveCheckpoint] = useState(null);
+  const [checkpointAnswers, setCheckpointAnswers] = useState({});
+  const [scenarios, setScenarios] = useState([]);
+  const [activeConversation, setActiveConversation] = useState(null);
+  const [correctionMode, setCorrectionMode] = useState("important");
+  const [turnInput, setTurnInput] = useState("");
+  const [writingTasks, setWritingTasks] = useState([]);
+  const [writingTaskCode, setWritingTaskCode] = useState("self-introduction");
+  const [writingText, setWritingText] = useState("");
+  const [writingResult, setWritingResult] = useState(null);
+  const [grammarRules, setGrammarRules] = useState([]);
+  const [simpleGrammar, setSimpleGrammar] = useState({});
+  const [vocabCatalog, setVocabCatalog] = useState([]);
+  const [vocabProgress, setVocabProgress] = useState(null);
+  const [reviewMode, setReviewMode] = useState("quiz");
+  const [reviewSession, setReviewSession] = useState(null);
+  const [reviewAnswers, setReviewAnswers] = useState({});
+  const [listeningData, setListeningData] = useState(null);
+  const [listeningMode, setListeningMode] = useState("comprehension");
+  const [speakingData, setSpeakingData] = useState(null);
+  const [speakingTranscript, setSpeakingTranscript] = useState("");
+  const [weaknesses, setWeaknesses] = useState(null);
+  const [dailyPlan, setDailyPlan] = useState(null);
+  const [planMinutes, setPlanMinutes] = useState(20);
+  const [recommendations, setRecommendations] = useState(null);
+  const [mastery, setMastery] = useState(null);
+  const [history, setHistory] = useState(null);
+  const [translateText, setTranslateText] = useState("Hello");
+  const [translateTarget, setTranslateTarget] = useState("es");
+  const [translateSource, setTranslateSource] = useState("");
+  const [translationResult, setTranslationResult] = useState(null);
+  const [detectionResult, setDetectionResult] = useState(null);
+
+  const selectedProfile = useMemo(
+    () => profiles.find((p) => Number(p.id) === Number(selectedProfileId)) || null,
+    [profiles, selectedProfileId],
+  );
+
+  const loadBootstrap = useCallback(async () => {
+    try {
+      const [langRes, profRes] = await Promise.all([
+        endpoints.langLanguages(),
+        endpoints.langProfiles(),
+      ]);
+      setLanguages(langRes.languages || []);
+      const list = profRes.profiles || [];
+      setProfiles(list);
+      if (list.length > 0 && !selectedProfileId) {
+        setSelectedProfileId(list[0].id);
+      }
+    } catch (error) {
+      setNotice({ tone: "error", text: formFailure(error) });
+    }
+  }, [selectedProfileId]);
+
+  const loadProfileData = useCallback(async (profileId) => {
+    if (!profileId) return;
+    try {
+      const [
+        pathRes,
+        progRes,
+        convRes,
+        writRes,
+        gramRes,
+        vocabRes,
+        vProgRes,
+        listRes,
+        speakRes,
+        weakRes,
+        planRes,
+        recRes,
+        mastRes,
+        histRes,
+      ] = await Promise.all([
+        endpoints.langPath(profileId),
+        endpoints.langProgress(profileId),
+        endpoints.langConversations(profileId),
+        endpoints.langWritingTasks(profileId),
+        endpoints.langGrammar(profileId),
+        endpoints.langVocabulary(profileId),
+        endpoints.langVocabularyProgress(profileId),
+        endpoints.langListeningExercises(profileId),
+        endpoints.langSpeakingPrompts(profileId),
+        endpoints.langWeaknesses(profileId),
+        endpoints.langDailyPlan(profileId),
+        endpoints.langRecommendations(profileId),
+        endpoints.langMastery(profileId),
+        endpoints.langHistory(profileId),
+      ]);
+      setPathState(pathRes);
+      setProgress(progRes.progress || null);
+      setScenarios(convRes.scenarios || []);
+      setWritingTasks(writRes.tasks || []);
+      setGrammarRules(gramRes.rules || []);
+      setVocabCatalog(vocabRes.vocabulary || []);
+      setVocabProgress(vProgRes.progress || null);
+      setListeningData(listRes);
+      setSpeakingData(speakRes);
+      setWeaknesses(weakRes);
+      setDailyPlan(planRes);
+      setRecommendations(recRes);
+      setMastery(mastRes);
+      setHistory(histRes);
+    } catch (error) {
+      setNotice({ tone: "error", text: formFailure(error) });
+    }
+  }, []);
+
+  useEffect(() => {
+    loadBootstrap();
+  }, [loadBootstrap]);
+
+  useEffect(() => {
+    if (selectedProfileId) loadProfileData(selectedProfileId);
+  }, [selectedProfileId, loadProfileData]);
+
+  async function handleStartProfile(languageCode) {
+    setBusy(true);
+    setNotice(null);
+    try {
+      const res = await endpoints.langCreateProfile({
+        languageCode,
+        goal: goalInput,
+        explanationLanguage,
+      });
+      await loadBootstrap();
+      setSelectedProfileId(res.profile.id);
+      setNotice({ tone: "success", text: `Learner profile ready for ${res.profile.language?.name || languageCode}.` });
+    } catch (error) {
+      setNotice({ tone: "error", text: formFailure(error) });
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function handleStartAssessment() {
+    if (!selectedProfileId) return;
+    setBusy(true);
+    setNotice(null);
+    try {
+      const res = await endpoints.langStartAssessment(selectedProfileId);
+      setAssessment(res);
+    } catch (error) {
+      setNotice({ tone: "error", text: formFailure(error) });
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function handleAnswerAssessment(answerIndex) {
+    if (!assessment?.assessmentId) return;
+    setBusy(true);
+    try {
+      const res = await endpoints.langAnswerAssessment(assessment.assessmentId, { answerIndex });
+      setAssessment(res);
+      if (res.status === "completed") {
+        await loadBootstrap();
+        await loadProfileData(selectedProfileId);
+      }
+    } catch (error) {
+      setNotice({ tone: "error", text: formFailure(error) });
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function handleGeneratePath() {
+    if (!selectedProfileId) return;
+    setBusy(true);
+    try {
+      const res = await endpoints.langGeneratePath(selectedProfileId);
+      setPathState(res);
+      await loadProfileData(selectedProfileId);
+    } catch (error) {
+      setNotice({ tone: "error", text: formFailure(error) });
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function handleStartLesson(moduleId) {
+    setBusy(true);
+    try {
+      const res = await endpoints.langStartLesson(moduleId);
+      setActiveLesson(res);
+      setLessonAnswers({});
+      setTab("teacher");
+    } catch (error) {
+      setNotice({ tone: "error", text: formFailure(error) });
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function handleSubmitLesson(event) {
+    event.preventDefault();
+    if (!activeLesson?.module?.id) return;
+    setBusy(true);
+    try {
+      const res = await endpoints.langSubmitLesson(activeLesson.module.id, { answers: lessonAnswers });
+      setNotice({ tone: "info", text: `${res.encouragement} Score: ${res.scorePct}%` });
+      await loadProfileData(selectedProfileId);
+    } catch (error) {
+      setNotice({ tone: "error", text: formFailure(error) });
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function handleStartCheckpoint(moduleId) {
+    setBusy(true);
+    try {
+      const res = await endpoints.langStartCheckpoint(moduleId);
+      setActiveCheckpoint({ moduleId, ...res });
+      setCheckpointAnswers({});
+    } catch (error) {
+      setNotice({ tone: "error", text: formFailure(error) });
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function handleSubmitCheckpoint(event) {
+    event.preventDefault();
+    if (!activeCheckpoint?.moduleId) return;
+    setBusy(true);
+    try {
+      const res = await endpoints.langSubmitCheckpoint(activeCheckpoint.moduleId, { answers: checkpointAnswers });
+      setNotice({
+        tone: res.passed ? "success" : "warn",
+        text: `Checkpoint ${res.passed ? "passed" : "requires review"} (${res.scorePct}% / ${res.passPercentage}% required).`,
+      });
+      setActiveCheckpoint(null);
+      await loadProfileData(selectedProfileId);
+    } catch (error) {
+      setNotice({ tone: "error", text: formFailure(error) });
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function handleStartConversation(scenarioCode) {
+    if (!selectedProfileId) return;
+    setBusy(true);
+    try {
+      const res = await endpoints.langStartConversation(selectedProfileId, {
+        scenario: scenarioCode,
+        correction: correctionMode,
+      });
+      setActiveConversation(res);
+    } catch (error) {
+      setNotice({ tone: "error", text: formFailure(error) });
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function handleConversationTurn(event) {
+    event.preventDefault();
+    if (!activeConversation?.sessionId || !turnInput.trim()) return;
+    setBusy(true);
+    try {
+      const res = await endpoints.langConversationTurn(activeConversation.sessionId, { text: turnInput });
+      setTurnInput("");
+      setActiveConversation((prev) => ({
+        ...prev,
+        ...res,
+      }));
+      await loadProfileData(selectedProfileId);
+    } catch (error) {
+      setNotice({ tone: "error", text: formFailure(error) });
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function handleSubmitWriting(event) {
+    event.preventDefault();
+    const validationError = validateWritingInput(writingTaskCode, writingText);
+    if (validationError) {
+      setNotice({ tone: "error", text: validationError });
+      return;
+    }
+    setBusy(true);
+    try {
+      const res = await endpoints.langSubmitWriting(selectedProfileId, {
+        taskCode: writingTaskCode,
+        text: writingText,
+      });
+      setWritingResult(res);
+      await loadProfileData(selectedProfileId);
+    } catch (error) {
+      setNotice({ tone: "error", text: formFailure(error) });
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function handleExplainSimply(ruleId) {
+    if (!selectedProfileId) return;
+    try {
+      const res = await endpoints.langGrammarSimple(selectedProfileId, ruleId);
+      setSimpleGrammar((prev) => ({ ...prev, [ruleId]: res }));
+    } catch (error) {
+      setNotice({ tone: "error", text: formFailure(error) });
+    }
+  }
+
+  async function handleAddStarterVocabulary() {
+    if (!selectedProfileId) return;
+    setBusy(true);
+    try {
+      await endpoints.langAddVocabulary(selectedProfileId, { starter: true });
+      await loadProfileData(selectedProfileId);
+    } catch (error) {
+      setNotice({ tone: "error", text: formFailure(error) });
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function handleStartVocabReview() {
+    if (!selectedProfileId) return;
+    setBusy(true);
+    try {
+      const res = await endpoints.langStartVocabularyReview(selectedProfileId, `?mode=${reviewMode}&limit=10`);
+      setReviewSession(res);
+      setReviewAnswers({});
+    } catch (error) {
+      setNotice({ tone: "error", text: formFailure(error) });
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function handleSubmitVocabReview(event) {
+    event.preventDefault();
+    if (!selectedProfileId || !reviewSession) return;
+    setBusy(true);
+    try {
+      const res = await endpoints.langSubmitVocabularyReview(selectedProfileId, {
+        mode: reviewSession.mode,
+        answers: reviewAnswers,
+      });
+      setNotice({ tone: "success", text: `Reviewed ${res.total} word(s): ${res.correct} correct (${res.accuracyPct}%).` });
+      setReviewSession(null);
+      await loadProfileData(selectedProfileId);
+    } catch (error) {
+      setNotice({ tone: "error", text: formFailure(error) });
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function handleSubmitListening(itemId, answer) {
+    if (!selectedProfileId) return;
+    setBusy(true);
+    try {
+      const res = await endpoints.langSubmitListening(selectedProfileId, {
+        itemId,
+        mode: listeningMode,
+        answer,
+      });
+      setNotice({ tone: res.correct ? "success" : "warn", text: res.explanation || `Score: ${res.scorePct}%` });
+      await loadProfileData(selectedProfileId);
+    } catch (error) {
+      setNotice({ tone: "error", text: formFailure(error) });
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function handleSubmitSpeaking(promptId) {
+    if (!selectedProfileId) return;
+    setBusy(true);
+    try {
+      const res = await endpoints.langSubmitSpeaking(selectedProfileId, {
+        promptId,
+        transcript: speakingTranscript || null,
+        provider: "browser_webspeech",
+      });
+      setNotice({ tone: "info", text: res.honestNote });
+      setSpeakingTranscript("");
+      await loadProfileData(selectedProfileId);
+    } catch (error) {
+      setNotice({ tone: "error", text: formFailure(error) });
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function handleRegeneratePlan() {
+    if (!selectedProfileId) return;
+    setBusy(true);
+    try {
+      const res = await endpoints.langRegenerateDailyPlan(selectedProfileId, `?minutes=${planMinutes}`);
+      setDailyPlan(res);
+    } catch (error) {
+      setNotice({ tone: "error", text: formFailure(error) });
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function handleTranslate(event) {
+    event.preventDefault();
+    const validationError = validateTranslationInput(translateText, translateTarget);
+    if (validationError) {
+      setNotice({ tone: "error", text: validationError });
+      return;
+    }
+    setBusy(true);
+    try {
+      const [detRes, trRes] = await Promise.all([
+        endpoints.langDetect({ text: translateText }),
+        endpoints.langTranslate({
+          text: translateText,
+          target: translateTarget,
+          source: translateSource || null,
+        }),
+      ]);
+      setDetectionResult(detRes.detection);
+      setTranslationResult(trRes.translation);
+    } catch (error) {
+      setNotice({ tone: "error", text: formFailure(error) });
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  const planSummary = summarizeDailyPlan(dailyPlan);
+
+  return (
+    <div className="view" data-testid="language-learning-view">
+      <header className="view-header">
+        <div>
+          <div className="overline">{LANGUAGE_COPY.eyebrow} <span className="overline-line" /></div>
+          <h1>{initialTab === "teacher" ? LANGUAGE_COPY.teacherHeading : LANGUAGE_COPY.heading}</h1>
+          <p className="lede">{initialTab === "teacher" ? LANGUAGE_COPY.teacherLede : LANGUAGE_COPY.lede}</p>
+        </div>
+        {profiles.length > 0 ? (
+          <div className="workspace-selector">
+            <label htmlFor="lang-profile-select">Active Profile</label>
+            <select
+              id="lang-profile-select"
+              value={selectedProfileId || ""}
+              onChange={(e) => setSelectedProfileId(Number(e.target.value))}
+            >
+              {profiles.map((p) => (
+                <option key={p.id} value={p.id}>
+                  {p.language?.name || p.language_code} ({p.proficiency_system} {p.current_level || "Unassessed"})
+                </option>
+              ))}
+            </select>
+          </div>
+        ) : null}
+      </header>
+
+      <Notice tone="info">{LANGUAGE_COPY.honestCapabilitiesRule}</Notice>
+      {notice ? <Notice tone={notice.tone}>{notice.text}</Notice> : null}
+
+      <div className="tab-strip" role="tablist" aria-label="Language Learning sections">
+        {LANGUAGE_TABS.map((t) => (
+          <button
+            key={t.id}
+            type="button"
+            role="tab"
+            aria-selected={tab === t.id}
+            className={`tab-button ${tab === t.id ? "tab-active" : ""}`}
+            onClick={() => setTab(t.id)}
+          >
+            {t.label}
+          </button>
+        ))}
+      </div>
+
+      {tab === "catalog" ? (
+        <section className="panel" aria-labelledby="lang-catalog-heading">
+          <h2 id="lang-catalog-heading">20 Authored Languages & Learner Profiles ({languages.length})</h2>
+          <div className="panel-form inline">
+            <Field label="Learning Goal" htmlFor="lang-goal-input">
+              <input
+                id="lang-goal-input"
+                type="text"
+                value={goalInput}
+                onChange={(e) => setGoalInput(e.target.value)}
+              />
+            </Field>
+            <Field label="Explanation Language" htmlFor="lang-explanation-select">
+              <select
+                id="lang-explanation-select"
+                value={explanationLanguage}
+                onChange={(e) => setExplanationLanguage(e.target.value)}
+              >
+                {languages.map((l) => (
+                  <option key={l.code} value={l.code}>{l.name} ({l.code})</option>
+                ))}
+              </select>
+            </Field>
+          </div>
+          <div className="table-wrap">
+            <table className="data-table">
+              <thead>
+                <tr>
+                  <th>Language</th>
+                  <th>Native</th>
+                  <th>Family / Script</th>
+                  <th>Capabilities</th>
+                  <th>Action</th>
+                </tr>
+              </thead>
+              <tbody>
+                {languages.map((lang) => {
+                  const existing = profiles.find((p) => p.language_code === lang.code);
+                  return (
+                    <tr key={lang.code}>
+                      <td><strong>{lang.name}</strong> (<code>{lang.code}</code>)</td>
+                      <td>{lang.nativeName}</td>
+                      <td>{lang.family} · {lang.script}</td>
+                      <td>
+                        {formatCapabilityBadges(lang).map((b) => (
+                          <span key={b.key} className={`badge ${b.tone}`} style={{ marginRight: "0.35rem" }}>{b.label}</span>
+                        ))}
+                      </td>
+                      <td>
+                        {existing ? (
+                          <button type="button" className="text-button" onClick={() => setSelectedProfileId(existing.id)}>
+                            Active ({existing.current_level || "Unassessed"})
+                          </button>
+                        ) : (
+                          <button type="button" className="primary-button" disabled={busy} onClick={() => handleStartProfile(lang.code)}>
+                            Start {lang.name}
+                          </button>
+                        )}
+                      </td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+          </div>
+        </section>
+      ) : null}
+
+      {tab === "assessment" ? (
+        <section className="panel" aria-labelledby="lang-assessment-heading">
+          <h2 id="lang-assessment-heading">Placement Assessment & 5-Module Curriculum Path</h2>
+          {!selectedProfile ? (
+            <p className="empty">{LANGUAGE_COPY.emptyProfiles}</p>
+          ) : (
+            <div>
+              <div className="button-row" style={{ marginBottom: "1rem" }}>
+                <span className={`badge ${formatProficiencyBadge(selectedProfile).tone}`}>
+                  {formatProficiencyBadge(selectedProfile).label}
+                </span>
+                <button type="button" className="primary-button" disabled={busy} onClick={handleStartAssessment}>
+                  Start Placement Assessment
+                </button>
+                <button type="button" className="text-button" disabled={busy} onClick={handleGeneratePath}>
+                  Generate / Refresh Learning Path
+                </button>
+              </div>
+
+              {assessment?.item ? (
+                <div className="panel" style={{ marginBottom: "1rem" }}>
+                  <h3>Placement Item ({assessment.progress?.answered ?? 0} / {assessment.progress?.maxItems ?? 5})</h3>
+                  <p><strong>{assessment.item.prompt}</strong></p>
+                  <div className="button-row">
+                    {(assessment.item.choices || []).map((choice, idx) => (
+                      <button key={choice} type="button" className="text-button" disabled={busy} onClick={() => handleAnswerAssessment(idx)}>
+                        {choice}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+              ) : null}
+
+              {assessment?.result ? (
+                <Notice tone="success">
+                  Placement complete: assigned <strong>{assessment.result.proficiencySystem} {assessment.result.assignedLevel}</strong> ({assessment.result.overallScorePct}%).
+                </Notice>
+              ) : null}
+
+              {pathState?.modules?.length ? (
+                <div className="table-wrap">
+                  <table className="data-table">
+                    <thead>
+                      <tr>
+                        <th>#</th>
+                        <th>Module</th>
+                        <th>Level</th>
+                        <th>Status</th>
+                        <th>Actions</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {pathState.modules.map((mod) => (
+                        <tr key={mod.id}>
+                          <td>{mod.sequenceNo}</td>
+                          <td>
+                            <strong>{mod.title}</strong>
+                            <div className="muted">{mod.description}</div>
+                          </td>
+                          <td><code>{mod.proficiencyLevel}</code></td>
+                          <td><span className="badge badge-gray">{mod.status}</span></td>
+                          <td>
+                            <button type="button" className="text-button" disabled={busy || mod.status === "locked"} onClick={() => handleStartLesson(mod.id)}>
+                              Guided Lesson
+                            </button>
+                            <button type="button" className="text-button" disabled={busy || mod.status === "locked"} onClick={() => handleStartCheckpoint(mod.id)}>
+                              Checkpoint Quiz
+                            </button>
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              ) : null}
+
+              {activeCheckpoint ? (
+                <form className="panel" onSubmit={handleSubmitCheckpoint}>
+                  <h3>Checkpoint: {activeCheckpoint.moduleTitle} (Pass: {activeCheckpoint.passPercentage}%)</h3>
+                  {(activeCheckpoint.items || []).map((item) => (
+                    <div key={item.id} style={{ marginBottom: "0.75rem" }}>
+                      <p><strong>{item.prompt}</strong></p>
+                      {(item.choices || []).map((choice, idx) => (
+                        <label key={choice} style={{ marginRight: "1rem" }}>
+                          <input
+                            type="radio"
+                            name={`cp-${item.id}`}
+                            checked={Number(checkpointAnswers[item.id]) === idx}
+                            onChange={() => setCheckpointAnswers((prev) => ({ ...prev, [item.id]: idx }))}
+                          />
+                          {choice}
+                        </label>
+                      ))}
+                    </div>
+                  ))}
+                  <button type="submit" className="primary-button" disabled={busy}>Submit Checkpoint</button>
+                </form>
+              ) : null}
+            </div>
+          )}
+        </section>
+      ) : null}
+
+      {tab === "teacher" ? (
+        <section className="panel" aria-labelledby="lang-teacher-heading">
+          <h2 id="lang-teacher-heading">AI Teacher Guided Lessons & Grammar Rules</h2>
+          {activeLesson ? (
+            <form className="panel" onSubmit={handleSubmitLesson} style={{ marginBottom: "1rem" }}>
+              <h3>{activeLesson.lesson.title} ({activeLesson.lesson.level})</h3>
+              <p>{activeLesson.lesson.explanation}</p>
+              <ul>
+                {(activeLesson.lesson.keyPhrases || []).map((kp) => (
+                  <li key={kp.phrase}>
+                    <strong>{kp.phrase}</strong> {kp.romanized ? `(${kp.romanized})` : ""} — {kp.meaning}
+                  </li>
+                ))}
+              </ul>
+              {(activeLesson.practiceItems || []).map((item) => (
+                <div key={item.id} style={{ marginBottom: "0.75rem" }}>
+                  <p><strong>{item.prompt}</strong></p>
+                  {(item.choices || []).map((choice, idx) => (
+                    <label key={choice} style={{ marginRight: "1rem" }}>
+                      <input
+                        type="radio"
+                        name={`lesson-${item.id}`}
+                        checked={Number(lessonAnswers[item.id]) === idx}
+                        onChange={() => setLessonAnswers((prev) => ({ ...prev, [item.id]: idx }))}
+                      />
+                      {choice}
+                    </label>
+                  ))}
+                </div>
+              ))}
+              <button type="submit" className="primary-button" disabled={busy}>Check Practice Answers</button>
+            </form>
+          ) : null}
+
+          <h3>Grammar Reference & &ldquo;Explain Simply&rdquo; ({grammarRules.length})</h3>
+          <div className="table-wrap">
+            <table className="data-table">
+              <thead>
+                <tr>
+                  <th>Rule</th>
+                  <th>Standard Explanation</th>
+                  <th>Simple Explanation</th>
+                </tr>
+              </thead>
+              <tbody>
+                {grammarRules.map((rule) => (
+                  <tr key={rule.id}>
+                    <td><strong>{rule.title}</strong> (<code>{rule.level}</code>)</td>
+                    <td>{rule.standard}</td>
+                    <td>
+                      {simpleGrammar[rule.id] ? (
+                        <div>
+                          <p>{simpleGrammar[rule.id].simple}</p>
+                          <small className="muted">Tip: {simpleGrammar[rule.id].tip}</small>
+                        </div>
+                      ) : (
+                        <button type="button" className="text-button" onClick={() => handleExplainSimply(rule.id)}>
+                          Explain simply
+                        </button>
+                      )}
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </section>
+      ) : null}
+
+      {tab === "conversations" ? (
+        <section className="panel" aria-labelledby="lang-conv-heading">
+          <h2 id="lang-conv-heading">Multi-Turn Conversations & Writing Feedback</h2>
+          <div className="panel-form inline" style={{ marginBottom: "1rem" }}>
+            <Field label="Correction Mode" htmlFor="lang-correction-mode">
+              <select
+                id="lang-correction-mode"
+                value={correctionMode}
+                onChange={(e) => setCorrectionMode(e.target.value)}
+              >
+                {CONVERSATION_CORRECTION_MODES.map((m) => (
+                  <option key={m} value={m}>{m}</option>
+                ))}
+              </select>
+            </Field>
+            {scenarios.map((sc) => (
+              <button key={sc.code} type="button" className="primary-button" disabled={busy} onClick={() => handleStartConversation(sc.code)}>
+                Start: {sc.title}
+              </button>
+            ))}
+          </div>
+
+          {activeConversation ? (
+            <div className="panel" style={{ marginBottom: "1rem" }}>
+              <h3>{activeConversation.scenario?.title || "Conversation"} ({activeConversation.status || "active"})</h3>
+              {activeConversation.openingTeacherTurn ? (
+                <p><strong>Teacher:</strong> {activeConversation.openingTeacherTurn.text} <em>({activeConversation.openingTeacherTurn.translation})</em></p>
+              ) : null}
+              {activeConversation.teacherReply ? (
+                <p><strong>Teacher:</strong> {activeConversation.teacherReply.text} <em>({activeConversation.teacherReply.translation})</em></p>
+              ) : null}
+              {activeConversation.nextExpectation ? (
+                <p className="muted">Goal: {activeConversation.nextExpectation.goal} · Hint: {activeConversation.nextExpectation.hint}</p>
+              ) : null}
+              <form className="panel-form inline" onSubmit={handleConversationTurn}>
+                <input
+                  type="text"
+                  value={turnInput}
+                  onChange={(e) => setTurnInput(e.target.value)}
+                  placeholder="Type your response in the target language…"
+                />
+                <button type="submit" className="primary-button" disabled={busy}>Send Turn</button>
+              </form>
+            </div>
+          ) : null}
+
+          <h3>Writing Tasks & Structured Feedback</h3>
+          <form className="panel-form" onSubmit={handleSubmitWriting}>
+            <Field label="Writing Task" htmlFor="lang-writing-task">
+              <select
+                id="lang-writing-task"
+                value={writingTaskCode}
+                onChange={(e) => setWritingTaskCode(e.target.value)}
+              >
+                {writingTasks.map((t) => (
+                  <option key={t.code} value={t.code}>{t.title} ({t.level})</option>
+                ))}
+              </select>
+            </Field>
+            <Field label="Your Response (original text is preserved)" htmlFor="lang-writing-text">
+              <textarea
+                id="lang-writing-text"
+                rows={3}
+                value={writingText}
+                onChange={(e) => setWritingText(e.target.value)}
+              />
+            </Field>
+            <button type="submit" className="primary-button" disabled={busy}>Submit Writing</button>
+          </form>
+          {writingResult ? (
+            <div className="panel" style={{ marginTop: "1rem" }}>
+              <p><strong>Original Text:</strong> {writingResult.originalText}</p>
+              <p><strong>Corrected Reference:</strong> {writingResult.correctedText}</p>
+              <p><strong>Feedback:</strong> {writingResult.summary} ({writingResult.scorePct}%)</p>
+            </div>
+          ) : null}
+        </section>
+      ) : null}
+
+      {tab === "vocabulary" ? (
+        <section className="panel" aria-labelledby="lang-vocab-heading">
+          <h2 id="lang-vocab-heading">Vocabulary Bank & 6-Stage Spaced Repetition</h2>
+          <div className="button-row" style={{ marginBottom: "1rem" }}>
+            <button type="button" className="primary-button" disabled={busy} onClick={handleAddStarterVocabulary}>
+              Add Starter 10 Words
+            </button>
+            <select value={reviewMode} onChange={(e) => setReviewMode(e.target.value)}>
+              {VOCABULARY_REVIEW_MODES.map((m) => (
+                <option key={m} value={m}>{m}</option>
+              ))}
+            </select>
+            <button type="button" className="text-button" disabled={busy} onClick={handleStartVocabReview}>
+              Start Due Review ({vocabProgress?.dueWords ?? 0} due)
+            </button>
+          </div>
+
+          {reviewSession?.items?.length ? (
+            <form className="panel" onSubmit={handleSubmitVocabReview} style={{ marginBottom: "1rem" }}>
+              <h3>Vocabulary Review ({reviewSession.mode})</h3>
+              {reviewSession.items.map((item) => (
+                <div key={item.vocabularyId} style={{ marginBottom: "0.75rem" }}>
+                  <p><strong>{item.prompt || item.front?.word}</strong></p>
+                  {reviewSession.mode === "quiz" ? (
+                    (item.choices || []).map((choice, idx) => (
+                      <label key={choice} style={{ marginRight: "1rem" }}>
+                        <input
+                          type="radio"
+                          name={`vr-${item.vocabularyId}`}
+                          checked={Number(reviewAnswers[item.vocabularyId]) === idx}
+                          onChange={() => setReviewAnswers((prev) => ({ ...prev, [item.vocabularyId]: idx }))}
+                        />
+                        {choice}
+                      </label>
+                    ))
+                  ) : (
+                    <div>
+                      <span className="muted" style={{ marginRight: "1rem" }}>Translation: {item.back?.translation}</span>
+                      {(item.outcomes || ["remembered", "Needs practice"]).map((outcome) => (
+                        <label key={outcome} style={{ marginRight: "1rem" }}>
+                          <input
+                            type="radio"
+                            name={`vr-${item.vocabularyId}`}
+                            checked={reviewAnswers[item.vocabularyId] === outcome}
+                            onChange={() => setReviewAnswers((prev) => ({ ...prev, [item.vocabularyId]: outcome }))}
+                          />
+                          {outcome}
+                        </label>
+                      ))}
+                    </div>
+                  )}
+                </div>
+              ))}
+              <button type="submit" className="primary-button" disabled={busy}>Submit Review</button>
+            </form>
+          ) : null}
+
+          <div className="table-wrap">
+            <table className="data-table">
+              <thead>
+                <tr>
+                  <th>Word</th>
+                  <th>Romanized</th>
+                  <th>Translation</th>
+                  <th>Topic</th>
+                  <th>SRS Stage</th>
+                  <th>Accuracy</th>
+                </tr>
+              </thead>
+              <tbody>
+                {vocabCatalog.map((entry) => (
+                  <tr key={entry.id}>
+                    <td><strong>{entry.word}</strong></td>
+                    <td>{entry.romanized || "—"}</td>
+                    <td>{entry.translation}</td>
+                    <td><code>{entry.topic}</code></td>
+                    <td>{entry.learner ? `Stage ${entry.learner.stage} (${entry.learner.status})` : "Not in deck"}</td>
+                    <td>{entry.learner?.accuracyPct !== null && entry.learner?.accuracyPct !== undefined ? `${entry.learner.accuracyPct}%` : "—"}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </section>
+      ) : null}
+
+      {tab === "audio" ? (
+        <section className="panel" aria-labelledby="lang-audio-heading">
+          <h2 id="lang-audio-heading">Listening Comprehension & Honest Speaking Practice</h2>
+          <div className="panel-form inline" style={{ marginBottom: "1rem" }}>
+            <Field label="Listening Mode" htmlFor="lang-listening-mode">
+              <select
+                id="lang-listening-mode"
+                value={listeningMode}
+                onChange={(e) => setListeningMode(e.target.value)}
+              >
+                {LISTENING_MODES.map((m) => (
+                  <option key={m} value={m}>{m}</option>
+                ))}
+              </select>
+            </Field>
+          </div>
+          <div className="table-wrap" style={{ marginBottom: "1rem" }}>
+            <table className="data-table">
+              <thead>
+                <tr>
+                  <th>Audio Text</th>
+                  <th>Prompt</th>
+                  <th>Quick Submit</th>
+                </tr>
+              </thead>
+              <tbody>
+                {(listeningData?.exercises || []).map((ex) => (
+                  <tr key={ex.id}>
+                    <td><strong>{ex.audioText}</strong> {ex.romanized ? `(${ex.romanized})` : ""}</td>
+                    <td>{ex.comprehensionPrompt}</td>
+                    <td>
+                      {listeningMode === "comprehension" ? (
+                        (ex.choices || []).map((c, idx) => (
+                          <button key={c} type="button" className="text-button" onClick={() => handleSubmitListening(ex.id, idx)}>
+                            {c}
+                          </button>
+                        ))
+                      ) : (
+                        <button type="button" className="text-button" onClick={() => handleSubmitListening(ex.id, ex.audioText)}>
+                          Transcribe &ldquo;{ex.audioText}&rdquo;
+                        </button>
+                      )}
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+
+          <h3>Speaking Prompts (Word Accuracy Only — Pronunciation Never Fabricated)</h3>
+          <Field label="Spoken Transcript (leave blank to record an unscored self-practice attempt)" htmlFor="lang-speaking-transcript">
+            <input
+              id="lang-speaking-transcript"
+              type="text"
+              value={speakingTranscript}
+              onChange={(e) => setSpeakingTranscript(e.target.value)}
+              placeholder="Paste or type recognized transcript…"
+            />
+          </Field>
+          <div className="table-wrap">
+            <table className="data-table">
+              <thead>
+                <tr>
+                  <th>Target Phrase</th>
+                  <th>Meaning</th>
+                  <th>Cue</th>
+                  <th>Action</th>
+                </tr>
+              </thead>
+              <tbody>
+                {(speakingData?.prompts || []).map((pr) => (
+                  <tr key={pr.id}>
+                    <td><strong>{pr.targetText}</strong> {pr.romanized ? `(${pr.romanized})` : ""}</td>
+                    <td>{pr.meaning}</td>
+                    <td>{pr.cue}</td>
+                    <td>
+                      <button type="button" className="primary-button" disabled={busy} onClick={() => handleSubmitSpeaking(pr.id)}>
+                        Record Speaking Attempt
+                      </button>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </section>
+      ) : null}
+
+      {tab === "adaptive" ? (
+        <section className="panel" aria-labelledby="lang-adaptive-heading">
+          <h2 id="lang-adaptive-heading">Adaptive Weakness Analysis, Daily Study Plan & Skill Mastery</h2>
+          <div className="panel-form inline" style={{ marginBottom: "1rem" }}>
+            <Field label="Daily Study Target (minutes)" htmlFor="lang-plan-minutes">
+              <input
+                id="lang-plan-minutes"
+                type="number"
+                min={5}
+                max={120}
+                value={planMinutes}
+                onChange={(e) => setPlanMinutes(Number(e.target.value))}
+              />
+            </Field>
+            <button type="button" className="primary-button" disabled={busy} onClick={handleRegeneratePlan}>
+              Regenerate Daily Plan ({planSummary.allocatedMinutes}/{planSummary.targetMinutes} min)
+            </button>
+          </div>
+
+          <div className="table-wrap" style={{ marginBottom: "1rem" }}>
+            <table className="data-table">
+              <thead>
+                <tr>
+                  <th>Step</th>
+                  <th>Activity</th>
+                  <th>Minutes</th>
+                  <th>Reason</th>
+                </tr>
+              </thead>
+              <tbody>
+                {(dailyPlan?.steps || []).map((st) => (
+                  <tr key={st.step}>
+                    <td>{st.step}</td>
+                    <td><strong>{st.title}</strong> (<code>{st.type}</code>)</td>
+                    <td>{st.minutes}m</td>
+                    <td>{st.reason}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+
+          <h3>Skill Mastery ({mastery?.overallMasteryPct ?? "—"}%) & Weaknesses ({weaknesses?.weaknesses?.length ?? 0})</h3>
+          <div className="table-wrap">
+            <table className="data-table">
+              <thead>
+                <tr>
+                  <th>Skill</th>
+                  <th>Status</th>
+                  <th>Score</th>
+                  <th>Evidence</th>
+                </tr>
+              </thead>
+              <tbody>
+                {(mastery?.skills || []).map((sk) => (
+                  <tr key={sk.skill}>
+                    <td><strong>{sk.label}</strong></td>
+                    <td><span className="badge badge-gray">{sk.status}</span></td>
+                    <td>{sk.scorePct !== null ? `${sk.scorePct}%` : "—"}</td>
+                    <td>{sk.evidence}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </section>
+      ) : null}
+
+      {tab === "translator" ? (
+        <section className="panel" aria-labelledby="lang-translator-heading">
+          <h2 id="lang-translator-heading">Deterministic 20-Language Phrasebook & Pivot Translator</h2>
+          <form className="panel-form" onSubmit={handleTranslate}>
+            <Field label="Source Text" htmlFor="lang-translate-text">
+              <input
+                id="lang-translate-text"
+                type="text"
+                value={translateText}
+                onChange={(e) => setTranslateText(e.target.value)}
+              />
+            </Field>
+            <Field label="Target Language" htmlFor="lang-translate-target">
+              <select
+                id="lang-translate-target"
+                value={translateTarget}
+                onChange={(e) => setTranslateTarget(e.target.value)}
+              >
+                {languages.map((l) => (
+                  <option key={l.code} value={l.code}>{l.name} ({l.code})</option>
+                ))}
+              </select>
+            </Field>
+            <Field label="Source Language (blank = auto-detect)" htmlFor="lang-translate-source">
+              <select
+                id="lang-translate-source"
+                value={translateSource}
+                onChange={(e) => setTranslateSource(e.target.value)}
+              >
+                <option value="">Auto-detect</option>
+                {languages.map((l) => (
+                  <option key={l.code} value={l.code}>{l.name} ({l.code})</option>
+                ))}
+              </select>
+            </Field>
+            <button type="submit" className="primary-button" disabled={busy}>Detect & Translate</button>
+          </form>
+
+          {translationResult ? (
+            <div className="panel" style={{ marginTop: "1rem" }}>
+              <p><strong>Detected Source:</strong> {detectionResult?.languageName || translationResult.sourceLanguageName} ({detectionResult?.method}, confidence {detectionResult?.confidence})</p>
+              <p><strong>Translation ({translationResult.targetLanguageName}):</strong> {translationResult.translation} {translationResult.romanized ? `(${translationResult.romanized})` : ""}</p>
+              <p className="muted">Method: <code>{translationResult.method}</code> · Confidence: {translationResult.confidence} · {translationResult.notes}</p>
+            </div>
+          ) : null}
+        </section>
+      ) : null}
+    </div>
+  );
+}
+
 
