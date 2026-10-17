@@ -93,6 +93,15 @@ import {
   deploymentRows, holdsPaperPermission, orderOutcome, orderRows, positionRows, riskLimitRows,
   tickOutcome, toggleOutcome, validateAccountForm, validateDeployForm, validateOrderForm,
 } from "./paper.js";
+// Row 11 (Phase 38): the Risk Center console. `moneyText`/`percentText` are exported by
+// both `sports.js` and `risk.js`; the view takes none of risk's formatters — the summary
+// shaper hands it formatted strings — so no aliases are needed here.
+import {
+  LEGACY_ALERT_CODES, RISK_AUDIT_PERMISSION, RISK_CONTROL, RISK_COPY, RISK_FIELDS,
+  RISK_LIMIT_BOUNDS, RISK_READS, RISK_SCAN_CODES, RISK_WINDOWS,
+  auditRows, governanceFacts, holdsRiskPermission, limitFormState, limitPatch, otherLimitRows,
+  scanSummary, validateLimitForm,
+} from "./risk.js";
 import { Link } from "./router.jsx";
 import { ConnectivityBanner, Field, Notice, StateBox, useResource } from "./ui.jsx";
 
@@ -232,6 +241,8 @@ export function WorkspaceNav({ permissions, current, signedIn = true, notificati
     // `Paper::account`) are one screen here, gated on `trading.view` — the gate every
     // paper read carries on the server, and the one legacy's own `Api_paper` used.
     { to: "/app/paper", label: "Paper trading", permission: PAPER_PERMISSION },
+    // Row 11 (Phase 38): the Risk Center, gated on the permission every read on it carries.
+    { to: "/app/risk", label: "Risk Center", permission: RISK_PERMISSION },
     { to: "/app/strategy", label: "Strategy Lab", permission: null },
     // Legacy's `Admin::index` was super-admin only; the directory and the trail
     // beside it were always `identity.users.view` surfaces. The port keeps both
@@ -574,7 +585,7 @@ export function WorkspaceDashboard({ user, permissions }) {
  * workspace dashboard (the port of legacy's `/dashboard`, Phase 33) and the
  * portfolio-optimizer, lottery, Strategy Lab, AI Workforce, administration and sports
  * consoles, so the cards name the one each of them opens. The screens still absent —
- * the risk, execution, broker and journal screens — are what F-29 still counts.
+ * the execution, broker and journal screens — are what F-29 still counts.
  */
 export function ModuleCards() {
   const moduleCards = [
@@ -1469,6 +1480,320 @@ export function PaperConsoleView({ permissions }) {
           <section className="panel">
             <h2>{PAPER_COPY.boundaryTitle}</h2>
             {PAPER_BOUNDARY.map((line) => <p className="muted" key={line}>{line}</p>)}
+          </section>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+/* ------------------------------------------------------------- risk console */
+
+/**
+ * The Risk Center console (row 11, Phase 38) — the port of `Risk_center::index` →
+ * `views/risk/index.php`.
+ *
+ * Three panels, exactly the three legacy drew: the independent limits, which have veto power
+ * over every trade; the portfolio risk monitor; and the latest audit rows. The governance
+ * strip above them is the state legacy's layout header put on every page, read from
+ * `GET /trading/mode` rather than assumed.
+ *
+ * Strict rules, stated because the module's whole subject is not lying about risk:
+ *
+ *  - **The scan is a read here.** Legacy's `Risk_center::scan()` was a POST that scanned,
+ *    audited the alert transitions and stored the report. The port's `GET
+ *    /portfolio/risk-scan` performs the scan and writes nothing; the audited transition sweep
+ *    is the operations cron. The panel says so, and the button re-reads rather than implying
+ *    an audit row it does not write.
+ *  - **No severity is invented.** The scan returns breach codes with no severity field, so
+ *    the badge uses the same classification the cron uses for the notification it publishes
+ *    (`breachSeverity`, pinned to `src/jobs/scheduled.js` in the test).
+ *  - **A write the session cannot make is not offered.** The limits save is
+ *    `trading.control`; a `trading.view` viewer sees the values, the errors and the reason.
+ *  - **The audit panel names its gate.** Legacy showed the last 25 audit rows to any
+ *    signed-in member; the port requires `identity.users.view` (AV-1, a deliberate
+ *    tightening), so the panel loads only with it and says which gate it met otherwise.
+ */
+export function RiskCenterView({ permissions }) {
+  const canControl = holdsRiskPermission(permissions, RISK_CONTROL);
+  const canAudit = holdsRiskPermission(permissions, RISK_AUDIT_PERMISSION);
+  const [action, setAction] = useState({ status: "idle", tone: "ok", message: "" });
+  const [draft, setDraft] = useState(null);
+  const [errors, setErrors] = useState({});
+  const [scanRequested, setScanRequested] = useState(false);
+
+  const limits = useResource(() => endpoints.riskLimits(), []);
+  const state = useResource(() => endpoints.tradingMode(), []);
+  const scan = useResource(() => endpoints.portfolioRiskScan(`?limit=${RISK_WINDOWS.scanAccounts}`), []);
+  const audit = useResource(() => (canAudit ? endpoints.adminAudit(`?limit=${RISK_WINDOWS.auditRows}`) : Promise.resolve(null)), [canAudit]);
+
+  const persisted = limits.data?.limits ?? null;
+  const values = draft ?? limitFormState(persisted);
+  const governance = governanceFacts(state.data);
+  const summary = scanSummary(scan.data);
+  const otherLimits = otherLimitRows(persisted);
+  const trail = auditRows(audit.data);
+  const busy = action.status === "busy";
+
+  // Legacy flashed the scan's outcome from the POST that produced it. Here the read *is* the
+  // scan, so the flash follows the read the button asked for — and only that read, so a
+  // background re-render never invents a message.
+  useEffect(() => {
+    if (!scanRequested || scan.status === "loading") return;
+    if (scan.status === "ready") setAction({ status: "done", tone: "ok", message: scanSummary(scan.data)?.message ?? RISK_COPY.scanClean });
+    if (scan.status === "error") {
+      const code = scan.error?.code ? ` (${scan.error.code})` : "";
+      setAction({ status: "error", tone: "error", message: `${RISK_COPY.scanFailedPrefix}${scan.error?.message ?? "the scan read failed"}${code}` });
+    }
+    setScanRequested(false);
+  }, [scanRequested, scan.status, scan.data, scan.error]);
+
+  async function act(label, work, refresh = []) {
+    setAction({ status: "busy", tone: "ok", message: `${label}…` });
+    try {
+      const outcome = await work();
+      setAction({ status: "done", tone: outcome?.tone ?? "ok", message: outcome?.message ?? `${label} done.` });
+      for (const resource of refresh) resource.retry();
+    } catch (error) {
+      setAction({ status: "error", tone: "error", message: `${label}: ${formFailure(error)}` });
+    }
+  }
+
+  function editLimit(key, value) {
+    setDraft({ ...values, [key]: value });
+    setErrors((current) => {
+      if (!current[key]) return current;
+      const next = { ...current };
+      delete next[key];
+      return next;
+    });
+  }
+
+  function saveLimits(event) {
+    event.preventDefault();
+    const check = validateLimitForm(values, { bounds: RISK_LIMIT_BOUNDS });
+    setErrors(check.errors);
+    if (!check.ok) {
+      setAction({ status: "error", tone: "error", message: RISK_COPY.noFieldsNotice });
+      return;
+    }
+    const patch = limitPatch(values, persisted);
+    if (Object.keys(patch).length === 0) {
+      setAction({ status: "done", tone: "ok", message: RISK_COPY.unchangedNotice });
+      return;
+    }
+    void act(RISK_COPY.updateLabel, async () => {
+      await endpoints.updateRiskLimits(patch);
+      setDraft(null);
+      return { tone: "ok", message: RISK_COPY.updateNotice };
+    }, [limits, state]);
+  }
+
+  function runScan() {
+    setScanRequested(true);
+    scan.retry();
+  }
+
+  return (
+    <div className="view risk-view">
+      <header className="view-header">
+        <div>
+          <div className="overline">{RISK_COPY.eyebrow} <span className="overline-line" /></div>
+          <h1>{RISK_COPY.title}.</h1>
+          <p className="view-lede">{RISK_COPY.lede}</p>
+        </div>
+      </header>
+
+      {action.status !== "idle" ? (
+        <Notice tone={action.status === "busy" ? "info" : action.tone === "error" ? "error" : "ok"}>{action.message}</Notice>
+      ) : null}
+
+      <section className="panel risk-governance">
+        <h2>Governance state</h2>
+        <StateBox status={state.status} error={state.error} retry={state.retry} label="Loading the trading state">
+          {governance ? (
+            <>
+              <div className="risk-facts">
+                <span>Mode <b>{governance.mode}</b></span>
+                <span>Kill switch <b className={governance.killSwitch ? "down" : "up"}>{governance.killSwitch ? "ACTIVE" : "released"}</b></span>
+                <span>Synthetic paper prices <b>{governance.synthetic ? "ON" : "OFF"}</b></span>
+                <span>Execution <b>simulation only</b></span>
+              </div>
+              <p className="muted">
+                These three are governed under <code>{RISK_CONTROL}</code> on the
+                {" "}<Link className="panel-foot-link" to="/app/analysis">AI Workforce console</Link> — legacy's risk page
+                did not carry them either, and the limits below are enforced by the same engine that reads them.
+              </p>
+            </>
+          ) : null}
+        </StateBox>
+      </section>
+
+      <div className="risk-board">
+        <div className="risk-main">
+          <section className="panel">
+            <h2>{RISK_COPY.limitsTitle}</h2>
+            <StateBox status={limits.status} error={limits.error} retry={limits.retry} label="Loading the persisted limits">
+              <form className="risk-form" onSubmit={saveLimits}>
+                <div className="risk-form-grid">
+                  {RISK_FIELDS.map((field) => (
+                    <Field key={field.key} label={field.label} htmlFor={`risk-${field.key}`} error={errors[field.key]}>
+                      <input
+                        id={`risk-${field.key}`}
+                        name={field.key}
+                        type="number"
+                        inputMode="decimal"
+                        step={field.step}
+                        value={values[field.key] ?? ""}
+                        disabled={!canControl || busy}
+                        onChange={(event) => editLimit(field.key, event.target.value)}
+                      />
+                    </Field>
+                  ))}
+                </div>
+                <div className="risk-form-actions">
+                  <button className="primary-button" type="submit" disabled={!canControl || busy}>{RISK_COPY.updateLabel}</button>
+                  {!canControl ? <span className="muted">{RISK_COPY.limitsGate}</span> : null}
+                </div>
+              </form>
+              <p className="muted">{RISK_COPY.limitsNote}</p>
+            </StateBox>
+          </section>
+
+          <section className="panel">
+            <h2>{RISK_COPY.monitorTitle}</h2>
+            <div className="risk-form-actions">
+              <button className="secondary-button" type="button" disabled={scan.status === "loading"} onClick={runScan}>{RISK_COPY.scanLabel}</button>
+              <span className="muted">
+                The scan is a read here: <code>GET /api/v1/portfolio/risk-scan</code> performs it and writes nothing. Legacy's
+                POST audited alert <i>transitions</i>; the port does that from the scheduled operations job, which publishes
+                <code> PORTFOLIO_RISK</code> and writes <code>portfolio.risk.alert</code> rows you can read in the trail below.
+              </span>
+            </div>
+            <p className="muted">{RISK_COPY.monitorNote}</p>
+            <StateBox status={scan.status} error={scan.error} retry={scan.retry} label="Running the portfolio risk scan"
+              empty={<p className="empty">{RISK_COPY.noScan}</p>}>
+              {summary ? (
+                <>
+                  <p className="muted">{RISK_COPY.lastScanPrefix}{summary.generatedAt ?? "—"} · accounts {summary.accounts} ·
+                    {" "}breached {summary.breachedAccounts} · equity {summary.equity} · open positions {summary.openPositions}</p>
+                  {summary.clean ? (
+                    <Notice tone="ok">{RISK_COPY.noAlerts}</Notice>
+                  ) : (
+                    <div className="table-scroll">
+                      <table className="data-table">
+                        <thead>
+                          <tr>
+                            <th>{RISK_COPY.alertsSeverity}</th><th>{RISK_COPY.alertsCode}</th>
+                            <th>{RISK_COPY.alertsScope}</th><th>{RISK_COPY.alertsDetail}</th>
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {summary.breachRows.map((row) => (
+                            <tr key={row.key}>
+                              <td><span className={`badge ${row.tone}`}>{row.severity}</span></td>
+                              <td className="mono">{row.code}</td>
+                              <td className="muted mono" title={row.accountName}>{row.scope}</td>
+                              <td>{row.detail}</td>
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
+                    </div>
+                  )}
+                  <h3>{RISK_COPY.accountsTitle}</h3>
+                  <div className="table-scroll">
+                    <table className="data-table">
+                      <thead>
+                        <tr>
+                          <th>{RISK_COPY.accountsAccount}</th><th>{RISK_COPY.accountsStatus}</th>
+                          <th className="num">{RISK_COPY.accountsEquity}</th><th className="num">{RISK_COPY.accountsOpen}</th>
+                          <th className="num">{RISK_COPY.accountsBreaches}</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {summary.accountRows.map((row) => (
+                          <tr key={row.key}>
+                            <td><b>{row.name}</b> <span className="muted mono">#{row.id}</span></td>
+                            <td><span className={`badge ${row.tone}`}>{row.status}</span></td>
+                            <td className="num"><code>{row.equity}</code></td>
+                            <td className="num">{row.openPositions}</td>
+                            <td className="num">{row.breaches}</td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                  {summary.accountRows.some((row) => !row.valuationAvailable) ? (
+                    <p className="muted">An account with an unavailable valuation is counted as breached: the scan reports the gap rather than marking a portfolio it could not value.</p>
+                  ) : null}
+                </>
+              ) : null}
+            </StateBox>
+          </section>
+        </div>
+
+        <div className="risk-side">
+          <section className="panel">
+            <h2>{RISK_COPY.readOnlyTitle}</h2>
+            <p className="muted">{RISK_COPY.readOnlyNote}</p>
+            <div className="status-list">
+              {otherLimits.map((limit) => (
+                <div className="status-row" key={limit.key}>
+                  <span>{limit.label}{limit.note ? <small className="muted"> — {limit.note}</small> : null}</span>
+                  <b>{limit.value}</b>
+                </div>
+              ))}
+            </div>
+          </section>
+
+          <section className="panel">
+            <h2>{RISK_COPY.auditTitle}</h2>
+            {canAudit ? (
+              <StateBox status={audit.status} error={audit.error} retry={audit.retry} label="Loading the audit trail"
+                empty={<p className="empty">No audit events are recorded yet.</p>}>
+                {trail.length === 0 ? <p className="empty">No audit events are recorded yet.</p> : (
+                  <div className="table-scroll">
+                    <table className="data-table">
+                      <thead><tr><th>At</th><th>Type</th><th>Summary</th><th>Actor</th></tr></thead>
+                      <tbody>
+                        {trail.map((row) => (
+                          <tr key={row.key}>
+                            <td className="muted mono">{row.at}</td>
+                            <td><span className="badge badge-gray">{row.type}</span></td>
+                            <td>{row.summary}</td>
+                            <td className="muted">{row.actor}</td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                )}
+              </StateBox>
+            ) : (
+              <p className="muted">
+                Legacy showed the latest 25 audit rows to any signed-in member. The port requires{" "}
+                <code>{RISK_AUDIT_PERMISSION}</code> for the whole trail (AV-1, a deliberate tightening), so this panel
+                stays empty rather than showing a subset the API does not serve.
+              </p>
+            )}
+          </section>
+
+          <section className="panel">
+            <h2>{RISK_COPY.readsTitle}</h2>
+            <div className="status-list">
+              {RISK_READS.map((read) => (
+                <div className="status-row" key={read.key}>
+                  <span><code>{read.method} {read.path}</code></span>
+                  <b>{read.permission ?? "session"}</b>
+                </div>
+              ))}
+            </div>
+            <p className="muted">
+              Legacy's monitor vocabulary was {LEGACY_ALERT_CODES.join(" · ")}. This API's scan reports{" "}
+              {RISK_SCAN_CODES.join(" · ")}, and the severity badge on a row is the classification the operations
+              job uses when it publishes the notification.
+            </p>
           </section>
         </div>
       </div>

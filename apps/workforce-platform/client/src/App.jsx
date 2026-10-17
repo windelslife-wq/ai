@@ -19,7 +19,7 @@ import {
   AccountView, AdminControlCentreView, AdminUsersView, AnalysisWorkforceView, AuditView, Brand,
   InquiriesView, LoginPanel,
   LotteryLabView, LotteryOperationsView, ModuleCards, NotificationsView, NotFoundView, PortfolioOptimizerView,
-  PaperConsoleView, RegisterPanel, SportsIntelligenceView, StatusPill, StatusView, StrategyLabView, WorkspaceDashboard,
+  PaperConsoleView, RegisterPanel, RiskCenterView, SportsIntelligenceView, StatusPill, StatusView, StrategyLabView, WorkspaceDashboard,
   WorkspaceNav,
 } from "./views.jsx";
 
@@ -66,6 +66,11 @@ const ROUTES = [
   // the server (legacy's `Api_paper` required it too); the mutations inside the screen are
   // `trading.execute` and are checked by the view before they are offered.
   { path: "/app/paper", view: "paper-console", requiresAuth: true, permission: "trading.view" },
+  // Row 11 (Phase 38): the Risk Center, the port of `Risk_center::index` →
+  // `views/risk/index.php`. Every read is `trading.view` (the limits, the governance state
+  // and the portfolio scan); the limits write inside is `trading.control` and the audit
+  // panel is `identity.users.view`, both checked by the view before they are offered.
+  { path: "/app/risk", view: "risk-center", requiresAuth: true, permission: "trading.view" },
   // Row 3 (Phase 35): the administrator control centre. Legacy's `Admin::index` was
   // `requireAdmin()` — `system.super_admin`, a shortcut that also passes every
   // permission check — so a viewer holding only `identity.users.view` sees the
@@ -408,6 +413,7 @@ function SessionApp() {
       "analysis-workforce": <AnalysisWorkforceView permissions={permissions} />,
       "sports-intelligence": <SportsIntelligenceView permissions={permissions} />,
       "paper-console": <PaperConsoleView permissions={permissions} />,
+      "risk-center": <RiskCenterView permissions={permissions} />,
       "admin-control-centre": <AdminControlCentreView permissions={permissions} />,
       "admin-users": <AdminUsersView user={user} permissions={permissions} />,
       audit: <AuditView />,

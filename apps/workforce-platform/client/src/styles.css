@@ -526,6 +526,18 @@ button:focus-visible, input:focus-visible, a:focus-visible { outline: 2px solid 
 .paper-reason { max-width: 260px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .paper-view .panel h3 { margin: 1.1rem 0 .5rem; font-size: .82rem; color: #d3ddd1; }
 .paper-view table .danger-button { padding: .28rem .6rem; font-size: .58rem; }
+.risk-board { display: grid; grid-template-columns: minmax(0, 1.6fr) minmax(300px, 1fr); gap: 1.1rem; align-items: start; margin-top: 1.1rem; }
+.risk-main, .risk-side { display: flex; flex-direction: column; gap: 1.1rem; min-width: 0; }
+.risk-main > .panel, .risk-side > .panel { margin: 0; }
+.risk-governance { margin-top: 1.1rem; }
+.risk-facts { display: flex; flex-wrap: wrap; gap: .6rem 1.4rem; margin: .3rem 0 .6rem; font-size: .72rem; color: #a9b7ab; }
+.risk-facts b { color: #d3ddd1; font-weight: 600; }
+.risk-form { display: flex; flex-direction: column; gap: .8rem; margin: .4rem 0 .6rem; }
+.risk-form-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: .7rem .9rem; }
+.risk-form-actions { display: flex; flex-wrap: wrap; align-items: center; gap: .7rem; margin: .4rem 0; }
+.risk-form-actions .primary-button, .risk-form-actions .secondary-button { width: auto; }
+.risk-view table .badge { font-size: .55rem; }
+.risk-side .status-row small { font-size: .58rem; }
 @media (max-width: 980px) {
   .workspace-body { grid-template-columns: 1fr; }
   .dash-kpis { grid-template-columns: repeat(2, minmax(0, 1fr)); }
@@ -578,6 +590,8 @@ button:focus-visible, input:focus-visible, a:focus-visible { outline: 2px solid 
   .paper-stats { grid-template-columns: repeat(2, minmax(0, 1fr)); }
   .sports-kpis, .sports-pairs { grid-template-columns: repeat(2, minmax(0, 1fr)); }
   .paper-form-row { grid-template-columns: 1fr; }
+  .risk-board { grid-template-columns: 1fr; }
+  .risk-form-grid { grid-template-columns: 1fr; }
   .workforce-watchlist { grid-template-columns: 1fr; }
   .portfolio-meta { grid-template-columns: 1fr; }
   .dash-kpis { grid-template-columns: 1fr; }

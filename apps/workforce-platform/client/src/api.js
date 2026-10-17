@@ -187,6 +187,9 @@ export const endpoints = {
   paperDeployments: (accountId) => api(`/api/v1/paper/accounts/${encodeURIComponent(accountId)}/deployments`),
   paperDeployStrategy: (accountId, payload) => api(`/api/v1/paper/accounts/${encodeURIComponent(accountId)}/deployments`, { method: "POST", body: payload }),
   paperToggleDeployment: (accountId, deploymentId, active) => api(`/api/v1/paper/accounts/${encodeURIComponent(accountId)}/deployments/${encodeURIComponent(deploymentId)}/toggle`, { method: "POST", body: { active } }),
+  riskLimits: () => api("/api/v1/risk/limits"),
+  updateRiskLimits: (patch) => api("/api/v1/risk/limits/update", { method: "POST", body: patch }),
+  portfolioRiskScan: (query = "") => api(`/api/v1/portfolio/risk-scan${query}`),
   // Sports Intelligence console (Phase 36). Every read here is `sports.view` on the
   // server except the active configuration, which is one of the module's two
   // `sports.manage` reads; the two writes are `sports.approve` (the decision, which also

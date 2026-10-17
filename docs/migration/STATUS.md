@@ -1,8 +1,59 @@
 # JavaScript / Node.js / cPanel migration status
 
-**Updated:** 2026-10-16 · **Branch:** `arena/046b29ac-ai`
+**Updated:** 2026-10-17 · **Branch:** `arena/046b29ac-ai`
 
-## Current Phase 37 status (2026-10-16)
+## Current Phase 38 status (2026-10-17)
+
+**Row 11 has no screen left: `/app/risk` is the port of `Risk_center::index` → `views/risk/index.php`.**
+The eleven independent limits with veto power over every trade, the five persisted limits legacy's form
+never drew, the portfolio risk monitor, and the latest audit rows — plus the governance state legacy's
+layout header put on every page. **146 routes before and after — no route, migration, contract method,
+repository method, permission or dependency was added.** The module's HTTP surface was ported in Phase 7;
+this phase ported the screen over it.
+
+**It is the first of F-29's remaining consoles with a write on it, and it states three things legacy's
+page could not.** (1) **The scan is a read here**: legacy's `Risk_center::scan()` was a POST that scanned,
+audited alert *transitions* and stored the report, while the port's `GET /portfolio/risk-scan` performs the
+scan and writes nothing — the audited transitions are the scheduled operations job's
+(`portfolio.risk.alert` / `portfolio.risk.cleared`), and the panel says so beside the button. (2) **Legacy's
+notional field could never be saved**: the page rendered `maxPositionNotionalUsd` and
+`Risk_center::limits()` skipped it by name, so the input was decorative; the port keeps it as the twelfth
+editable limit and asserts the departure against the controller source. (3) **`maxCorrelatedPositions` is
+persisted and unenforced (F-30)**, said in the row itself. The form also sends only the fields that
+changed, so the audit row's `details.changed` means what it says; legacy re-audited all eleven on every
+save.
+
+**Severity is not invented.** The scan returns breach codes with no severity, so each badge uses
+`breachSeverity()`, pinned in the suite to the operations cron's own `CRITICAL_BREACH_CODES` /
+`WARNING_BREACH_CODES` — a code the cron would publish as `critical` cannot render on the screen as a
+warning. The audit panel names its gate: legacy showed the latest 25 rows to any signed-in member, the
+port requires `identity.users.view` (AV-1), and a session without it is told which gate it met rather than
+shown a subset.
+
+A thirteenth client contract suite (`test/client_risk_console.test.js`, **26 tests**, eight of them over
+HTTP) extracts the eleven form fields **from the PHP's own `$fields` array** and compares them key for key,
+label for label and scale for scale; asserts the form's bounds equal `RISK_LIMITS_BODY`'s and that the
+contract keys the form omits are exactly the read-only rows plus the immutable stop requirement; asserts
+every code the `portfolioRiskScan` function can emit is classified; and drives the live app: a
+`trading.view` viewer reads the limits, the state and the scan, is refused the audit read and the save
+(403 `PERMISSION_DENIED`); a save writes the persisted row, leaves every other limit untouched and audits
+exactly the one changed key; an out-of-bounds value is the schema's 400; the scan leaves **no** audit row;
+and a purposefully tightened `maxSymbolExposurePct` produces a real `SYMBOL_EXPOSURE_LIMIT` breach
+classified `critical`. Gates: `npm run check:workforce` **1121 / 1121** (1095 before: +26), the client
+suites **144 / 144**, `npm run typecheck` clean, `npm run test:contracts` 12/12, the client build
+(`index-BRQhhAzT.js` 528.70 kB / 142.36 kB gzip, `index-n6dzW65b.css` 43.05 kB / 9.19 kB gzip) and
+`npm run verify:install -- --require-bundle` **30 / 30**, plus a **25 / 25** live probe against a rebuilt
+demo host (`/app/risk` serving the shell, the limits save and its restore audited, an out-of-bounds 400
+changing nothing). **Not run:** a real browser, real MySQL/MariaDB, any live provider, SMTP,
+cPanel/Passenger, and still no PHP↔Node numeric diff (F-26). The `risk` ledger label now names the console
+and keeps F-30 and the read-vs-audit distinction in the same sentence. Full record:
+[`PHASE38_RISK_CENTER.md`](PHASE38_RISK_CENTER.md).
+
+**F-29's residual list is now three: execution, brokers, journal** — risk left it. **The module counts are
+unchanged — 10 ported / 5 partial / 2 not-ported.**
+
+## Phase 37 status (2026-10-16) — superseded by Phase 38
+
 
 **Row 10 has no screen left: `/app/paper` is the port of `views/paper/index.php` (`Paper::index`) and
 `views/paper/account.php` (`Paper::account`) on one screen.** The accounts board, the account console (its

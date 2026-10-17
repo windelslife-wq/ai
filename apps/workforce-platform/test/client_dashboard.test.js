@@ -401,11 +401,12 @@ test("the two absences the page explains are the ledger's and the router's own",
   // `/app/sports` left this list in Phase 36: F-29 counted the sports screens as absent,
   // and that count is what this assertion was about — the console exists now, so keeping
   // the path here would pin a screen as missing after it shipped.
-  // `/app/paper` left this list in Phase 37, for the reason `/app/sports` left it in 36.
-  for (const missing of ["/app/risk", "/app/execution", "/app/journal", "/app/brokers"]) {
+  // `/app/risk` left this list in Phase 38, for the reason `/app/paper` left it in 37 and
+  // `/app/sports` in 36.
+  for (const missing of ["/app/execution", "/app/journal", "/app/brokers"]) {
     assert.ok(!declared.has(missing), `${missing} is named as an open screen in F-29 and must not be declared here`);
   }
-  for (const landed of ["/app/sports", "/app/paper"]) {
+  for (const landed of ["/app/sports", "/app/paper", "/app/risk"]) {
     assert.ok(declared.has(landed), `${landed} is declared, and the F-29 list above is about the screens still absent`);
   }
   // The module counts are untouched by this phase: the dashboard is a screen for the

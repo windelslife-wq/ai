@@ -64,7 +64,8 @@ matrix went empty — `lottery`.
 | 23 | **PWA + Capacitor release readiness** | Code closed; no real-browser/Lighthouse verification, native sign-in disabled, no SDK build/signing |
 
 Rows 10 (paper trading) and 11 (risk center) are ported in code and appear here only for
-host-verification reasons; row 10's two screens landed in Phase 37 (`/app/paper`).
+host-verification reasons; row 10's two screens landed in Phase 37 (`/app/paper`) and row 11's
+screen in Phase 38 (`/app/risk`).
 
 ---
 
@@ -73,7 +74,7 @@ host-verification reasons; row 10's two screens landed in Phase 37 (`/app/paper`
 - `apps/workforce-platform/` — Node modular monolith (`v0.23.0`); the 8 modules in section A.
   Consoles now exist for notifications, the audit trail, the portfolio optimizer, lottery (both
   screens), the Strategy Lab, the AI Workforce analysis run, the workspace dashboard, the admin
-  control centre, sports and paper; the remaining F-29 gap is the risk, execution, Broker Center and
+  control centre, sports, paper and risk; the remaining F-29 gap is the execution, Broker Center and
   journal screens (settings closed with the account avatar and the control centre, and no legacy
   settings controller exists).
 - `apps/api/` — TypeScript Lead Discovery API (routes, pipeline, quality, providers).

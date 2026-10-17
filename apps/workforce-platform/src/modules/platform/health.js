@@ -67,7 +67,16 @@ export const MODULE_STATUS = Object.freeze([
     tests: "unit + http + persistence + client contract",
   },
   { key: "paperTrading", label: "Owner-scoped simulation accounts, orders, fills and deployments", state: "ported", tests: "unit + http + persistence" },
-  { key: "risk", label: "Risk engine, persisted limits, kill switch and paper-portfolio monitor", state: "ported", tests: "unit + http + persistence" },
+  {
+    key: "risk",
+    // The console is named here the way the other ported modules' labels name theirs: a
+    // reader of `/system/status` should not have to guess whether a ported module has a
+    // screen. F-30 (`maxCorrelatedPositions` declared and unenforced) stays open, and the
+    // label says so rather than rounding "ported in code" up to "complete".
+    label: "Risk engine, persisted limits, kill switch and paper-portfolio monitor, with their console at /app/risk (Phase 38): the eleven editable limits the API accepts, the limits it persists but the legacy form never drew, the portfolio scan with each breach classified the way the operations job publishes it, and the audit trail (behind identity.users.view — AV-1). maxCorrelatedPositions is declared and persisted but still unenforced (F-30). The scan is a read here: the audited alert transitions belong to the scheduled operations job",
+    state: "ported",
+    tests: "unit + http + persistence",
+  },
   // Phase 8A adds human-reviewed paper proposals; Phase 13 reconciles them against
   // `ExecutionSupervisor.php` step by step. It stays `partial`, but the label now says
   // *why* rather than letting a reader assume the governance work is unfinished: nine

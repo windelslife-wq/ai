@@ -176,6 +176,18 @@ paper screens carry — the port's paper reads are owner-scoped while legacy's l
 id with no owner filter at all, asserted in `test/client_paper_console.test.js` against legacy's own
 controller source rather than described.
 
+**Update (Phase 38).** The **Risk Center** landed (`/app/risk` — `views/risk/index.php`,
+`Risk_center::index`), so the residual list is now **three: execution, brokers and journal**. The
+risk console is the first of these screens whose legacy page carried a *write*, and it is where
+two more accuracy corrections were needed: the limits write is `trading.control` and is offered
+only to a session holding it (the form's values are readable under `trading.view`), and the scan
+is a **read** in this API — `GET /portfolio/risk-scan` performs it and writes nothing, while the
+audited alert *transitions* legacy's POST produced are the scheduled operations job's
+(`portfolio.risk.alert` / `portfolio.risk.cleared`). The panel says so rather than implying an
+audit row the read does not write. The suite also pins the breach severity to the operations
+job's own classification (`CRITICAL_BREACH_CODES` / `WARNING_BREACH_CODES`), so a row the cron
+would publish as `critical` cannot render on the screen as a warning.
+
 ### F-30 — `maxCorrelatedPositions` is a declared risk limit with no enforcement (open)
 
 Found in Phase 12 while porting the portfolio risk monitor's alert vocabulary
