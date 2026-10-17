@@ -22,11 +22,13 @@
  *     re-checks it. Approval additionally carries the platform kill switch, which is
  *     why the screen reads and states that state rather than discovering it from a 409.
  *
- * The module is `partial`, and the screen says so with the server's own matrix
- * (`GET /sports/status` → `notPorted`) rather than a client-side paraphrase: stake
- * sizing and the vendor verification are what no slice owns. The two console screens
- * left that matrix in this phase — a list called "not ported" must not contain an
- * entry that says otherwise.
+ * The module left `partial` in Phase 48 (record-only, bounded stake sizing, DV-27 —
+ * its last unported area), and the screen reports the server's own matrix
+ * (`GET /sports/status` → `notPorted`, now empty) rather than a client-side
+ * paraphrase. The boundaries that remain — no execution, attestation-first results, no
+ * verified vendor — are the module's design, and the residual sentences below say so.
+ * A list called "not ported" must not contain an entry that says otherwise, which is
+ * why the matrix went empty rather than being re-worded.
  *
  * Every function here is pure: the view in `views.jsx` binds them to reads, and
  * `test/client_sports_console.test.js` holds them to the legacy text and to the API.
@@ -217,10 +219,11 @@ export const SPORTS_WRITES = Object.freeze([
 
 /**
  * What the module still does not have, in the console's terms — the sentences the
- * boundary panel adds to the server's own `notPorted` matrix.
+ * boundary panel adds to the server's own `notPorted` matrix (empty since Phase 48
+ * ported record-only stake sizing, DV-27).
  */
 export const SPORTS_RESIDUAL = Object.freeze([
-  "No stake is sized from bankroll or edge: the configured fixed stake is recorded on each ticket, as legacy records it, and settlement's P/L is computed on that number.",
+  "Stake sizing is record-only and bounded: the configuration's staking_method (FLAT by default — exactly legacy's fixed stake; CONFIDENCE_SCALED only sizes down from it) sets the recorded stake, and settlement's P/L is computed on that number. No bankroll exists to size against, because nothing is executed.",
   "No provider has been verified against a real vendor; the sandbox is the only provider the tests exercise, and sandbox fixtures never reach a ticket.",
   "Nothing is executed. There is no external bookmaker connector, no order path and no live route; a ticket is a record a person approves.",
 ]);

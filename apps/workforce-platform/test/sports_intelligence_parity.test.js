@@ -198,10 +198,17 @@ test("calibration evaluate matches PHP on everything except the truncated Brier 
   assert.equal(got.brier, brierOf(rows, (row) => Number(row.raw_probability)));
 });
 
-test("the configuration defaults match PHP, with booleans for PHP's 0/1", () => {
+test("the configuration defaults match PHP, with booleans for PHP's 0/1, and Phase 48's one Node-only addition (DV-27)", () => {
   const want = { ...slice3.configurationDefaults };
   for (const field of BOOLEAN_FIELDS) want[field] = Boolean(want[field]);
-  assert.deepEqual(asJson(defaultConfiguration()), canon(want));
+  // `staking_method` exists on neither side of the legacy boundary: PHP's defaults do
+  // not carry it, and legacy's write path copies the fixed stake regardless. Node's
+  // default is therefore the only value that preserves PHP behaviour byte-for-byte —
+  // FLAT — and the exemption is asserted here rather than silently added to the golden,
+  // because the golden is generated from PHP and must stay byte-identical to legacy.
+  const { staking_method, ...got } = asJson(defaultConfiguration());
+  assert.equal(staking_method, "FLAT", "the Node-only sizing key defaults to legacy's behaviour, exactly");
+  assert.deepEqual(got, canon(want));
 });
 
 test("configuration validation returns PHP's message for every rule", () => {

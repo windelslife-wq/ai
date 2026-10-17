@@ -20,6 +20,11 @@
  *    with the error in its message and in `errors`. The user chose legacy's status over a
  *    FAILED status. A reader can therefore see "no candidate qualified" for a run that broke,
  *    which is why the error is kept in two places.
+ *  - **DV-27: stake sizing (Phase 48).** The active configuration's `staking_method`
+ *    sizes the recorded stake (`stake-sizing.js` — bounded, record-only; `FLAT` is the
+ *    default and is exactly legacy's fixed stake). The breakdown rides in
+ *    `sports.daily_ticket.run`'s audit details and in this run's return, never in a new
+ *    table: ticket + configuration version is enough to recompute it.
  *
  * Idempotency: the run is claimed for (day, configuration version) before any work, so a
  * second request for the same pair is DUPLICATE_SKIPPED, as legacy's `startJobRun` does.
@@ -141,6 +146,10 @@ export function createTicketService({ store = null, intelligence = null, now = (
         const stored = await repository.saveSportsTicket(built);
         outcome.status = "PENDING_USER_APPROVAL";
         outcome.ticketId = stored.id;
+        // DV-27: the sizing that produced the stored stake travels in the audit event
+        // and the response. A breakdown column is unnecessary — the method and the
+        // configuration version are on the ticket, and the engine is deterministic.
+        outcome.stakeSizing = built.sizing;
         outcome.message = "ticket generated; awaiting user approval";
       } else {
         outcome.message = optimized.reason;
@@ -231,6 +240,7 @@ export function createTicketService({ store = null, intelligence = null, now = (
         fixturesRead: outcome.fixturesRead,
         rejections: outcome.rejections,
         simulatedRefused: outcome.simulatedRefused,
+        stakeSizing: outcome.stakeSizing ?? null,
       },
     });
 
@@ -241,6 +251,7 @@ export function createTicketService({ store = null, intelligence = null, now = (
       date: runDate,
       configurationVersion: config.version,
       message: outcome.message,
+      stakeSizing: outcome.stakeSizing ?? null,
       fixturesRead: outcome.fixturesRead,
       candidatesEvaluated: outcome.candidatesEvaluated,
       predictionsRecorded: outcome.predictionsRecorded,

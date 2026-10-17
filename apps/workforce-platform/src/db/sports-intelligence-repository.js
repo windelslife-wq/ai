@@ -160,14 +160,14 @@ export function createSportsIntelligenceRepository(executor) {
              version, module_enabled, ticket_engine_enabled, platform_mode, engine_mode, target_odds_min,
              target_odds_max, max_selections, risk_level, min_confidence, min_expected_value, max_correlation,
              min_data_quality, min_liquidity, allowed_markets, allowed_leagues, max_exposure, stake_amount,
-             void_policy, require_calibration, updated_by, reason, created_at
-           ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+             staking_method, void_policy, require_calibration, updated_by, reason, created_at
+           ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
           [
             row.version, row.module_enabled, row.ticket_engine_enabled, row.platform_mode, row.engine_mode,
             row.target_odds_min, row.target_odds_max, row.max_selections, row.risk_level, row.min_confidence,
             row.min_expected_value, row.max_correlation, row.min_data_quality, row.min_liquidity,
-            row.allowed_markets, row.allowed_leagues, row.max_exposure, row.stake_amount, row.void_policy,
-            row.require_calibration, row.updated_by, row.reason, row.created_at,
+            row.allowed_markets, row.allowed_leagues, row.max_exposure, row.stake_amount, row.staking_method,
+            row.void_policy, row.require_calibration, row.updated_by, row.reason, row.created_at,
           ],
         );
       } catch (error) {

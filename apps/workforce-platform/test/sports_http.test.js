@@ -94,19 +94,16 @@ test("a default host configures no provider, fabricates nothing, and lists what 
   assert.match(body.notice, /nothing is fabricated/i);
 
   // The honesty matrix travels in the response — the same decision as BC-10 in the
-  // broker port — and it has shrunk to one entry: slice 5 removed settlement,
-  // verification, calibration fitting, backtesting, drift monitoring and performance
-  // analytics; row 19 removed the cron; Phase 36 removed the console screens, which are
-  // `/app/sports` now. Only stake sizing is left, and an entry that is no longer true
-  // must not stay in a matrix named "not ported".
-  assert.equal(body.notPorted.length, 1, "slice 5 removed settlement, calibration fitting, backtesting, drift and analytics; row 19 removed the cron; Phase 36 removed the console screens; what remains is sizing");
-  assert.deepEqual(body.notPorted.map((entry) => entry.area), ["stake sizing"]);
-  for (const entry of body.notPorted) {
-    assert.ok(entry.area && entry.legacy && entry.state && entry.detail, JSON.stringify(entry));
-    assert.notEqual(entry.state, "ported");
-  }
-  // NV-6 is closed: SPORTS_MODEL_DRIFT has a publisher (the drift monitor) since
-  // slice 5, so its absence from a not-ported matrix is the assertion that matters.
+  // broker port — and it is now EMPTY: slice 5 removed settlement, verification,
+  // calibration fitting, backtesting, drift monitoring and performance analytics;
+  // row 19 removed the cron; Phase 36 removed the console screens, which are
+  // `/app/sports` now; and Phase 48 removed the last entry, stake sizing, by porting it
+  // as bounded record-only sizing (DV-27). An entry that is no longer true must not
+  // stay in a matrix named "not ported" — so the emptiness itself is the assertion,
+  // pinned so that any future entry arrives as a conscious test change.
+  assert.deepEqual(body.notPorted, [], "Phase 48 ported the matrix's last entry (stake sizing, DV-27); the module's boundaries remain as prose in the configured-host `message`, asserted below");
+  // NV-6 stays closed: SPORTS_MODEL_DRIFT has a publisher (the drift monitor) since
+  // slice 5, and an empty matrix cannot name it either way.
   assert.ok(!/SPORTS_MODEL_DRIFT/.test(JSON.stringify(body.notPorted)),
     "SPORTS_MODEL_DRIFT is published; naming it as not ported would be a false honesty claim");
 });
@@ -260,19 +257,23 @@ test("the public status surface reports sports from configuration and contacts n
   assert.match(body.sports.reason, /GET \/api\/v1\/sports\/status/);
 
   // The module ledger row moved, and its label carries the boundary rather than the
-  // achievement — "sports: partial" must not read as "a working betting system".
-  // Slice 5 makes that harder, not easier: a module that now verifies results, settles
-  // tickets, fits calibrations, backtests, monitors drift and measures performance
-  // LOOKS complete. The label has to say what still stops it being one, and the
-  // sharpest such facts are that nothing is executed, no stake is sized, and no
-  // stored result is trusted before a person attests to it.
+  // achievement — "sports: ported" must not read as "a working betting system". Slice 5
+  // made that harder, not easier: a module that verifies results, settles tickets, fits
+  // calibrations, backtests, monitors drift, measures performance AND NOW SIZES STAKES
+  // looks complete. The label has to say what still stops it being one: nothing is
+  // executed (a sized stake is recorded, never staked), no stored result is trusted
+  // before a person attests to it, and no provider is verified against a real vendor.
+  // The matrix being empty is the honest claim, and it is pinned above.
   const sports = body.modules.find((module) => module.key === "sports");
-  assert.equal(sports.state, "partial");
+  assert.equal(sports.state, "ported", "Phase 48 ported the matrix's last entry (stake sizing, DV-27)");
   assert.match(sports.label, /no stored result is trusted before a person attests/i);
-  assert.match(sports.label, /not ported: stake sizing\./i);
+  assert.match(sports.label, /not ported: nothing/i, "the matrix is empty, and the label says so rather than falling silent");
+  assert.match(sports.label, /record-only stake sizing \(DV-27\)/i);
+  assert.match(sports.label, /FLAT by default/i, "the default method is legacy's byte-identical behaviour, named as such");
+  assert.match(sports.label, /only size DOWN/i, "the opt-in method's bound is named, not implied");
   assert.match(sports.label, /Phase 36 ported the console screens/i, "the label reports the console, and the F-29 closure behind it");
   assert.match(sports.label, /settlement stays available/i, "and the second guard the decision route gained");
-  assert.ok(!/no persistence/i.test(sports.label), "persistence exists now; a stale label reads as current documentation");
+  assert.ok(!/no stake is sized/i.test(sports.label), "stale labels read as current documentation; sizing is ported now");
   assert.equal(body.modules.length, 17);
 });
 
@@ -300,6 +301,14 @@ test("a configured sandbox provider is reported as simulated, unverified and UNK
   assert.match(body.message, /ingestion is persisted/);
   assert.match(body.message, /a ticket is a record a person approves, and settlement settles the record/,
     "ingestion reports; a person approves the ticket and settlement settles that record — nothing closes itself");
+  // Phase 48 (DV-27): the message carries the sizing boundary as prose, because the
+  // not-ported matrix is empty and an empty matrix must not read as "everything a
+  // betting engine does is finished".
+  assert.match(body.message, /staking_method/i, "sizing is stated as ported, bounded and record-only — not claimed absent");
+  assert.match(body.message, /FLAT is the default and is exactly legacy's fixed stake/i);
+  assert.match(body.message, /no sized stake is ever staked with anyone/i);
+  assert.match(body.message, /no stored result is trusted before a person attests to it/i);
+  assert.match(body.message, /no provider has been verified against a real vendor/i);
 });
 
 test("probe=1 takes a live reading and stamps it as not persisted", async (t) => {

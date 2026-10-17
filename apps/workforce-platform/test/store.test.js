@@ -13,7 +13,7 @@ test("database readiness requires every ordered Node identity migration and repo
   };
   const readiness = await createStore(pool).readiness();
   assert.deepEqual(readiness, { database: true, schema: false, adapter: "mysql", detail: null });
-  assert.match(calls[1].sql, /IN \(\?, \?, \?, \?, \?, \?, \?, \?, \?, \?, \?, \?, \?, \?, \?, \?, \?, \?, \?, \?, \?\)/);
+  assert.match(calls[1].sql, /IN \(\?, \?, \?, \?, \?, \?, \?, \?, \?, \?, \?, \?, \?, \?, \?, \?, \?, \?, \?, \?, \?, \?\)/);
   assert.deepEqual(calls[1].values, [
     "001_platform_foundation",
     "002_identity_import_fields",
@@ -53,6 +53,10 @@ test("database readiness requires every ordered Node identity migration and repo
         "020_lead_discovery",
     // Row 16 (Phase 46): AI Language Learning & AI Teacher tables (migration 021).
         "021_language_learning",
+    // Row 14 slice 6 (Phase 48): the bounded record-only sizing column (DV-27). Required,
+    // because the configuration INSERT names it — a schema without it must fail readiness,
+    // not the write.
+        "022_sports_stake_sizing",
   ]);
 });
 
