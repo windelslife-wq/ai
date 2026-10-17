@@ -1068,12 +1068,13 @@ test("F-02 the status surface is honest about unported modules, and F-03 the rou
   assert.doesNotMatch(publicSiteLabel, /chat assistant not ported/i);
   assert.equal(body.modules.find((module) => module.key === "marketData").state, "ported", "market data was ported in Phase 4");
   assert.equal(body.modules.find((module) => module.key === "analysis").state, "ported", "the analysis engines were ported in Phase 5");
-  assert.equal(body.modules.filter((module) => module.state === "ported").length, 14, "identity, the public site (Phase 43, when the grounded chat assistant and floating widget closed its last unported surface), market data, analysis, the portfolio optimizer, strategies, paper trading, risk, notifications, the audit browser, scheduled jobs (Phase 44, when the 80/70/60% early-warning tiers, leverage check and correlation-group enforcement closed SJ-8, SJ-9 and F-30), lottery (Phase 30, when its last unported entry — the console screens — became a ported surface), lead discovery (Phase 45, row 17), and language learning (Phase 46, row 16) have tested Node surfaces");
-  // Notifications are stored and read in-product only; the module says so itself
-  // rather than implying an alert reached a device or an email inbox.
+  assert.equal(body.modules.filter((module) => module.state === "ported").length, 15, "identity, the public site (Phase 43, when the grounded chat assistant and floating widget closed its last unported surface), market data, analysis, the portfolio optimizer, strategies, paper trading, risk, notifications, the audit browser, scheduled jobs (Phase 44, when the 80/70/60% early-warning tiers, leverage check and correlation-group enforcement closed SJ-8, SJ-9 and F-30), lottery (Phase 30, when its last unported entry — the console screens — became a ported surface), sports (Phase 48, when bounded record-only stake sizing, DV-27, emptied its not-ported matrix), lead discovery (Phase 45, row 17), and language learning (Phase 46, row 16) have tested Node surfaces");
+  // Notifications store and read in-product, and Phase 49's email copy is an
+  // AND-gated opt-in — this host configures neither side, so the module must
+  // still claim no delivery it cannot make.
   assert.equal(body.modules.find((module) => module.key === "notifications").state, "ported");
-  assert.equal(body.notifications.emailDeliveryAvailable, false, "no outbound delivery channel is ported");
-  assert.deepEqual(body.notifications.deliveryChannels, []);
+  assert.equal(body.notifications.emailDeliveryAvailable, false, "the test host sets no VP_NOTIFY_EMAIL_* opt-in, so the email copy stays off even though the channel is ported (Phase 49, DV-28)");
+  assert.deepEqual(body.notifications.deliveryChannels, ["in-product"]);
   // Phase 10 ports the audit browser API (attribution, filtering, pagination over
   // the whole trail, permissioned and read-only) and Phase 28 adds its console at
   // /app/admin/audit. The label therefore no longer says "no console screen" — it
@@ -1160,28 +1161,31 @@ test("F-02 the status surface is honest about unported modules, and F-03 the rou
   assert.match(body.modules.find((module) => module.key === "brokers").label, /no order routing/i);
   assert.match(body.modules.find((module) => module.key === "brokers").label, /no adapter verified against its provider/i);
   assert.match(body.modules.find((module) => module.key === "brokers").label, /one read-only route/i);
-  // Phase 15 moved `sports` from not-ported to partial, and Phase 16 gives it
-  // persistence — but this is still the label that has to work hardest in the whole
-  // ledger, because "sports intelligence: partial" reads as "half a betting engine".
-  // Slice 5 makes that tension sharper, not weaker: the module now verifies results,
-  // settles tickets, fits calibrations, backtests, monitors drift and measures
-  // performance, which looks like the whole betting system. What keeps the label
-  // honest is the boundary it still names: nothing is executed, no stake is sized,
-  // and NO STORED RESULT IS TRUSTED before a person attests to it — measurement and
-  // settlement exist, but every one of them runs on stored, attested records and
-  // runs only when a person asks.
-  assert.equal(body.modules.find((module) => module.key === "sports").state, "partial");
+  // Phase 15 moved `sports` from not-ported to partial, Phase 16 gave it persistence,
+  // and Phase 48 moved it to ported — by porting its last unported area, stake sizing,
+  // as bounded record-only sizing (DV-27). This is still the label that has to work
+  // hardest in the whole ledger, because "sports intelligence: ported" reads as "a
+  // running betting engine". Phase 48 makes that tension sharpest, not weakest: the
+  // module now verifies results, settles tickets, fits calibrations, backtests,
+  // monitors drift, measures performance AND SIZES STAKES, which looks like the whole
+  // betting system. What keeps the label honest is the boundary it still names:
+  // nothing is executed (a sized stake is recorded, never staked with anyone) and NO
+  // STORED RESULT IS TRUSTED before a person attests to it — measurement, settlement
+  // and sizing all run on stored, attested records and run only when a person asks.
+  assert.equal(body.modules.find((module) => module.key === "sports").state, "ported",
+    "Phase 48 (DV-27) emptied the not-ported matrix; the boundaries that remain are the module's design, carried as prose");
   const sportsLabel = body.modules.find((module) => module.key === "sports").label;
   for (const pattern of [
-    // The absence is stated as one list, so the list is pinned as a list rather than
-    // as separate "no X" phrases that the label does not and should not repeat.
-    // Slice 5 shrank it; row 19 removed the cron; Phase 36 removed the console screens.
-    // Stake sizing is what no slice owns, and it is now the whole list — settlement,
-    // verification, calibration fitting, backtests, drift, analytics and the consoles
-    // came OUT of it, and the assertion that they are gone is as important as the ones
-    // that remain: a ledger label is documentation, and a stale one is worse than none
-    // because it is read as current.
-    /not ported: stake sizing\./i,
+    // The empty matrix is stated as a positive claim — "not ported: nothing" — so the
+    // label's hedging grammar is preserved without a single remaining hedge to attach
+    // it to. A stale "stake sizing" entry would read as current documentation.
+    /not ported: nothing/i,
+    // Phase 48's claims: the port, its divergence record, its bound, and the default
+    // that keeps every historical configuration byte-identical to legacy.
+    /Phase 48 ported the matrix's last entry as bounded record-only stake sizing \(DV-27\)/i,
+    /FLAT by default/i,
+    /only size DOWN/i,
+    /migration 022/i,
     // Phase 36's two claims, in the label: the console exists, and the decision route
     // carries legacy's kill-switch guard rather than only its permission.
     /Phase 36 ported the console screens/i,
@@ -1191,13 +1195,14 @@ test("F-02 the status surface is honest about unported modules, and F-03 the rou
     /nineteen sports\.view reads, two sports\.manage reads, ten sports\.manage writes/i,
     /one sports\.approve write/i,
     /two sports\.settle writes/i,
-    // The one positive claim the label makes, and the only one this slice can
-    // support with evidence rather than assertion.
+    // The one positive claim the label makes, and the only one the port can support
+    // with evidence rather than assertion.
     /PHP-parity proven by differential test/i,
     /sandbox simulation double-gated and labelled/i,
   ]) {
     assert.match(sportsLabel, pattern);
   }
+  assert.ok(!/no stake is sized/i.test(sportsLabel), "sizing is ported; a stale claim would read as current documentation");
   // And the attestation boundary is stated as a positive claim too: the settle
   // permission exists precisely so that managing sports data and attesting to a
   // result are different grants.
@@ -1239,9 +1244,9 @@ test("F-02 the status surface is honest about unported modules, and F-03 the rou
     assert.match(lotteryLabel, pattern);
   }
   assert.ok(!/console screens are not ported/i.test(lotteryLabel), "the ported label must not still carry the F-29 hedge");
-  assert.equal(body.modules.filter((module) => module.state === "partial").length, 3, "execution (the remaining supervisor steps are broker-bound, no live route, no automated mode), brokers (no verified adapter, no order routing) and sports (measured, console ported and person-gated: nothing executed, no stake sized, no stored result trusted before a person attests, no verified vendor) remain partial — lottery left the list in Phase 30, the public site left it in Phase 43 when the grounded chat assistant and floating widget landed, and scheduled jobs left it in Phase 44 when the 80/70/60% early-warning tiers, leverage check and correlation-group enforcement landed");
+  assert.equal(body.modules.filter((module) => module.state === "partial").length, 2, "execution (the remaining supervisor steps are broker-bound, no live route, no automated mode) and brokers (no verified adapter, no order routing) remain partial — lottery left the list in Phase 30, the public site left it in Phase 43 when the grounded chat assistant and floating widget landed, scheduled jobs left it in Phase 44 when the 80/70/60% early-warning tiers, leverage check and correlation-group enforcement landed, and sports left it in Phase 48 when bounded record-only stake sizing (DV-27) emptied its not-ported matrix");
   assert.equal(body.modules.filter((module) => module.state === "not-ported").length, 0, "Phase 46 ported languageLearning, so zero modules remain not-ported");
-  assert.equal(body.modules.filter((module) => module.state === "ported").length, 14, "14 modules are ported as of Phase 46");
+  assert.equal(body.modules.filter((module) => module.state === "ported").length, 15, "15 modules are ported as of Phase 48");
   assert.equal(body.modules.length, 17, "the ledger keeps listing every module, ported or not");
   assert.ok(body.chat && body.chat.privateDataAccess === false, "status reports the credential-free public chat assistant snapshot");
   assert.equal("apiKey" in body.chat, false, "AI_CHAT_API_KEY must never appear in /api/v1/system/status");

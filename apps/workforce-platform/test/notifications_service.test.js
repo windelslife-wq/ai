@@ -349,15 +349,16 @@ test("a publisher is never broken by a failing notification write", async (t) =>
 
 // -------------------------------------------------------------- honesty
 
-test("the module reports storage-and-read only, with no delivery channel it does not have", async (t) => {
+test("a service composed without the email opt-in reports in-product delivery only", async (t) => {
   const { service } = await harness(t);
   const snapshot = service.statusSnapshot();
   assert.equal(snapshot.emailDeliveryAvailable, false);
-  assert.deepEqual(snapshot.deliveryChannels, []);
-  // Row 5 ported SMTP, but not to this module: the reason must still deny that an
-  // alert was emailed, and must say what the transport is actually used for.
-  assert.match(snapshot.reason, /stored and read in-product only/i);
-  assert.match(snapshot.reason, /administrator test send and the contact-form copy/i);
+  assert.deepEqual(snapshot.deliveryChannels, ["in-product"]);
+  // Phase 49 (row 5, DV-28): the email copy exists but is gated — the reason must
+  // name the gate and still deny a delivery it will not make on this host.
+  assert.match(snapshot.reason, /stored and read in-product/i);
+  assert.match(snapshot.reason, /opt-in email copy \(row 5, Phase 49\) is off/i);
+  assert.match(snapshot.reason, /VP_NOTIFY_EMAIL_ENABLED=1/);
   assert.match(snapshot.reason, /nothing here claims to have delivered/i, "the reason denies a delivery it cannot make");
   assert.deepEqual(snapshot.types, [...NOTIFICATION_TYPES]);
   assert.match(snapshot.dedupe, /unread/i);

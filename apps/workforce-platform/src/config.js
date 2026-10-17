@@ -1,4 +1,5 @@
 import path from "node:path";
+import { isEmailAddress } from "./mail/mime.js";
 import { buildCsp, parseAllowedOrigins } from "./security/headers.js";
 
 const LOG_LEVELS = new Set(["fatal", "error", "warn", "info", "debug", "trace", "silent"]);
@@ -752,6 +753,54 @@ function loadMailConfig(env, { production }) {
 }
 
 /**
+ * Notification email delivery (row 5, Phase 49) — divergence DV-28.
+ *
+ * Legacy never emailed an operator alert; the in-product inbox was the whole channel.
+ * This platform adds an opt-in copy: when explicitly enabled, a stored notification is
+ * ALSO emailed to a fixed operator address list, one message per alert, after — and
+ * only after — the in-product row exists. It is a copy of evidence, never a control:
+ * the message carries no action links, and a failed send changes nothing about the
+ * stored notification or the decision that produced it.
+ *
+ * Fail-closed by construction: `enabled` requires the literal `1` flag AND at least
+ * one valid recipient AND at least one severity. The default severity set is the most
+ * conservative — `critical` only — so an operator who flips the flag gets paged about
+ * criticals, not spammed. Recipients are capped (10) and validated at boot: an invalid
+ * entry is a boot error, not a silently un-notified alert. Dedupe gates email exactly
+ * as it gates storage, so a recurring alert cannot mail-bomb the list.
+ */
+function loadNotifyEmailConfig(env) {
+  const flag = firstNonEmpty(env, ["VP_NOTIFY_EMAIL_ENABLED", "NOTIFY_EMAIL_ENABLED"], "0");
+  const addresses = firstNonEmpty(env, ["VP_NOTIFY_EMAIL_TO", "NOTIFY_EMAIL_TO"], "")
+    .split(",")
+    .map((entry) => entry.trim())
+    .filter(Boolean);
+  if (addresses.length > 10) {
+    throw new Error("VP_NOTIFY_EMAIL_TO accepts at most 10 recipient addresses");
+  }
+  const invalid = addresses.filter((address) => !isEmailAddress(address));
+  if (invalid.length > 0) {
+    throw new Error(`VP_NOTIFY_EMAIL_TO contains an invalid address: ${invalid[0]}`);
+  }
+  const severities = firstNonEmpty(env, ["VP_NOTIFY_EMAIL_SEVERITIES", "NOTIFY_EMAIL_SEVERITIES"], "critical")
+    .split(",")
+    .map((entry) => entry.trim().toLowerCase())
+    .filter(Boolean);
+  const badSeverity = severities.find((value) => !["info", "warning", "critical"].includes(value));
+  if (badSeverity !== undefined) {
+    throw new Error(`VP_NOTIFY_EMAIL_SEVERITIES contains an unknown severity: ${badSeverity}`);
+  }
+  const recipients = Object.freeze([...new Set(addresses)]);
+  const severitySet = Object.freeze([...new Set(severities)]);
+  return Object.freeze({
+    enabled: flag === "1" && recipients.length > 0 && severitySet.length > 0,
+    flag: flag === "1",
+    recipients,
+    severities: severitySet,
+  });
+}
+
+/**
  * Lead Discovery provider configuration (row 17 — Phase 45).
  *
  * Legacy (`application/libraries/LeadDiscovery/GooglePlacesProvider.php`) read
@@ -838,6 +887,7 @@ export function loadConfig(env = process.env) {
     analysis: loadAnalysisConfig(env),
     retention: loadRetentionConfig(env),
     mail: loadMailConfig(env, { production }),
+    notifyEmail: loadNotifyEmailConfig(env),
     uploads: loadUploadConfig(env, { production }),
     rateLimit: loadRateLimitConfig(env),
     // Concurrent in-flight requests tracked per client address. A per-window
