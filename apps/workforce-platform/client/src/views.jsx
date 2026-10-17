@@ -123,6 +123,15 @@ import {
   connectorRows, flagText, governanceFacts as brokersGovernanceFacts,
   plannedRows, routingBanner, simulationState, stateSummary,
 } from "./brokers.js";
+// Row 18 (Phase 41): the journal console. Its formatters are named for the module
+// (`journalNumber`, `journalPercent`, ...) rather than aliased at the import, because three
+// other consoles already export `numberText`/`percentText`/`countText` and a fourth alias
+// would make the collisions harder to audit than the names are to read.
+import {
+  JOURNAL_COPY, JOURNAL_GROUPS, JOURNAL_PORT_COPY, JOURNAL_READS, JOURNAL_WRITE, JOURNAL_WINDOWS,
+  journalCalibrationRows, journalEntryRows, journalGroupRows, journalNote, journalTotals,
+  journalVerdict, overallHeading,
+} from "./journal.js";
 import { Link } from "./router.jsx";
 import { ConnectivityBanner, Field, Notice, StateBox, useResource } from "./ui.jsx";
 
@@ -269,6 +278,10 @@ export function WorkspaceNav({ permissions, current, signedIn = true, notificati
     { to: "/app/execution", label: "Execution", permission: EXECUTION_PERMISSION },
     // Row 13 (Phase 40): the Broker Center — one gated read, no control of any kind.
     { to: "/app/brokers", label: "Brokers", permission: BROKERS_PERMISSION },
+    // Row 18 (Phase 41): the journal console. Session-only, as legacy's `Journal` was —
+    // `App_Controller` required a login and no permission, and the three reads it makes
+    // match that guard. A nav entry with a permission would hide a screen the API serves.
+    { to: "/app/journal", label: "Journal", permission: null },
     { to: "/app/strategy", label: "Strategy Lab", permission: null },
     // Legacy's `Admin::index` was super-admin only; the directory and the trail
     // beside it were always `identity.users.view` surfaces. The port keeps both
@@ -463,7 +476,9 @@ export function NotificationsView({ onNotificationsChanged }) {
  * actions, the four KPI cards, then the recent-activity table and the notification
  * feed. Its honesty rules live in `dashboard.js` and are visible here as their
  * consequences — a number with no source is not rendered as zero (the language card),
- * and a destination that does not exist is not a link (the journal screen, F-29).
+ * and a destination that does not exist is not a link (the language card's "Learn a
+ * language", which stayed a note until a screen exists). Phase 41 gave the activity foot
+ * its legacy destination, so no rule here now refers to a missing screen.
  *
  * Two of the four reads are permissioned (`GET /trading/mode` and
  * `GET /paper/accounts`, both `trading.view`). They are **not attempted** without it:
@@ -610,8 +625,9 @@ export function WorkspaceDashboard({ user, permissions }) {
  * they cannot. The shared shell now has an in-product notification inbox, the
  * workspace dashboard (the port of legacy's `/dashboard`, Phase 33) and the
  * portfolio-optimizer, lottery, Strategy Lab, AI Workforce, administration and sports
- * consoles, so the cards name the one each of them opens. The screens still absent —
- * the execution, broker and journal screens — are what F-29 still counts.
+ * consoles, so the cards name the one each of them opens. F-29 counts no screen as
+ * absent any more: the execution, broker and journal consoles closed its last three
+ * entries in Phases 39–41.
  */
 export function ModuleCards() {
   const moduleCards = [
@@ -2138,6 +2154,197 @@ export function BrokerCenterView({ permissions }) {
           </p>
         </section>
       </StateBox>
+    </div>
+  );
+}
+
+/* ------------------------------------------------------------- journal console */
+
+/**
+ * The journal console: the port of `Journal::index` → `views/journal/index.php`.
+ *
+ * Legacy's page was a read over `Aegis\Journal\Analytics` and the journal repository, and so
+ * is this one. All three reads are session-only, as the legacy controllers were: `Journal`
+ * extended `App_Controller` and `Api_journal` extended `Api_controller`, neither of which
+ * required a permission. The group switch is in-page state because this shell's router
+ * matches exact paths and carries no query string; the screen says so rather than letting a
+ * reader conclude the URL is bookmarkable.
+ *
+ * Nothing here recomputes a statistic. `journalTotals`/`journalGroupRows` only format the
+ * summary endpoint's numbers, and `journalCalibrationRows` only formats the calibration
+ * endpoint's, so the figures on screen and the figures at the URL are the same numbers.
+ */
+export function JournalView() {
+  const [groupBy, setGroupBy] = useState("strategy");
+  const entries = useResource(() => endpoints.journal(`?limit=${JOURNAL_WINDOWS.entries}`), []);
+  const summary = useResource(() => endpoints.journalSummary(groupBy), [groupBy]);
+  const calibration = useResource(() => endpoints.journalCalibration(), []);
+
+  const rows = journalEntryRows(entries.data);
+  const groups = journalGroupRows(summary.data);
+  const totals = journalTotals(summary.data);
+  const note = journalNote(summary.data);
+  const buckets = journalCalibrationRows(calibration.data);
+  const verdict = journalVerdict(calibration.data);
+
+  return (
+    <div className="view journal-view">
+      <header className="view-header">
+        <div>
+          <div className="overline">{JOURNAL_COPY.eyebrow} <span className="overline-line" /></div>
+          <h1>{JOURNAL_COPY.title}</h1>
+          <p className="view-lede">{JOURNAL_COPY.lede}</p>
+        </div>
+      </header>
+
+      <div className="journal-switch" role="group" aria-label="Group analytics by">
+        {JOURNAL_GROUPS.map((group) => (
+          <button
+            key={group.key}
+            type="button"
+            className={`secondary-button${groupBy === group.key ? " is-active" : ""}`}
+            aria-pressed={groupBy === group.key}
+            onClick={() => setGroupBy(group.key)}
+          >
+            {group.label}
+          </button>
+        ))}
+      </div>
+      <p className="muted journal-note-line">{JOURNAL_PORT_COPY.groupSwitch}</p>
+
+      <div className="journal-board">
+        <div className="journal-main">
+          <section className="panel">
+            <StateBox status={summary.status} error={summary.error} retry={summary.retry} label="Reading the journal analytics">
+              <h2>{overallHeading(summary.data)}</h2>
+              <div className="journal-totals">
+                {totals.map((total) => (
+                  <div className="journal-total" key={total.key}>
+                    <span className="journal-total-label">{total.label}</span>
+                    <b className={total.tone ?? undefined}>{total.value}</b>
+                  </div>
+                ))}
+              </div>
+              {groups.length ? (
+                <div className="table-scroll">
+                  <table className="data-table journal-groups">
+                    <thead>
+                      <tr>
+                        <th>{groupBy}</th>
+                        <th>{JOURNAL_COPY.groupTrades}</th>
+                        <th>{JOURNAL_COPY.groupWinRate}</th>
+                        <th>{JOURNAL_COPY.groupProfitFactor}</th>
+                        <th>{JOURNAL_COPY.groupExpectancy}</th>
+                        <th>{JOURNAL_COPY.groupTotalPnl}</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {groups.map((group) => (
+                        <tr key={group.key}>
+                          <td><b>{group.key}</b></td>
+                          <td className="muted">{group.trades}</td>
+                          <td>{group.winRate}</td>
+                          <td>{group.profitFactor}</td>
+                          <td className={group.expectancyTone}>{group.expectancy}</td>
+                          <td className={group.totalTone}>{group.totalPnl}</td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              ) : null}
+              {note ? <p className="warn journal-note">{note}</p> : null}
+              <p className="muted">{JOURNAL_PORT_COPY.summaryWindow}</p>
+            </StateBox>
+          </section>
+
+          <section className="panel">
+            <h2>{JOURNAL_COPY.entriesTitle}</h2>
+            <StateBox
+              status={entries.status}
+              error={entries.error}
+              retry={entries.retry}
+              label="Reading the journal"
+              empty={rows.length ? null : <p className="empty">{JOURNAL_COPY.entriesEmpty}</p>}
+            >
+              <div className="table-scroll journal-entries">
+                <table className="data-table">
+                  <thead>
+                    <tr>{JOURNAL_COPY.entryHeaders.map((header) => <th key={header}>{header}</th>)}</tr>
+                  </thead>
+                  <tbody>
+                    {rows.map((row) => (
+                      <tr key={row.key}>
+                        <td className="muted">{row.time}</td>
+                        <td><span className={`badge ${row.sourceTone}`}>{row.source}</span></td>
+                        <td><b>{row.symbol}</b></td>
+                        <td className={row.directionTone}>{row.direction}</td>
+                        <td className="muted">{row.strategy}</td>
+                        <td>{row.entryPrice}</td>
+                        <td>{row.exitPrice}</td>
+                        <td className={row.pnlTone}>{row.pnl}</td>
+                        <td className="muted">{row.rMultiple}</td>
+                        <td className="muted">{row.confidence}</td>
+                        <td className="muted journal-reason" title={row.reason}>{row.reason}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+              <p className="muted">{JOURNAL_PORT_COPY.entriesSource}</p>
+            </StateBox>
+          </section>
+        </div>
+
+        <div className="journal-side">
+          <section className="panel">
+            <h2>{JOURNAL_COPY.calibrationTitle}</h2>
+            <StateBox status={calibration.status} error={calibration.error} retry={calibration.retry} label="Reading the calibration">
+              {verdict ? <Notice tone={verdict.tone}>{verdict.text}</Notice> : null}
+              {buckets.length ? (
+                <div className="journal-buckets">
+                  {buckets.map((bucket) => (
+                    <div className="journal-meter" key={bucket.key}>
+                      <div className="journal-meter-row">
+                        <span>{bucket.key}</span>
+                        <span className="mono muted">{bucket.text}</span>
+                      </div>
+                      <div className="journal-meter-track">
+                        <div className={`journal-meter-fill ${bucket.tone}`} style={{ width: `${bucket.width}%` }} />
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              ) : <p className="empty">{JOURNAL_COPY.calibrationEmpty}</p>}
+              <p className="muted">{JOURNAL_PORT_COPY.calibrationWindow}</p>
+            </StateBox>
+          </section>
+
+          <section className="panel">
+            <h2>What this screen reads, and what it does not</h2>
+            <div className="status-list">
+              {JOURNAL_READS.map((read) => (
+                <div className="status-row" key={read.key}>
+                  <span>
+                    <code>{read.method} {read.path}</code>{" "}
+                    <small className="muted">— newest {read.window} rows</small>
+                  </span>
+                  <b>{read.permission ?? "session"}</b>
+                </div>
+              ))}
+              <div className="status-row">
+                <span>
+                  <code>{JOURNAL_WRITE.method} {JOURNAL_WRITE.path}</code>{" "}
+                  <small className="muted">— session + CSRF</small>
+                </span>
+                <b className="muted">not drawn</b>
+              </div>
+            </div>
+            <p className="muted">{JOURNAL_PORT_COPY.manualWrite}</p>
+            <p className="muted">{JOURNAL_PORT_COPY.row18}</p>
+          </section>
+        </div>
+      </div>
     </div>
   );
 }

@@ -194,6 +194,15 @@ export const endpoints = {
   // `trading.view` on the server. There is deliberately no enable, toggle, order or MT5
   // read here — `src/modules/brokers/routes.js` registers none of them.
   brokers: () => api("/api/v1/brokers"),
+  // The journal console (Phase 41). Three session-only reads, exactly the guards the
+  // strategies module's routes carry; the module's one write (`POST /journal/manual`) is
+  // deliberately not wrapped — the screen does not draw it, as legacy's page did not.
+  journal: (query = "") => api(`/api/v1/journal${query}`),
+  // The query is appended as a suffix rather than written into the template's literal, the
+  // same way `backtestHistory` takes its query — the client-route contract reads the literal
+  // prefix before `${`, and a `?groupBy=` inside it would look like an unregistered path.
+  journalSummary: (groupBy) => api(`/api/v1/journal/analytics/summary${groupBy ? `?groupBy=${encodeURIComponent(groupBy)}` : ""}`),
+  journalCalibration: () => api("/api/v1/journal/analytics/calibration"),
   // The Execution Center console (Phase 39). Every read is `trading.view` except the
   // strategy list, which the server guards with authentication alone; proposing and
   // paper submission are `trading.execute`, and the decision — a governance act — is

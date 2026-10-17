@@ -27,15 +27,15 @@ production replacement and no traffic has been cut over.
   governance, the paper-proposal workflow, operator notifications and lottery
   intelligence are ported**, as are the audit, inbox, portfolio-optimizer, lottery,
   Strategy Lab, AI Workforce, workspace-dashboard, administrator-control-centre,
-  sports, paper, risk, execution and brokers screens; `/api/v1/system/status` states each module's acceptance level
+  sports, paper, risk, execution, brokers and journal screens; `/api/v1/system/status` states each module's acceptance level
   individually. Brokers and sports are ported **in part** (`partial`, each with its own
   stated remainder — no verified adapter, and for sports no stake sizing and no vendor);
   language learning and lead discovery remain legacy-only. **The shared shell has no
   screen left absent**: the settings gap and the admin control centre closed in Phases
   34–35, the sports dashboard in Phase 36, the paper console in Phase 37, the Risk Center in
-  Phase 38, the Execution Center in Phase 39 and the Broker Center in Phase 40, and the one screen
-  still unported platform-wide is F-29's — the journal (row 18). The status surface reports
-  each state rather than implying coverage.
+  Phase 38, the Execution Center in Phase 39, the Broker Center in Phase 40 and the journal in
+  Phase 41 — which closed F-29's list: no screen is unported platform-wide. The status surface
+  reports each state rather than implying coverage.
 - **Operator notifications are ported** (migration `009`, `wf_notifications`): an
   unread-deduped notifier, broadcast plus targeted visibility, the three legacy
   `/api/v1/notifications` endpoints, and publishers for the kill switch, trading-mode
@@ -78,7 +78,10 @@ production replacement and no traffic has been cut over.
   table. The screen is **session-only, like legacy's `Api_controller`**: it declares
   no permission, and the one permissioned control it renders — the human sign-off for
   an `ai`-sourced version — is `trading.control` on the route itself. Journal reads
-  and the model analytics stay under `/journal/*` rather than an alias (DV-8). A
+  and the model analytics stay under `/journal/*` rather than an alias (DV-8), and the
+  journal console at `/app/journal` (Phase 41) reads them session-only: the overall
+  figures, the per-group table, the newest 200 entries and the calibration meters,
+  formatted as the PHP formatted them, with the manual write named and not drawn. A
   refused promotion is shown with the server's reasons **and** warnings verbatim:
   `views/strategy/index.php` flashed both, and a console that showed only "rejected"
   would lose exactly what a person acts on.
@@ -94,7 +97,9 @@ production replacement and no traffic has been cut over.
   source says so — the language card has no Node module behind it (row 16), the run count is the
   six most recent runs rather than a lifetime total, the paper count is owner-scoped (legacy's
   `listAccounts()` read every row), and the Paper trading and Learn a language quick actions render
-  as unavailable with their reasons (F-29, row 16) instead of linking into a gap.
+  as unavailable with their reasons (row 16) instead of linking into a gap — the Paper trading
+  action has opened `/app/paper` since Phase 37, and the activity foot now opens the journal console
+  in legacy's own words (Phase 41).
   See [`docs/migration/PHASE33_WORKSPACE_DASHBOARD.md`](../../docs/migration/PHASE33_WORKSPACE_DASHBOARD.md).
 - **The account screen's profile image is live at `/app/account`** (Phase 34, row 3): the 84px
   hero (the stored image, or the display name's initial when there is none), legacy's

@@ -574,6 +574,37 @@ button:focus-visible, input:focus-visible, a:focus-visible { outline: 2px solid 
 .broker-quote .secondary-button { width: auto; }
 .broker-absences { margin-top: .4rem; }
 .broker-absences .status-row { font-size: .68rem; }
+/* Journal console (Phase 41): legacy's `cols-main` layout — the overall panel and the
+   entries table on the left, the calibration meters and the reads panel on the right —
+   with the six `stat` cells and the five `.meter` rows `views/journal/index.php` drew. The
+   meter fills keep the two colours the PHP used for a bucket win rate (green at .5+, red
+   below), rather than reusing the sports palette's amber. */
+.journal-switch { display: flex; flex-wrap: wrap; gap: .5rem; margin: .2rem 0 .4rem; }
+.journal-switch .secondary-button { min-height: 32px; padding: 0 .7rem; font-size: .66rem; }
+.journal-switch .secondary-button.is-active { border-color: rgba(193, 241, 139, .45); color: var(--green); background: rgba(193, 241, 139, .08); }
+.journal-note-line { margin: 0 0 1rem; font-size: .64rem; }
+.journal-board { display: grid; grid-template-columns: minmax(0, 1.75fr) minmax(280px, 1fr); gap: 1.1rem; align-items: start; }
+.journal-main, .journal-side { display: flex; flex-direction: column; gap: 1.1rem; min-width: 0; }
+.journal-main > .panel, .journal-side > .panel { margin: 0; }
+.journal-totals { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: .8rem; margin: 1rem 0; }
+.journal-total { padding: .8rem .9rem; border: 1px solid var(--line); border-radius: 6px; background: rgba(9, 26, 20, .55); }
+.journal-total-label { display: block; color: #7f9184; font-size: .57rem; font-weight: 700; letter-spacing: .12em; text-transform: uppercase; }
+.journal-total b { display: block; margin-top: .35rem; color: #e7f0e4; font-size: 1.25rem; letter-spacing: -.02em; }
+.journal-total b.up { color: #b7e08d; }
+.journal-total b.down { color: #f0a2a2; }
+.journal-total b.warn { color: #e6c877; }
+.journal-groups td, .journal-groups th { white-space: nowrap; }
+.journal-note { margin: .6rem 0 0; font-size: .66rem; }
+.journal-entries { max-height: 520px; overflow-y: auto; }
+.journal-entries td { white-space: nowrap; }
+.journal-reason { max-width: 240px; overflow: hidden; text-overflow: ellipsis; }
+.journal-buckets { display: grid; gap: .6rem; margin: 1rem 0 .3rem; }
+.journal-meter-row { display: flex; justify-content: space-between; gap: .8rem; font-size: .66rem; color: #b9c7b8; }
+.journal-meter-row .mono { font-size: .6rem; }
+.journal-meter-track { height: 6px; margin-top: .25rem; border-radius: 3px; background: rgba(222, 239, 225, .09); overflow: hidden; }
+.journal-meter-fill { height: 100%; }
+.journal-meter-fill.up { background: #34d399; }
+.journal-meter-fill.down { background: #fb7185; }
 @media (max-width: 980px) {
   .workspace-body { grid-template-columns: 1fr; }
   .dash-kpis { grid-template-columns: repeat(2, minmax(0, 1fr)); }
@@ -631,6 +662,7 @@ button:focus-visible, input:focus-visible, a:focus-visible { outline: 2px solid 
   .exec-board { grid-template-columns: 1fr; }
   .exec-form-grid { grid-template-columns: 1fr; }
   .broker-grid, .broker-panels { grid-template-columns: 1fr; }
+  .journal-board, .journal-totals { grid-template-columns: 1fr; }
   .workforce-watchlist { grid-template-columns: 1fr; }
   .portfolio-meta { grid-template-columns: 1fr; }
   .dash-kpis { grid-template-columns: 1fr; }

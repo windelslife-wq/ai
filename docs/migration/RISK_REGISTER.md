@@ -124,7 +124,7 @@ keeping the summary columns, or keeping evidence for any strategy past `BACKTEST
 and pruning only abandoned drafts. Recorded so the table does not grow silently while the
 question is unanswered.
 
-### F-29 — ported domain APIs lack workspace consoles (open)
+### F-29 — ported domain APIs lack workspace consoles (closed, Phase 41)
 
 The SPA now ships identity, account, admin, status and an in-product notification inbox. The
 remaining product/domain APIs still have no operator console: market data (Phase 4), analysis
@@ -211,6 +211,18 @@ a read that can only answer 503 on a host with no bridge is worse than no route.
 legacy's own words for each and then the reason, rather than drawing a switch that turns on nothing.
 It adds no route: the module's single broker read was already ported in Phase 14, and the screen is a
 read over it plus `GET /trading/mode`. Record: [`PHASE40_BROKER_CENTER.md`](PHASE40_BROKER_CENTER.md).
+
+**Update (Phase 41) — F-29 closed.** The **journal console** landed (`/app/journal` —
+`views/journal/index.php`, `Journal::index`), the last of the seven screens this finding counted after
+the Phase 33 screen-by-screen audit: paper (37), risk (38), execution (39), brokers (40), journal (41),
+sports (36) and the admin control centre (35). Like the two consoles before it, it adds no route: the
+journal's four routes were ported in Phase 6, and the page is a read over three of them. It closes the
+finding with two boundaries stated rather than implied: the unported modules' own views
+(`views/leads/`, `views/langlearn/*`) were always rows 16–17's workstreams rather than this finding's,
+and the public chat assistant's floating window (`views/partials/chat_widget.php`) is row 18's
+remaining surface, not one of the consoles this finding tracked. The activity foot on the dashboard
+is legacy's again — `View analytics` → `/app/journal` — because it finally has a destination.
+Record: [`PHASE41_JOURNAL_CONSOLE.md`](PHASE41_JOURNAL_CONSOLE.md).
 
 ### F-30 — `maxCorrelatedPositions` is a declared risk limit with no enforcement (open)
 

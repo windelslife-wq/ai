@@ -56,7 +56,7 @@ matrix went empty — `lottery`.
 | 15 | Lottery intelligence and Operations console | **Ported** (Phase 30): both console screens land at `/app/lottery` and `/app/lottery/lab`, the module's `notPorted` matrix is empty, and `lottery` moved to `ported` in the ledger. What remains is host-level, not code: no authorized official feed configured |
 | 16 | **Language learning / AI teacher** | Node port absent |
 | 17 | **Lead Discovery: CI3 module + Scout consolidation** | Unity/consolidation decision outstanding |
-| 18 | **Chat, journal, trading tools and remaining platform surfaces** | Node equivalents absent; needs full controller/route/view inventory |
+| 18 | **Chat, journal, trading tools and remaining platform surfaces** | Journal console landed (Phase 41, `/app/journal`), so the row has no screen left; the public chat assistant is its last unported surface, and the legacy CLI tools map to the npm commands named in `UNFINISHED_MODULES.md` row 18. |
 | 19 | Scheduled jobs, CLI and resumable work | Broker transition alerts; SJ-8/SJ-9 tiers; real crontab |
 | 20 | **Football Predictions app integration** | Isolated app; consolidate-or-not decision; first-run MySQL/live provider/cPanel staging unverified |
 | 21 | **Python MT5 bridge conversion or explicit exception** | FastAPI bridge remains; real demo-terminal check outstanding |
@@ -74,8 +74,8 @@ screen in Phase 38 (`/app/risk`).
 - `apps/workforce-platform/` — Node modular monolith (`v0.23.0`); the 8 modules in section A.
   Consoles now exist for notifications, the audit trail, the portfolio optimizer, lottery (both
   screens), the Strategy Lab, the AI Workforce analysis run, the workspace dashboard, the admin
-  control centre, sports, paper, risk, execution and brokers; the remaining F-29 gap is the journal
-  screen (settings closed with the account avatar and the control centre, and no legacy settings
+  control centre, sports, paper, risk, execution, brokers and journal; **F-29's screen list is
+  empty** (settings closed with the account avatar and the control centre, and no legacy settings
   controller exists).
 - `apps/api/` — TypeScript Lead Discovery API (routes, pipeline, quality, providers).
 - `apps/web/` — Next.js `@lead-discovery/web` SPA for the same workstream.

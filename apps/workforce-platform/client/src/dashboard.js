@@ -49,16 +49,14 @@ export const DASHBOARD_COPY = Object.freeze({
 });
 
 /**
- * The two panel feet. Legacy's were `View analytics →` (`/journal`) and
- * `Open all alerts →` (`/notifications`); only the second destination exists here,
- * so the first keeps its own sentence and says where analytics actually live.
+ * The two panel feet, in legacy's own words. Until Phase 41 the first one could not use
+ * them: `View analytics →` pointed at `/journal`, and there was no journal screen, so the
+ * foot said where analytics actually live instead of pretending the destination existed.
+ * The journal console landed in Phase 41, so the foot is legacy's again — the last stale
+ * "not ported" sentence in the shell's copy, retired with the screen it described.
  */
 export const PANEL_FEET = Object.freeze({
-  activity: Object.freeze({
-    text: "Open the AI Workforce console",
-    to: "/app/analysis",
-    note: "Legacy's `View analytics →` pointed at `/journal`, which this edition has not ported (row 18).",
-  }),
+  activity: Object.freeze({ text: "View analytics", to: "/app/journal", note: null }),
   alerts: Object.freeze({ text: "Open all alerts", to: "/app/notifications", note: null }),
 });
 

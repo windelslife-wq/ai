@@ -101,8 +101,11 @@ test("the dashboard's windows, actions and cards are the ones views/workspace/in
   assert.equal(DASHBOARD_COPY.alertsEmpty, "Nothing in your inbox yet.");
   assert.equal(PANEL_FEET.alerts.text, "Open all alerts");
   assert.equal(PANEL_FEET.alerts.to, "/app/notifications");
-  assert.equal(PANEL_FEET.activity.to, "/app/analysis");
-  assert.match(PANEL_FEET.activity.note, /\/journal/, "the foot says where legacy's link went instead of pretending it exists");
+  // Phase 41 gave the activity foot its legacy destination: `View analytics →` → the journal
+  // console, in the PHP's own words. The note that explained its absence is gone.
+  assert.equal(PANEL_FEET.activity.text, "View analytics");
+  assert.equal(PANEL_FEET.activity.to, "/app/journal");
+  assert.equal(PANEL_FEET.activity.note, null, "the destination exists, so there is nothing to explain");
 
   // The greeting is legacy's rule: the first word of the display name, `Member` when
   // there is no name to take one from.
@@ -192,7 +195,7 @@ test("a destination this edition does not have is not offered as a link", () => 
   // arrived in Phase 37, so its note no longer states a gap — it links, and what it links
   // to has to be a declared route.
   assert.ok(declared.has("/app/paper"), "the paper console is declared, so its card and quick action open it");
-  assert.ok(!declared.has("/app/journal"), "the activity foot's premise: there is no journal route");
+  assert.ok(declared.has("/app/journal"), "the activity foot's destination is a declared route");
   assert.ok(!/F-29/.test(PAPER_NOTE), "F-29 counted the paper screen as absent; the note must not keep saying so");
   assert.match(PAPER_NOTE, /kill switch/);
   assert.match(LANGUAGE_NOTE, /row 16/);
@@ -403,12 +406,11 @@ test("the two absences the page explains are the ledger's and the router's own",
   // the path here would pin a screen as missing after it shipped.
   // `/app/risk` left this list in Phase 38, for the reason `/app/paper` left it in 37 and
   // `/app/sports` in 36. `/app/execution` left it in Phase 39.
-  // `/app/brokers` left this list in Phase 40, so the only screen F-29 still counts as absent
-  // is the journal (row 18).
-  for (const missing of ["/app/journal"]) {
-    assert.ok(!declared.has(missing), `${missing} is named as an open screen in F-29 and must not be declared here`);
-  }
-  for (const landed of ["/app/sports", "/app/paper", "/app/risk", "/app/execution", "/app/brokers"]) {
+  // `/app/brokers` left this list in Phase 40 and `/app/journal` in Phase 41, which closed
+  // F-29's screen list. There is no "missing" loop any more on purpose: keeping an empty one
+  // would look like a check that still had a subject. The landed list is the historical
+  // record of the seven screens F-29 counted, each now a declared route.
+  for (const landed of ["/app/sports", "/app/paper", "/app/risk", "/app/execution", "/app/brokers", "/app/journal"]) {
     assert.ok(declared.has(landed), `${landed} is declared, and the F-29 list above is about the screens still absent`);
   }
   // The module counts are untouched by this phase: the dashboard is a screen for the

@@ -2,7 +2,62 @@
 
 **Updated:** 2026-10-17 · **Branch:** `arena/046b29ac-ai`
 
-## Current Phase 40 status (2026-10-17)
+## Current Phase 41 status (2026-10-17)
+
+**Row 18 has no screen left, and F-29 is closed: `/app/journal` is the port of `Journal::index` →
+`views/journal/index.php`.** The five group switches, the six overall figures with their per-group
+table, the newest 200 entries and the confidence-calibration meters — over the three journal reads
+the strategies module has served since Phase 6. **146 routes before and after — no route, migration,
+contract method, repository method, permission or dependency was added.** This was the quietest
+console in the series: the analytics were already ported and oracle-tested, so the work was in not
+introducing drift.
+
+**Nothing is recomputed in the browser.** `journalNumber`/`journalPercent`/`journalCount` reproduce
+`number_format`'s thousands separators and fixed decimals, and each panel uses the PHP's own
+precision (1/2/0/2/1/0 for the six overall cells, 0 for a group's `Win%`, 5 for prices). The screen
+and the endpoint cannot disagree about a number, because the screen only formats what the endpoint
+sent.
+
+**The page is a read and says what it does not draw.** All three reads are **session-only**, as
+`Journal`'s `App_Controller` and `Api_journal`'s `Api_controller` were — a signed-in account with no
+permissions reads every panel, which the suite and the probe both check. `POST
+/api/v1/journal/manual` is listed beside them with its CSRF requirement and marked **not drawn**:
+legacy's page drew no form for it either.
+
+**Two divergences are on the page rather than in a diff.** The group switch is in-page state (this
+shell's router matches exact paths and has no query string, so legacy's `?groupBy=` links cannot be
+reproduced), and the summary endpoint reads 500 rows while the table lists 200 — legacy's own page
+analysed the 200 it displayed — so the overall panel can describe trades the table does not show, and
+says so. DV-5 (analytics ordering by `execution_time` as text) is inherited from Phase 6, not fixed
+here.
+
+**The dashboard's last stale "not ported" sentence is gone.** `PANEL_FEET.activity` is legacy's own
+again — `View analytics` → `/app/journal` — where it used to say the journal screen did not exist.
+That was the last copy in the shell pointing at a screen this edition lacked.
+
+A fifteenth client contract suite (`test/client_journal_console.test.js`, **17 tests**, six over
+HTTP) asserts every page string inside the PHP, the port's sentences *outside* it, the formatting of
+every cell, the windows against the server's constants and the four routes against
+`/api/v1/system/routes` (all `permission: null`, no `/analytics` alias), and drives the live app:
+seeded rows flow into the table, the strategy groups, the confidence buckets and the small-sample
+verdict; an invalid grouping is 400; the manual write is 403 without CSRF; a member with no journal
+permission reads all three surfaces. Gates: `npm run check:workforce` **1181 / 1181** (1164 before:
++17), the client suites **204 / 204**, `npm run typecheck` clean, `npm run test:contracts` 12/12, the
+client build (`index-DqanVWU-.js` 587.69 kB / 156.25 kB gzip, `index-CkPGdTlp.css` 47.51 kB / 9.88 kB
+gzip) and `npm run verify:install -- --require-bundle` **30 / 30**, plus a **33 / 33** live probe on a
+reseeded demo host. **Not run:** a real browser, real MySQL/MariaDB, any live provider, SMTP,
+cPanel/Passenger, and still no PHP↔Node numeric diff (F-26) — the journal analytics themselves were
+compared against the PHP oracle in Phase 6. Full record:
+[`PHASE41_JOURNAL_CONSOLE.md`](PHASE41_JOURNAL_CONSOLE.md).
+
+**F-29 is closed.** Seven screens were counted after the Phase 33 audit — paper (37), risk (38),
+execution (39), brokers (40), journal (41), sports (36) and the admin control centre (35) — and all
+seven are now declared routes. The unported modules' own views (`views/leads/`,
+`views/langlearn/*`) were always rows 16–17's workstreams rather than this finding's, and the public
+chat assistant's floating window is row 18's remaining *surface*, not one of the five consoles F-29
+counted. **Module counts are unchanged — 10 ported / 5 partial / 2 not-ported.**
+
+## Phase 40 status (2026-10-17) — superseded by Phase 41
 
 **Row 13 has no screen left: `/app/brokers` is the port of `Brokers::index` → `views/brokers/index.php`.**
 The routing banner, the governance strip, the ten connector cards with their capability rows and
