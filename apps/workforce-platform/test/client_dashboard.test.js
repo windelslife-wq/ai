@@ -415,8 +415,10 @@ test("the two absences the page explains are the ledger's and the router's own",
   }
   // Phase 43 promoted `publicSite` from `partial` to `ported` when the grounded
   // public chat assistant (`POST /api/v1/chat/respond`) and floating widget landed,
-  // and Phase 44 promoted `scheduledJobs` from `partial` to `ported` when the
-  // 80/70/60% early-warning tiers, leverage check and correlation-group enforcement landed.
-  assert.equal(modules.filter((module) => module.state === "ported").length, 12);
+  // Phase 44 promoted `scheduledJobs` from `partial` to `ported` when the
+  // 80/70/60% early-warning tiers, leverage check and correlation-group enforcement landed,
+  // and Phase 45 promoted `leadDiscovery` from `not-ported` to `ported`.
+  assert.equal(modules.filter((module) => module.state === "ported").length, 13);
   assert.equal(modules.filter((module) => module.state === "partial").length, 3);
+  assert.equal(modules.filter((module) => module.state === "not-ported").length, 1);
 });

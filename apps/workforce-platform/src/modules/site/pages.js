@@ -111,6 +111,8 @@ export const AUTH_REDIRECTS = Object.freeze(new Map([
   ["/forgot-password", "/app/login"],
   ["/access-denied", "/app/"],
   ["/dashboard", "/app/"],
+  ["/leads", "/app/leads"],
+  ["/lead-pipeline", "/app/leads/pipeline"],
 ]));
 
 /** Sitemap paths, in the order the legacy `Seo::sitemap()` emitted them. */

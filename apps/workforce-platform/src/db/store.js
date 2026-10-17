@@ -9,6 +9,7 @@ import { createNotificationRepository } from "./notification-repository.js";
 import { createJobRepository } from "./job-repository.js";
 import { createSportsRepository } from "./sports-repository.js";
 import { createLotteryRepository } from "./lottery-repository.js";
+import { createLeadRepository } from "./lead-repository.js";
 
 export const REQUIRED_MIGRATIONS = Object.freeze([
   "001_platform_foundation",
@@ -33,6 +34,8 @@ export const REQUIRED_MIGRATIONS = Object.freeze([
   "018_lottery_tickets",
   // Slice 4: backtest reports + model versions (the measured half).
   "019_lottery_backtests",
+  // Row 17 (Phase 45): organization-scoped Lead Discovery tables.
+  "020_lead_discovery",
 ]);
 
 /** Only driver codes are ever reported; never an SQL statement or credential. */
@@ -57,6 +60,7 @@ export function createStore(pool, { requiredMigrations = REQUIRED_MIGRATIONS } =
   const jobs = createJobRepository(pool);
   const sports = createSportsRepository(pool);
   const lottery = createLotteryRepository(pool);
+  const leads = createLeadRepository(pool);
   return {
     ...repository,
     ...site,
@@ -221,6 +225,29 @@ export function createStore(pool, { requiredMigrations = REQUIRED_MIGRATIONS } =
     saveLotteryBacktest: lottery.saveLotteryBacktest,
     findLotteryBacktest: lottery.findLotteryBacktest,
     listLotteryBacktests: lottery.listLotteryBacktests,
+    // Row 17 (migration 020): organization-scoped Lead Discovery repository methods.
+    listLeadWorkspaces: leads.listLeadWorkspaces,
+    ensureLeadWorkspace: leads.ensureLeadWorkspace,
+    listLeads: leads.listLeads,
+    findLeadById: leads.findLeadById,
+    findLeadBySource: leads.findLeadBySource,
+    saveLead: leads.saveLead,
+    listLeadNotes: leads.listLeadNotes,
+    createLeadNote: leads.createLeadNote,
+    listLeadActivities: leads.listLeadActivities,
+    recordLeadActivity: leads.recordLeadActivity,
+    listLeadCollections: leads.listLeadCollections,
+    findLeadCollection: leads.findLeadCollection,
+    saveLeadCollection: leads.saveLeadCollection,
+    deleteLeadCollection: leads.deleteLeadCollection,
+    listCollectionLeads: leads.listCollectionLeads,
+    setCollectionLeadMembership: leads.setCollectionLeadMembership,
+    listLeadDuplicateCandidates: leads.listLeadDuplicateCandidates,
+    saveLeadDuplicateCandidate: leads.saveLeadDuplicateCandidate,
+    resolveLeadDuplicateCandidate: leads.resolveLeadDuplicateCandidate,
+    recordLeadSearchHistory: leads.recordLeadSearchHistory,
+    listLeadSearchHistory: leads.listLeadSearchHistory,
+    recordLeadExportHistory: leads.recordLeadExportHistory,
     saveJobState: jobs.saveJobState,
     // Notifications are written outside any paper transaction: they are evidence
     // about a change that already committed, and a failed notification must never

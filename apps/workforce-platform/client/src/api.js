@@ -244,4 +244,31 @@ export const endpoints = {
   // `permission: null`), mounted on both the public pages and the workspace shell and
   // omitted from the auth screens (`EntryLayout`).
   chatRespond: (payload) => api("/api/v1/chat/respond", { method: "POST", body: payload }),
+  // Lead Discovery console (row 17 — Phase 45). Every route requires `system.authenticated`
+  // on the server and resolves the active workspace via `X-Lead-Organization`.
+  leadWorkspaces: (orgId = "") => api("/api/v1/lead-discovery/workspaces", { headers: orgId ? { "X-Lead-Organization": orgId } : {} }),
+  leadProviders: (orgId = "") => api("/api/v1/lead-discovery/providers", { headers: orgId ? { "X-Lead-Organization": orgId } : {} }),
+  leadSearch: (payload, orgId = "") => api("/api/v1/lead-discovery/search", { method: "POST", body: payload, headers: orgId ? { "X-Lead-Organization": orgId } : {} }),
+  leads: (query = "", orgId = "") => api(`/api/v1/lead-discovery/leads${query}`, { headers: orgId ? { "X-Lead-Organization": orgId } : {} }),
+  leadDetail: (leadId, orgId = "") => api(`/api/v1/lead-discovery/leads/${encodeURIComponent(leadId)}`, { headers: orgId ? { "X-Lead-Organization": orgId } : {} }),
+  leadCollections: (orgId = "") => api("/api/v1/lead-discovery/collections", { headers: orgId ? { "X-Lead-Organization": orgId } : {} }),
+  leadCreateCollection: (payload, orgId = "") => api("/api/v1/lead-discovery/collections", { method: "POST", body: payload, headers: orgId ? { "X-Lead-Organization": orgId } : {} }),
+  leadUpdateCollection: (collectionId, payload, orgId = "") => api(`/api/v1/lead-discovery/collections/${encodeURIComponent(collectionId)}`, { method: "PATCH", body: payload, headers: orgId ? { "X-Lead-Organization": orgId } : {} }),
+  leadDeleteCollection: (collectionId, orgId = "") => api(`/api/v1/lead-discovery/collections/${encodeURIComponent(collectionId)}`, { method: "DELETE", headers: orgId ? { "X-Lead-Organization": orgId } : {} }),
+  leadCollectionLeads: (collectionId, orgId = "") => api(`/api/v1/lead-discovery/collections/${encodeURIComponent(collectionId)}/leads`, { headers: orgId ? { "X-Lead-Organization": orgId } : {} }),
+  leadAddCollectionLeads: (collectionId, payload, orgId = "") => api(`/api/v1/lead-discovery/collections/${encodeURIComponent(collectionId)}/leads`, { method: "POST", body: payload, headers: orgId ? { "X-Lead-Organization": orgId } : {} }),
+  leadRemoveCollectionLead: (collectionId, leadId, orgId = "") => api(`/api/v1/lead-discovery/collections/${encodeURIComponent(collectionId)}/leads/${encodeURIComponent(leadId)}`, { method: "DELETE", headers: orgId ? { "X-Lead-Organization": orgId } : {} }),
+  leadUpdateStatus: (leadId, payload, orgId = "") => api(`/api/v1/lead-discovery/leads/${encodeURIComponent(leadId)}/status`, { method: "PATCH", body: payload, headers: orgId ? { "X-Lead-Organization": orgId } : {} }),
+  leadUpdateOwner: (leadId, payload, orgId = "") => api(`/api/v1/lead-discovery/leads/${encodeURIComponent(leadId)}/owner`, { method: "PATCH", body: payload, headers: orgId ? { "X-Lead-Organization": orgId } : {} }),
+  leadNotes: (leadId, orgId = "") => api(`/api/v1/lead-discovery/leads/${encodeURIComponent(leadId)}/notes`, { headers: orgId ? { "X-Lead-Organization": orgId } : {} }),
+  leadAddNote: (leadId, payload, orgId = "") => api(`/api/v1/lead-discovery/leads/${encodeURIComponent(leadId)}/notes`, { method: "POST", body: payload, headers: orgId ? { "X-Lead-Organization": orgId } : {} }),
+  leadActivity: (leadId, orgId = "") => api(`/api/v1/lead-discovery/leads/${encodeURIComponent(leadId)}/activity`, { headers: orgId ? { "X-Lead-Organization": orgId } : {} }),
+  leadDuplicates: (orgId = "") => api("/api/v1/lead-discovery/duplicates", { headers: orgId ? { "X-Lead-Organization": orgId } : {} }),
+  leadResolveDuplicate: (payload, orgId = "") => api("/api/v1/lead-discovery/duplicates/resolve", { method: "POST", body: payload, headers: orgId ? { "X-Lead-Organization": orgId } : {} }),
+  leadCoverage: (query = "", orgId = "") => api(`/api/v1/lead-discovery/coverage${query}`, { headers: orgId ? { "X-Lead-Organization": orgId } : {} }),
+  leadHistory: (orgId = "") => api("/api/v1/lead-discovery/history", { headers: orgId ? { "X-Lead-Organization": orgId } : {} }),
+  leadSummary: (orgId = "") => api("/api/v1/lead-discovery/summary", { headers: orgId ? { "X-Lead-Organization": orgId } : {} }),
+  leadPipeline: (orgId = "") => api("/api/v1/lead-discovery/pipeline", { headers: orgId ? { "X-Lead-Organization": orgId } : {} }),
+  leadExport: (payload = {}, orgId = "") => api("/api/v1/lead-discovery/export", { method: "POST", body: payload, headers: orgId ? { "X-Lead-Organization": orgId } : {} }),
+  leadExportPreview: (payload = {}, orgId = "") => api("/api/v1/lead-discovery/export/preview", { method: "POST", body: payload, headers: orgId ? { "X-Lead-Organization": orgId } : {} }),
 };

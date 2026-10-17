@@ -135,6 +135,11 @@ import {
 import {
   CHAT_MAX_MESSAGE_CHARS, CHAT_WIDGET_COPY, buildChatBody, formatChatFailure, formatChatReply, validateChatMessage,
 } from "./chat.js";
+import {
+  DUPLICATE_RESOLUTION_ACTIONS, LEAD_STATUS_OPTIONS, LEADS_COPY, LEADS_PERMISSION, LEADS_TABS,
+  buildExportPreviewSummary, formatProviderBadge, parseLeadMetadata,
+  validateCollectionName, validateLeadNoteBody, validateLeadSearchQuery,
+} from "./leads.js";
 import { Link } from "./router.jsx";
 import { ConnectivityBanner, Field, Notice, StateBox, useResource } from "./ui.jsx";
 
@@ -286,6 +291,10 @@ export function WorkspaceNav({ permissions, current, signedIn = true, notificati
     // match that guard. A nav entry with a permission would hide a screen the API serves.
     { to: "/app/journal", label: "Journal", permission: null },
     { to: "/app/strategy", label: "Strategy Lab", permission: null },
+    // Row 17 (Phase 45): the Lead Discovery console (`/app/leads` and `/app/leads/pipeline`).
+    // Every endpoint requires `system.authenticated`, which every signed-in account holds.
+    { to: "/app/leads", label: "Lead Discovery", permission: LEADS_PERMISSION },
+    { to: "/app/leads/pipeline", label: "Lead Pipeline", permission: LEADS_PERMISSION },
     // Legacy's `Admin::index` was super-admin only; the directory and the trail
     // beside it were always `identity.users.view` surfaces. The port keeps both
     // gates as they are rather than widening either.
@@ -6022,3 +6031,580 @@ export function ChatWidget() {
     </div>
   );
 }
+
+/* ---------------------------------------------------------- Lead Discovery */
+
+export function LeadDiscoveryView({ initialTab = "discovery" }) {
+  const [tab, setTab] = useState(initialTab);
+  const [activeOrgId, setActiveOrgId] = useState("");
+  const [workspaces, setWorkspaces] = useState([]);
+  const [providers, setProviders] = useState([]);
+  const [leads, setLeads] = useState([]);
+  const [collections, setCollections] = useState([]);
+  const [duplicates, setDuplicates] = useState([]);
+  const [coverage, setCoverage] = useState(null);
+  const [history, setHistory] = useState([]);
+  const [pipeline, setPipeline] = useState({ statuses: LEAD_STATUS_OPTIONS, columns: {} });
+  const [summary, setSummary] = useState([]);
+  const [selectedLead, setSelectedLead] = useState(null);
+  const [leadNotes, setLeadNotes] = useState([]);
+  const [leadActivity, setLeadActivity] = useState([]);
+  const [searchQuery, setSearchQuery] = useState("");
+  const [searchLimit, setSearchLimit] = useState("20");
+  const [collectionName, setCollectionName] = useState("");
+  const [noteDraft, setNoteDraft] = useState("");
+  const [ownerDraft, setOwnerDraft] = useState("");
+  const [missingFilter, setMissingFilter] = useState("");
+  const [exportPreview, setExportPreview] = useState(null);
+  const [busy, setBusy] = useState(false);
+  const [notice, setNotice] = useState(null);
+  const [error, setError] = useState(null);
+
+  useEffect(() => {
+    setTab(initialTab);
+  }, [initialTab]);
+
+  async function refreshAll(orgOverride = activeOrgId) {
+    setError(null);
+    try {
+      const wsRes = await endpoints.leadWorkspaces(orgOverride);
+      const orgId = orgOverride || wsRes?.activeOrganizationId || wsRes?.workspaces?.[0]?.id || "";
+      setWorkspaces(wsRes?.workspaces || []);
+      if (orgId && orgId !== activeOrgId) setActiveOrgId(orgId);
+      const [provRes, leadsRes, colRes, dupRes, covRes, histRes, pipeRes, sumRes] = await Promise.all([
+        endpoints.leadProviders(orgId),
+        endpoints.leads("", orgId),
+        endpoints.leadCollections(orgId),
+        endpoints.leadDuplicates(orgId),
+        endpoints.leadCoverage(missingFilter ? `?missing=${encodeURIComponent(missingFilter)}` : "", orgId),
+        endpoints.leadHistory(orgId),
+        endpoints.leadPipeline(orgId),
+        endpoints.leadSummary(orgId),
+      ]);
+      setProviders(provRes?.providers || []);
+      setLeads(leadsRes?.leads || []);
+      setCollections(colRes?.collections || []);
+      setDuplicates(dupRes?.duplicates || []);
+      setCoverage(covRes || null);
+      setHistory(histRes?.history || []);
+      setPipeline(pipeRes || { statuses: LEAD_STATUS_OPTIONS, columns: {} });
+      setSummary(sumRes?.pipeline || []);
+    } catch (err) {
+      setError(formFailure(err));
+    }
+  }
+
+  useEffect(() => {
+    refreshAll(activeOrgId);
+  }, [activeOrgId, missingFilter]);
+
+  async function openLeadDetail(leadId) {
+    setError(null);
+    try {
+      const [detail, notesRes, actRes] = await Promise.all([
+        endpoints.leadDetail(leadId, activeOrgId),
+        endpoints.leadNotes(leadId, activeOrgId),
+        endpoints.leadActivity(leadId, activeOrgId),
+      ]);
+      setSelectedLead(detail);
+      setOwnerDraft(detail?.owner_id === null || detail?.owner_id === undefined ? "" : String(detail.owner_id));
+      setLeadNotes(notesRes?.notes || []);
+      setLeadActivity(actRes?.activity || []);
+    } catch (err) {
+      setError(formFailure(err));
+    }
+  }
+
+  async function handleSearch(event) {
+    event.preventDefault();
+    const issue = validateLeadSearchQuery(searchQuery);
+    if (issue) {
+      setError(issue);
+      return;
+    }
+    setBusy(true);
+    setError(null);
+    setNotice(null);
+    try {
+      const res = await endpoints.leadSearch(
+        { query: searchQuery.trim(), provider: "google_places", limit: Number(searchLimit) || 20 },
+        activeOrgId,
+      );
+      setNotice(`Discovered ${res.results?.length || 0} leads (${res.newLeadsCreated || 0} new, ${res.duplicatesDetected || 0} duplicates).`);
+      await refreshAll(activeOrgId);
+      setTab("leads");
+    } catch (err) {
+      setError(formFailure(err));
+      await refreshAll(activeOrgId);
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function handleCreateCollection(event) {
+    event.preventDefault();
+    const issue = validateCollectionName(collectionName);
+    if (issue) {
+      setError(issue);
+      return;
+    }
+    setBusy(true);
+    setError(null);
+    try {
+      await endpoints.leadCreateCollection({ name: collectionName.trim() }, activeOrgId);
+      setCollectionName("");
+      await refreshAll(activeOrgId);
+    } catch (err) {
+      setError(formFailure(err));
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function handleStatusChange(leadId, status) {
+    setBusy(true);
+    setError(null);
+    try {
+      await endpoints.leadUpdateStatus(leadId, { status }, activeOrgId);
+      await refreshAll(activeOrgId);
+      if (selectedLead?.id === leadId) await openLeadDetail(leadId);
+    } catch (err) {
+      setError(formFailure(err));
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function handleOwnerSave(event) {
+    event.preventDefault();
+    if (!selectedLead) return;
+    setBusy(true);
+    setError(null);
+    try {
+      const ownerId = ownerDraft.trim() === "" ? null : ownerDraft.trim();
+      await endpoints.leadUpdateOwner(selectedLead.id, { ownerId }, activeOrgId);
+      await openLeadDetail(selectedLead.id);
+      await refreshAll(activeOrgId);
+    } catch (err) {
+      setError(formFailure(err));
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function handleAddNote(event) {
+    event.preventDefault();
+    if (!selectedLead) return;
+    const issue = validateLeadNoteBody(noteDraft);
+    if (issue) {
+      setError(issue);
+      return;
+    }
+    setBusy(true);
+    setError(null);
+    try {
+      await endpoints.leadAddNote(selectedLead.id, { body: noteDraft.trim() }, activeOrgId);
+      setNoteDraft("");
+      await openLeadDetail(selectedLead.id);
+    } catch (err) {
+      setError(formFailure(err));
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function handleResolveDuplicate(candidateId, action) {
+    setBusy(true);
+    setError(null);
+    try {
+      await endpoints.leadResolveDuplicate({ candidateId, action }, activeOrgId);
+      await refreshAll(activeOrgId);
+    } catch (err) {
+      setError(formFailure(err));
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function handleExportPreview() {
+    setBusy(true);
+    setError(null);
+    try {
+      const res = await endpoints.leadExportPreview({}, activeOrgId);
+      setExportPreview(buildExportPreviewSummary(res));
+    } catch (err) {
+      setError(formFailure(err));
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  return (
+    <div className="view" data-surface="lead-discovery">
+      <header className="view-header">
+        <div>
+          <div className="overline">{LEADS_COPY.eyebrow} <span className="overline-line" /></div>
+          <h1>{LEADS_COPY.heading}</h1>
+          <p className="view-lede">{LEADS_COPY.lede}</p>
+        </div>
+        <div className="action-row">
+          <label className="inline-label">
+            Workspace
+            <select value={activeOrgId} onChange={(e) => setActiveOrgId(e.target.value)} aria-label="Organization workspace">
+              {workspaces.map((ws) => (
+                <option key={ws.id} value={ws.id}>{ws.name} ({ws.role})</option>
+              ))}
+            </select>
+          </label>
+          <button type="button" className="text-button" onClick={() => refreshAll(activeOrgId)} disabled={busy}>Refresh</button>
+        </div>
+      </header>
+
+      <Notice tone="info">{LEADS_COPY.noSyntheticRule}</Notice>
+      {notice ? <Notice tone="ok">{notice}</Notice> : null}
+      {error ? <Notice tone="warn">{error}</Notice> : null}
+
+      <section className="panel" aria-label="Provider status and pipeline summary">
+        <div className="action-row" style={{ justifyContent: "space-between", flexWrap: "wrap", gap: "0.75rem" }}>
+          <div className="action-row" style={{ flexWrap: "wrap", gap: "0.5rem" }}>
+            {providers.map((p) => {
+              const badge = formatProviderBadge(p);
+              return (
+                <span key={badge.name} className={`badge ${badge.tone}`} title={badge.detail}>
+                  {badge.name}: {badge.status} — {badge.detail}
+                </span>
+              );
+            })}
+          </div>
+          <div className="action-row" style={{ flexWrap: "wrap", gap: "0.5rem" }}>
+            {summary.map((row) => (
+              <span key={row.status} className="badge badge-gray">{row.status}: {row.total}</span>
+            ))}
+          </div>
+        </div>
+      </section>
+
+      <div className="action-row" role="tablist" aria-label="Lead Discovery sections" style={{ flexWrap: "wrap", gap: "0.5rem", marginBottom: "1rem" }}>
+        {LEADS_TABS.map((item) => (
+          <button
+            key={item.id}
+            type="button"
+            role="tab"
+            aria-selected={tab === item.id}
+            className={tab === item.id ? "primary-button" : "text-button"}
+            onClick={() => setTab(item.id)}
+          >
+            {item.label}
+          </button>
+        ))}
+      </div>
+
+      {tab === "discovery" ? (
+        <section className="panel" aria-labelledby="lead-search-heading">
+          <h2 id="lead-search-heading">Real-Provider Business Search</h2>
+          <form className="form-grid" onSubmit={handleSearch}>
+            <Field label="Search query (3–300 characters)" htmlFor="lead-search-query">
+              <input
+                id="lead-search-query"
+                value={searchQuery}
+                maxLength={300}
+                placeholder={LEADS_COPY.searchPlaceholder}
+                onChange={(e) => setSearchQuery(e.target.value)}
+                required
+              />
+            </Field>
+            <Field label="Max results (1–20)" htmlFor="lead-search-limit">
+              <input
+                id="lead-search-limit"
+                type="number"
+                min={1}
+                max={20}
+                value={searchLimit}
+                onChange={(e) => setSearchLimit(e.target.value)}
+              />
+            </Field>
+            <div className="action-row">
+              <button type="submit" className="primary-button" disabled={busy}>
+                {busy ? "Searching…" : "Discover Businesses"}
+              </button>
+            </div>
+          </form>
+        </section>
+      ) : null}
+
+      {tab === "leads" ? (
+        <section className="panel" aria-labelledby="saved-leads-heading">
+          <div className="action-row" style={{ justifyContent: "space-between" }}>
+            <h2 id="saved-leads-heading">Saved Leads ({leads.length})</h2>
+            <button type="button" className="text-button" onClick={handleExportPreview} disabled={busy}>
+              Preview CSV-Safe Export
+            </button>
+          </div>
+          {exportPreview ? (
+            <Notice tone="info">
+              Export preview ready: {exportPreview.previewCount} of {exportPreview.count} lead(s) shown (CSV formula-injection guard: {exportPreview.csvSafe ? "active" : "inactive"}).
+            </Notice>
+          ) : null}
+          {leads.length === 0 ? (
+            <StateBox title="No leads stored" detail={LEADS_COPY.emptyLeads} />
+          ) : (
+            <div className="table-wrap">
+              <table className="data-table">
+                <thead>
+                  <tr>
+                    <th>Name</th>
+                    <th>Category</th>
+                    <th>Address</th>
+                    <th>Phone</th>
+                    <th>Website</th>
+                    <th>Status</th>
+                    <th>Actions</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {leads.map((lead) => (
+                    <tr key={lead.id}>
+                      <td><strong>{lead.name}</strong></td>
+                      <td>{lead.category || "—"}</td>
+                      <td>{lead.address || "—"}</td>
+                      <td>{lead.phone || "—"}</td>
+                      <td>{lead.website || "—"}</td>
+                      <td>
+                        <select
+                          value={lead.status}
+                          aria-label={`Status for ${lead.name}`}
+                          onChange={(e) => handleStatusChange(lead.id, e.target.value)}
+                        >
+                          {LEAD_STATUS_OPTIONS.map((st) => (
+                            <option key={st} value={st}>{st}</option>
+                          ))}
+                        </select>
+                      </td>
+                      <td>
+                        <button type="button" className="text-button" onClick={() => openLeadDetail(lead.id)}>
+                          Inspect
+                        </button>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )}
+          {selectedLead ? (
+            <div className="panel" style={{ marginTop: "1rem" }}>
+              <h3>Lead Detail: {selectedLead.name}</h3>
+              <p>
+                Source: <code>{selectedLead.source}</code> ({selectedLead.source_id}) · Status: <strong>{selectedLead.status}</strong>
+                {parseLeadMetadata(selectedLead).duplicateResolution ? " · Archived duplicate" : ""}
+              </p>
+              <form className="action-row" onSubmit={handleOwnerSave}>
+                <input
+                  placeholder="Owner user ID (blank to clear)"
+                  value={ownerDraft}
+                  onChange={(e) => setOwnerDraft(e.target.value)}
+                />
+                <button type="submit" className="text-button" disabled={busy}>Save Owner</button>
+              </form>
+              <form className="action-row" onSubmit={handleAddNote} style={{ marginTop: "0.75rem" }}>
+                <input
+                  placeholder="Add qualification note (1–4000 chars)"
+                  value={noteDraft}
+                  maxLength={4000}
+                  onChange={(e) => setNoteDraft(e.target.value)}
+                />
+                <button type="submit" className="primary-button" disabled={busy}>Add Note</button>
+              </form>
+              <div className="grid-two" style={{ marginTop: "1rem" }}>
+                <div>
+                  <h4>Notes ({leadNotes.length})</h4>
+                  {leadNotes.length === 0 ? <p>{LEADS_COPY.emptyNotes}</p> : (
+                    <ul>
+                      {leadNotes.map((n) => <li key={n.id}>{n.body} <small>({n.created_at})</small></li>)}
+                    </ul>
+                  )}
+                </div>
+                <div>
+                  <h4>Activity Trail ({leadActivity.length})</h4>
+                  {leadActivity.length === 0 ? <p>{LEADS_COPY.emptyActivity}</p> : (
+                    <ul>
+                      {leadActivity.map((a) => <li key={a.id}><code>{a.type}</code> <small>({a.created_at})</small></li>)}
+                    </ul>
+                  )}
+                </div>
+              </div>
+            </div>
+          ) : null}
+        </section>
+      ) : null}
+
+      {tab === "pipeline" ? (
+        <section className="panel" aria-labelledby="lead-pipeline-heading">
+          <h2 id="lead-pipeline-heading">Qualification Pipeline Board</h2>
+          <div className="grid-three">
+            {(pipeline.statuses || LEAD_STATUS_OPTIONS).map((st) => {
+              const col = pipeline.columns?.[st] || [];
+              return (
+                <div key={st} className="panel">
+                  <h3>{st.toUpperCase()} ({col.length})</h3>
+                  {col.length === 0 ? <p className="muted">No leads in {st}.</p> : (
+                    <ul>
+                      {col.map((lead) => (
+                        <li key={lead.id}>
+                          <strong>{lead.name}</strong> — {lead.category || "Uncategorized"}
+                        </li>
+                      ))}
+                    </ul>
+                  )}
+                </div>
+              );
+            })}
+          </div>
+        </section>
+      ) : null}
+
+      {tab === "collections" ? (
+        <section className="panel" aria-labelledby="lead-collections-heading">
+          <h2 id="lead-collections-heading">Lead Collections ({collections.length})</h2>
+          <form className="action-row" onSubmit={handleCreateCollection}>
+            <input
+              placeholder="New collection name (1–150 chars)"
+              value={collectionName}
+              maxLength={150}
+              onChange={(e) => setCollectionName(e.target.value)}
+            />
+            <button type="submit" className="primary-button" disabled={busy}>Create Collection</button>
+          </form>
+          {collections.length === 0 ? (
+            <StateBox title="No collections" detail={LEADS_COPY.emptyCollections} />
+          ) : (
+            <ul>
+              {collections.map((c) => (
+                <li key={c.id}>
+                  <strong>{c.name}</strong> ({c.leadCount ?? 0} leads)
+                </li>
+              ))}
+            </ul>
+          )}
+        </section>
+      ) : null}
+
+      {tab === "duplicates" ? (
+        <section className="panel" aria-labelledby="lead-duplicates-heading">
+          <h2 id="lead-duplicates-heading">Open Duplicate Candidates ({duplicates.length})</h2>
+          {duplicates.length === 0 ? (
+            <StateBox title="No open duplicates" detail={LEADS_COPY.emptyDuplicates} />
+          ) : (
+            <div className="table-wrap">
+              <table className="data-table">
+                <thead>
+                  <tr>
+                    <th>Lead A</th>
+                    <th>Lead B</th>
+                    <th>Rule</th>
+                    <th>Confidence</th>
+                    <th>Resolution</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {duplicates.map((d) => (
+                    <tr key={d.id}>
+                      <td>{d.leadAName || d.lead_a_id}</td>
+                      <td>{d.leadBName || d.lead_b_id}</td>
+                      <td><code>{d.rule_name}</code></td>
+                      <td>{Math.round(Number(d.confidence || 0) * 100)}%</td>
+                      <td className="action-row">
+                        {DUPLICATE_RESOLUTION_ACTIONS.map((item) => (
+                          <button
+                            key={item.action}
+                            type="button"
+                            className="text-button"
+                            disabled={busy}
+                            onClick={() => handleResolveDuplicate(d.id, item.action)}
+                          >
+                            {item.label}
+                          </button>
+                        ))}
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )}
+        </section>
+      ) : null}
+
+      {tab === "coverage" ? (
+        <section className="panel" aria-labelledby="lead-coverage-heading">
+          <h2 id="lead-coverage-heading">Field Coverage Diagnostics ({coverage?.leadCount ?? 0} leads)</h2>
+          <div className="table-wrap">
+            <table className="data-table">
+              <thead>
+                <tr>
+                  <th>Field</th>
+                  <th>Coverage %</th>
+                  <th>Missing Count</th>
+                  <th>Filter</th>
+                </tr>
+              </thead>
+              <tbody>
+                {(coverage?.fields || []).map((f) => (
+                  <tr key={f.key}>
+                    <td>{f.field}</td>
+                    <td>{f.coverage}%</td>
+                    <td>{f.missing}</td>
+                    <td>
+                      <button type="button" className="text-button" onClick={() => setMissingFilter(f.key)}>
+                        Show missing
+                      </button>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </section>
+      ) : null}
+
+      {tab === "history" ? (
+        <section className="panel" aria-labelledby="lead-history-heading">
+          <h2 id="lead-history-heading">Provider Search History ({history.length})</h2>
+          {history.length === 0 ? (
+            <StateBox title="No searches yet" detail={LEADS_COPY.emptyHistory} />
+          ) : (
+            <div className="table-wrap">
+              <table className="data-table">
+                <thead>
+                  <tr>
+                    <th>Query</th>
+                    <th>Provider</th>
+                    <th>Returned</th>
+                    <th>New</th>
+                    <th>Duplicates</th>
+                    <th>Error</th>
+                    <th>Duration (ms)</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {history.map((h) => (
+                    <tr key={h.id}>
+                      <td>{h.query}</td>
+                      <td><code>{h.provider}</code></td>
+                      <td>{h.results_returned}</td>
+                      <td>{h.new_leads_created}</td>
+                      <td>{h.duplicates_detected}</td>
+                      <td>{h.errors || "—"}</td>
+                      <td>{h.duration_ms}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )}
+        </section>
+      ) : null}
+    </div>
+  );
+}
+

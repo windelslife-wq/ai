@@ -77,7 +77,7 @@ test("RETENTION the policy is four named windows and two rows are off by default
   for (const name of ["pruneAuditEvents", "pruneNotifications", "pruneBacktests", "pruneAnalysisRuns"]) {
     assert.ok(REPOSITORY_METHODS.includes(name), `${name} must be part of the repository contract`);
   }
-  assert.equal(REPOSITORY_METHODS.length, 188);
+  assert.equal(REPOSITORY_METHODS.length, 210);
 
   // Every target names the environment variable that turns it on — that name is
   // what the CLI prints when the window is off, so a typo would be a dead end.

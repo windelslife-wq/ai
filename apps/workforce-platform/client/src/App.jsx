@@ -17,7 +17,7 @@ import { Link, matchRoute, RouterProvider, useRouter } from "./router.jsx";
 import { ConnectivityBanner, Notice, UpdateBanner } from "./ui.jsx";
 import {
   AccountView, AdminControlCentreView, AdminUsersView, AnalysisWorkforceView, AuditView, Brand,
-  BrokerCenterView, ChatWidget, ExecutionView, InquiriesView, JournalView, LoginPanel,
+  BrokerCenterView, ChatWidget, ExecutionView, InquiriesView, JournalView, LeadDiscoveryView, LoginPanel,
   LotteryLabView, LotteryOperationsView, ModuleCards, NotificationsView, NotFoundView, PortfolioOptimizerView,
   PaperConsoleView, RegisterPanel, RiskCenterView, SportsIntelligenceView, StatusPill, StatusView, StrategyLabView, WorkspaceDashboard,
   WorkspaceNav,
@@ -85,6 +85,10 @@ const ROUTES = [
   // `views/brokers/index.php`. One read (`GET /api/v1/brokers`, `trading.view`) and no
   // write of any kind; the screen states the two legacy panels this port does not register.
   { path: "/app/brokers", view: "broker-center", requiresAuth: true, permission: "trading.view" },
+  // Row 17 (Phase 45): the Lead Discovery console (`Leads::index` and `Leads::pipeline`).
+  // Every route requires `system.authenticated`, which every signed-in account holds.
+  { path: "/app/leads", view: "lead-discovery", requiresAuth: true, permission: "system.authenticated" },
+  { path: "/app/leads/pipeline", view: "lead-pipeline", requiresAuth: true, permission: "system.authenticated" },
   // Row 3 (Phase 35): the administrator control centre. Legacy's `Admin::index` was
   // `requireAdmin()` — `system.super_admin`, a shortcut that also passes every
   // permission check — so a viewer holding only `identity.users.view` sees the
@@ -432,6 +436,8 @@ function SessionApp() {
       "execution-center": <ExecutionView permissions={permissions} />,
       journal: <JournalView />,
       "broker-center": <BrokerCenterView permissions={permissions} />,
+      "lead-discovery": <LeadDiscoveryView initialTab="discovery" />,
+      "lead-pipeline": <LeadDiscoveryView initialTab="pipeline" />,
       "admin-control-centre": <AdminControlCentreView permissions={permissions} />,
       "admin-users": <AdminUsersView user={user} permissions={permissions} />,
       audit: <AuditView />,

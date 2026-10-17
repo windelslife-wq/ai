@@ -1,6 +1,6 @@
 # Unfinished modules — name index
 
-**Compiled:** 2026-10-17 (updated after Phase 43) · **Source of truth:** the in-code ledger in
+**Compiled:** 2026-10-17 (updated after Phase 45) · **Source of truth:** the in-code ledger in
 `apps/workforce-platform/src/modules/platform/health.js` (served by `/api/v1/system/features`
 and `/api/v1/system/status`), cross-checked against `docs/migration/UNFINISHED_MODULES.md`
 and `docs/migration/STATUS.md`.
@@ -10,7 +10,7 @@ already exist and pass tests in the PHP application; they are still unfinished a
 
 ---
 
-## A. Platform status ledger — 17 modules, 5 unfinished (12 ported / 3 partial / 2 not-ported)
+## A. Platform status ledger — 17 modules, 4 unfinished (13 ported / 3 partial / 1 not-ported)
 
 ### Partial (code exists, work remains) — 3
 
@@ -20,12 +20,11 @@ already exist and pass tests in the PHP application; they are still unfinished a
 | 2 | `brokers` | **Broker Center and broker connectors** | Console landed (Phase 40, `/app/brokers`); ten adapters registered but all disabled by default, no order routing, no simulated bridge, no MT5 account/quote read, no adapter verified against its provider (MT5 real-terminal validation outstanding). |
 | 3 | `sports` | **Sports intelligence** | Stake sizing; no live provider verified against a real vendor. (The console screens left this row in Phase 36: `/app/sports` is `Sports::index` and `Sports::tickets`, and the decision route gained `Api_sports::decide_ticket`'s kill-switch refusal.) |
 
-### Not ported (Node equivalent absent) — 2
+### Not ported (Node equivalent absent) — 1
 
 | # | Module key | Name | Existing code |
 |---:|---|---|---|
 | 4 | `languageLearning` | **Language learning / AI teacher** | PHP only: `application/libraries/Aegis/LangLearn/`, `application/views/langlearn/`, `tests/cases/36-language-teacher.php`. |
-| 5 | `leadDiscovery` | **Lead discovery** | PHP `application/libraries/LeadDiscovery/` + legacy Scout; separate Node/TypeScript stacks in `apps/api/` and `apps/web/`. |
 
 Ported (for contrast): `identity`, `publicSite` (Phase 43 ported the grounded public chat
 assistant `POST /api/v1/chat/respond` and the floating widget on both the public pages and the
@@ -34,8 +33,12 @@ signed-in workspace shell, advancing `publicSite` from `partial` to `ported`), `
 in Phase 31, closing the module's last recorded entry), `paperTrading`, `risk`, `scheduledJobs`
 (Phase 44 ported the 80/70/60 % early-warning tiers, gross notional leverage check and static
 disclosed correlation-group enforcement, closing SJ-8, SJ-9 and F-30 and advancing `scheduledJobs`
-from `partial` to `ported`), and — since Phase 30, when its last unported entry (the console
-screens) became a ported surface and its own `notPorted` matrix went empty — `lottery`.
+from `partial` to `ported`), `leadDiscovery` (Phase 45 ported the organization-scoped Lead Discovery
+module, migration `020_lead_discovery.sql`, 22 repository methods, `GooglePlacesProvider`,
+`Deduplicator`, 23 `/api/v1/lead-discovery/*` routes, and the console at `/app/leads` and
+`/app/leads/pipeline`, advancing `leadDiscovery` from `not-ported` to `ported`), and — since Phase
+30, when its last unported entry (the console screens) became a ported surface and its own
+`notPorted` matrix went empty — `lottery`.
 
 ---
 
@@ -57,7 +60,7 @@ screens) became a ported surface and its own `notPorted` matrix went empty — `
 | 14 | Sports intelligence | Stake sizing, live vendor (the console landed in Phase 36, `/app/sports`) |
 | 15 | Lottery intelligence and Operations console | **Ported** (Phase 30): both console screens land at `/app/lottery` and `/app/lottery/lab`, the module's `notPorted` matrix is empty, and `lottery` moved to `ported` in the ledger. What remains is host-level, not code: no authorized official feed configured |
 | 16 | **Language learning / AI teacher** | Node port absent |
-| 17 | **Lead Discovery: CI3 module + Scout consolidation** | Unity/consolidation decision outstanding |
+| 17 | **Lead Discovery: CI3 module + Scout consolidation** | **Ported** (Phase 45): organization-scoped Lead Discovery tables (`020_lead_discovery.sql`), 22 repository methods across file and MySQL adapters, `GooglePlacesProvider` (`GOOGLE_PLACES_API_KEY`, disabled by default and never fabricating business records), `Deduplicator`, 23 `/api/v1/lead-discovery/*` routes, and the console at `/app/leads` and `/app/leads/pipeline`. `leadDiscovery` moved from `not-ported` to `ported`. |
 | 18 | **Chat, journal, trading tools and remaining platform surfaces** | **Closed** (Phases 41 & 43): journal console landed in Phase 41 (`/app/journal`), the public chat assistant (`Api_chat::respond`, `Aegis\ChatAssistant`) and floating widget landed in Phase 43 (`POST /api/v1/chat/respond`), and the legacy CLI tools map to the npm commands named in `UNFINISHED_MODULES.md` row 18. |
 | 19 | Scheduled jobs, CLI and resumable work | **Ported** (Phase 12 + Phase 14 + Phase 20 + Phase 25 + Phase 44): operations cron (`npm run jobs`), sports cron (`npm run sports:jobs`), lottery cron (`npm run lottery:jobs`), broker connect/disconnect transitions, 80/70/60 % early-warning tiers (SJ-8), gross notional leverage and correlation-group checks (SJ-9, F-30). `scheduledJobs` moved from `partial` to `ported`. Host crontab installation and scheduled live-provider probe (F-25) remain deployment items. |
 | 20 | **Football Predictions app integration** | Isolated app; consolidate-or-not decision; first-run MySQL/live provider/cPanel staging unverified |

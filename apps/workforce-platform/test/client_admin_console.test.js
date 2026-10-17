@@ -211,10 +211,10 @@ test("the readiness table is the ledger itself, with the server's own legend", (
     assert.ok(row.label.length > 0, `${row.key} has a label`);
     assert.equal(typeof row.tests, "string");
   }
-  // Two rows carry no test list — the two modules that are not ported — and the
-  // table says "not stated" for them instead of inventing checks.
+  // One row carries no test list — the one module that is not ported (row 16) — and the
+  // table says "not stated" for it instead of inventing checks.
   const withoutTests = rows.filter((row) => row.tests === "").map((row) => row.key);
-  assert.deepEqual(withoutTests, ["languageLearning", "leadDiscovery"]);
+  assert.deepEqual(withoutTests, ["languageLearning"]);
   assert.match(readFileSync(path.join(CLIENT, "views.jsx"), "utf8"), /\{row\.tests \|\| "not stated"\}/);
   for (const row of rows) {
   }

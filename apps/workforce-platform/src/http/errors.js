@@ -59,8 +59,8 @@ export class AppError extends Error {
     return new AppError(500, "INTERNAL_ERROR", message, { cause });
   }
 
-  static unavailable(message = "The service is temporarily unavailable", { code = "SERVICE_UNAVAILABLE", retryAfter = 5 } = {}) {
-    return new AppError(503, code, message, { retryAfter });
+  static unavailable(message = "The service is temporarily unavailable", { code = "SERVICE_UNAVAILABLE", details = null, retryAfter = 5 } = {}) {
+    return new AppError(503, code, message, { details, retryAfter });
   }
 
   toBody() {

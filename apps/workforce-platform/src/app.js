@@ -53,6 +53,8 @@ import { sportsRoutes } from "./modules/sports/routes.js";
 import { createSportsService } from "./modules/sports/service.js";
 import { lotteryRoutes } from "./modules/lottery/routes.js";
 import { createLotteryService } from "./modules/lottery/service.js";
+import { leadDiscoveryRoutes } from "./modules/leads/routes.js";
+import { createLeadDiscoveryService } from "./modules/leads/service.js";
 import { createBrokerRegistry } from "./modules/brokers/registry.js";
 
 const JSON_TYPE = "application/json; charset=utf-8";
@@ -210,11 +212,12 @@ export async function buildApp({ config, store, logger = true, publicDir = path.
   // The service performs NO writes at construction (LT-4): the game registry row is
   // ensured lazily on the first call that needs it, so booting stays read-free.
   const lottery = createLotteryService({ config, store });
+  const leads = createLeadDiscoveryService({ config, store });
 
   // The status surface reports the notification module alongside market data and
   // analysis, so an operator can see that alerts are stored-and-read only and that
   // no outbound delivery channel exists.
-  await app.register(healthRoutes, { prefix: "/api/v1", store, config, adapter, router, marketData, analysis, notifications, brokers, sports, chat });
+  await app.register(healthRoutes, { prefix: "/api/v1", store, config, adapter, router, marketData, analysis, notifications, brokers, sports, chat, leads });
   if (config.auth !== false) {
     await app.register(identityRoutes, { prefix: "/api/v1", store, config, loginGuard });
   }
@@ -272,6 +275,10 @@ export async function buildApp({ config, store, logger = true, publicDir = path.
   // slice does not create, so none of them is ported; the status route carries the
   // not-ported matrix.
   await app.register(lotteryRoutes, { prefix: "/api/v1", store, config, lottery });
+  // Lead Discovery (row 17 — Phase 45): organization-scoped workspaces, provider
+  // health, business search, duplicate review, collections, pipeline, coverage,
+  // search history, and CSV-safe export.
+  await app.register(leadDiscoveryRoutes, { prefix: "/api/v1", store, config, service: leads });
 
   /**
    * Scheduled operations (row 19): the portfolio risk sweep and the cross-owner

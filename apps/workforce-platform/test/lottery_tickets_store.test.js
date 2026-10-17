@@ -47,7 +47,7 @@ test("the seven slice-3 methods are part of the 180-method contract, on both ada
   const store = await createFileStore({ dir: storeDir, syncWrites: false });
   t.after(() => store.close());
 
-  assert.equal(REPOSITORY_METHODS.length, 188, "180 (slice 3) + 5 measured-half methods + 3 row-5 retention methods");
+  assert.equal(REPOSITORY_METHODS.length, 210, "180 (slice 3) + 5 measured-half methods + 3 row-5 retention methods + 22 row-17 Lead Discovery methods");
   for (const name of ["saveLotteryTicket", "findLotteryTicket", "listLotteryTickets", "listAllLotteryTickets", "updateLotteryTicket", "listLotteryTicketLines", "saveLotteryTicketLines"]) {
     assert.equal(typeof store[name], "function", `the file adapter implements ${name}`);
     assert.ok(LOTTERY_REPOSITORY_METHODS.includes(name), `the SQL adapter declares ${name}`);

@@ -2,7 +2,32 @@
 
 **Updated:** 2026-10-17 · **Branch:** `arena/0d5104b6-ai`
 
-## Current Phase 44 status (2026-10-17)
+## Current Phase 45 status (2026-10-17)
+
+**Row 17 (`leadDiscovery`) is ported end to end across schema, dual-adapter repository, provider
+boundary, deduplicator, 23 HTTP routes, and the workspace console (`/app/leads` and
+`/app/leads/pipeline`), advancing `leadDiscovery` from `not-ported` to `ported` and moving the
+17-module ledger to 13 ported / 3 partial / 1 not-ported.**
+
+**Organization-scoped schema and dual-adapter persistence (`020_lead_discovery.sql`).** Migration
+`020_lead_discovery.sql` creates the 11 `wf_lead_*` / `wf_leads` tables (`54 → 65` tables total),
+and `src/persistence/contract.js` (`188 → 210` methods), `src/persistence/file-store.js`, and
+`src/db/lead-repository.js` implement all 22 organization-scoped Lead Discovery repository methods.
+First authenticated access auto-provisions a private workspace (`org-<userId>`, role `owner`), and
+`X-Lead-Organization` is verified in constant time against `wf_lead_organization_members`.
+
+**Strict real-provider boundary, secondary duplicate detection, and console (`src/modules/leads/`,
+`client/src/leads.js`).** `createGooglePlacesProvider` (`GOOGLE_PLACES_API_KEY`) reports `DISABLED`
+by default and fails closed with HTTP `503` without fabricating synthetic business records while
+recording search attempts in `wf_lead_search_history`. `Deduplicator` (`website_domain` `0.95`,
+`normalized_phone` `0.92`, `name_address` `0.84`) creates `open` review candidates resolved via
+`keep_a`, `keep_b`, `merge`, or `ignore`. The console at `/app/leads` and `/app/leads/pipeline`
+(plus legacy redirects `/leads` and `/lead-pipeline`) covers discovery search, saved leads,
+pipeline board, collections, duplicate review, field coverage diagnostics, search history, and
+CSV-safe export (`safeCsvValue`). Full record:
+[`PHASE45_LEAD_DISCOVERY.md`](PHASE45_LEAD_DISCOVERY.md).
+
+## Phase 44 status (2026-10-17) — superseded by Phase 45
 
 **Row 11's `F-30` (`maxCorrelatedPositions` enforcement) and Row 19's `SJ-8` / `SJ-9`
 (early-warning tiers at 80/70/60 %, gross notional leverage and correlated-position checks) are

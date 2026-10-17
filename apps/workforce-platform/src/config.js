@@ -751,6 +751,21 @@ function loadMailConfig(env, { production }) {
   });
 }
 
+/**
+ * Lead Discovery provider configuration (row 17 — Phase 45).
+ *
+ * Legacy (`application/libraries/LeadDiscovery/GooglePlacesProvider.php`) read
+ * `GOOGLE_PLACES_API_KEY` from the environment; when blank, `google_places`
+ * reports `DISABLED` and refuses searches with HTTP 503 rather than fabricating
+ * synthetic business records.
+ */
+function loadLeadDiscoveryConfig(env) {
+  return Object.freeze({
+    googlePlacesApiKey: String(env.GOOGLE_PLACES_API_KEY || "").trim(),
+    googlePlacesTimeoutSeconds: 12,
+  });
+}
+
 export function loadConfig(env = process.env) {
   assertSupportedNodeVersion();
   const mode = env.NODE_ENV || "development";
@@ -819,6 +834,7 @@ export function loadConfig(env = process.env) {
     brokers: loadBrokerConfig(env, { production }),
     sports: loadSportsConfig(env, { production }),
     lottery: loadLotteryConfig(env),
+    leads: loadLeadDiscoveryConfig(env),
     analysis: loadAnalysisConfig(env),
     retention: loadRetentionConfig(env),
     mail: loadMailConfig(env, { production }),
