@@ -190,6 +190,18 @@ export const endpoints = {
   riskLimits: () => api("/api/v1/risk/limits"),
   updateRiskLimits: (patch) => api("/api/v1/risk/limits/update", { method: "POST", body: patch }),
   portfolioRiskScan: (query = "") => api(`/api/v1/portfolio/risk-scan${query}`),
+  // The Execution Center console (Phase 39). Every read is `trading.view` except the
+  // strategy list, which the server guards with authentication alone; proposing and
+  // paper submission are `trading.execute`, and the decision — a governance act — is
+  // `trading.control`. The screen checks the same permissions before offering a control,
+  // and the API re-checks them either way. There is deliberately no route for broker
+  // routing, automated execution or the automation envelope: `routes.js` registers none.
+  executionStatus: () => api("/api/v1/execution/status"),
+  executionProposals: (query = "") => api(`/api/v1/execution/proposals${query}`),
+  executionProposal: (proposalId) => api(`/api/v1/execution/proposals/${encodeURIComponent(proposalId)}`),
+  proposeExecution: (payload) => api("/api/v1/execution/proposals", { method: "POST", body: payload }),
+  decideExecution: (proposalId, payload) => api(`/api/v1/execution/proposals/${encodeURIComponent(proposalId)}/decision`, { method: "POST", body: payload }),
+  submitExecutionPaper: (proposalId) => api(`/api/v1/execution/proposals/${encodeURIComponent(proposalId)}/paper-submit`, { method: "POST", body: {} }),
   // Sports Intelligence console (Phase 36). Every read here is `sports.view` on the
   // server except the active configuration, which is one of the module's two
   // `sports.manage` reads; the two writes are `sports.approve` (the decision, which also

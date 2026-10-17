@@ -2,7 +2,70 @@
 
 **Updated:** 2026-10-17 · **Branch:** `arena/046b29ac-ai`
 
-## Current Phase 38 status (2026-10-17)
+## Current Phase 39 status (2026-10-17)
+
+**Row 2 has no screen left: `/app/execution` is the port of `Execution::index` →
+`views/execution/index.php`.** The propose form, the human decision, the proposals table with its
+persisted pipeline checks, the broker executions panel and the automation envelope — over the six
+routes `src/modules/execution/routes.js` actually registers. **146 routes before and after — no
+route, migration, contract method, repository method, permission or dependency was added.** The
+module's HTTP surface was ported in Phases 8A and 13; this phase ported the screen over it.
+
+**This is the first console whose gap is a missing half rather than a divergence, and it says so
+three times.** (1) **The port performs three of the fifteen supervisor steps** — `kill-switch`,
+`trading-mode` and `strategy`, plus the audit step — and the pipeline panel marks every step as this
+port's, the separate `trading.control` decision, or broker-bound (row 13), instead of presenting
+three checks as a fifteen-step run. (2) **The automation envelope is not stored**: there is no
+`GET /api/v1/trading/limits`, no `updateAutomationLimits`, no `POST /api/v1/execution` and no
+`automationModeGate`; the panel shows `ExecutionSupervisor::automationLimits()`'s own defaults
+labelled as **legacy defaults**, and notes that `POST /trading/mode` accepts only `ANALYSIS_ONLY`
+and `PAPER_TRADING`, so the automated modes cannot even be selected here. (3) **The step after
+approval is a paper submission**: there is no broker route and no executions read, so the Brokers
+panel carries legacy's empty-state sentence plus the reason it can only ever be empty, and the
+outcome sentence never borrows legacy's "broker order created".
+
+**Four divergences are named rather than discovered.** The form names the **paper account** because
+the port's proposals are owner- and account-scoped (legacy had one implicit portfolio); it offers a
+**risk fraction instead of a volume** because the intent has no volume field and the Risk Engine
+sizes the position; a decision needs a **written reason of 10–1000 characters** (`DECISION_BODY`)
+where legacy took a bare `approve=1|0`; and it uses the contract's market-class spellings
+(`futures, indices, bonds`) rather than legacy's singular three, which `PROPOSAL_BODY` would reject.
+Legacy's status vocabulary is pinned to the PHP's tone map and the port's to `PROPOSALS_QUERY`, so
+`READY_TO_ROUTE` / `EXECUTED` / `FAILED` cannot quietly appear where no broker route exists.
+
+A fourteenth client contract suite (`test/client_execution_console.test.js`, **27 tests**, ten of
+them over HTTP) parses the fifteen pipeline steps **out of the supervisor's own docblock** and
+compares them step for step, extracts the port's `addCheck` calls from `service.js` and compares them
+to the declared checks, asserts every read and write against `/api/v1/system/routes` (and asserts
+`/api/v1/execution`, `…/route` and `trading/limits` are **absent**), and drives the live app: a
+`trading.view` viewer reads all five surfaces and is refused all three writes; an executive holding
+`trading.execute` but not `trading.control` cannot approve their own proposal (403) and cannot submit
+it early (409); the kill switch stops a proposal at step 1 with legacy's detail sentence and
+`ANALYSIS_ONLY` at step 2; a short reason is the schema's 400 and changes nothing; a valid decision is
+audited and hands the proposal to `paper-submit`, producing `PAPER_EXECUTED` with a synthetic filled
+order. Gates: `npm run check:workforce` **1148 / 1148** (1121 before: +27), the client suites
+**171 / 171**, `npm run typecheck` clean, `npm run test:contracts` 12/12, the client build
+(`index-NvWKdgRS.js` 560.99 kB / 149.69 kB gzip, `index-D_kH6U8l.css` 44.85 kB / 9.44 kB gzip) and
+`npm run verify:install -- --require-bundle` **30 / 30**, plus a **39 / 39** live probe against a
+rebuilt demo host. The probe's first run was refused 409 `PAPER_REJECTED` because the demo leaves
+synthetic prices off — the paper engine's own gate — so the probe enables the flag for the submission
+and restores all three governance switches afterwards. **Not run:** a real browser, real
+MySQL/MariaDB, any live provider, SMTP, cPanel/Passenger, and still no PHP↔Node numeric diff (F-26).
+Full record: [`PHASE39_EXECUTION_CENTER.md`](PHASE39_EXECUTION_CENTER.md).
+
+**Building this screen found and fixed a shell-wide rendering defect, D-24:** `StateBox` returned its
+`empty` node whenever a read was `ready`, so every panel that passed both an empty message and its
+data rendered only the message — the paper boards, the Risk Center's scan and audit panels, the
+sports tables and the admin lists were all affected. The primitive now prefers `children`, and the
+eighteen call sites that passed an unconditional literal compute their fallback from the data.
+Rendering in a real browser is still unverified (there is none here), so the suite pins the shape
+rather than a screenshot.
+
+**F-29's residual list is now two: brokers and journal** — execution left it. **The module counts are
+unchanged — 10 ported / 5 partial / 2 not-ported.**
+
+## Phase 38 status (2026-10-17) — superseded by Phase 39
+
 
 **Row 11 has no screen left: `/app/risk` is the port of `Risk_center::index` → `views/risk/index.php`.**
 The eleven independent limits with veto power over every trade, the five persisted limits legacy's form

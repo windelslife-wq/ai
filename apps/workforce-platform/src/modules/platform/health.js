@@ -91,7 +91,7 @@ export const MODULE_STATUS = Object.freeze([
   // while the platform was stopped" was unanswerable. Every refusal is now audited
   // outside the transaction that rolled back, and the governance refusal broadcasts a
   // daily-deduped `ROUTING_BLOCKED` alert, as legacy's `routingBlocked()` did.
-  { key: "execution", label: "Human-reviewed paper proposals with fail-closed governance and blocked-submission evidence (no live route, no automated mode; the remaining supervisor steps are broker-bound row 13, not unfinished governance)", state: "partial", tests: "unit + http + persistence + governance bypass/recovery" },
+  { key: "execution", label: "Human-reviewed paper proposals with fail-closed governance and blocked-submission evidence, and the Execution Center console at /app/execution (Phase 39), which ports `Execution::index`'s propose and decide panels, shows all fifteen supervisor steps and marks where this port stops, and states the automation envelope as unported rather than faking it. No live route and no automated mode: the remaining supervisor steps are broker-bound (row 13), not unfinished governance. F-29 no longer counts the execution screen as absent; brokers and the journal remain", state: "partial", tests: "unit + http + persistence + governance bypass/recovery + client console" },
   // Phase 12 ports `Tools::cron()`: the portfolio risk sweep across every owner and
   // the cross-owner stale-proposal expiry, coordinated by a `wf_job_locks` row and
   // driven by the host's cron through `tools/scheduled-jobs.mjs`. It is `partial`,

@@ -17,7 +17,7 @@ import { Link, matchRoute, RouterProvider, useRouter } from "./router.jsx";
 import { ConnectivityBanner, Notice, UpdateBanner } from "./ui.jsx";
 import {
   AccountView, AdminControlCentreView, AdminUsersView, AnalysisWorkforceView, AuditView, Brand,
-  InquiriesView, LoginPanel,
+  ExecutionView, InquiriesView, LoginPanel,
   LotteryLabView, LotteryOperationsView, ModuleCards, NotificationsView, NotFoundView, PortfolioOptimizerView,
   PaperConsoleView, RegisterPanel, RiskCenterView, SportsIntelligenceView, StatusPill, StatusView, StrategyLabView, WorkspaceDashboard,
   WorkspaceNav,
@@ -71,6 +71,12 @@ const ROUTES = [
   // and the portfolio scan); the limits write inside is `trading.control` and the audit
   // panel is `identity.users.view`, both checked by the view before they are offered.
   { path: "/app/risk", view: "risk-center", requiresAuth: true, permission: "trading.view" },
+  // Row 2 (Phase 39): the Execution Center, the port of `Execution::index` →
+  // `views/execution/index.php`. Every read is `trading.view`; proposing and paper
+  // submission inside the screen are `trading.execute` and the decision is
+  // `trading.control`, checked by the view before they are offered. Broker routing and
+  // the automated modes are not registered anywhere, so no route here implies them.
+  { path: "/app/execution", view: "execution-center", requiresAuth: true, permission: "trading.view" },
   // Row 3 (Phase 35): the administrator control centre. Legacy's `Admin::index` was
   // `requireAdmin()` — `system.super_admin`, a shortcut that also passes every
   // permission check — so a viewer holding only `identity.users.view` sees the
@@ -414,6 +420,7 @@ function SessionApp() {
       "sports-intelligence": <SportsIntelligenceView permissions={permissions} />,
       "paper-console": <PaperConsoleView permissions={permissions} />,
       "risk-center": <RiskCenterView permissions={permissions} />,
+      "execution-center": <ExecutionView permissions={permissions} />,
       "admin-control-centre": <AdminControlCentreView permissions={permissions} />,
       "admin-users": <AdminUsersView user={user} permissions={permissions} />,
       audit: <AuditView />,

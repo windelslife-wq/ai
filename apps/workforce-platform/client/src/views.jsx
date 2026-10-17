@@ -102,6 +102,18 @@ import {
   auditRows, governanceFacts, holdsRiskPermission, limitFormState, limitPatch, otherLimitRows,
   scanSummary, validateLimitForm,
 } from "./risk.js";
+// Row 2 (Phase 39): the Execution Center. `moneyText`/`percentText`/`countText` are also
+// exported by the sports and risk blocks, so the execution ones are aliased where they
+// collide; the pipeline constants and the proposal shapers are used as exported.
+import {
+  EXECUTION_CONTROL, EXECUTION_COPY, EXECUTION_EXECUTE, EXECUTION_MARKET_CLASSES, EXECUTION_PERMISSION,
+  EXECUTION_PIPELINE, EXECUTION_PORT_COPY, EXECUTION_READS, EXECUTION_WINDOWS, EXECUTION_WRITES,
+  LEGACY_AUTOMATION_LIMITS, LEGACY_PRICE_FALLBACKS, LEGACY_WRITES_NOT_PORTED, PIPELINE_STAGES, PORT_CHECKS,
+  automationRows, banners as executionBanners, buildDecisionBody, buildProposalBody, decisionOutcome, executionStatusFacts,
+  governanceFacts as executionGovernanceFacts, holdsExecutionPermission, paperSubmitOutcome, passedChecks,
+  proposalFormState, proposalOutcome, proposalRows, validateDecision, validateProposalForm,
+  statusTone as executionStatusTone,
+} from "./execution.js";
 import { Link } from "./router.jsx";
 import { ConnectivityBanner, Field, Notice, StateBox, useResource } from "./ui.jsx";
 
@@ -243,6 +255,9 @@ export function WorkspaceNav({ permissions, current, signedIn = true, notificati
     { to: "/app/paper", label: "Paper trading", permission: PAPER_PERMISSION },
     // Row 11 (Phase 38): the Risk Center, gated on the permission every read on it carries.
     { to: "/app/risk", label: "Risk Center", permission: RISK_PERMISSION },
+    // Row 2 (Phase 39): the Execution Center. Every read is `trading.view`; the
+    // broker-bound half of legacy's page stays absent and the screen says so.
+    { to: "/app/execution", label: "Execution", permission: EXECUTION_PERMISSION },
     { to: "/app/strategy", label: "Strategy Lab", permission: null },
     // Legacy's `Admin::index` was super-admin only; the directory and the trail
     // beside it were always `identity.users.view` surfaces. The port keeps both
@@ -787,7 +802,7 @@ export function AccountView({ user, permissions, onSessionChanged }) {
       <section className="panel">
         <h2>Sessions</h2>
         <StateBox status={sessions.status} error={sessions.error} retry={sessions.retry} label="Loading sessions"
-          empty={<p className="empty">No active sessions reported.</p>}>
+          empty={sessions.data?.sessions?.length ? null : <p className="empty">No active sessions reported.</p>}>
           <table className="data-table">
             <thead><tr><th>Device</th><th>Created</th><th>Expires</th><th>State</th></tr></thead>
             <tbody>
@@ -811,7 +826,7 @@ export function AccountView({ user, permissions, onSessionChanged }) {
       <section className="panel">
         <h2>Recent activity</h2>
         <StateBox status={activity.status} error={activity.error} retry={activity.retry} label="Loading activity"
-          empty={<p className="empty">No audit events recorded for your account yet.</p>}>
+          empty={activity.data?.events?.length ? null : <p className="empty">No audit events recorded for your account yet.</p>}>
           <ul className="activity-list">
             {(activity.data?.events || []).map((event) => (
               <li key={`${event.id || event.action}-${event.createdAt || event.created_at}`}>
@@ -924,7 +939,7 @@ export function AdminControlCentreView({ permissions }) {
           ))}
         </ul>
         <StateBox status={canReadDirectory ? roles.status : "ready"} error={roles.error} retry={roles.retry} label="Loading the role vocabulary"
-          empty={<p className="empty">The role vocabulary was not read.</p>}>
+          empty={canReadDirectory ? null : <p className="empty">The role vocabulary was not read.</p>}>
           <p className="muted">
             This deployment offers <b>{assignable.length}</b> role{assignable.length === 1 ? "" : "s"} at account creation
             {" "}(<code>{assignable.join(" · ") || "none"}</code>) and holds <b>{roles.data?.permissions?.length ?? 0}</b> permission{roles.data?.permissions?.length === 1 ? "" : "s"} in its vocabulary.
@@ -948,7 +963,7 @@ export function AdminControlCentreView({ permissions }) {
       <section className="panel">
         <h2>{ADMIN_COPY.readinessTitle}</h2>
         <StateBox status={status.status} error={status.error} retry={status.retry} label="Loading the module ledger"
-          empty={<p className="empty">The module ledger was not read.</p>}>
+          empty={status.data ? null : <p className="empty">The module ledger was not read.</p>}>
           <div className="table-scroll">
             <table className="data-table">
               <thead><tr><th>Module</th><th>Acceptance</th><th>Scope</th><th>Checks behind it</th></tr></thead>
@@ -1138,7 +1153,7 @@ export function PaperConsoleView({ permissions }) {
             <h2>{PAPER_COPY.accountsTitle}</h2>
             <p className="muted">{PAPER_COPY.accountsNote}</p>
             <StateBox status={accounts.status} error={accounts.error} retry={accounts.retry} label="Loading accounts"
-              empty={<p className="empty">{PAPER_COPY.accountsEmpty}</p>}>
+              empty={rows.length ? null : <p className="empty">{PAPER_COPY.accountsEmpty}</p>}>
               {rows.length === 0 ? (
                 <p className="empty">{PAPER_COPY.accountsEmpty}</p>
               ) : (
@@ -1255,7 +1270,7 @@ export function PaperConsoleView({ permissions }) {
           <section className="panel">
             <h2>{PAPER_COPY.ordersTitle}</h2>
             <StateBox status={orders.status} error={orders.error} retry={orders.retry} label="Loading orders"
-              empty={<p className="empty">{PAPER_COPY.ordersEmpty}</p>}>
+              empty={orderList.length ? null : <p className="empty">{PAPER_COPY.ordersEmpty}</p>}>
               {orderList.length === 0 ? (
                 <p className="empty">{PAPER_COPY.ordersEmpty}</p>
               ) : (
@@ -1294,7 +1309,7 @@ export function PaperConsoleView({ permissions }) {
           <section className="panel">
             <h2>{PAPER_COPY.closedTitle}</h2>
             <StateBox status={closed.status} error={closed.error} retry={closed.retry} label="Loading closed positions"
-              empty={<p className="empty">{PAPER_COPY.closedEmpty}</p>}>
+              empty={closedList.length ? null : <p className="empty">{PAPER_COPY.closedEmpty}</p>}>
               {closedList.length === 0 ? (
                 <p className="empty">{PAPER_COPY.closedEmpty}</p>
               ) : (
@@ -1487,6 +1502,430 @@ export function PaperConsoleView({ permissions }) {
   );
 }
 
+/* ---------------------------------------------------------- execution console */
+
+/**
+ * The Execution Center (row 2, Phase 39) — the port of `Execution::index` →
+ * `views/execution/index.php`.
+ *
+ * Legacy drew three panels over a fifteen-step supervisor: propose, decide/route, and the
+ * broker executions that routing produced. This port has the first two and **cannot have
+ * the third**: `GET /execution/status` reports `brokerConnectorAvailable: false` and
+ * `automatedModesAvailable: false`, and `src/modules/execution/routes.js` registers no
+ * route, no automated entry and no automation envelope. The screen shows the whole pipeline
+ * and marks where the port stops, rather than rendering four checks as fifteen.
+ *
+ * Three departures are stated on the page, each because the API is what it is:
+ *  - the form names a **paper account** (the port is owner- and account-scoped; legacy had
+ *    one implicit portfolio) and offers a **risk fraction** instead of a volume (the Risk
+ *    Engine sizes the position; the intent has no volume field);
+ *  - a decision needs a **written reason** of 10–1000 characters (`DECISION_BODY`);
+ *  - the step after approval is a **paper submission**, not legacy's broker route.
+ */
+export function ExecutionView({ permissions }) {
+  const canControl = holdsExecutionPermission(permissions, EXECUTION_CONTROL);
+  const canExecute = holdsExecutionPermission(permissions, EXECUTION_EXECUTE);
+  const [action, setAction] = useState({ status: "idle", tone: "ok", message: "" });
+  const [form, setForm] = useState(null);
+  const [errors, setErrors] = useState({});
+  const [decision, setDecision] = useState(null);
+  const [decisionError, setDecisionError] = useState("");
+
+  const status = useResource(() => endpoints.executionStatus(), []);
+  const state = useResource(() => endpoints.tradingMode(), []);
+  const proposals = useResource(() => endpoints.executionProposals(`?limit=${EXECUTION_WINDOWS.proposals}`), []);
+  const accounts = useResource(() => endpoints.paperAccounts("?limit=50"), []);
+  const strategies = useResource(() => endpoints.strategies(), []);
+
+  const accountRows = Array.isArray(accounts.data?.accounts) ? accounts.data.accounts : [];
+  const values = form ?? proposalFormState(accountRows);
+  const facts = executionStatusFacts(status.data);
+  const governance = executionGovernanceFacts(state.data);
+  const flags = executionBanners(state.data, status.data);
+  const rows = proposalRows(proposals.data);
+  const busy = action.status === "busy";
+  // Legacy's datalist offered the strategies whose lifecycle is APPROVED. The port's
+  // registry words the same fact per version, so only an APPROVED latest version is
+  // offered — the proposal route refuses everything else, and a suggestion the server
+  // would reject is not a suggestion.
+  const approvedStrategies = (Array.isArray(strategies.data?.strategies) ? strategies.data.strategies : [])
+    .filter((entry) => String(entry?.latest?.lifecycle) === "APPROVED")
+    .map((entry) => ({ id: entry.strategyId, version: entry.latest.version }));
+
+  async function act(label, work, refresh = []) {
+    setAction({ status: "busy", tone: "ok", message: `${label}…` });
+    try {
+      const outcome = await work();
+      setAction({ status: "done", tone: outcome?.tone ?? "ok", message: outcome?.message ?? `${label} done.` });
+      for (const resource of refresh) resource.retry();
+    } catch (error) {
+      const code = error?.code ? ` (${error.code})` : "";
+      setAction({ status: "error", tone: "error", message: `${label}: ${formFailure(error)}${code}` });
+    }
+  }
+
+  function edit(key, value) {
+    setForm({ ...values, [key]: value });
+    setErrors((current) => {
+      if (!current[key]) return current;
+      const next = { ...current };
+      delete next[key];
+      return next;
+    });
+  }
+
+  function submitProposal(event) {
+    event.preventDefault();
+    const check = validateProposalForm(values);
+    setErrors(check.errors);
+    if (!check.ok) {
+      setAction({ status: "error", tone: "error", message: "The proposal form needs attention." });
+      return;
+    }
+    void act("Proposal failed", async () => {
+      const proposal = await endpoints.proposeExecution(buildProposalBody(values));
+      return proposalOutcome(proposal);
+    }, [proposals]);
+  }
+
+  function openDecision(row, approve) {
+    setDecision({ id: row.id, symbol: row.symbol, approve, reason: "" });
+    setDecisionError("");
+  }
+
+  function confirmDecision() {
+    const check = validateDecision(decision?.reason);
+    if (!check.ok) {
+      setDecisionError(check.error);
+      return;
+    }
+    void act(decision.approve ? "Approving" : "Rejecting", async () => {
+      const result = await endpoints.decideExecution(decision.id, buildDecisionBody(decision.approve, decision.reason));
+      setDecision(null);
+      return decisionOutcome(result?.proposal, decision.approve);
+    }, [proposals]);
+  }
+
+  function submitPaper(row) {
+    void act("Paper submission refused", async () => paperSubmitOutcome(await endpoints.submitExecutionPaper(row.id)), [proposals]);
+  }
+
+  return (
+    <div className="view execution-view">
+      <header className="view-header">
+        <div>
+          <div className="overline">{EXECUTION_COPY.eyebrow} <span className="overline-line" /></div>
+          <h1>{EXECUTION_COPY.title}.</h1>
+          <p className="view-lede">{EXECUTION_COPY.lede}</p>
+        </div>
+      </header>
+
+      {action.status !== "idle" ? (
+        <Notice tone={action.status === "busy" ? "info" : action.tone === "error" ? "error" : "ok"}>{action.message}</Notice>
+      ) : null}
+
+      {flags.killSwitch ? (
+        <Notice tone="error"><b>{EXECUTION_COPY.killSwitchTitle}</b> — {EXECUTION_COPY.killSwitchNote}</Notice>
+      ) : null}
+      {flags.modeBlocked && governance ? (
+        <Notice tone="warn">
+          <b>{EXECUTION_COPY.modeBlockedPrefix}{governance.mode}{EXECUTION_COPY.modeBlockedSuffix}</b>{" "}
+          {EXECUTION_PORT_COPY.modeEnum}
+        </Notice>
+      ) : null}
+      {flags.noBroker || flags.noAutomation ? (
+        <Notice tone="warn"><b>{EXECUTION_PORT_COPY.paperOnlyTitle}</b> — {EXECUTION_PORT_COPY.paperOnly}</Notice>
+      ) : null}
+
+      <section className="panel exec-governance">
+        <h2>Module scope</h2>
+        <StateBox status={status.status} error={status.error} retry={status.retry} label="Loading the execution module's scope">
+          {facts ? (
+            <>
+              <div className="exec-facts">
+                <span>Paper submission <b className={facts.paperSubmissionAvailable ? "up" : "down"}>{facts.paperSubmissionAvailable ? "available" : "unavailable"}</b></span>
+                <span>Broker connector <b className="down">not routable</b></span>
+                <span>Configured connectors <b>{facts.brokerConnectorsConfigured}</b></span>
+                <span>Automated modes <b className="down">unavailable</b></span>
+                <span>Approval required <b>{facts.approvalRequired ? "yes" : "no"}</b></span>
+                <span>Proposal expiry <b>{facts.expiryMinutes ? `${facts.expiryMinutes} min` : "—"}</b></span>
+              </div>
+              <p className="muted">
+                {facts.scope ? <>The API describes this module as <code>{facts.scope}</code>. </> : null}
+                Live trading is <b>disabled</b>; <code>brokerConnectorAvailable</code> is false and{" "}
+                <code>automatedModesAvailable</code> is false. The broker connector count is configuration-only — it says
+                the environment variables were read, not that a bridge answered.
+              </p>
+            </>
+          ) : null}
+        </StateBox>
+        {governance ? (
+          <div className="exec-facts">
+            <span>Mode <b>{governance.mode}</b></span>
+            <span>Kill switch <b className={governance.killSwitch ? "down" : "up"}>{governance.killSwitch ? "ACTIVE" : "released"}</b></span>
+            <span>Synthetic paper prices <b>{governance.synthetic ? "ON" : "OFF"}</b></span>
+          </div>
+        ) : null}
+      </section>
+
+      <div className="exec-board">
+        <div className="exec-main">
+          <section className="panel">
+            <h2>{EXECUTION_COPY.proposeTitle}</h2>
+            <StateBox status={accounts.status} error={accounts.error} retry={accounts.retry} label="Loading your paper accounts">
+              <form className="exec-form" onSubmit={submitProposal}>
+                <div className="exec-form-grid">
+                  <Field label={EXECUTION_PORT_COPY.accountLabel} htmlFor="exec-account" error={errors.accountId}>
+                    <select id="exec-account" name="accountId" value={values.accountId} disabled={busy}
+                      onChange={(event) => edit("accountId", event.target.value)}>
+                      {accountRows.length === 0 ? <option value="">No paper account yet</option> : null}
+                      {accountRows.map((entry) => {
+                        const account = entry?.account ?? entry;
+                        return <option key={account.id} value={account.id}>{account.name ?? `#${account.id}`}</option>;
+                      })}
+                    </select>
+                  </Field>
+                  <Field label="Symbol" htmlFor="exec-symbol" error={errors.symbol}>
+                    <input id="exec-symbol" name="symbol" value={values.symbol} disabled={busy}
+                      onChange={(event) => edit("symbol", event.target.value)} />
+                  </Field>
+                  <Field label="Market class" htmlFor="exec-market" error={errors.marketClass}>
+                    <select id="exec-market" name="marketClass" value={values.marketClass} disabled={busy}
+                      onChange={(event) => edit("marketClass", event.target.value)}>
+                      {EXECUTION_MARKET_CLASSES.map((marketClass) => <option key={marketClass} value={marketClass}>{marketClass}</option>)}
+                    </select>
+                  </Field>
+                  <Field label="Side" htmlFor="exec-side" error={errors.side}>
+                    <select id="exec-side" name="side" value={values.side} disabled={busy}
+                      onChange={(event) => edit("side", event.target.value)}>
+                      {ORDER_SIDES.map((side) => <option key={side} value={side}>{side}</option>)}
+                    </select>
+                  </Field>
+                  <Field label="Type" htmlFor="exec-type" error={errors.type}>
+                    <select id="exec-type" name="type" value={values.type} disabled={busy}
+                      onChange={(event) => edit("type", event.target.value)}>
+                      {ORDER_TYPES.map((type) => <option key={type} value={type}>{type}</option>)}
+                    </select>
+                  </Field>
+                  <Field label="Price (LIMIT only)" htmlFor="exec-price" error={errors.price}>
+                    <input id="exec-price" name="price" type="number" inputMode="decimal" step="0.00001" value={values.price}
+                      disabled={busy} onChange={(event) => edit("price", event.target.value)} />
+                  </Field>
+                  <Field label="Stop loss (mandatory)" htmlFor="exec-stop" error={errors.stopLoss}>
+                    <input id="exec-stop" name="stopLoss" type="number" inputMode="decimal" step="0.00001"
+                      placeholder={LEGACY_PRICE_FALLBACKS.stopLoss} value={values.stopLoss} disabled={busy}
+                      onChange={(event) => edit("stopLoss", event.target.value)} />
+                  </Field>
+                  <Field label="Take profit" htmlFor="exec-take" error={errors.takeProfit}>
+                    <input id="exec-take" name="takeProfit" type="number" inputMode="decimal" step="0.00001"
+                      placeholder={LEGACY_PRICE_FALLBACKS.takeProfit} value={values.takeProfit} disabled={busy}
+                      onChange={(event) => edit("takeProfit", event.target.value)} />
+                  </Field>
+                  <Field label={EXECUTION_PORT_COPY.riskLabel} htmlFor="exec-risk" error={errors.riskPct}>
+                    <input id="exec-risk" name="riskPct" type="number" inputMode="decimal" step="0.000001" value={values.riskPct}
+                      disabled={busy} onChange={(event) => edit("riskPct", event.target.value)} />
+                  </Field>
+                  <Field label="Strategy id (optional, APPROVED)" htmlFor="exec-strategy" error={errors.strategyId}>
+                    <input id="exec-strategy" name="strategyId" list="exec-approved-strategies" value={values.strategyId}
+                      disabled={busy} onChange={(event) => edit("strategyId", event.target.value)} />
+                  </Field>
+                  <Field label="Strategy version" htmlFor="exec-version" error={errors.strategyVersion}>
+                    <input id="exec-version" name="strategyVersion" list="exec-approved-versions" value={values.strategyVersion}
+                      disabled={busy} onChange={(event) => edit("strategyVersion", event.target.value)} />
+                  </Field>
+                  <Field label="Reason" htmlFor="exec-reason">
+                    <input id="exec-reason" name="reason" maxLength={500} value={values.reason} disabled={busy}
+                      onChange={(event) => edit("reason", event.target.value)} />
+                  </Field>
+                </div>
+                <datalist id="exec-approved-strategies">
+                  {approvedStrategies.map((entry) => <option key={`${entry.id}-id`} value={entry.id}>{entry.version}</option>)}
+                </datalist>
+                <datalist id="exec-approved-versions">
+                  {approvedStrategies.map((entry) => <option key={`${entry.id}-v`} value={entry.version}>{entry.id}</option>)}
+                </datalist>
+                <div className="exec-form-actions">
+                  <button className="primary-button" type="submit" disabled={!canExecute || busy}>{EXECUTION_COPY.proposeSubmit}</button>
+                  {!canExecute ? <span className="muted">Proposing needs <code>{EXECUTION_EXECUTE}</code>; the pipeline still runs for any valid intent.</span> : null}
+                </div>
+              </form>
+              <p className="muted">{EXECUTION_COPY.proposeNote}</p>
+              <p className="muted">{EXECUTION_PORT_COPY.accountNote}</p>
+              <p className="muted">{EXECUTION_PORT_COPY.volumeNote}</p>
+              {approvedStrategies.length === 0 && strategies.status === "ready" ? (
+                <p className="muted">No strategy is APPROVED yet, so the datalist is empty — a discretionary intent is the only thing this form can propose.</p>
+              ) : null}
+            </StateBox>
+          </section>
+
+          <section className="panel">
+            <h2>{EXECUTION_COPY.executionsTitle}</h2>
+            <p className="muted">{EXECUTION_COPY.noExecutions}</p>
+            <p className="muted">{EXECUTION_PORT_COPY.executionsAbsent}</p>
+          </section>
+        </div>
+
+        <div className="exec-side">
+          <section className="panel">
+            <h2>{EXECUTION_PORT_COPY.pipelineTitle}</h2>
+            <p className="muted">{EXECUTION_PORT_COPY.pipelineNote}</p>
+            <ol className="exec-pipeline">
+              {EXECUTION_PIPELINE.map((step) => {
+                const stage = PIPELINE_STAGES[step.stage];
+                const performed = step.stage === "port" && !PORT_CHECKS.includes(step.key) ? "recorded" : null;
+                return (
+                  <li key={step.key}>
+                    <span className="exec-step">{step.step}</span>
+                    <span className="exec-step-label">{step.label}{performed ? <small className="muted"> · {performed}</small> : null}</span>
+                    <span className={`badge ${stage.tone}`}>{stage.label}</span>
+                  </li>
+                );
+              })}
+            </ol>
+            <p className="muted">
+              Steps 1–3 are the checks a proposal carries; step 14 is the audit trail this screen&apos;s actions write.
+              A `PENDING_APPROVAL` proposal that lapses is expired by the read that finds it, and the expiry is audited
+              as `execution.proposal.expired`.
+            </p>
+          </section>
+
+          <section className="panel">
+            <h2>{EXECUTION_COPY.envelopeTitle}</h2>
+            <p className="muted">{EXECUTION_PORT_COPY.envelopeAbsent}</p>
+            <div className="status-list">
+              {automationRows().map((row) => (
+                <div className="status-row" key={row.key}>
+                  <span>{row.label} <small className="muted">— {row.note}</small></span>
+                  <b>{row.legacy}</b>
+                </div>
+              ))}
+            </div>
+            <p className="muted">{EXECUTION_PORT_COPY.modeEnum}</p>
+          </section>
+
+          <section className="panel">
+            <h2>What this screen reads and writes</h2>
+            <div className="status-list">
+              {EXECUTION_READS.map((read) => (
+                <div className="status-row" key={read.key}>
+                  <span><code>{read.method} {read.path}</code></span>
+                  <b>{read.permission ?? "session"}</b>
+                </div>
+              ))}
+              {EXECUTION_WRITES.map((write) => (
+                <div className="status-row" key={write.key}>
+                  <span><code>{write.method} {write.path}</code></span>
+                  <b>{write.permission}</b>
+                </div>
+              ))}
+            </div>
+            <h3>Legacy routes this port does not register</h3>
+            <div className="status-list">
+              {LEGACY_WRITES_NOT_PORTED.map((entry) => (
+                <div className="status-row" key={entry.key}>
+                  <span><code>{entry.legacy}</code> <small className="muted">— {entry.why}</small></span>
+                  <b className="down">absent</b>
+                </div>
+              ))}
+            </div>
+            <p className="muted">{EXECUTION_PORT_COPY.statusVocabulary}</p>
+          </section>
+        </div>
+      </div>
+
+      <section className="panel">
+        <h2>{EXECUTION_COPY.proposalsTitle}{rows.length})</h2>
+        {decision ? (
+          <div className="exec-decision">
+            <p>
+              <b>{decision.approve ? "Approve" : "Reject"} {decision.symbol}?</b> {EXECUTION_PORT_COPY.decisionReason}
+            </p>
+            <textarea rows={3} maxLength={1000} value={decision.reason} aria-label="Decision reason"
+              onChange={(event) => setDecision({ ...decision, reason: event.target.value })} />
+            {decisionError ? <p className="form-error" role="alert">{decisionError}</p> : null}
+            <div className="exec-form-actions">
+              <button className="primary-button" type="button" disabled={busy} onClick={confirmDecision}>
+                {decision.approve ? "Record approval" : "Record rejection"}
+              </button>
+              <button className="secondary-button" type="button" disabled={busy} onClick={() => setDecision(null)}>Cancel</button>
+            </div>
+          </div>
+        ) : null}
+        <StateBox status={proposals.status} error={proposals.error} retry={proposals.retry} label="Loading proposals"
+          empty={rows.length ? null : <p className="empty">{EXECUTION_COPY.noProposals}</p>}>
+          {rows.length === 0 ? <p className="empty">{EXECUTION_COPY.noProposals}</p> : (
+            <div className="table-scroll">
+              <table className="data-table">
+                <thead>
+                  <tr>
+                    <th>{EXECUTION_COPY.colCreated}</th>
+                    <th>{EXECUTION_COPY.colSymbol}</th>
+                    <th>{EXECUTION_COPY.colIntent}</th>
+                    <th>{EXECUTION_COPY.colBroker}</th>
+                    <th>{EXECUTION_COPY.colPipelineStatus}</th>
+                    <th>{EXECUTION_COPY.colPipeline}</th>
+                    <th className="num">{EXECUTION_COPY.colActions}</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {rows.map((row) => (
+                    <tr key={row.key}>
+                      <td className="muted mono">{row.created}</td>
+                      <td><b>{row.symbol}</b></td>
+                      <td>
+                        {row.intentText}
+                        <br />
+                        <span className="muted mono">
+                          stop {row.stopLoss ?? "—"} · take {row.takeProfit ?? "—"}
+                          {row.price ? ` · limit ${row.price}` : ""}
+                        </span>
+                        {row.decisionReason ? <><br /><span className="muted">decision: {row.decisionReason}</span></> : null}
+                      </td>
+                      <td className="muted">{row.broker}</td>
+                      <td><span className={`badge ${row.tone}`}>{row.status}</span></td>
+                      <td>
+                        <details>
+                          <summary className="muted" style={{ cursor: "pointer" }}>
+                            {row.checkCount} {EXECUTION_COPY.checksSuffix.trim()} · {passedChecks(row).passed}/{row.checkCount} passed
+                          </summary>
+                          <ul className="exec-checks">
+                            {row.checks.map((check) => (
+                              <li key={check.key} className={check.tone}>
+                                {check.step} {check.check} — {check.detail}
+                              </li>
+                            ))}
+                          </ul>
+                        </details>
+                      </td>
+                      <td className="num" style={{ whiteSpace: "nowrap" }}>
+                        {row.canDecide ? (
+                          <>
+                            <button className="text-button" type="button" disabled={!canControl || busy}
+                              onClick={() => openDecision(row, true)}>{EXECUTION_COPY.approve}</button>{" "}
+                            <button className="text-button" type="button" disabled={!canControl || busy}
+                              onClick={() => openDecision(row, false)}>{EXECUTION_COPY.reject}</button>
+                          </>
+                        ) : null}
+                        {row.canSubmitPaper ? (
+                          <button className="text-button" type="button" disabled={!canExecute || busy}
+                            onClick={() => submitPaper(row)}>{EXECUTION_PORT_COPY.submitPaper}</button>
+                        ) : null}
+                        {!row.canDecide && !row.canSubmitPaper ? <span className="muted">—</span> : null}
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )}
+        </StateBox>
+        <p className="muted">{EXECUTION_PORT_COPY.submitNote}</p>
+        <p className="muted">{EXECUTION_PORT_COPY.decisionOutcome}</p>
+      </section>
+    </div>
+  );
+}
+
 /* ------------------------------------------------------------- risk console */
 
 /**
@@ -1672,7 +2111,7 @@ export function RiskCenterView({ permissions }) {
             </div>
             <p className="muted">{RISK_COPY.monitorNote}</p>
             <StateBox status={scan.status} error={scan.error} retry={scan.retry} label="Running the portfolio risk scan"
-              empty={<p className="empty">{RISK_COPY.noScan}</p>}>
+              empty={summary ? null : <p className="empty">{RISK_COPY.noScan}</p>}>
               {summary ? (
                 <>
                   <p className="muted">{RISK_COPY.lastScanPrefix}{summary.generatedAt ?? "—"} · accounts {summary.accounts} ·
@@ -1751,7 +2190,7 @@ export function RiskCenterView({ permissions }) {
             <h2>{RISK_COPY.auditTitle}</h2>
             {canAudit ? (
               <StateBox status={audit.status} error={audit.error} retry={audit.retry} label="Loading the audit trail"
-                empty={<p className="empty">No audit events are recorded yet.</p>}>
+                empty={trail.length ? null : <p className="empty">No audit events are recorded yet.</p>}>
                 {trail.length === 0 ? <p className="empty">No audit events are recorded yet.</p> : (
                   <div className="table-scroll">
                     <table className="data-table">
@@ -1990,7 +2429,7 @@ export function SportsIntelligenceView({ permissions }) {
           <section className="panel">
             <h2>{SPORTS_COPY.todayTitle(board.date)}</h2>
             <StateBox status={scheduled.status} error={scheduled.error} retry={scheduled.retry} label="Loading stored fixtures"
-              empty={<p className="empty">{SPORTS_EMPTY.fixtures}</p>}>
+              empty={scheduled.data ? null : <p className="empty">{SPORTS_EMPTY.fixtures}</p>}>
               <div className="dash-kpis">
                 <div className="dash-kpi"><div className="dash-kpi-label">Scheduled</div><p className="dash-kpi-value">{countText(board.upcomingCount)}</p><p className="dash-kpi-note">Stored fixtures kicking off today, from {`GET /sports/matches?status=SCHEDULED`} (up to {SPORTS_WINDOWS.scheduledFixtures}).</p></div>
                 <div className="dash-kpi"><div className="dash-kpi-label">Live</div><p className="dash-kpi-value">{countText(board.liveCount)}</p><p className="dash-kpi-note">Every stored LIVE fixture, not only today's — legacy's read had no date bound either.</p></div>
@@ -2063,7 +2502,7 @@ export function SportsIntelligenceView({ permissions }) {
           <section className="panel">
             <h2>{SPORTS_COPY.modelsTitle}</h2>
             <StateBox status={models.status} error={models.error} retry={models.retry} label="Loading stored model versions"
-              empty={<p className="empty">{SPORTS_EMPTY.models}</p>}>
+              empty={modelList.rows.length ? null : <p className="empty">{SPORTS_EMPTY.models}</p>}>
               <div className="table-scroll">
                 <table className="data-table">
                   <thead><tr><th>Model</th><th>Version</th><th>Features</th><th>Calibration</th><th>Status</th></tr></thead>
@@ -2114,7 +2553,7 @@ export function SportsIntelligenceView({ permissions }) {
           <section className="panel">
             <h2>{SPORTS_COPY.ticketsTableTitle}</h2>
             <StateBox status={tickets.status} error={tickets.error} retry={tickets.retry} label="Loading stored tickets"
-              empty={<p className="empty">{SPORTS_EMPTY.noTickets}</p>}>
+              empty={ticketList.length ? null : <p className="empty">{SPORTS_EMPTY.noTickets}</p>}>
               <div className="table-scroll">
                 <table className="data-table">
                   <thead><tr><th>Ticket</th><th>Created (UTC)</th><th className="num">Odds</th><th className="num">Sel.</th><th className="num">Conf.</th><th>Risk</th><th>Approval</th><th>Settlement</th><th className="num">P/L</th><th /></tr></thead>
@@ -2165,7 +2604,7 @@ export function SportsIntelligenceView({ permissions }) {
           <section className="panel">
             <h2>{SPORTS_COPY.runsTitle}</h2>
             <StateBox status={runs.status} error={runs.error} retry={runs.retry} label="Loading the daily runs"
-              empty={<p className="empty">{SPORTS_EMPTY.noRuns}</p>}>
+              empty={runList.length ? null : <p className="empty">{SPORTS_EMPTY.noRuns}</p>}>
               <div className="table-scroll">
                 <table className="data-table">
                   <thead><tr><th>Date</th><th>Status</th><th>Ticket</th><th className="num">Evaluated</th><th className="num">Recorded</th><th className="num">Rejected</th><th>Message</th></tr></thead>
@@ -2230,7 +2669,7 @@ export function SportsIntelligenceView({ permissions }) {
                 <p className="muted">The active configuration is read under {SPORTS_MANAGE}; this session is not shown a mode it did not read.</p>
               )}
               <StateBox status={syncRuns.status} error={syncRuns.error} retry={syncRuns.retry} label="Loading stored sync runs"
-                empty={<p className="empty">{SPORTS_EMPTY.noSyncs}</p>}>
+                empty={syncList.length ? null : <p className="empty">{SPORTS_EMPTY.noSyncs}</p>}>
                 <div className="table-scroll">
                   <table className="data-table">
                     <thead><tr><th>Job</th><th>Status</th></tr></thead>
@@ -2251,7 +2690,7 @@ export function SportsIntelligenceView({ permissions }) {
           <section className="panel">
             <h2>{SPORTS_COPY.todayTicketTitle}</h2>
             <StateBox status={runs.status} error={runs.error} retry={runs.retry} label="Loading today's run"
-              empty={<p className="empty">{ticket.noRun}</p>}>
+              empty={todaysRun === null || detail.data?.ticket === null || detail.data?.ticket === undefined ? <p className="empty">{ticket.noRun}</p> : null}>
               {todaysRun === null || detail.data?.ticket === null || detail.data?.ticket === undefined ? (
                 <p className="muted">{ticket.noRun || ticket.message}</p>
               ) : (
@@ -2995,7 +3434,7 @@ export function AdminUsersView({ permissions, user = null }) {
         </form>
 
         <StateBox status={users.status} error={users.error} retry={users.retry} label="Loading accounts"
-          empty={<p className="empty">No accounts match that filter.</p>}>
+          empty={users.data?.users?.length ? null : <p className="empty">No accounts match that filter.</p>}>
           <table className="data-table">
             <thead><tr><th>ID</th><th>Username</th><th>Email</th><th>Status</th><th>Last login</th>{canManage ? <th>Actions</th> : null}</tr></thead>
             <tbody>
@@ -3075,7 +3514,7 @@ export function InquiriesView() {
         </form>
 
         <StateBox status={inquiries.status} error={inquiries.error} retry={inquiries.retry} label="Loading messages"
-          empty={<p className="empty">No visitor messages have been recorded yet.</p>}>
+          empty={inquiries.data?.inquiries?.length ? null : <p className="empty">No visitor messages have been recorded yet.</p>}>
           <ul className="inquiry-list">
             {(inquiries.data?.inquiries || []).map((row) => (
               <li key={row.id} className="inquiry">

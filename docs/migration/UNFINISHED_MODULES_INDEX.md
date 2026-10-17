@@ -1,6 +1,6 @@
 # Unfinished modules — name index
 
-**Compiled:** 2026-10-16 (updated after Phase 35) · **Source of truth:** the in-code ledger in
+**Compiled:** 2026-10-17 (updated after Phase 39) · **Source of truth:** the in-code ledger in
 `apps/workforce-platform/src/modules/platform/health.js` (served by `/api/v1/system/features`
 and `/api/v1/system/status`), cross-checked against `docs/migration/UNFINISHED_MODULES.md`
 and `docs/migration/STATUS.md`.
@@ -17,7 +17,7 @@ already exist and pass tests in the PHP application; they are still unfinished a
 | # | Module key | Name | What is still missing |
 |---:|---|---|---|
 | 1 | `publicSite` | **Public website, help/contact and SEO** | Public chat widget; legacy announcement-bar default copy; outbound contact-mail delivery (messages are stored only). |
-| 2 | `execution` | **Execution Supervisor and trading governance** | No live route and no automated mode; remaining supervisor steps are broker-bound (row 13). Whole live path is paper-only. |
+| 2 | `execution` | **Execution Supervisor and trading governance** | Console landed (Phase 39, `/app/execution`); no live route and no automated mode; remaining supervisor steps are broker-bound (row 13). Whole live path is paper-only. |
 | 3 | `scheduledJobs` | **Scheduled jobs, CLI and resumable work** | Legacy early-warning tiers at 80/70/60 % of a limit (SJ-8); `EXCESSIVE_LEVERAGE` / `CORRELATED_POSITIONS` codes (SJ-9); no crontab installed on a real host. |
 | 4 | `brokers` | **Broker Center and broker connectors** | Ten adapters registered but all disabled by default; no order routing, no simulated bridge, no adapter verified against its provider (MT5 real-terminal validation outstanding). |
 | 5 | `sports` | **Sports intelligence** | Stake sizing; no live provider verified against a real vendor. (The console screens left this row in Phase 36: `/app/sports` is `Sports::index` and `Sports::tickets`, and the decision route gained `Api_sports::decide_ticket`'s kill-switch refusal.) |
@@ -43,14 +43,14 @@ matrix went empty — `lottery`.
 |---:|---|---|
 | 1 | Identity, authentication and legacy account import | Code present; no real-DB import rehearsal, no approval to import |
 | 2 | Account management, registration, **password reset** and admin users | Mostly ported; password reset not ported (`delivered: false`, no mail transport) |
-| 3 | **Shared app shell, dashboards, settings and navigation** | **No screen left.** The sports dashboard landed in Phase 36 (`/app/sports`), closing the last one this row named — the settings gap closed with the account screen's avatar control (Phase 34) and the administrator control centre (`/app/admin`, Phase 35); the portfolio-optimizer (Phase 29), lottery (Phase 30), Strategy Lab (Phase 31), AI Workforce (`/app/analysis`, Phase 32), workspace dashboard (`/app`, Phase 33), account avatar (Phase 34), admin control centre (Phase 35), sports console (Phase 36) and paper console (Phase 37) screens landed |
+| 3 | **Shared app shell, dashboards, settings and navigation** | **No screen left.** The sports dashboard landed in Phase 36 (`/app/sports`), closing the last one this row named — the settings gap closed with the account screen's avatar control (Phase 34) and the administrator control centre (`/app/admin`, Phase 35); the portfolio-optimizer (Phase 29), lottery (Phase 30), Strategy Lab (Phase 31), AI Workforce (`/app/analysis`, Phase 32), workspace dashboard (`/app`, Phase 33), account avatar (Phase 34), admin control centre (Phase 35), sports console (Phase 36), paper console (Phase 37), risk console (Phase 38) and execution console (Phase 39) screens landed |
 | 4 | Public website, help/contact and SEO | Chat widget + announcement bar not ported |
 | 5 | Notifications, audit browser, feature/status reporting | No outbound delivery channel, no retention policy decided (inbox + audit consoles exist) |
 | 6 | Market data and provider health | F-24 shared health store, F-25 live probe, F-26 PHP↔Node numeric diff |
 | 7 | Analysis engines, agents, consensus/debate | R-26 route limits, R-27 retention for `wf_analysis_runs.payload` (the screen landed in Phase 32, `/app/analysis`) |
 | 8 | Strategy Lab, lifecycle, backtesting, analytics | **Closed for the screen** (Phase 31, `/app/strategy`); what remains is not a screen but the PHP↔Node evidence-threshold diff (F-26) |
 | 9 | Research-only portfolio optimization | **Closed for the screen** (Phase 29, `/app/portfolio/optimizer`); saved reports deliberately absent |
-| 12 | Execution Supervisor | Broker-bound steps outstanding (see row 13) |
+| 12 | Execution Supervisor | Console landed (Phase 39, `/app/execution`); broker-bound steps outstanding (see row 13) |
 | 13 | Broker Center and broker connectors | Real-terminal/demo verification, order routing |
 | 14 | Sports intelligence | Stake sizing, live vendor (the console landed in Phase 36, `/app/sports`) |
 | 15 | Lottery intelligence and Operations console | **Ported** (Phase 30): both console screens land at `/app/lottery` and `/app/lottery/lab`, the module's `notPorted` matrix is empty, and `lottery` moved to `ported` in the ledger. What remains is host-level, not code: no authorized official feed configured |
@@ -74,7 +74,7 @@ screen in Phase 38 (`/app/risk`).
 - `apps/workforce-platform/` — Node modular monolith (`v0.23.0`); the 8 modules in section A.
   Consoles now exist for notifications, the audit trail, the portfolio optimizer, lottery (both
   screens), the Strategy Lab, the AI Workforce analysis run, the workspace dashboard, the admin
-  control centre, sports, paper and risk; the remaining F-29 gap is the execution, Broker Center and
+  control centre, sports, paper, risk and execution; the remaining F-29 gap is the Broker Center and
   journal screens (settings closed with the account avatar and the control centre, and no legacy
   settings controller exists).
 - `apps/api/` — TypeScript Lead Discovery API (routes, pipeline, quality, providers).

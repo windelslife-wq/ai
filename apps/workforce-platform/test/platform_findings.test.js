@@ -1128,6 +1128,9 @@ test("F-02 the status surface is honest about unported modules, and F-03 the rou
   assert.match(body.modules.find((module) => module.key === "execution").label, /broker-bound/i);
   assert.match(body.modules.find((module) => module.key === "execution").label, /no live route/i);
   assert.match(body.modules.find((module) => module.key === "execution").label, /no automated mode/i);
+  // Phase 39 ported `Execution::index` to `/app/execution`; the label must name the
+  // console so `partial` cannot be read as "the screen is still missing".
+  assert.match(body.modules.find((module) => module.key === "execution").label, /\/app\/execution/);
   // Phase 14 ports the broker connector boundary. `partial` must say that what is
   // missing is a *verified adapter and an order path*, not the boundary itself, or a
   // reader cannot tell "half-built" from "built and switched off" — which is the

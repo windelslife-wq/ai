@@ -44,7 +44,11 @@ export function StateBox({ status, error, empty = null, children, retry, label =
       </div>
     );
   }
-  if (empty !== null && status === "ready") return empty;
+  // `empty` is the node a caller passes when the resource has **no rows** — a caller with
+  // data passes null. It is a fallback beside the content, not an override: an unconditional
+  // `empty={<p>…</p>}` used to hide every row it was rendered with (found in Phase 39 while
+  // wiring the Execution Center, whose proposals table would never have shown a proposal).
+  if (status === "ready") return empty ?? children;
   return children;
 }
 

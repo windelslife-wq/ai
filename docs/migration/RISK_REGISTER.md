@@ -188,6 +188,20 @@ audit row the read does not write. The suite also pins the breach severity to th
 job's own classification (`CRITICAL_BREACH_CODES` / `WARNING_BREACH_CODES`), so a row the cron
 would publish as `critical` cannot render on the screen as a warning.
 
+**Update (Phase 39).** The **Execution Center** landed (`/app/execution` —
+`views/execution/index.php`, `Execution::index`), so the residual list is now **two: brokers and
+journal**. This console is the first of the series whose gap is a *missing half* rather than a
+divergence: legacy's page drew the automation envelope, the automated-execution form and the
+broker executions table, and this port registers none of those routes. The screen therefore shows
+all fifteen supervisor steps with the three the proposal path performs, the human decision and the
+broker-bound ones; states the envelope's values as legacy defaults with `automation_limits`'s
+absence named; and replaces legacy's "route order" with the paper submission that is the only step
+this platform can actually take. No route, migration, contract method or repository method was
+added. Building it also found **D-24**, a shell-wide rendering defect in the shared `StateBox`
+(it returned its `empty` node whenever a read was ready, hiding the data beside it); the primitive
+and its eighteen unconditional call sites were fixed, and the limits of that fix — no browser here —
+are stated in the record. Record: [`PHASE39_EXECUTION_CENTER.md`](PHASE39_EXECUTION_CENTER.md).
+
 ### F-30 — `maxCorrelatedPositions` is a declared risk limit with no enforcement (open)
 
 Found in Phase 12 while porting the portfolio risk monitor's alert vocabulary
