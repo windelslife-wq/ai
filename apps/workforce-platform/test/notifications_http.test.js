@@ -405,5 +405,5 @@ test("the status surface reports notifications as ported and denies a delivery c
   // for its own reasons. Re-pointing at a module no phase has touched keeps the
   // intent intact instead of silently re-asserting a stale fact, and the churn is
   // itself the evidence that the ledger is being updated rather than left alone.
-  assert.equal(features.json().features.languageLearning, "not-ported", "the other modules are unaffected by this port");
+  assert.equal(features.json().features.languageLearning, "ported", "Phase 46 ported languageLearning");
 });

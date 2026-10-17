@@ -81,13 +81,13 @@ test("the dashboard's windows, actions and cards are the ones views/workspace/in
 
   const actions = quickActions();
   assert.deepEqual(actions.map((action) => action.label), ["Run AI analysis", "Paper trading", "Learn a language"]);
-  assert.deepEqual(actions.map((action) => action.to), ["/app/analysis", "/app/paper", null], "the analysis and paper actions have screens; the language row does not");
+  assert.deepEqual(actions.map((action) => action.to), ["/app/analysis", "/app/paper", "/app/languages"], "all three quick actions open declared console screens");
 
-  const cards = kpiCards({ permissions: [], runs: { runs: [] }, unread: 0, accounts: { accounts: [] } });
+  const cards = kpiCards({ permissions: [], runs: { runs: [] }, unread: 0, accounts: { accounts: [] }, profiles: { profiles: [] } });
   assert.deepEqual(cards.map((card) => card.label), ["AI workforce runs", "Language profiles", "Paper accounts", "Unread alerts"]);
   assert.deepEqual(
     cards.map((card) => card.trend),
-    ["Recent analyses stored", "Not in this edition", "Your simulation accounts", "Awaiting your review"],
+    ["Recent analyses stored", "Active language profiles", "Your simulation accounts", "Awaiting your review"],
     "legacy's four card captions",
   );
 
@@ -121,10 +121,10 @@ test("the dashboard's windows, actions and cards are the ones views/workspace/in
 // --------------------------------------------------------------- the honesty rules
 
 test("a number with no source is named, not rendered as zero", () => {
-  const gated = dashboardPills({ permissions: [], state: null, accounts: null });
+  const gated = dashboardPills({ permissions: [], state: null, accounts: null, profiles: null });
   assert.deepEqual(
     gated.map((pill) => pill.text),
-    ["Trading state needs trading.view", "Paper accounts need trading.view", "Language learning not ported"],
+    ["Trading state needs trading.view", "Paper accounts need trading.view", "Language profiles unread"],
     "a viewer who cannot read the governance state is told which gate stood there",
   );
   for (const pill of gated) assert.ok(!/\b0\b/.test(pill.text), `no fabricated zero in "${pill.text}"`);
@@ -133,39 +133,42 @@ test("a number with no source is named, not rendered as zero", () => {
     permissions: [TRADING_READ_PERMISSION],
     state: { tradingMode: "PAPER_TRADING", killSwitch: { active: false } },
     accounts: { accounts: [{}, {}] },
+    profiles: { profiles: [{}] },
   });
-  assert.deepEqual(released.map((pill) => pill.text), ["Mode PAPER_TRADING", "2 paper accounts", "Language learning not ported"]);
+  assert.deepEqual(released.map((pill) => pill.text), ["Mode PAPER_TRADING", "2 paper accounts", "1 language profile"]);
 
   const engaged = dashboardPills({
     permissions: [TRADING_READ_PERMISSION],
     state: { tradingMode: "PAPER_TRADING", killSwitch: { active: true } },
     accounts: { accounts: [{}] },
+    profiles: null,
   });
-  assert.deepEqual(engaged.map((pill) => pill.text), ["Kill switch active", "1 paper account", "Language learning not ported"]);
+  assert.deepEqual(engaged.map((pill) => pill.text), ["Kill switch active", "1 paper account", "Language profiles unread"]);
   assert.deepEqual(engaged[0].tone, "badge-amber");
   assert.equal(engaged[1].tone, "badge-gray");
-  assert.equal(engaged[2].tone, "badge-muted", "the one pill with no module behind it is the muted one");
+  assert.equal(engaged[2].tone, "badge-muted", "an unread profile count is muted rather than zero");
   assert.ok(!engaged.some((pill) => /PAPER_TRADING/.test(pill.text)), "the kill switch replaces the mode, as it did on the page");
 
   // A read that failed is named as unread rather than defaulted to a mode.
   assert.equal(dashboardPills({ permissions: [TRADING_READ_PERMISSION], state: null, accounts: null })[0].text, "Trading state unread");
   assert.equal(dashboardPills({ permissions: [TRADING_READ_PERMISSION], state: null, accounts: null })[1].text, "Paper accounts unread");
 
-  const unread = kpiCards({ permissions: [], runs: null, unread: null, accounts: null });
+  const unread = kpiCards({ permissions: [], runs: null, unread: null, accounts: null, profiles: null });
   const language = unread.find((card) => card.key === "languages");
   assert.equal(language.value, "—");
-  assert.equal(language.to, null);
-  assert.match(language.note, /row 16/);
-  assert.equal(language.note, LANGUAGE_NOTE);
+  assert.equal(language.to, "/app/languages");
+  assert.match(language.note, /could not be read/);
   const accounts = unread.find((card) => card.key === "accounts");
   assert.equal(accounts.value, "—");
   assert.match(accounts.note, /trading\.view/);
   assert.equal(unread.find((card) => card.key === "runs").value, "—");
   assert.equal(unread.find((card) => card.key === "alerts").value, "—");
 
-  const read = kpiCards({ permissions: [TRADING_READ_PERMISSION], runs: { runs: [{}, {}] }, unread: 3, accounts: { accounts: [{}] } });
+  const read = kpiCards({ permissions: [TRADING_READ_PERMISSION], runs: { runs: [{}, {}] }, unread: 3, accounts: { accounts: [{}] }, profiles: { profiles: [{}, {}] } });
   assert.equal(read.find((card) => card.key === "runs").value, "2");
   assert.match(read.find((card) => card.key === "runs").note, /not a lifetime total/, "the count is the window, and says so");
+  assert.equal(read.find((card) => card.key === "languages").value, "2");
+  assert.equal(read.find((card) => card.key === "languages").note, LANGUAGE_NOTE);
   assert.equal(read.find((card) => card.key === "alerts").value, "3");
   assert.match(read.find((card) => card.key === "accounts").note, /owner-scoped/, "the count is the viewer's, not the table's");
   assert.match(read.find((card) => card.key === "accounts").note, /\/app\/paper/, "and the note says where to read the accounts it counts");
@@ -334,9 +337,9 @@ test("against the running API: a member reads what the dashboard shows, and the 
   assert.equal(refusedState.json().error.code, "PERMISSION_DENIED");
   assert.equal((await get(instance, "/api/v1/paper/accounts", member.headers)).statusCode, 403);
 
-  const memberPills = dashboardPills({ permissions: member.permissions, state: null, accounts: null });
-  assert.deepEqual(memberPills.map((pill) => pill.text), ["Trading state needs trading.view", "Paper accounts need trading.view", "Language learning not ported"]);
-  const memberCards = kpiCards({ permissions: member.permissions, runs: null, unread: null, accounts: null });
+  const memberPills = dashboardPills({ permissions: member.permissions, state: null, accounts: null, profiles: { profiles: [] } });
+  assert.deepEqual(memberPills.map((pill) => pill.text), ["Trading state needs trading.view", "Paper accounts need trading.view", "0 language profiles"]);
+  const memberCards = kpiCards({ permissions: member.permissions, runs: null, unread: null, accounts: null, profiles: { profiles: [] } });
   assert.equal(memberCards.find((card) => card.key === "accounts").value, "—");
   // The card still opens the console for a session that cannot read the count: the shell's
   // own route gate names the missing permission, which is more use than a card that is
@@ -379,7 +382,7 @@ test("the screen: /app is declared, session-only, and renders the dashboard", as
   assert.ok(assets.length >= 1, `the shell must reference the built bundle, found ${html.body.length} bytes`);
   const bundle = readFileSync(path.resolve(CLIENT, "..", "..", "public", "app", ...assets[0].split("/")), "utf8");
   assert.match(bundle, /WINDELS AI WORKFORCE/, "the dashboard's eyebrow is in the built bundle");
-  assert.match(bundle, /Language learning not ported/);
+  assert.match(bundle, /language profile/, "the pluralised language profile count");
   assert.match(bundle, /paper accounts/, "the pluralised paper count");
 });
 
@@ -392,12 +395,12 @@ test("the two absences the page explains are the ledger's and the router's own",
   const modules = (await get(instance, "/api/v1/system/status")).json().modules;
   const language = modules.find((module) => module.key === "languageLearning");
   const paper = modules.find((module) => module.key === "paperTrading");
-  assert.equal(language.state, "not-ported", "the language card's premise: there is no Node module to count profiles from");
+  assert.equal(language.state, "ported", "Phase 46 ported languageLearning and its /app/languages console");
   assert.equal(paper.state, "ported", "the paper note's premise: the module is ported, and now screened");
 
   const routes = (await get(instance, "/api/v1/system/routes")).json().routes;
   assert.ok(routes.some((route) => route.path.startsWith("/api/v1/paper/")), "the paper note names a surface that exists");
-  assert.ok(!routes.some((route) => route.path.startsWith("/api/v1/lang") || route.path.startsWith("/api/v1/languages")), "and no language surface exists to link to");
+  assert.ok(routes.some((route) => route.path.startsWith("/api/v1/language-learning/")), "and the language-learning surface exists and is linked");
 
   const app = readFileSync(path.join(CLIENT, "App.jsx"), "utf8");
   const declared = new Set([...app.matchAll(/path:\s*"(\/app[^"]*)"/g)].map((match) => match[1]));
@@ -410,11 +413,16 @@ test("the two absences the page explains are the ledger's and the router's own",
   // F-29's screen list. There is no "missing" loop any more on purpose: keeping an empty one
   // would look like a check that still had a subject. The landed list is the historical
   // record of the seven screens F-29 counted, each now a declared route.
-  for (const landed of ["/app/sports", "/app/paper", "/app/risk", "/app/execution", "/app/brokers", "/app/journal"]) {
+  for (const landed of ["/app/sports", "/app/paper", "/app/risk", "/app/execution", "/app/brokers", "/app/journal", "/app/leads", "/app/languages", "/app/languages/teacher"]) {
     assert.ok(declared.has(landed), `${landed} is declared, and the F-29 list above is about the screens still absent`);
   }
-  // The module counts are untouched by this phase: the dashboard is a screen for the
-  // shell, not a promotion for a module.
-  assert.equal(modules.filter((module) => module.state === "ported").length, 10);
-  assert.equal(modules.filter((module) => module.state === "partial").length, 5);
+  // Phase 43 promoted `publicSite` from `partial` to `ported` when the grounded
+  // public chat assistant (`POST /api/v1/chat/respond`) and floating widget landed,
+  // Phase 44 promoted `scheduledJobs` from `partial` to `ported` when the
+  // 80/70/60% early-warning tiers, leverage check and correlation-group enforcement landed,
+  // Phase 45 promoted `leadDiscovery` from `not-ported` to `ported`,
+  // and Phase 46 promoted `languageLearning` from `not-ported` to `ported`.
+  assert.equal(modules.filter((module) => module.state === "ported").length, 14);
+  assert.equal(modules.filter((module) => module.state === "partial").length, 3);
+  assert.equal(modules.filter((module) => module.state === "not-ported").length, 0);
 });

@@ -28,6 +28,8 @@ import { createRateLimiter, createLoginGuard, createConcurrencyTracker } from ".
 import { healthRoutes } from "./modules/platform/health.js";
 import { identityRoutes } from "./modules/identity/routes.js";
 import { siteRoutes } from "./modules/site/routes.js";
+import { chatRoutes } from "./modules/chat/routes.js";
+import { createChatService } from "./modules/chat/service.js";
 import { mailRoutes } from "./modules/mail/routes.js";
 import { createMailService } from "./modules/mail/service.js";
 import { createSiteDocuments } from "./modules/site/documents.js";
@@ -51,6 +53,10 @@ import { sportsRoutes } from "./modules/sports/routes.js";
 import { createSportsService } from "./modules/sports/service.js";
 import { lotteryRoutes } from "./modules/lottery/routes.js";
 import { createLotteryService } from "./modules/lottery/service.js";
+import { leadDiscoveryRoutes } from "./modules/leads/routes.js";
+import { createLeadDiscoveryService } from "./modules/leads/service.js";
+import { languageLearningRoutes } from "./modules/language/routes.js";
+import { createLanguageLearningService } from "./modules/language/service.js";
 import { createBrokerRegistry } from "./modules/brokers/registry.js";
 
 const JSON_TYPE = "application/json; charset=utf-8";
@@ -177,6 +183,11 @@ export async function buildApp({ config, store, logger = true, publicDir = path.
   // operator alerts are still stored and read in-product.
   const mail = createMailService({ config: config.mail, log: app.log });
 
+  // Public website assistant (rows 4 and 18 — Phase 43). Deliberately not handed
+  // `store`, `paper`, `strategies`, `execution`, `sports`, `lottery`, `brokers` or
+  // `notifications`: it cannot read private account or domain records by construction.
+  const chat = createChatService({ config: config.chat, log: app.log });
+
   // One sports service per app (row 14). Providers come from the environment only,
   // and a default host registers none at all: the sandbox provider needs
   // WINDELS_SPORTS_MODE=SANDBOX *and* WINDELS_SPORTS_SANDBOX=1, and the HTTP
@@ -203,17 +214,20 @@ export async function buildApp({ config, store, logger = true, publicDir = path.
   // The service performs NO writes at construction (LT-4): the game registry row is
   // ensured lazily on the first call that needs it, so booting stays read-free.
   const lottery = createLotteryService({ config, store });
+  const leads = createLeadDiscoveryService({ config, store });
+  const languageLearning = createLanguageLearningService({ store });
 
   // The status surface reports the notification module alongside market data and
   // analysis, so an operator can see that alerts are stored-and-read only and that
   // no outbound delivery channel exists.
-  await app.register(healthRoutes, { prefix: "/api/v1", store, config, adapter, router, marketData, analysis, notifications, brokers, sports });
+  await app.register(healthRoutes, { prefix: "/api/v1", store, config, adapter, router, marketData, analysis, notifications, brokers, sports, chat, leads });
   if (config.auth !== false) {
-    await app.register(identityRoutes, { prefix: "/api/v1", store, config, loginGuard });
+    await app.register(identityRoutes, { prefix: "/api/v1", store, config, loginGuard, mail });
   }
   // The public site: contact intake over JSON, plus the rendered documents the
   // transport consults before it falls back to static files.
   await app.register(siteRoutes, { prefix: "/api/v1", store, config, mail });
+  await app.register(chatRoutes, { prefix: "/api/v1", config, chat });
   await app.register(mailRoutes, { prefix: "/api/v1", store, config, mail });
   await app.register(marketDataRoutes, { prefix: "/api/v1", store, config, service: marketData });
   // The same tracker backs the platform-wide per-address ceiling; the analysis
@@ -264,6 +278,16 @@ export async function buildApp({ config, store, logger = true, publicDir = path.
   // slice does not create, so none of them is ported; the status route carries the
   // not-ported matrix.
   await app.register(lotteryRoutes, { prefix: "/api/v1", store, config, lottery });
+  // Lead Discovery (row 17 — Phase 45): organization-scoped workspaces, provider
+  // health, business search, duplicate review, collections, pipeline, coverage,
+  // search history, and CSV-safe export.
+  await app.register(leadDiscoveryRoutes, { prefix: "/api/v1", store, config, service: leads });
+  // AI Language Learning & AI Teacher (row 16 — Phase 46): 20 languages (18 CEFR +
+  // Japanese JLPT N5–N1 + Mandarin Chinese HSK 1–6), placement assessment,
+  // 5-module curriculum path, checkpoints, guided lessons, conversations, writing
+  // feedback, grammar explain-simply, vocabulary SRS, listening & speaking
+  // practice, adaptive weakness engine, daily study plan, mastery, and translator.
+  await app.register(languageLearningRoutes, { prefix: "/api/v1", store, config, service: languageLearning });
 
   /**
    * Scheduled operations (row 19): the portfolio risk sweep and the cross-owner
@@ -377,7 +401,7 @@ export async function buildApp({ config, store, logger = true, publicDir = path.
       if (route.options?.config?.rateLimit && config.rateLimit.enabled !== false) {
         const limit = route.options.config.rateLimit;
         const wait = rateLimiter.check(`route:${route.path}:${client}`, { max: limit.max, windowMs: limit.windowMs ?? limit.timeWindow });
-        if (wait) throw AppError.tooManyRequests("Too many requests", { retryAfter: wait });
+        if (wait) throw AppError.tooManyRequests(limit.message || "Too many requests", { retryAfter: wait });
       }
 
       await readRequestBody(request, route, config);

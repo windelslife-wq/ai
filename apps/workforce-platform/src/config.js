@@ -656,6 +656,25 @@ function loadAnalysisConfig(env) {
  * The windows are configurable; the *behaviour* is not. Retention only ever runs
  * from `npm run prune:retention`, never from a request, on either adapter.
  */
+function loadChatConfig(env) {
+  const apiUrl = String(env.AI_CHAT_API_URL || "").trim();
+  const apiKey = String(env.AI_CHAT_API_KEY || "").trim();
+  const model = String(env.AI_CHAT_MODEL || "").trim();
+  const enabled = String(env.AI_CHAT_ENABLED || "").trim() === "1"
+    && apiUrl !== ""
+    && apiKey !== ""
+    && model !== "";
+  return Object.freeze({
+    enabled,
+    apiUrl,
+    apiKey,
+    model,
+    timeoutMs: integer(env.AI_CHAT_TIMEOUT_MS, "AI_CHAT_TIMEOUT_MS", { fallback: 8_000, min: 1_000, max: 30_000 }),
+    maxPerWindow: integer(env.CHAT_MAX_PER_MINUTE, "CHAT_MAX_PER_MINUTE", { fallback: 30, min: 1, max: 1_000 }),
+    windowMs: integer(env.CHAT_WINDOW_MS, "CHAT_WINDOW_MS", { fallback: 60_000, min: 1_000, max: 3_600_000 }),
+  });
+}
+
 function loadRetentionConfig(env) {
   const days = (name) => integer(env[name], name, { fallback: 0, min: 0, max: 3_650 });
   return Object.freeze({
@@ -732,6 +751,21 @@ function loadMailConfig(env, { production }) {
   });
 }
 
+/**
+ * Lead Discovery provider configuration (row 17 — Phase 45).
+ *
+ * Legacy (`application/libraries/LeadDiscovery/GooglePlacesProvider.php`) read
+ * `GOOGLE_PLACES_API_KEY` from the environment; when blank, `google_places`
+ * reports `DISABLED` and refuses searches with HTTP 503 rather than fabricating
+ * synthetic business records.
+ */
+function loadLeadDiscoveryConfig(env) {
+  return Object.freeze({
+    googlePlacesApiKey: String(env.GOOGLE_PLACES_API_KEY || "").trim(),
+    googlePlacesTimeoutSeconds: 12,
+  });
+}
+
 export function loadConfig(env = process.env) {
   assertSupportedNodeVersion();
   const mode = env.NODE_ENV || "development";
@@ -795,10 +829,12 @@ export function loadConfig(env = process.env) {
     database,
     storage,
     site: loadSiteConfig(env, { production, publicBaseUrl }),
+    chat: loadChatConfig(env),
     marketData: loadMarketDataConfig(env, { production }),
     brokers: loadBrokerConfig(env, { production }),
     sports: loadSportsConfig(env, { production }),
     lottery: loadLotteryConfig(env),
+    leads: loadLeadDiscoveryConfig(env),
     analysis: loadAnalysisConfig(env),
     retention: loadRetentionConfig(env),
     mail: loadMailConfig(env, { production }),

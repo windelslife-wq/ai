@@ -9,10 +9,51 @@
  * without string matching.
  */
 
+import { createHmac, randomBytes, timingSafeEqual } from "node:crypto";
 import { AppError } from "../../http/errors.js";
 import { hashPassword, inspectPassword } from "../../security/passwords.js";
 import { csrfTokenForSession, hashSessionToken, newSessionToken } from "../../security/session.js";
 import { ADMIN_ROLES } from "./contracts.js";
+
+export const PASSWORD_RESET_TTL_MS = 15 * 60 * 1000;
+const MAX_CONSUMED_RESET_TOKENS = 4096;
+
+function resetTokenMac(sessionSecret, { userId, expiresAtMs, jti, passwordHash }) {
+  return createHmac("sha256", String(sessionSecret))
+    .update(`wf-password-reset:v1:${userId}:${expiresAtMs}:${jti}:${hashSessionToken(String(passwordHash ?? ""))}`)
+    .digest("base64url");
+}
+
+/**
+ * Mints a single-use, 15-minute password reset token cryptographically bound to
+ * `(userId, expiresAtMs, jti, sha256(passwordHash))`. Once the password hash is
+ * updated, any outstanding reset token for that account automatically fails HMAC
+ * verification even across process restarts.
+ */
+export function mintPasswordResetToken({ userId, passwordHash, sessionSecret, nowMs = Date.now(), ttlMs = PASSWORD_RESET_TTL_MS }) {
+  const expiresAtMs = Math.trunc(nowMs + ttlMs);
+  const jti = randomBytes(16).toString("base64url");
+  const sig = resetTokenMac(sessionSecret, { userId, expiresAtMs, jti, passwordHash });
+  return {
+    token: `${userId}.${expiresAtMs}.${jti}.${sig}`,
+    expiresAt: new Date(expiresAtMs).toISOString(),
+    expiresAtMs,
+    jti,
+  };
+}
+
+export function parsePasswordResetToken(token) {
+  const parts = String(token ?? "").trim().split(".");
+  if (parts.length !== 4) return null;
+  const userId = Number(parts[0]);
+  const expiresAtMs = Number(parts[1]);
+  const jti = parts[2];
+  const sig = parts[3];
+  if (!Number.isSafeInteger(userId) || userId < 1) return null;
+  if (!Number.isSafeInteger(expiresAtMs) || expiresAtMs < 1) return null;
+  if (!/^[A-Za-z0-9_-]{16,64}$/.test(jti) || !/^[A-Za-z0-9_-]{32,128}$/.test(sig)) return null;
+  return { userId, expiresAtMs, jti, sig };
+}
 
 export const SUPER_ADMIN_PERMISSION = "system.super_admin";
 export const AUTHENTICATED_PERMISSION = "system.authenticated";
@@ -30,6 +71,7 @@ export const LEGACY_AUDIT_ACTIONS = Object.freeze({
   "identity.user.email-changed": "USER_UPDATED",
   "identity.user.profile-updated": "USER_UPDATED",
   "identity.user.password-changed": "PASSWORD_CHANGED",
+  "identity.user.password-reset": "PASSWORD_CHANGED",
   "identity.user.avatar-updated": "USER_UPDATED",
   "identity.user.avatar-removed": "USER_UPDATED",
   "identity.sessions.revoked-others": "USER_UPDATED",
@@ -68,8 +110,20 @@ async function audit(store, event) {
   await store.recordAudit({ ...event, details: { ...(event.details || {}), ...(LEGACY_AUDIT_ACTIONS[event.action] ? { legacyAction: LEGACY_AUDIT_ACTIONS[event.action] } : {}) } });
 }
 
-export function createIdentityService({ store, config, loginGuard = null }) {
+export function createIdentityService({ store, config, loginGuard = null, mail = null, now = () => Date.now() }) {
   const rememberTtlSeconds = Math.min(Math.max(config.rememberSessionTtlSeconds ?? 30 * 24 * 60 * 60, config.sessionTtlSeconds), 30 * 24 * 60 * 60);
+  const consumedResetTokens = new Map();
+
+  function pruneConsumedTokens(nowMs) {
+    for (const [jti, expiresAtMs] of consumedResetTokens) {
+      if (expiresAtMs <= nowMs) consumedResetTokens.delete(jti);
+    }
+    while (consumedResetTokens.size > MAX_CONSUMED_RESET_TOKENS) {
+      const oldest = consumedResetTokens.keys().next().value;
+      if (oldest === undefined) break;
+      consumedResetTokens.delete(oldest);
+    }
+  }
 
   return {
     memberPermissions() {
@@ -186,23 +240,132 @@ export function createIdentityService({ store, config, loginGuard = null }) {
     },
 
     /**
-     * The PHP application deliberately does not mint self-service reset tokens;
-     * resets are issued by an administrator. That behaviour is preserved rather
-     * than inventing a token flow, and the response is identical whether or not
-     * the identifier exists.
+     * Self-service password reset request (Row 2 — Phase 47).
+     *
+     * When outbound SMTP is disabled (default host), preserves legacy's honest
+     * `delivered: false` notice. When SMTP is enabled (`VP_SMTP_ENABLED=1`), mints
+     * a single-use 15-minute HMAC token bound to `(userId, expiresAtMs, jti, sha256(passwordHash))`
+     * and dispatches it to the account's email address, returning a uniform
+     * enumeration-safe response regardless of whether the identifier matched.
      */
     async requestPasswordReset({ identifier, clientIp = "unknown" }) {
-      const user = await store.findUserByIdentifier(normalize(identifier));
+      const normalized = normalize(identifier);
+      const user = await store.findUserByIdentifier(normalized);
+      const smtpEnabled = Boolean(mail?.enabled?.());
+
+      if (!smtpEnabled) {
+        await audit(store, {
+          actorId: null,
+          action: "identity.password.reset-requested",
+          entityType: "identity",
+          details: { known: Boolean(user), smtpEnabled: false, delivered: false, identifierHash: hashSessionToken(normalized) },
+        });
+        return {
+          delivered: false,
+          notice: "Password resets are issued by an administrator. Contact support or your platform admin — this form does not create a reset link.",
+        };
+      }
+
+      let delivered = true;
+      if (user && user.status === "active" && user.email) {
+        const nowMs = now();
+        const minted = mintPasswordResetToken({
+          userId: user.id,
+          passwordHash: user.password_hash,
+          sessionSecret: config.sessionSecret,
+          nowMs,
+        });
+        const baseUrl = String(config.site?.publicBaseUrl || "").replace(/\/+$/, "");
+        const resetUrl = baseUrl
+          ? `${baseUrl}/app/forgot-password?token=${encodeURIComponent(minted.token)}`
+          : `/app/forgot-password?token=${encodeURIComponent(minted.token)}`;
+        const html = `<div style="font-family:Arial,Helvetica,sans-serif;max-width:560px;margin:auto;color:#0f172a">`
+          + `<h2 style="color:#2563eb;margin:0 0 8px">WINDELS AI WORKFORCE — password reset</h2>`
+          + `<p>A password reset was requested for your account (<strong>${String(user.username || "")}</strong>).</p>`
+          + `<p>Use the single-use reset token below within 15 minutes (expires at ${minted.expiresAt}):</p>`
+          + `<pre style="background:#f1f5f9;padding:12px;border-radius:6px;word-break:break-all">${minted.token}</pre>`
+          + `<p>Reset path: <code>${resetUrl}</code></p>`
+          + `<p style="color:#64748b;font-size:12px">If you did not request this reset, you can safely ignore this message.</p>`
+          + `</div>`;
+        const text = `WINDELS AI WORKFORCE — password reset\n\n`
+          + `A password reset was requested for your account (${user.username}).\n`
+          + `Single-use token (valid for 15 minutes, until ${minted.expiresAt}):\n${minted.token}\n\n`
+          + `Reset path: ${resetUrl}\n`;
+        const sendResult = await mail.send({
+          to: user.email,
+          subject: "WINDELS AI WORKFORCE — password reset",
+          html,
+          text,
+        });
+        delivered = Boolean(sendResult?.ok);
+      }
+
       await audit(store, {
         actorId: null,
         action: "identity.password.reset-requested",
         entityType: "identity",
-        details: { known: Boolean(user), identifierHash: hashSessionToken(normalize(identifier)) },
+        details: { known: Boolean(user), smtpEnabled: true, delivered, identifierHash: hashSessionToken(normalized) },
       });
+
       return {
-        delivered: false,
-        notice: "Password resets are issued by an administrator. Contact support or your platform admin — this form does not create a reset link.",
+        delivered,
+        notice: delivered
+          ? "If an active account matches that identifier, a single-use 15-minute password reset token has been sent via SMTP."
+          : "Outbound email could not deliver the password reset message. Contact support or your platform administrator.",
       };
+    },
+
+    /**
+     * Completes a password reset using a single-use, 15-minute reset token.
+     * Updating the password hash immediately invalidates the token signature,
+     * and all existing sessions for the account are revoked.
+     */
+    async confirmPasswordReset({ token, newPassword, newPasswordConfirm }) {
+      if (newPassword !== newPasswordConfirm) {
+        throw AppError.badRequest("The two new passwords do not match", { code: "PASSWORD_MISMATCH" });
+      }
+      const parsed = parsePasswordResetToken(token);
+      if (!parsed) {
+        throw AppError.badRequest("The password reset token is invalid or has already been used", { code: "RESET_TOKEN_INVALID" });
+      }
+      const nowMs = now();
+      pruneConsumedTokens(nowMs);
+      if (nowMs > parsed.expiresAtMs) {
+        throw AppError.badRequest("The password reset token has expired", { code: "RESET_TOKEN_EXPIRED" });
+      }
+      if (consumedResetTokens.has(parsed.jti)) {
+        throw AppError.badRequest("The password reset token is invalid or has already been used", { code: "RESET_TOKEN_INVALID" });
+      }
+      const user = await store.findUserById(parsed.userId);
+      if (!user || user.status !== "active") {
+        throw AppError.badRequest("The password reset token is invalid or has already been used", { code: "RESET_TOKEN_INVALID" });
+      }
+      const expectedSig = resetTokenMac(config.sessionSecret, {
+        userId: user.id,
+        expiresAtMs: parsed.expiresAtMs,
+        jti: parsed.jti,
+        passwordHash: user.password_hash,
+      });
+      const expectedBuf = Buffer.from(expectedSig, "utf8");
+      const actualBuf = Buffer.from(parsed.sig, "utf8");
+      if (expectedBuf.length !== actualBuf.length || !timingSafeEqual(expectedBuf, actualBuf)) {
+        throw AppError.badRequest("The password reset token is invalid or has already been used", { code: "RESET_TOKEN_INVALID" });
+      }
+      const permissions = store.permissionsForUser ? await store.permissionsForUser(user.id) : [];
+      const isSuperAdmin = userHasPermission(permissions, SUPER_ADMIN_PERMISSION);
+      const minLength = isSuperAdmin ? (config.adminPasswordMinLength ?? 14) : (config.passwordMinLength ?? 12);
+      const passwordHash = await hashPassword(newPassword, { minLength });
+      consumedResetTokens.set(parsed.jti, parsed.expiresAtMs);
+      await store.updatePasswordHash(user.id, passwordHash);
+      const revokedSessions = await store.revokeAllSessions(user.id);
+      await audit(store, {
+        actorId: user.id,
+        action: "identity.user.password-reset",
+        entityType: "identity",
+        entityId: user.id,
+        details: { revokedOtherSessions: revokedSessions },
+      });
+      return { reset: true, revokedSessions };
     },
 
     async changePassword({ userId, currentPassword, newPassword, newPasswordConfirm, signOutOtherSessions = false, currentTokenHash = null }) {

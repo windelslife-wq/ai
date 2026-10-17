@@ -139,7 +139,16 @@ const ENTITIES = ["users", "profiles", "sessions", "roles", "permissions", "user
   "lotteryTickets", "lotteryTicketLines",
   // Slice 4 (migration 019): backtest reports + the model versions they are
   // stamped with (spec §23–§25/§33; ensured once, never deleted).
-  "lotteryBacktests", "lotteryModelVersions"];
+  "lotteryBacktests", "lotteryModelVersions",
+  // Row 17 (migration 020): organization-scoped Lead Discovery collections.
+  "leadOrganizations", "leadOrganizationMembers", "leads", "leadNotes",
+  "leadActivities", "leadCollections", "leadCollectionLeads", "leadSearchHistory",
+  "leadDuplicateCandidates", "leadDuplicateResolutions", "leadExportHistory",
+  // Row 16 (migration 021): AI Language Learning & AI Teacher collections.
+  "languages", "userLanguageProfiles", "languageAssessments", "learningPaths",
+  "learningModules", "lessonAttempts", "studySessions", "languageProgress",
+  "conversationSessions", "writingAttempts", "vocabulary", "userVocabulary",
+  "listeningAttempts", "speakingAttempts", "dailyLearningPlans", "aiLearningRecommendations"];
 const PAPER_TX_ENTITIES = Object.freeze(["tradingState", "paperAccounts", "paperOrders", "paperPositions", "paperTrades", "paperDeployments", "executionProposals", "strategies", "journalEntries", "audit"]);
 const COMPACTION_ENTRIES = 2_000;
 /**
@@ -249,6 +258,12 @@ function keyOf(entity, record) {
   if (entity === "lotteryDraws") return `${record.lottery_code}:${record.external_id}`;
   if (entity === "lotteryDrawNumbers") return `${record.draw_id}|${record.kind}|${record.position}`;
   if (entity === "lotterySyncRuns") return String(record.execution_key);
+  if (entity === "leadOrganizationMembers") return `${record.organization_id}:${record.user_id}`;
+  if (entity === "leadCollectionLeads") return `${record.collection_id}:${record.lead_id}`;
+  if (entity === "languages") return String(record.code);
+  if (entity === "languageProgress") return `${record.profile_id}:${record.skill}:${record.source}`;
+  if (entity === "userVocabulary") return `${record.profile_id}:${record.vocabulary_id}`;
+  if (entity === "dailyLearningPlans") return `${record.profile_id}:${record.day}`;
   // Combinations and AI decisions are auto-increment rows: the insert path below
   // assigns the next id, so the default `String(record.id)` branch is theirs.
   return String(record.id);
@@ -3335,6 +3350,772 @@ export async function createFileStore({ dir, logger = console, idFactory = () =>
       report.deleted = doomed.length;
       report.batches = 1;
       return report;
+    },
+
+    // ---- Lead Discovery (row 17 — migration 020) ------------------------
+    async listLeadWorkspaces(userId) {
+      const uid = Number(userId);
+      const members = [...tables.get("leadOrganizationMembers").values()]
+        .filter((row) => Number(row.user_id) === uid)
+        .sort((a, b) => (String(a.created_at).localeCompare(String(b.created_at)) || String(a.organization_id).localeCompare(String(b.organization_id))));
+      const out = [];
+      for (const member of members) {
+        const org = tables.get("leadOrganizations").get(String(member.organization_id));
+        if (!org) continue;
+        out.push({
+          id: String(org.id),
+          name: String(org.name),
+          role: String(member.role),
+          created_at: String(member.created_at),
+        });
+      }
+      return out;
+    },
+    async ensureLeadWorkspace({ userId, email = null, organizationId = null, name = null, role = "owner", nowIso }) {
+      const uid = Number(userId);
+      const orgId = String(organizationId || `org-${uid}`);
+      const orgName = String(name || `${email || "My"} workspace`);
+      const at = String(nowIso);
+      const existingOrg = tables.get("leadOrganizations").get(orgId);
+      const orgRow = {
+        id: orgId,
+        name: orgName,
+        created_at: existingOrg ? String(existingOrg.created_at) : at,
+      };
+      await mutate("leadOrganizations", "upsert", orgRow);
+      const existingMember = tables.get("leadOrganizationMembers").get(`${orgId}:${uid}`);
+      const memberRow = {
+        organization_id: orgId,
+        user_id: uid,
+        role: String(role || "owner"),
+        created_at: existingMember ? String(existingMember.created_at) : at,
+      };
+      await mutate("leadOrganizationMembers", "upsert", memberRow);
+      return { id: orgId, name: orgName, role: memberRow.role, created_at: memberRow.created_at };
+    },
+    async listLeads(organizationId, { status = null, limit = 250 } = {}) {
+      const orgId = String(organizationId);
+      const bounded = Math.min(Math.max(Number(limit) || 250, 1), 10_000);
+      return [...tables.get("leads").values()]
+        .filter((row) => String(row.organization_id) === orgId && (!status || String(row.status) === String(status)))
+        .sort((a, b) => (String(b.updated_at).localeCompare(String(a.updated_at)) || String(a.id).localeCompare(String(b.id))))
+        .slice(0, bounded)
+        .map((row) => structuredClone(row));
+    },
+    async findLeadById(organizationId, leadId) {
+      const row = tables.get("leads").get(String(leadId));
+      if (!row || String(row.organization_id) !== String(organizationId)) return null;
+      return structuredClone(row);
+    },
+    async findLeadBySource(organizationId, source, sourceId) {
+      const orgId = String(organizationId);
+      const src = String(source);
+      const sid = String(sourceId);
+      const found = [...tables.get("leads").values()]
+        .find((row) => String(row.organization_id) === orgId && String(row.source) === src && String(row.source_id) === sid);
+      return found ? structuredClone(found) : null;
+    },
+    async saveLead(lead) {
+      const record = {
+        id: String(lead.id),
+        organization_id: String(lead.organization_id),
+        source: String(lead.source),
+        source_id: String(lead.source_id),
+        name: String(lead.name),
+        category: lead.category ?? null,
+        address: lead.address ?? null,
+        city: lead.city ?? null,
+        region: lead.region ?? null,
+        country: lead.country ?? null,
+        phone: lead.phone ?? null,
+        website: lead.website ?? null,
+        latitude: lead.latitude === null || lead.latitude === undefined ? null : Number(lead.latitude),
+        longitude: lead.longitude === null || lead.longitude === undefined ? null : Number(lead.longitude),
+        status: String(lead.status || "new"),
+        owner_id: lead.owner_id === null || lead.owner_id === undefined ? null : Number(lead.owner_id),
+        metadata: typeof lead.metadata === "string" ? lead.metadata : JSON.stringify(lead.metadata ?? {}),
+        created_at: String(lead.created_at),
+        updated_at: String(lead.updated_at),
+      };
+      await mutate("leads", "upsert", record);
+      return structuredClone(record);
+    },
+    async listLeadNotes(organizationId, leadId) {
+      const orgId = String(organizationId);
+      const lid = String(leadId);
+      return [...tables.get("leadNotes").values()]
+        .filter((row) => String(row.organization_id) === orgId && String(row.lead_id) === lid)
+        .sort((a, b) => (String(b.created_at).localeCompare(String(a.created_at)) || String(a.id).localeCompare(String(b.id))))
+        .map((row) => structuredClone(row));
+    },
+    async createLeadNote(note) {
+      const record = {
+        id: String(note.id),
+        lead_id: String(note.lead_id),
+        organization_id: String(note.organization_id),
+        author_id: Number(note.author_id),
+        body: String(note.body),
+        created_at: String(note.created_at),
+      };
+      await mutate("leadNotes", "upsert", record);
+      return structuredClone(record);
+    },
+    async listLeadActivities(organizationId, leadId) {
+      const orgId = String(organizationId);
+      const lid = String(leadId);
+      return [...tables.get("leadActivities").values()]
+        .filter((row) => String(row.organization_id) === orgId && String(row.lead_id) === lid)
+        .sort((a, b) => (String(b.created_at).localeCompare(String(a.created_at)) || String(a.id).localeCompare(String(b.id))))
+        .map((row) => structuredClone(row));
+    },
+    async recordLeadActivity(activity) {
+      const record = {
+        id: String(activity.id),
+        lead_id: activity.lead_id === null || activity.lead_id === undefined ? null : String(activity.lead_id),
+        organization_id: String(activity.organization_id),
+        actor_id: activity.actor_id === null || activity.actor_id === undefined ? null : Number(activity.actor_id),
+        type: String(activity.type),
+        detail: typeof activity.detail === "string" ? activity.detail : JSON.stringify(activity.detail ?? {}),
+        created_at: String(activity.created_at),
+      };
+      await mutate("leadActivities", "upsert", record);
+      return structuredClone(record);
+    },
+    async listLeadCollections(organizationId) {
+      const orgId = String(organizationId);
+      const memberships = [...tables.get("leadCollectionLeads").values()];
+      return [...tables.get("leadCollections").values()]
+        .filter((row) => String(row.organization_id) === orgId)
+        .map((row) => ({
+          ...structuredClone(row),
+          leadCount: memberships.filter((m) => String(m.collection_id) === String(row.id)).length,
+        }))
+        .sort((a, b) => (String(a.name).localeCompare(String(b.name)) || String(a.id).localeCompare(String(b.id))));
+    },
+    async findLeadCollection(organizationId, collectionId) {
+      const row = tables.get("leadCollections").get(String(collectionId));
+      if (!row || String(row.organization_id) !== String(organizationId)) return null;
+      const leadCount = [...tables.get("leadCollectionLeads").values()]
+        .filter((m) => String(m.collection_id) === String(row.id))
+        .length;
+      return { ...structuredClone(row), leadCount };
+    },
+    async saveLeadCollection(collection) {
+      const record = {
+        id: String(collection.id),
+        organization_id: String(collection.organization_id),
+        name: String(collection.name),
+        created_at: String(collection.created_at),
+        updated_at: String(collection.updated_at),
+      };
+      await mutate("leadCollections", "upsert", record);
+      return structuredClone(record);
+    },
+    async deleteLeadCollection(organizationId, collectionId) {
+      const cid = String(collectionId);
+      const row = tables.get("leadCollections").get(cid);
+      if (!row || String(row.organization_id) !== String(organizationId)) return false;
+      for (const m of [...tables.get("leadCollectionLeads").values()]) {
+        if (String(m.collection_id) === cid) {
+          await mutate("leadCollectionLeads", "delete", m);
+        }
+      }
+      await mutate("leadCollections", "delete", row);
+      return true;
+    },
+    async listCollectionLeads(organizationId, collectionId) {
+      const orgId = String(organizationId);
+      const cid = String(collectionId);
+      const leadIds = new Set(
+        [...tables.get("leadCollectionLeads").values()]
+          .filter((m) => String(m.collection_id) === cid)
+          .map((m) => String(m.lead_id)),
+      );
+      return [...tables.get("leads").values()]
+        .filter((row) => String(row.organization_id) === orgId && leadIds.has(String(row.id)))
+        .sort((a, b) => (String(b.updated_at).localeCompare(String(a.updated_at)) || String(a.id).localeCompare(String(b.id))))
+        .map((row) => structuredClone(row));
+    },
+    async setCollectionLeadMembership({ collectionId, leadId, member }) {
+      const record = { collection_id: String(collectionId), lead_id: String(leadId) };
+      const key = `${record.collection_id}:${record.lead_id}`;
+      const exists = tables.get("leadCollectionLeads").has(key);
+      if (member) {
+        if (exists) return { changed: false };
+        await mutate("leadCollectionLeads", "upsert", record);
+        return { changed: true };
+      }
+      if (!exists) return { changed: false };
+      await mutate("leadCollectionLeads", "delete", record);
+      return { changed: true };
+    },
+    async listLeadDuplicateCandidates(organizationId, { status = "open" } = {}) {
+      const orgId = String(organizationId);
+      const out = [];
+      for (const row of [...tables.get("leadDuplicateCandidates").values()]) {
+        if (String(row.organization_id) !== orgId || String(row.status) !== String(status)) continue;
+        const leadA = tables.get("leads").get(String(row.lead_a_id));
+        const leadB = tables.get("leads").get(String(row.lead_b_id));
+        if (!leadA || !leadB || String(leadA.organization_id) !== orgId || String(leadB.organization_id) !== orgId) continue;
+        out.push({
+          ...structuredClone(row),
+          confidence: Number(row.confidence),
+          leadAName: String(leadA.name),
+          leadBName: String(leadB.name),
+        });
+      }
+      return out.sort((a, b) => (String(b.created_at).localeCompare(String(a.created_at)) || String(a.id).localeCompare(String(b.id))));
+    },
+    async saveLeadDuplicateCandidate(candidate) {
+      const record = {
+        id: String(candidate.id),
+        organization_id: String(candidate.organization_id),
+        lead_a_id: String(candidate.lead_a_id),
+        lead_b_id: String(candidate.lead_b_id),
+        rule_name: String(candidate.rule_name),
+        confidence: Number(candidate.confidence),
+        status: String(candidate.status || "open"),
+        created_at: String(candidate.created_at),
+      };
+      const existing = [...tables.get("leadDuplicateCandidates").values()].find(
+        (row) =>
+          String(row.organization_id) === record.organization_id
+          && String(row.lead_a_id) === record.lead_a_id
+          && String(row.lead_b_id) === record.lead_b_id
+          && String(row.rule_name) === record.rule_name
+          && String(row.status) === "open",
+      );
+      if (existing) return { created: false, candidate: structuredClone(existing) };
+      await mutate("leadDuplicateCandidates", "upsert", record);
+      return { created: true, candidate: structuredClone(record) };
+    },
+    async resolveLeadDuplicateCandidate({ organizationId, candidateId, resolution }) {
+      const cid = String(candidateId);
+      const orgId = String(organizationId);
+      const current = tables.get("leadDuplicateCandidates").get(cid);
+      if (!current || String(current.organization_id) !== orgId) return false;
+      await mutate("leadDuplicateCandidates", "upsert", { ...current, status: "resolved" });
+      await mutate("leadDuplicateResolutions", "upsert", {
+        id: String(resolution.id),
+        candidate_id: cid,
+        organization_id: orgId,
+        resolver_id: Number(resolution.resolver_id),
+        action: String(resolution.action),
+        created_at: String(resolution.created_at),
+      });
+      return true;
+    },
+    async recordLeadSearchHistory(entry) {
+      const record = {
+        id: String(entry.id),
+        organization_id: String(entry.organization_id),
+        user_id: Number(entry.user_id),
+        query: String(entry.query),
+        provider: String(entry.provider),
+        filters: typeof entry.filters === "string" ? entry.filters : JSON.stringify(entry.filters ?? {}),
+        results_returned: Number(entry.results_returned ?? 0),
+        new_leads_created: Number(entry.new_leads_created ?? 0),
+        duplicates_detected: Number(entry.duplicates_detected ?? 0),
+        errors: entry.errors === null || entry.errors === undefined ? null : String(entry.errors),
+        duration_ms: Number(entry.duration_ms ?? 0),
+        created_at: String(entry.created_at),
+      };
+      await mutate("leadSearchHistory", "upsert", record);
+      return structuredClone(record);
+    },
+    async listLeadSearchHistory(organizationId, limit = 100) {
+      const orgId = String(organizationId);
+      const bounded = Math.min(Math.max(Number(limit) || 100, 1), 250);
+      return [...tables.get("leadSearchHistory").values()]
+        .filter((row) => String(row.organization_id) === orgId)
+        .sort((a, b) => (String(b.created_at).localeCompare(String(a.created_at)) || String(a.id).localeCompare(String(b.id))))
+        .slice(0, bounded)
+        .map((row) => structuredClone(row));
+    },
+    async recordLeadExportHistory(entry) {
+      const record = {
+        id: String(entry.id),
+        organization_id: String(entry.organization_id),
+        user_id: Number(entry.user_id),
+        format: String(entry.format),
+        filters: typeof entry.filters === "string" ? entry.filters : JSON.stringify(entry.filters ?? {}),
+        lead_count: Number(entry.lead_count ?? 0),
+        created_at: String(entry.created_at),
+      };
+      await mutate("leadExportHistory", "upsert", record);
+      return structuredClone(record);
+    },
+
+    // ---- AI Language Learning & AI Teacher (row 16 — migration 021) ----
+    async upsertLanguage(row) {
+      const record = {
+        code: String(row.code),
+        name: String(row.name),
+        native_name: String(row.native_name),
+        iso_code: String(row.iso_code),
+        writing_system: String(row.writing_system),
+        direction: String(row.direction || "ltr"),
+        features: typeof row.features === "string" ? row.features : JSON.stringify(row.features || {}),
+        active: row.active ? 1 : 0,
+        updated_at: String(row.updated_at || new Date().toISOString()),
+      };
+      await mutate("languages", "upsert", record);
+    },
+    async listLanguages(activeOnly = true) {
+      return [...tables.get("languages").values()]
+        .filter((row) => !activeOnly || Number(row.active) === 1)
+        .sort((a, b) => String(a.name).localeCompare(String(b.name)))
+        .map((row) => structuredClone(row));
+    },
+    async findLanguage(code) {
+      const row = tables.get("languages").get(String(code));
+      return row ? structuredClone(row) : null;
+    },
+    async saveLanguageProfile(profile) {
+      const id = profile.id ? Number(profile.id) : nextRowId("userLanguageProfiles");
+      const existing = tables.get("userLanguageProfiles").get(String(id));
+      const record = {
+        id,
+        user_id: Number(profile.user_id ?? existing?.user_id ?? 0),
+        language_code: String(profile.language_code ?? existing?.language_code ?? ""),
+        level: String(profile.level ?? existing?.level ?? "Beginner"),
+        goal: profile.goal !== undefined ? (profile.goal === null ? null : String(profile.goal)) : (existing?.goal ?? null),
+        explanation_language: String(profile.explanation_language ?? existing?.explanation_language ?? "en"),
+        status: String(profile.status ?? existing?.status ?? "ACTIVE"),
+        daily_minutes: Number(profile.daily_minutes ?? existing?.daily_minutes ?? 20),
+        created_at: String(existing?.created_at ?? profile.created_at ?? new Date().toISOString()),
+        updated_at: String(profile.updated_at ?? new Date().toISOString()),
+      };
+      await mutate("userLanguageProfiles", "upsert", record);
+      return structuredClone(record);
+    },
+    async findLanguageProfile(id) {
+      const row = tables.get("userLanguageProfiles").get(String(Number(id)));
+      return row ? structuredClone(row) : null;
+    },
+    async findLanguageProfileByUserLanguage(userId, code) {
+      const uid = Number(userId);
+      const lang = String(code);
+      const row = [...tables.get("userLanguageProfiles").values()].find(
+        (p) => Number(p.user_id) === uid && String(p.language_code) === lang,
+      );
+      return row ? structuredClone(row) : null;
+    },
+    async listLanguageProfilesByUser(userId) {
+      const uid = Number(userId);
+      return [...tables.get("userLanguageProfiles").values()]
+        .filter((p) => Number(p.user_id) === uid)
+        .sort((a, b) => String(a.created_at).localeCompare(String(b.created_at)) || Number(a.id) - Number(b.id))
+        .map((p) => structuredClone(p));
+    },
+    async saveLanguageAssessment(assessment) {
+      const existing = tables.get("languageAssessments").get(String(assessment.id));
+      const stateObj = typeof assessment.state === "string"
+        ? JSON.parse(assessment.state || "{}")
+        : structuredClone(assessment.state ?? existing?.state ?? {});
+      const resultObj = assessment.result === undefined
+        ? (existing?.result ?? null)
+        : assessment.result === null
+          ? null
+          : typeof assessment.result === "string"
+            ? JSON.parse(assessment.result)
+            : structuredClone(assessment.result);
+      const record = {
+        id: String(assessment.id),
+        profile_id: Number(assessment.profile_id ?? existing?.profile_id ?? 0),
+        user_id: Number(assessment.user_id ?? existing?.user_id ?? 0),
+        language_code: String(assessment.language_code ?? existing?.language_code ?? ""),
+        status: String(assessment.status ?? existing?.status ?? "IN_PROGRESS"),
+        state: stateObj,
+        result: resultObj,
+        started_at: String(existing?.started_at ?? assessment.started_at ?? new Date().toISOString()),
+        completed_at: assessment.completed_at !== undefined
+          ? (assessment.completed_at === null ? null : String(assessment.completed_at))
+          : (existing?.completed_at ?? null),
+      };
+      await mutate("languageAssessments", "upsert", record);
+      return structuredClone(record);
+    },
+    async findLanguageAssessment(id) {
+      const row = tables.get("languageAssessments").get(String(id));
+      return row ? structuredClone(row) : null;
+    },
+    async latestCompletedLanguageAssessment(profileId) {
+      const pid = Number(profileId);
+      const rows = [...tables.get("languageAssessments").values()]
+        .filter((a) => Number(a.profile_id) === pid && a.status === "COMPLETED")
+        .sort((a, b) => String(b.completed_at || "").localeCompare(String(a.completed_at || "")));
+      return rows[0] ? structuredClone(rows[0]) : null;
+    },
+    async saveLearningPath(pathRow) {
+      const existing = tables.get("learningPaths").get(String(pathRow.id));
+      const record = {
+        id: String(pathRow.id),
+        profile_id: Number(pathRow.profile_id ?? existing?.profile_id ?? 0),
+        language_code: String(pathRow.language_code ?? existing?.language_code ?? ""),
+        from_level: String(pathRow.from_level ?? existing?.from_level ?? "A1"),
+        target_level: String(pathRow.target_level ?? existing?.target_level ?? "A2"),
+        status: String(pathRow.status ?? existing?.status ?? "ACTIVE"),
+        created_at: String(existing?.created_at ?? pathRow.created_at ?? new Date().toISOString()),
+      };
+      await mutate("learningPaths", "upsert", record);
+      return structuredClone(record);
+    },
+    async activeLearningPath(profileId) {
+      const pid = Number(profileId);
+      const rows = [...tables.get("learningPaths").values()]
+        .filter((p) => Number(p.profile_id) === pid && p.status === "ACTIVE")
+        .sort((a, b) => String(b.created_at).localeCompare(String(a.created_at)));
+      return rows[0] ? structuredClone(rows[0]) : null;
+    },
+    async saveLearningModule(mod) {
+      const existing = tables.get("learningModules").get(String(mod.id));
+      const record = {
+        id: String(mod.id),
+        path_id: String(existing?.path_id ?? mod.path_id ?? ""),
+        profile_id: Number(existing?.profile_id ?? mod.profile_id ?? 0),
+        language_code: String(mod.language_code ?? existing?.language_code ?? ""),
+        sequence: Number(existing?.sequence ?? mod.sequence ?? 1),
+        code: String(mod.code ?? existing?.code ?? ""),
+        title: String(mod.title ?? existing?.title ?? ""),
+        focus_skill: String(mod.focus_skill ?? existing?.focus_skill ?? "vocabulary"),
+        level: String(mod.level ?? existing?.level ?? "A1"),
+        status: String(mod.status ?? existing?.status ?? "LOCKED"),
+        attempts_count: Number(mod.attempts_count ?? existing?.attempts_count ?? 0),
+        completed_at: mod.completed_at !== undefined
+          ? (mod.completed_at === null ? null : String(mod.completed_at))
+          : (existing?.completed_at ?? null),
+      };
+      await mutate("learningModules", "upsert", record);
+      return structuredClone(record);
+    },
+    async findLearningModule(id) {
+      const row = tables.get("learningModules").get(String(id));
+      return row ? structuredClone(row) : null;
+    },
+    async listLearningModules(pathId) {
+      const pid = String(pathId);
+      return [...tables.get("learningModules").values()]
+        .filter((m) => String(m.path_id) === pid)
+        .sort((a, b) => Number(a.sequence) - Number(b.sequence))
+        .map((m) => structuredClone(m));
+    },
+    async saveLessonAttempt(attempt) {
+      const detailObj = typeof attempt.detail === "string"
+        ? JSON.parse(attempt.detail || "{}")
+        : structuredClone(attempt.detail || {});
+      const record = {
+        id: String(attempt.id),
+        profile_id: Number(attempt.profile_id),
+        user_id: Number(attempt.user_id),
+        language_code: String(attempt.language_code),
+        module_id: attempt.module_id !== null && attempt.module_id !== undefined ? String(attempt.module_id) : null,
+        kind: String(attempt.kind),
+        score_pct: attempt.score_pct === null || attempt.score_pct === undefined ? null : Number(attempt.score_pct),
+        passed: attempt.passed === null || attempt.passed === undefined ? null : (attempt.passed ? 1 : 0),
+        detail: detailObj,
+        created_at: String(attempt.created_at || new Date().toISOString()),
+      };
+      await mutate("lessonAttempts", "upsert", record);
+      return structuredClone(record);
+    },
+    async listLessonAttemptsForProfile(profileId, limit = 100) {
+      const pid = Number(profileId);
+      const bounded = Math.max(1, Math.min(300, Number(limit) || 100));
+      return [...tables.get("lessonAttempts").values()]
+        .filter((a) => Number(a.profile_id) === pid)
+        .sort((a, b) => String(b.created_at).localeCompare(String(a.created_at)))
+        .slice(0, bounded)
+        .map((a) => structuredClone(a));
+    },
+    async saveStudySession(session) {
+      const record = {
+        id: String(session.id),
+        profile_id: Number(session.profile_id),
+        user_id: Number(session.user_id),
+        language_code: String(session.language_code),
+        activity: String(session.activity),
+        day: String(session.day),
+        created_at: String(session.created_at || new Date().toISOString()),
+      };
+      await mutate("studySessions", "upsert", record);
+    },
+    async listStudySessionDays(profileId) {
+      const pid = Number(profileId);
+      const days = new Set(
+        [...tables.get("studySessions").values()]
+          .filter((s) => Number(s.profile_id) === pid)
+          .map((s) => String(s.day)),
+      );
+      return [...days].sort((a, b) => b.localeCompare(a)).slice(0, 400);
+    },
+    async saveConversationSession(session) {
+      const existing = tables.get("conversationSessions").get(String(session.id));
+      const stateObj = typeof session.state === "string"
+        ? JSON.parse(session.state || "{}")
+        : structuredClone(session.state ?? existing?.state ?? {});
+      const record = {
+        id: String(session.id),
+        profile_id: Number(session.profile_id ?? existing?.profile_id ?? 0),
+        user_id: Number(session.user_id ?? existing?.user_id ?? 0),
+        language_code: String(session.language_code ?? existing?.language_code ?? ""),
+        scenario: String(session.scenario ?? existing?.scenario ?? ""),
+        mode: String(session.mode ?? existing?.mode ?? "casual"),
+        correction: String(session.correction ?? existing?.correction ?? "important"),
+        status: String(session.status ?? existing?.status ?? "ACTIVE"),
+        state: stateObj,
+        turn_count: Number(session.turn_count ?? existing?.turn_count ?? 0),
+        started_at: String(existing?.started_at ?? session.started_at ?? new Date().toISOString()),
+        completed_at: session.completed_at !== undefined
+          ? (session.completed_at === null ? null : String(session.completed_at))
+          : (existing?.completed_at ?? null),
+      };
+      await mutate("conversationSessions", "upsert", record);
+      return structuredClone(record);
+    },
+    async findConversationSession(id) {
+      const row = tables.get("conversationSessions").get(String(id));
+      return row ? structuredClone(row) : null;
+    },
+    async listConversationSessions(profileId, limit = 20) {
+      const pid = Number(profileId);
+      const bounded = Math.max(1, Math.min(100, Number(limit) || 20));
+      return [...tables.get("conversationSessions").values()]
+        .filter((c) => Number(c.profile_id) === pid)
+        .sort((a, b) => String(b.started_at).localeCompare(String(a.started_at)))
+        .slice(0, bounded)
+        .map((c) => structuredClone(c));
+    },
+    async saveWritingAttempt(attempt) {
+      const feedbackObj = typeof attempt.feedback === "string"
+        ? JSON.parse(attempt.feedback || "{}")
+        : structuredClone(attempt.feedback || {});
+      const record = {
+        id: String(attempt.id),
+        profile_id: Number(attempt.profile_id),
+        user_id: Number(attempt.user_id),
+        language_code: String(attempt.language_code),
+        task_code: String(attempt.task_code),
+        original_text: String(attempt.original_text || ""),
+        feedback: feedbackObj,
+        score_pct: attempt.score_pct === null || attempt.score_pct === undefined ? null : Number(attempt.score_pct),
+        created_at: String(attempt.created_at || new Date().toISOString()),
+      };
+      await mutate("writingAttempts", "upsert", record);
+      return structuredClone(record);
+    },
+    async listWritingAttempts(profileId, limit = 20) {
+      const pid = Number(profileId);
+      const bounded = Math.max(1, Math.min(100, Number(limit) || 20));
+      return [...tables.get("writingAttempts").values()]
+        .filter((w) => Number(w.profile_id) === pid)
+        .sort((a, b) => String(b.created_at).localeCompare(String(a.created_at)))
+        .slice(0, bounded)
+        .map((w) => structuredClone(w));
+    },
+    async upsertVocabulary(word) {
+      const lang = String(word.language_code);
+      const wText = String(word.word);
+      const existing = [...tables.get("vocabulary").values()].find(
+        (v) => String(v.language_code) === lang && String(v.word) === wText,
+      );
+      const id = existing ? Number(existing.id) : nextRowId("vocabulary");
+      const record = {
+        id,
+        language_code: lang,
+        word: wText,
+        translation: String(word.translation),
+        pronunciation: word.pronunciation !== null && word.pronunciation !== undefined ? String(word.pronunciation) : null,
+        example_sentence: word.example_sentence !== null && word.example_sentence !== undefined ? String(word.example_sentence) : null,
+        category: String(word.category),
+        level: String(word.level),
+        active: word.active !== undefined ? (word.active ? 1 : 0) : 1,
+      };
+      await mutate("vocabulary", "upsert", record);
+      return structuredClone(record);
+    },
+    async listVocabulary(languageCode, activeOnly = true) {
+      const lang = String(languageCode);
+      return [...tables.get("vocabulary").values()]
+        .filter((v) => String(v.language_code) === lang && (!activeOnly || Number(v.active) === 1))
+        .sort((a, b) => Number(a.id) - Number(b.id))
+        .map((v) => structuredClone(v));
+    },
+    async findVocabulary(id) {
+      const row = tables.get("vocabulary").get(String(Number(id)));
+      return row ? structuredClone(row) : null;
+    },
+    async saveUserVocabulary(row) {
+      const key = `${Number(row.profile_id)}:${Number(row.vocabulary_id)}`;
+      const existing = tables.get("userVocabulary").get(key);
+      const id = existing ? Number(existing.id) : (row.id ? Number(row.id) : nextRowId("userVocabulary"));
+      const record = {
+        id,
+        profile_id: Number(row.profile_id),
+        user_id: Number(row.user_id ?? existing?.user_id ?? 0),
+        vocabulary_id: Number(row.vocabulary_id),
+        stage: Number(row.stage ?? 0),
+        familiarity: Number(row.familiarity ?? 0),
+        next_review_at: String(row.next_review_at),
+        review_count: Number(row.review_count ?? 0),
+        lapse_count: Number(row.lapse_count ?? 0),
+        last_result: row.last_result !== null && row.last_result !== undefined ? String(row.last_result) : null,
+        last_reviewed_at: row.last_reviewed_at !== null && row.last_reviewed_at !== undefined ? String(row.last_reviewed_at) : null,
+        added_at: String(existing?.added_at ?? row.added_at ?? new Date().toISOString()),
+      };
+      await mutate("userVocabulary", "upsert", record);
+      return structuredClone(record);
+    },
+    async findUserVocabulary(profileId, vocabularyId) {
+      const key = `${Number(profileId)}:${Number(vocabularyId)}`;
+      const row = tables.get("userVocabulary").get(key);
+      return row ? structuredClone(row) : null;
+    },
+    async listUserVocabulary(profileId, dueOnly = false, limit = 100) {
+      const pid = Number(profileId);
+      const bounded = Math.max(1, Math.min(200, Number(limit) || 100));
+      const nowMs = Date.now();
+      return [...tables.get("userVocabulary").values()]
+        .filter((u) => {
+          if (Number(u.profile_id) !== pid) return false;
+          if (!dueOnly) return true;
+          const dueMs = Date.parse(String(u.next_review_at));
+          return Number.isNaN(dueMs) ? String(u.next_review_at) <= new Date().toISOString() : dueMs <= nowMs;
+        })
+        .sort((a, b) => String(a.next_review_at).localeCompare(String(b.next_review_at)) || Number(a.id) - Number(b.id))
+        .slice(0, bounded)
+        .map((u) => structuredClone(u));
+    },
+    async saveListeningAttempt(attempt) {
+      const detailObj = typeof attempt.detail === "string"
+        ? JSON.parse(attempt.detail || "{}")
+        : structuredClone(attempt.detail || {});
+      const record = {
+        id: String(attempt.id),
+        profile_id: Number(attempt.profile_id),
+        user_id: Number(attempt.user_id),
+        language_code: String(attempt.language_code),
+        exercise_item_id: String(attempt.exercise_item_id),
+        mode: String(attempt.mode),
+        score_pct: attempt.score_pct === null || attempt.score_pct === undefined ? null : Number(attempt.score_pct),
+        passed: attempt.passed === null || attempt.passed === undefined ? null : (attempt.passed ? 1 : 0),
+        detail: detailObj,
+        created_at: String(attempt.created_at || new Date().toISOString()),
+      };
+      await mutate("listeningAttempts", "upsert", record);
+      return structuredClone(record);
+    },
+    async listListeningAttempts(profileId, limit = 20) {
+      const pid = Number(profileId);
+      const bounded = Math.max(1, Math.min(100, Number(limit) || 20));
+      return [...tables.get("listeningAttempts").values()]
+        .filter((a) => Number(a.profile_id) === pid)
+        .sort((a, b) => String(b.created_at).localeCompare(String(a.created_at)))
+        .slice(0, bounded)
+        .map((a) => structuredClone(a));
+    },
+    async saveSpeakingAttempt(attempt) {
+      const detailObj = typeof attempt.detail === "string"
+        ? JSON.parse(attempt.detail || "{}")
+        : structuredClone(attempt.detail || {});
+      const record = {
+        id: String(attempt.id),
+        profile_id: Number(attempt.profile_id),
+        user_id: Number(attempt.user_id),
+        language_code: String(attempt.language_code),
+        prompt_text: String(attempt.prompt_text),
+        transcript: attempt.transcript !== null && attempt.transcript !== undefined ? String(attempt.transcript) : null,
+        word_accuracy_pct: attempt.word_accuracy_pct === null || attempt.word_accuracy_pct === undefined ? null : Number(attempt.word_accuracy_pct),
+        exact_match: attempt.exact_match ? 1 : 0,
+        provider: String(attempt.provider || "none"),
+        detail: detailObj,
+        created_at: String(attempt.created_at || new Date().toISOString()),
+      };
+      await mutate("speakingAttempts", "upsert", record);
+      return structuredClone(record);
+    },
+    async listSpeakingAttempts(profileId, limit = 20) {
+      const pid = Number(profileId);
+      const bounded = Math.max(1, Math.min(100, Number(limit) || 20));
+      return [...tables.get("speakingAttempts").values()]
+        .filter((a) => Number(a.profile_id) === pid)
+        .sort((a, b) => String(b.created_at).localeCompare(String(a.created_at)))
+        .slice(0, bounded)
+        .map((a) => structuredClone(a));
+    },
+    async saveDailyLearningPlan(planRow) {
+      const key = `${Number(planRow.profile_id)}:${String(planRow.day)}`;
+      const existing = tables.get("dailyLearningPlans").get(key);
+      const planObj = typeof planRow.plan === "string"
+        ? JSON.parse(planRow.plan || "{}")
+        : structuredClone(planRow.plan || {});
+      const record = {
+        id: String(existing?.id ?? planRow.id),
+        profile_id: Number(planRow.profile_id),
+        user_id: Number(planRow.user_id ?? existing?.user_id ?? 0),
+        language_code: String(planRow.language_code ?? existing?.language_code ?? ""),
+        day: String(planRow.day),
+        plan: planObj,
+        est_minutes: Number(planRow.est_minutes ?? 0),
+        created_at: String(planRow.created_at || new Date().toISOString()),
+      };
+      await mutate("dailyLearningPlans", "upsert", record);
+      return structuredClone(record);
+    },
+    async findDailyLearningPlan(profileId, day) {
+      const key = `${Number(profileId)}:${String(day)}`;
+      const row = tables.get("dailyLearningPlans").get(key);
+      return row ? structuredClone(row) : null;
+    },
+    async saveAiLearningRecommendation(row) {
+      const evidenceObj = typeof row.evidence === "string"
+        ? JSON.parse(row.evidence || "{}")
+        : structuredClone(row.evidence || {});
+      const record = {
+        id: String(row.id),
+        profile_id: Number(row.profile_id),
+        user_id: Number(row.user_id),
+        language_code: String(row.language_code),
+        kind: String(row.kind),
+        message: String(row.message),
+        evidence: evidenceObj,
+        status: String(row.status || "ACTIVE"),
+        created_at: String(row.created_at || new Date().toISOString()),
+      };
+      await mutate("aiLearningRecommendations", "upsert", record);
+      return structuredClone(record);
+    },
+    async clearAiLearningRecommendations(profileId) {
+      const pid = Number(profileId);
+      const toDelete = [...tables.get("aiLearningRecommendations").values()].filter(
+        (r) => Number(r.profile_id) === pid,
+      );
+      for (const row of toDelete) {
+        await mutate("aiLearningRecommendations", "delete", row);
+      }
+    },
+    async upsertLanguageProgress(row) {
+      const key = `${Number(row.profile_id)}:${String(row.skill)}:${String(row.source)}`;
+      const existing = tables.get("languageProgress").get(key);
+      const id = existing ? Number(existing.id) : nextRowId("languageProgress");
+      const record = {
+        id,
+        profile_id: Number(row.profile_id),
+        user_id: Number(row.user_id ?? existing?.user_id ?? 0),
+        language_code: String(row.language_code ?? existing?.language_code ?? ""),
+        skill: String(row.skill),
+        level: row.level !== null && row.level !== undefined ? String(row.level) : null,
+        value_pct: row.value_pct === null || row.value_pct === undefined ? null : Number(row.value_pct),
+        source: String(row.source),
+        updated_at: String(row.updated_at || new Date().toISOString()),
+      };
+      await mutate("languageProgress", "upsert", record);
+    },
+    async listLanguageProgress(profileId) {
+      const pid = Number(profileId);
+      return [...tables.get("languageProgress").values()]
+        .filter((p) => Number(p.profile_id) === pid)
+        .map((p) => structuredClone(p));
     },
 
     // ---- maintenance ----------------------------------------------------

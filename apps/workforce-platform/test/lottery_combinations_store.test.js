@@ -90,7 +90,7 @@ test("the six slice-2 methods are part of the 188-method contract, on both adapt
   const store = await createFileStore({ dir: storeDir, syncWrites: false });
   t.after(() => store.close());
 
-  assert.equal(REPOSITORY_METHODS.length, 188, "180 (slice 3) + 5 measured-half methods + 3 row-5 retention methods");
+  assert.equal(REPOSITORY_METHODS.length, 250, "180 (slice 3) + 5 measured-half methods + 3 row-5 retention methods + 22 row-17 Lead Discovery methods + 40 row-16 Language Learning methods");
   for (const name of ["saveLotteryCombination", "findLotteryCombination", "listLotteryCombinations", "saveLotteryAiDecision", "findLotteryAiDecision", "listLotteryAiDecisions"]) {
     assert.equal(typeof store[name], "function", `the file adapter implements ${name}`);
     assert.ok(LOTTERY_REPOSITORY_METHODS.includes(name), `the SQL adapter declares ${name}`);

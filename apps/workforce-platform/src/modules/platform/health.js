@@ -18,11 +18,23 @@ let cachedVersion = null;
 
 /** Ported product modules and their acceptance state. Never invented. */
 export const MODULE_STATUS = Object.freeze([
-  { key: "identity", label: "Identity, sessions, RBAC, account management", state: "ported", tests: "unit + http + compatibility fixtures" },
-  // Pages, robots/sitemap/manifest, the PWA shell and contact intake have local
-  // rendering/content checks; the legacy chat assistant is absent, so the module
-  // remains partial. These checks do not claim complete legacy parity.
-  { key: "publicSite", label: "Public site, SEO + PWA shell, contact intake (chat assistant not ported)", state: "partial", tests: "unit + http + content checks" },
+  {
+    key: "identity",
+    label: "Identity, sessions, RBAC, account management and self-service password reset (Phase 47: POST /api/v1/auth/password-reset-request + POST /api/v1/auth/password-reset-confirm with single-use 15-minute HMAC tokens delivered via SMTP when VP_SMTP_ENABLED=1, or legacy administrator-issued notice when SMTP is disabled)",
+    state: "ported",
+    tests: "unit + http + compatibility fixtures",
+  },
+  // Pages, robots/sitemap/manifest, the PWA shell, contact intake (stored, audited,
+  // throttled, with optional SMTP operator copy in Phase 42) and the grounded
+  // public chat assistant (Phase 43: POST /api/v1/chat/respond + floating widget on
+  // the public site and workspace shell) are ported and tested. SITE_ANNOUNCEMENT
+  // stays empty by default unless explicitly configured.
+  {
+    key: "publicSite",
+    label: "Public site, SEO + PWA shell, contact intake (stored, audited, throttled, with optional SMTP operator copy) and the grounded public chat assistant at POST /api/v1/chat/respond (Phase 43: local product guide by default, optional https-only AI_CHAT_* provider, no private account/market/sports/lottery/lead data access, floating widget on public pages and the signed-in workspace shell, absent on auth pages; SITE_ANNOUNCEMENT stays empty by default unless configured)",
+    state: "ported",
+    tests: "unit + http + content checks + php-parity",
+  },
   // The trail was already written by every ported action; Phase 10 adds the
   // permissioned browser over it (filter by actor, action, entity and time
   // window) and puts the actor's identity in the read view. Phase 28 adds the
@@ -75,9 +87,9 @@ export const MODULE_STATUS = Object.freeze([
     key: "risk",
     // The console is named here the way the other ported modules' labels name theirs: a
     // reader of `/system/status` should not have to guess whether a ported module has a
-    // screen. F-30 (`maxCorrelatedPositions` declared and unenforced) stays open, and the
-    // label says so rather than rounding "ported in code" up to "complete".
-    label: "Risk engine, persisted limits, kill switch and paper-portfolio monitor, with their console at /app/risk (Phase 38): the eleven editable limits the API accepts, the limits it persists but the legacy form never drew, the portfolio scan with each breach classified the way the operations job publishes it, and the audit trail (behind identity.users.view — AV-1). maxCorrelatedPositions is declared and persisted but still unenforced (F-30). The scan is a read here: the audited alert transitions belong to the scheduled operations job",
+    // screen. Phase 44 closed F-30 by enforcing `maxCorrelatedPositions` across the six
+    // disclosed static correlation groups at order time and in the portfolio scan.
+    label: "Risk engine, persisted limits, kill switch and paper-portfolio monitor, with their console at /app/risk (Phase 38 + Phase 44): the eleven editable limits the API accepts, the limits it persists, the portfolio scan with each breach classified the way the operations job publishes it, and the audit trail (behind identity.users.view — AV-1). maxCorrelatedPositions is enforced at order time and in the portfolio scan across the six disclosed static correlation groups (F-30 closed in Phase 44). The scan is a read here: the audited alert transitions belong to the scheduled operations job",
     state: "ported",
     tests: "unit + http + persistence",
   },
@@ -96,23 +108,25 @@ export const MODULE_STATUS = Object.freeze([
   // outside the transaction that rolled back, and the governance refusal broadcasts a
   // daily-deduped `ROUTING_BLOCKED` alert, as legacy's `routingBlocked()` did.
   { key: "execution", label: "Human-reviewed paper proposals with fail-closed governance and blocked-submission evidence, and the Execution Center console at /app/execution (Phase 39), which ports `Execution::index`'s propose and decide panels, shows all fifteen supervisor steps and marks where this port stops, and states the automation envelope as unported rather than faking it. No live route and no automated mode: the remaining supervisor steps are broker-bound (row 13), not unfinished governance. F-29 no longer counts the execution screen as absent; brokers left that list in Phase 40 and the journal in Phase 41, so F-29's screen list is empty", state: "partial", tests: "unit + http + persistence + governance bypass/recovery + client console" },
-  // Phase 12 ports `Tools::cron()`: the portfolio risk sweep across every owner and
+  // Phase 12 ported `Tools::cron()` (the portfolio risk sweep across every owner and
   // the cross-owner stale-proposal expiry, coordinated by a `wf_job_locks` row and
-  // driven by the host's cron through `tools/scheduled-jobs.mjs`. It is `partial`,
-  // and the label says precisely what is missing rather than letting `ported` imply
-  // the legacy monitor's full alert vocabulary:
-  //   * no early-warning tiers. Legacy raised a `warning` at 80% (exposure,
-  //     leverage), 70% (drawdown) and 60% (daily loss) of a limit, and `critical`
-  //     at the limit. This port alerts on the paper scan's at-limit breaches only,
-  //     so an operator hears about a breach when it happens, not as it approaches.
-  //     The tiers live in the paper scan's vocabulary (row 11, already accepted),
-  //     and adding them here would have meant a second, divergent set of thresholds.
-  //   * the sports and lottery crons are their own CLI lines (`sports:jobs`, `lottery:jobs`).
-  // (Broker transition alerts were added in Phase 14 — `BROKER_CONNECTED` and
-  // `BROKER_DISCONNECTED` now come from the same sweep, and `DISABLED` is never
-  // counted, so a default host with ten disabled connectors stays silent.)
+  // driven by the host's cron through `tools/scheduled-jobs.mjs`), Phase 14 added
+  // broker connect/disconnect transition alerts (`BROKER_CONNECTED` /
+  // `BROKER_DISCONNECTED`, with `DISABLED` never counted), and Phase 44 completed
+  // the legacy monitor's early-warning tiers and leverage/correlation checks:
+  //   * 80% early-warning tiers for portfolio exposure (`PORTFOLIO_EXPOSURE_APPROACHING`)
+  //     and gross notional leverage (`LEVERAGE_APPROACHING`), 70% for maximum drawdown
+  //     (`DRAWDOWN_APPROACHING`) and 60% for daily loss (`DAILY_LOSS_APPROACHING`),
+  //     all classified as `warning` while hard breaches (`PORTFOLIO_EXPOSURE_LIMIT`,
+  //     `LEVERAGE_LIMIT`, `DRAWDOWN_LIMIT`, `DAILY_LOSS_LIMIT`, `CORRELATED_POSITION_LIMIT`)
+  //     remain `critical` (closing SJ-8, SJ-9 and F-30);
+  //   * static disclosed correlation groups (`CRYPTO_MAJORS`, `USD_MAJORS`, `USD_COUNTER`,
+  //     `METALS`, `ENERGY`, `US_EQUITY_INDEX`) checked at 2+ positions as
+  //     `CORRELATED_GROUP_EXPOSURE` (`warning`) and above `maxCorrelatedPositions` as
+  //     `CORRELATED_POSITION_LIMIT` (`critical`, plus vetoed at order time in `RiskEngine.evaluate`);
+  //   * the sports cron (`sports:jobs`) and lottery cron (`lottery:jobs`) are their own CLI entrypoints.
   // There is deliberately no HTTP route: `runOperations` takes no owner argument.
-  { key: "scheduledJobs", label: "Scheduled operations cron: cross-owner portfolio risk sweep, stale-proposal expiry and broker connect/disconnect transitions under a DB-backed lock (CLI only, no HTTP route, no early-warning tiers — the sports cron is its own CLI, `sports:jobs`, and the lottery cron is its own, `lottery:jobs`)", state: "partial", tests: "unit + both adapters + CLI" },
+  { key: "scheduledJobs", label: "Scheduled operations cron: cross-owner portfolio risk sweep with 80/70/60% early-warning tiers (`PORTFOLIO_EXPOSURE_APPROACHING`, `LEVERAGE_APPROACHING`, `DRAWDOWN_APPROACHING`, `DAILY_LOSS_APPROACHING`), gross notional leverage (`LEVERAGE_LIMIT`), static disclosed correlation-group checks (`CORRELATED_GROUP_EXPOSURE` at 2+ positions and `CORRELATED_POSITION_LIMIT` above `maxCorrelatedPositions`, also enforced at order time in `RiskEngine.evaluate`), stale-proposal expiry and broker connect/disconnect transitions under a DB-backed lock (CLI only, no HTTP route — the sports cron is its own CLI, `sports:jobs`, and the lottery cron is its own, `lottery:jobs`)", state: "ported", tests: "unit + both adapters + CLI + early-warning & correlation parity" },
   // Phase 14 ports the connector *boundary* and its gates, not a working
   // integration. What exists: the normalized data contracts every adapter must
   // satisfy, the DISABLED -> NOT_CONFIGURED -> DOWN -> READY health ladder, and the
@@ -145,8 +159,8 @@ export const MODULE_STATUS = Object.freeze([
   // and it names both screens so the state is checkable rather than asserted — the
   // not-ported matrix travels in /lottery/status and is asserted EMPTY.
   { key: "lottery", label: "Lottery intelligence, foundation + combinations + tickets + backtests + the cron (row 15, slices 1–5): provider-neutral draw contracts, the rules engine (EuroMillions as data), draw validation before storage (a failed draw is never inserted), idempotent ingestion that never overwrites a VERIFIED draw, derived provider health from stored observations and audited explicit probes, and the statistics engine (frequency, gaps, hot/cold, distribution, pairs) whose every output carries the independence DISCLAIMER — EuroMillions is a random lottery and nothing here predicts. The official provider is offline until an explicit, https-only, license-carrying configuration; the sandbox is double-gated and labelled; a default host has no provider and fabricates nothing. Slice 2 landed the combination engines (analyzer, five-mode generator, diversification, system builder) with their persistence (migration 017); slice 3 landed saved tickets — user-scoped records of number lines, never purchases — with owner-only checking against stored VERIFIED draws and official prize-tier LABELS only, never an amount (migration 018); slice 4 landed the measured half — the no-look-ahead Strategy Lab (four seeded strategies, the mandatory RANDOM_BASELINE), persisted HISTORICAL SIMULATION reports with cost/winnings honestly NULL, model versions ensured once and never replaced, and the performance overview whose ACTUAL/HISTORICAL/DEMO sections are never mixed (migration 019); slice 5 landed the lottery cron (tools/lottery-jobs.mjs, npm run lottery:jobs) — CLI-only like every scheduled job on this platform, no HTTP route — seven execution-key-idempotent jobs (sync, health, the data-integrity sweep, the systems consumer that finally drains the queued background builds, auto post-draw ticket checking, one backtest per strategy per day, and the 90/30-day retention sweep). Phase 30 ported the console screens, which were row 15's last entry (F-29 is closed for this module): the operations board at /app/lottery — engine state, the latest stored draw with its typed numbers and the rules note, provider health and its persisted history, the provider registry, a filtered draw browser, the seven statistics kinds, the AI decision reports with each stored payload, job runs, the performance overview and the module's own not-ported boundary — and the lab at /app/lottery/lab — the generator with locks and excludes, saved combinations, the diversity check, tickets as records (never purchases), the Strategy Lab with its mandatory baseline, stored backtest reports and model versions. Both screens read under lottery.view; only the probe, the sync and the system build are lottery.manage. Nineteen lottery.view reads, eight lottery.view POSTs (records and analysis, not managed ingestion), one authenticated status read and three lottery.manage writes (probe, sync, system-build)", state: "ported", tests: "unit + php-parity + http + store" },
-  { key: "languageLearning", label: "Language learning and AI teacher", state: "not-ported", tests: null },
-  { key: "leadDiscovery", label: "Lead discovery", state: "not-ported", tests: null },
+  { key: "languageLearning", label: "Language learning and AI teacher (row 16 — Phase 46): 20 authored languages (18 CEFR A1–C2 plus Japanese JLPT N5–N1 and Mandarin Chinese HSK 1–6) with honest capability flags (nativeScript, romanized, ttsLocale, speechRecognition, proficiencySystem, ceiling), deterministic placement assessment staircase (level changes only on completion and capped at ceiling), 5-module curriculum path and 75% pass checkpoints, AI teacher guided lessons, multi-turn conversation scenarios with four correction modes (immediate, after, important, conversation_only) and two-miss assisted advance, writing feedback preserving original learner text, grammar explain-simply, 200-word authored vocabulary bank with 6-stage spaced repetition (1, 3, 7, 14, 30, 90 days; learned at stage 4), listening comprehension and diacritic-folded transcription exercises, honest speaking practice (browser Web Speech transcript word accuracy only, null/empty transcripts stored unscored, pronunciation never scored), adaptive weakness detector (>=3 skill attempts, <60% weak / >=80% strong, vocabulary-retention on >=2 words with lapse_count >= 2 & stage < 4, repeated-mistakes >=2x, module failed >=2x), daily study plan (5–120 minutes), skill mastery, and deterministic 20-language phrasebook/word-by-word translator, with the Language Learning & AI Teacher console at /app/languages and /app/languages/teacher", state: "ported", tests: "unit + php-parity + http + store + client console" },
+  { key: "leadDiscovery", label: "Lead discovery and business pipeline (row 17 — Phase 45): organization-scoped workspaces (wf_lead_organizations + wf_lead_organization_members, auto-provisioned on first authenticated use and verified on X-Lead-Organization), pluggable provider registry (GooglePlacesProvider over GOOGLE_PLACES_API_KEY, disabled by default and never fabricating business records), primary source deduplication and conservative secondary duplicate detection (website_domain 0.95, normalized_phone 0.92, name_address 0.84) into open review candidates (keep_a, keep_b, merge, ignore), collections, pipeline stages (new, contacted, qualified, disqualified, converted), owner assignment, notes, activity trail, field coverage diagnostics, search history, and CSV-safe export, with the Lead Discovery console at /app/leads and /app/leads/pipeline", state: "ported", tests: "unit + php-parity + http + store + client console" },
 ]);
 
 /**
@@ -183,7 +197,7 @@ function countConfiguredConnectors(brokers) {
   }
 }
 
-export async function healthRoutes(app, { store, config, adapter, router, marketData = null, analysis = null, notifications = null, brokers = null, sports = null }) {
+export async function healthRoutes(app, { store, config, adapter, router, marketData = null, analysis = null, notifications = null, brokers = null, sports = null, chat = null, leads = null }) {
   app.get("/health/live", async () => ({
     status: "ok",
     uptimeSeconds: Math.round(process.uptime()),
@@ -252,6 +266,11 @@ export async function healthRoutes(app, { store, config, adapter, router, market
       // Same rule as the two snapshots above: this describes the module, it does
       // not read the inbox, so an unauthenticated caller cannot enumerate alerts.
       notifications: notifications ? notifications.statusSnapshot() : null,
+      // Same rule again: this describes the public chat assistant from
+      // configuration alone (local-guide vs configured-ai, model name when active,
+      // privateDataAccess: false). It never exposes AI_CHAT_API_KEY or probes the
+      // upstream model provider.
+      chat: chat ? chat.statusSnapshot() : null,
       // Same rule again: this describes the sports module from configuration alone.
       // It never contacts a provider, so an unauthenticated caller cannot make this
       // server reach a third-party feed. Derived health is therefore not reported
@@ -259,6 +278,7 @@ export async function healthRoutes(app, { store, config, adapter, router, market
       // can only ever hold one value is a field that invites a reader to think it
       // was measured.
       sports: sports ? sports.statusSnapshot() : null,
+      leads: leads ? leads.statusSnapshot() : null,
       trading: {
         enabled: true,
         simulationOnly: true,

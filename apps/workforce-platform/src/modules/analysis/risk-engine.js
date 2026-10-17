@@ -45,6 +45,62 @@ export const DEFAULT_RISK_LIMITS = Object.freeze({
   blockStaleData: true,
 });
 
+/**
+ * Static, disclosed correlation groups ported from `PortfolioRiskMonitor::CORRELATION_GROUPS`
+ * (`application/libraries/Aegis/Portfolio/PortfolioRiskMonitor.php`).
+ *
+ * This is a v1 heuristic over asset classes and currency legs — not a live return-covariance
+ * matrix — and is disclosed as such in both the portfolio scan and the Risk Engine veto.
+ */
+export const CORRELATION_GROUPS = Object.freeze({
+  CRYPTO_MAJORS: Object.freeze(["BTCUSDT", "ETHUSDT", "BNBUSDT", "SOLUSDT", "XRPUSDT", "ADAUSDT", "DOGEUSDT"]),
+  USD_MAJORS: Object.freeze(["EURUSD", "GBPUSD", "AUDUSD", "NZDUSD"]),
+  USD_COUNTER: Object.freeze(["USDJPY", "USDCAD", "USDCHF"]),
+  METALS: Object.freeze(["XAUUSD", "XAGUSD", "XAUEUR"]),
+  ENERGY: Object.freeze(["USOIL", "UKOIL", "WTIUSD", "NATGAS", "NGUSD"]),
+  US_EQUITY_INDEX: Object.freeze(["US30", "US500", "SPX500", "NAS100", "US100"]),
+});
+
+export const CORRELATION_MODEL_DESCRIPTION = "static disclosed groups (v1 heuristic, not statistical)";
+
+/**
+ * Legacy `PortfolioRiskMonitor::scan()` early-warning ratios (`SJ-8`):
+ * - 80% of portfolio exposure (`maxPortfolioExposurePct`) and notional leverage (`maxLeverage`)
+ * - 70% of maximum drawdown (`maxDrawdownPct`)
+ * - 60% of daily loss (`maxDailyLossPct`)
+ */
+export const EARLY_WARNING_RATIOS = Object.freeze({
+  portfolioExposure: 0.8,
+  leverage: 0.8,
+  drawdown: 0.7,
+  dailyLoss: 0.6,
+});
+
+export function correlationGroupsForSymbol(symbol) {
+  const normalized = String(symbol ?? "").trim().toUpperCase();
+  if (!normalized) return [];
+  const groups = [];
+  for (const [group, members] of Object.entries(CORRELATION_GROUPS)) {
+    if (members.includes(normalized)) groups.push(group);
+  }
+  return groups;
+}
+
+export function findCorrelatedGroupOverlaps(openSymbols) {
+  const open = Array.isArray(openSymbols)
+    ? openSymbols.map((symbol) => String(symbol ?? "").trim().toUpperCase()).filter(Boolean)
+    : [];
+  const overlaps = [];
+  for (const [group, members] of Object.entries(CORRELATION_GROUPS)) {
+    const memberSet = new Set(members);
+    const overlap = open.filter((symbol) => memberSet.has(symbol));
+    if (overlap.length > 0) {
+      overlaps.push({ group, symbols: overlap, count: overlap.length });
+    }
+  }
+  return overlaps;
+}
+
 function finiteNumber(value) {
   const numeric = Number(value);
   return Number.isFinite(numeric) ? numeric : NaN;
@@ -184,6 +240,20 @@ export function createRiskEngine(limits = {}) {
     }
     if ((context.openPositions ?? 0) + 1 > limits.maxOpenPositions) {
       reasons.push(`Open position count would exceed limit ${limits.maxOpenPositions}`);
+    }
+    const openSymbols = Array.isArray(context.openSymbols)
+      ? context.openSymbols.map((symbol) => String(symbol ?? "").trim().toUpperCase()).filter(Boolean)
+      : Array.isArray(context.positions)
+        ? context.positions.map((position) => String(position?.symbol ?? "").trim().toUpperCase()).filter(Boolean)
+        : null;
+    if (openSymbols && setup.symbol) {
+      for (const group of correlationGroupsForSymbol(setup.symbol)) {
+        const memberSet = new Set(CORRELATION_GROUPS[group] || []);
+        const openInGroup = openSymbols.filter((symbol) => memberSet.has(symbol)).length;
+        if (openInGroup + 1 > limits.maxCorrelatedPositions) {
+          reasons.push(`Correlated position count in ${group} (${openInGroup + 1}) would exceed limit ${limits.maxCorrelatedPositions}`);
+        }
+      }
     }
     if (equity > 0) {
       if (-(finiteNumber(context.dailyPnl) || 0) / equity > limits.maxDailyLossPct) reasons.push("Daily loss limit exceeded");

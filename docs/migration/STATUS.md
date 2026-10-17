@@ -1,8 +1,146 @@
 # JavaScript / Node.js / cPanel migration status
 
-**Updated:** 2026-10-17 · **Branch:** `arena/046b29ac-ai`
+**Updated:** 2026-10-17 · **Branch:** `arena/0d5104b6-ai`
 
-## Current Phase 42 status (2026-10-17)
+## Current Phase 47 status (2026-10-17)
+
+**Row 2 (self-service password reset token flow & outbound SMTP wiring) and Row 3 / Row 16
+(`/app/admin` language registry statistic card & `MODULE_STATUS` label reconciliation) are ported
+and verified.**
+
+**Single-use, 15-minute password reset tokens and SMTP delivery (`src/modules/identity/`,
+`client/src/{api.js,views.jsx}`).** `mintPasswordResetToken` mints single-use 15-minute HMAC-SHA256
+tokens bound to `(userId, expiresAtMs, jti, sha256(passwordHash))`. When `VP_SMTP_ENABLED=1`,
+`POST /api/v1/auth/password-reset-request` dispatches the token via the Phase 42 SMTP service and
+returns a uniform enumeration-safe response; when SMTP is disabled, it preserves legacy's
+`delivered: false` notice. `POST /api/v1/auth/password-reset-confirm` verifies the token in constant
+time, enforces role-aware minimum password lengths (`14` chars for `super_admin`, `12` chars for
+regular users), updates the password hash (immediately invalidating the token signature), revokes
+all active sessions (`store.revokeAllSessions`), and audits `identity.user.password-reset`
+(`legacyAction: "PASSWORD_CHANGED"`). `LoginPanel` on `/app/login` exposes the two-step request and
+confirmation flow.
+
+**Admin Control Center language registry count (`client/src/admin.js`, `client/src/views.jsx`) and
+`MODULE_STATUS` label sync (`src/modules/platform/health.js`).** `ADMIN_STATS`, `ADMIN_READS`,
+`statCards`, and `AdminControlCentreView` now read `GET /api/v1/language-learning/languages`
+(`permission: "system.authenticated"`) so `/app/admin` displays the authored language count (`20`)
+when loaded and `—` when unloaded, matching legacy `Admin.php`. Full record:
+[`PHASE47_PASSWORD_RESET_AND_ADMIN_SYNC.md`](PHASE47_PASSWORD_RESET_AND_ADMIN_SYNC.md).
+
+## Phase 46 status (2026-10-17) — superseded by Phase 47
+
+**Row 16 (`languageLearning`) is ported end to end across schema, dual-adapter repository, 20-language
+registry, placement assessment staircase, curriculum path, AI teacher, vocabulary SRS, listening &
+speaking practice, adaptive learning engine, deterministic translator, 33 HTTP routes, and the
+workspace console (`/app/languages` and `/app/languages/teacher`), advancing `languageLearning` from
+`not-ported` to `ported` and moving the 17-module ledger to 14 ported / 3 partial / 0 not-ported.**
+
+**16-table schema and 40-method dual-adapter persistence (`021_language_learning.sql`).** Migration
+`021_language_learning.sql` creates the 16 `wf_*` Language Learning tables (`65 → 81` tables total,
+`20 → 21` required migrations), and `src/persistence/contract.js` (`210 → 250` methods),
+`src/persistence/file-store.js`, and `src/db/language-repository.js` implement all 40 Language
+Learning repository methods across both adapters.
+
+**5-phase Language Learning & AI Teacher service and console (`src/modules/language/`,
+`client/src/language.js`).** Ports `LanguageRegistry` (20 languages), `ItemBanks`, `Curriculum`,
+`TeacherContent`, `VocabularyBank` (200 words), `Translator`, and `createLanguageLearningService`
+(`LangLearnService`, `TeacherService`, `VocabularyService`, `AudioPracticeService`,
+`AdaptiveLearningService`, `Translator`), exposed over 33 `/api/v1/language-learning/*` routes and
+screened at `/app/languages` and `/app/languages/teacher` (with `/app` dashboard integration). Full
+record: [`PHASE46_LANGUAGE_LEARNING.md`](PHASE46_LANGUAGE_LEARNING.md).
+
+## Phase 45 status (2026-10-17) — superseded by Phase 46
+
+**Row 17 (`leadDiscovery`) is ported end to end across schema, dual-adapter repository, provider
+boundary, deduplicator, 23 HTTP routes, and the workspace console (`/app/leads` and
+`/app/leads/pipeline`), advancing `leadDiscovery` from `not-ported` to `ported` and moving the
+17-module ledger to 13 ported / 3 partial / 1 not-ported.**
+
+**Organization-scoped schema and dual-adapter persistence (`020_lead_discovery.sql`).** Migration
+`020_lead_discovery.sql` creates the 11 `wf_lead_*` / `wf_leads` tables (`54 → 65` tables total),
+and `src/persistence/contract.js` (`188 → 210` methods), `src/persistence/file-store.js`, and
+`src/db/lead-repository.js` implement all 22 organization-scoped Lead Discovery repository methods.
+First authenticated access auto-provisions a private workspace (`org-<userId>`, role `owner`), and
+`X-Lead-Organization` is verified in constant time against `wf_lead_organization_members`.
+
+**Strict real-provider boundary, secondary duplicate detection, and console (`src/modules/leads/`,
+`client/src/leads.js`).** `createGooglePlacesProvider` (`GOOGLE_PLACES_API_KEY`) reports `DISABLED`
+by default and fails closed with HTTP `503` without fabricating synthetic business records while
+recording search attempts in `wf_lead_search_history`. `Deduplicator` (`website_domain` `0.95`,
+`normalized_phone` `0.92`, `name_address` `0.84`) creates `open` review candidates resolved via
+`keep_a`, `keep_b`, `merge`, or `ignore`. The console at `/app/leads` and `/app/leads/pipeline`
+(plus legacy redirects `/leads` and `/lead-pipeline`) covers discovery search, saved leads,
+pipeline board, collections, duplicate review, field coverage diagnostics, search history, and
+CSV-safe export (`safeCsvValue`). Full record:
+[`PHASE45_LEAD_DISCOVERY.md`](PHASE45_LEAD_DISCOVERY.md).
+
+## Phase 44 status (2026-10-17) — superseded by Phase 45
+
+**Row 11's `F-30` (`maxCorrelatedPositions` enforcement) and Row 19's `SJ-8` / `SJ-9`
+(early-warning tiers at 80/70/60 %, gross notional leverage and correlated-position checks) are
+closed, advancing `scheduledJobs` from `partial` to `ported` and moving the 17-module ledger to
+12 ported / 3 partial / 2 not-ported.**
+
+**Static disclosed correlation groups enforced at order time and in the portfolio scan (`F-30`,
+`SJ-9`).** `src/modules/analysis/risk-engine.js` ports `PortfolioRiskMonitor::CORRELATION_GROUPS`
+(`CRYPTO_MAJORS`, `USD_MAJORS`, `USD_COUNTER`, `METALS`, `ENERGY`, `US_EQUITY_INDEX`) and
+`CORRELATION_MODEL_DESCRIPTION` (`"static disclosed groups (v1 heuristic, not statistical)"`) from
+`application/libraries/Aegis/Portfolio/PortfolioRiskMonitor.php`. `RiskEngine.evaluate(setup,
+context)` enforces `limits.maxCorrelatedPositions` whenever `context.openSymbols` (or
+`context.positions`) is supplied, and `evaluatePaperRisk` (`src/modules/paper/service.js`) passes
+`openSymbols` from `summary.positions`, vetoing any paper order that would push a correlation
+group's open position count above `maxCorrelatedPositions`. In `portfolioRiskScan`,
+`findCorrelatedGroupOverlaps` emits `CORRELATED_POSITION_LIMIT` (`critical`) when a group's open
+position count exceeds `maxCorrelatedPositions` and `CORRELATED_GROUP_EXPOSURE` (`warning`) when
+`2 <= count <= maxCorrelatedPositions`.
+
+**Early-warning tiers and gross notional leverage (`SJ-8`, `SJ-9`).** `portfolioRiskScan` ports
+legacy's `0.8 / 0.8 / 0.7 / 0.6` early-warning thresholds (`EARLY_WARNING_RATIOS`) and gross
+notional leverage calculation (`sum(units * current_price) / equity`), emitting
+`PORTFOLIO_EXPOSURE_APPROACHING` (`> 80 %` of `maxPortfolioExposurePct`), `LEVERAGE_APPROACHING`
+(`> 80 %` of `maxLeverage`), `DRAWDOWN_APPROACHING` (`> 70 %` of `maxDrawdownPct`) and
+`DAILY_LOSS_APPROACHING` (`> 60 %` of `maxDailyLossPct`) as `warning` breaches while keeping
+`LEVERAGE_LIMIT` (`> maxLeverage`) and `CORRELATED_POSITION_LIMIT` (`> maxCorrelatedPositions`) in
+`CRITICAL_BREACH_CODES` across both `src/jobs/scheduled.js` and `client/src/risk.js`. Full record:
+[`PHASE44_SCHEDULED_JOBS_AND_CORRELATION.md`](PHASE44_SCHEDULED_JOBS_AND_CORRELATION.md).
+
+## Phase 43 status (2026-10-17) — superseded by Phase 44
+
+**Row 18's last unported surface and Row 4's last code gap are closed: the grounded public website
+assistant (`Aegis\ChatAssistant`, `Api_chat::respond`) and its floating widget
+(`views/partials/chat_widget.php`) are ported at `POST /api/v1/chat/respond`, advancing
+`publicSite` from `partial` to `ported` and moving the 17-module ledger to
+11 ported / 4 partial / 2 not-ported.**
+
+**Grounded and isolated by construction.** `createChatService` (`src/modules/chat/service.js`) is
+not handed `store`, `paper`, `strategies`, `execution`, `sports`, `lottery`, `brokers`,
+`notifications` or the caller's session: it cannot read private account or domain records. By
+default (`AI_CHAT_ENABLED=0` or any missing/unsafe `AI_CHAT_*` variable), `POST /api/v1/chat/respond`
+answers from the deterministic local product guide (`provider: "local-guide"`, 8 keyword branches
+plus fallback proven byte-identical to `application/libraries/Aegis/ChatAssistant.php`). When
+`AI_CHAT_ENABLED=1` and a valid `https://` `AI_CHAT_API_URL` (with no embedded credentials —
+divergence **CH-2**), `AI_CHAT_API_KEY` and `AI_CHAT_MODEL` are configured, it calls the
+OpenAI-compatible chat-completions endpoint with legacy's exact `SYSTEM` prompt, `temperature: 0.2`
+and `max_tokens: 260`, caps replies at 2 000 characters, redacts `AI_CHAT_API_KEY` from any warning
+log entry, and falls back cleanly to `local-guide` on any upstream error.
+
+**One new public route (`148 → 149`) and two widget mounts.** `POST /api/v1/chat/respond` is public
+(`auth: false`, `permission: null`, `validated: true`, `rateLimited: true`), enforces 1–1 000
+Unicode characters with legacy's exact 400 message (`message must contain 1–1000 characters`), and
+throttles at 30 requests per 60 seconds per client address with legacy's exact 429 message (`chat
+rate limit exceeded; please try again shortly` — divergence **CH-1**, closing the session-cookie
+bypass). The floating widget is rendered on every public page (`src/modules/site/render.js`,
+`public/site.js`, `public/styles.css`) without inline handlers or styles (divergence **CH-3**,
+keeping `script-src 'self'; style-src 'self'` intact) and in the signed-in workspace shell
+(`WorkspaceShell` in `client/src/App.jsx`), while remaining absent on the guest auth screens
+(`EntryLayout`), matching `views/partials/chat_widget.php`.
+
+Gates: `npm run check:workforce` **1212 / 1212** (1205 before: +7 in `test/chat.test.js`),
+`verify:install` **30 / 30** (`180` source files, `91` documented env vars), `npm run typecheck`
+clean, and `npm run test:contracts` **12 / 12**. Full record:
+[`PHASE43_CHAT_ASSISTANT.md`](PHASE43_CHAT_ASSISTANT.md).
+
+## Phase 42 status (2026-10-17) — superseded by Phase 43
 
 **Row 5's two open decisions are closed: one retention policy over four tables, and the outbound
 SMTP transport.** Neither is a new module — `audit` and `notifications` were already `ported` — so

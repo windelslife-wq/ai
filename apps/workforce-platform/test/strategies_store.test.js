@@ -147,7 +147,7 @@ test("the eleven Strategy Lab methods are part of the contract, not adapter extr
   // Phase 12 adds one cross-owner execution read, the five job-lock methods and
   // the two job-state methods; slices 4-5 add the 13 settlement methods and row 19
   // the 2 performance-snapshot methods.
-  assert.equal(REPOSITORY_METHODS.length, 188);
+  assert.equal(REPOSITORY_METHODS.length, 250);
   // No method may be declared twice: a duplicate would let one adapter satisfy
   // the count while missing a distinct behaviour.
   assert.equal(new Set(REPOSITORY_METHODS).size, REPOSITORY_METHODS.length);
@@ -304,6 +304,15 @@ test("file adapter survives close and reopen for all three new entities", async 
     lotteryTickets: 0, lotteryTicketLines: 0,
     // Row 15 slice 4 (migration 019): backtest reports + model versions.
     lotteryBacktests: 0, lotteryModelVersions: 0,
+    // Row 17 (migration 020): organization-scoped Lead Discovery collections.
+    leadOrganizations: 0, leadOrganizationMembers: 0, leads: 0, leadNotes: 0,
+    leadActivities: 0, leadCollections: 0, leadCollectionLeads: 0, leadSearchHistory: 0,
+    leadDuplicateCandidates: 0, leadDuplicateResolutions: 0, leadExportHistory: 0,
+    // Row 16 (migration 021): AI Language Learning & AI Teacher collections.
+    languages: 0, userLanguageProfiles: 0, languageAssessments: 0, learningPaths: 0,
+    learningModules: 0, lessonAttempts: 0, languageProgress: 0, studySessions: 0,
+    conversationSessions: 0, writingAttempts: 0, vocabulary: 0, userVocabulary: 0,
+    listeningAttempts: 0, speakingAttempts: 0, dailyLearningPlans: 0, aiLearningRecommendations: 0,
   });
   // The checksum covers the new entities, so a restore can prove they came back.
   assert.match(await second.checksum(), /^[0-9a-f]{64}$/);

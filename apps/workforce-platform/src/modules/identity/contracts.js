@@ -100,6 +100,17 @@ export const PASSWORD_RESET_REQUEST = {
   properties: { identifier: IDENTIFIER },
 };
 
+export const PASSWORD_RESET_CONFIRM = {
+  type: "object",
+  additionalProperties: false,
+  required: ["token", "newPassword", "newPasswordConfirm"],
+  properties: {
+    token: { type: "string", minLength: 16, maxLength: 512 },
+    newPassword: PASSWORD,
+    newPasswordConfirm: PASSWORD,
+  },
+};
+
 export const ADMIN_CREATE_USER = {
   type: "object",
   additionalProperties: false,

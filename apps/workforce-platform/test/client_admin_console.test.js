@@ -148,7 +148,7 @@ test("the policy panel describes the grants the server enforces", () => {
 
 // ------------------------------------------------------- the four statistics
 
-test("the statistics are legacy's four cards, and the one no module can answer says so", () => {
+test("the statistics are legacy's four cards, and an unloaded source renders an em dash", () => {
   assert.deepEqual(ADMIN_STATS.map((stat) => stat.label), ["Users", "Strategies", "Languages", "Lottery draws"]);
   assert.deepEqual(ADMIN_STATS.map((stat) => stat.caption), ["accounts in database", "versioned implementations", "registry entries", "verified or sandbox rows"]);
   const legacy = readFileSync(LEGACY_ADMIN_VIEW, "utf8");
@@ -156,7 +156,7 @@ test("the statistics are legacy's four cards, and the one no module can answer s
 
   const cards = statCards({ permissions: [ADMIN_PERMISSION] });
   const byKey = Object.fromEntries(cards.map((card) => [card.key, card]));
-  assert.equal(byKey.languages.value, "—", "no language count exists on this edition");
+  assert.equal(byKey.languages.value, "—", "an unloaded language registry renders an em dash");
   assert.equal(byKey.languages.note, LANGUAGE_STAT_NOTE);
   assert.match(byKey.languages.note, /row 16/);
   // A source that was not read is never printed as a number.
@@ -169,13 +169,16 @@ test("the statistics are legacy's four cards, and the one no module can answer s
 test("a count is printed only from the payload that carries it, and legacy's strategy count is versions", () => {
   const users = { users: [{ id: 1 }], meta: { total: 7, limit: 1, offset: 0 } };
   const strategies = { strategies: [{ strategyId: "a", versions: [{}, {}] }, { strategyId: "b", versions: [{}] }] };
+  const languages = { languages: { en: { code: "en" }, fr: { code: "fr" }, es: { code: "es" }, de: { code: "de" } } };
   const lottery = { drawsTracked: 2, activeLottery: "eurojackpot" };
-  const cards = statCards({ permissions: ["identity.users.view"], users, strategies, lottery });
+  const cards = statCards({ permissions: ["identity.users.view"], users, strategies, languages, lottery });
   const byKey = Object.fromEntries(cards.map((card) => [card.key, card]));
   assert.equal(byKey.users.value, "7", "the directory's total, not the page length");
   assert.match(byKey.users.note, /Every account row/);
   assert.equal(byKey.strategies.value, "3", "legacy counted rows, not strategies");
   assert.match(byKey.strategies.note, /3 version rows across 2 strategies/);
+  assert.equal(byKey.languages.value, "4", "counts the authored language registry entries");
+  assert.match(byKey.languages.note, /4 authored languages in the registry/);
   assert.equal(byKey.lotteryDraws.value, "2");
   assert.match(byKey.lotteryDraws.note, /eurojackpot/);
 
@@ -211,10 +214,10 @@ test("the readiness table is the ledger itself, with the server's own legend", (
     assert.ok(row.label.length > 0, `${row.key} has a label`);
     assert.equal(typeof row.tests, "string");
   }
-  // Two rows carry no test list — the two modules that are not ported — and the
-  // table says "not stated" for them instead of inventing checks.
+  // Phase 46 ported `languageLearning` (row 16), so every module in MODULE_STATUS now
+  // declares its test suites.
   const withoutTests = rows.filter((row) => row.tests === "").map((row) => row.key);
-  assert.deepEqual(withoutTests, ["languageLearning", "leadDiscovery"]);
+  assert.deepEqual(withoutTests, []);
   assert.match(readFileSync(path.join(CLIENT, "views.jsx"), "utf8"), /\{row\.tests \|\| "not stated"\}/);
   for (const row of rows) {
   }
@@ -295,11 +298,12 @@ test("every read is a registered route with the permission the server enforces",
     assert.equal(route.permission, read.permission, `${read.path} is declared with the wrong permission`);
     assert.equal(route.auth, read.auth, `${read.path} session requirement`);
   }
-  // The two administration reads are the same gate the directory uses; the lottery
-  // status read carries its module's sign-in baseline; the strategy list and the two
-  // ledger reads need a session or nothing at all.
-  assert.deepEqual(ADMIN_READS.filter((read) => read.permission).map((read) => read.key), ["users", "roles", "lottery", "mail"]);
+  // The two administration reads are the same gate the directory uses; the language
+  // and lottery reads carry their modules' sign-in baseline; the strategy list and
+  // the two ledger reads need a session or nothing at all.
+  assert.deepEqual(ADMIN_READS.filter((read) => read.permission).map((read) => read.key), ["users", "roles", "languages", "lottery", "mail"]);
   assert.equal(ADMIN_READS.find((read) => read.key === "users").permission, "identity.users.view");
+  assert.equal(ADMIN_READS.find((read) => read.key === "languages").permission, "system.authenticated");
   assert.equal(ADMIN_READS.find((read) => read.key === "lottery").permission, "system.authenticated");
   assert.equal(ADMIN_READS.find((read) => read.key === "mail").permission, "system.super_admin");
 

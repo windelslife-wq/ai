@@ -429,3 +429,70 @@ test("portfolio risk scans contain only the requesting owner's accounts and iden
   assert.equal((await service.accountSummary(ACTOR, own.id)).account.id, own.id);
   assert.equal(other.owner_user_id, ACTOR + 1);
 });
+
+test("maxCorrelatedPositions is enforced at order time and in portfolioRiskScan alongside 80/70/60% early-warning tiers and leverage checks (F-30, SJ-8, SJ-9)", async (t) => {
+  const { store } = await makeStore(t);
+  const data = marketData({ price: 100 });
+  const service = serviceFor(store, data);
+  await enablePaper(service);
+  const account = await accountFor(service, ACTOR, 10_000);
+
+  // Open 3 positions in CRYPTO_MAJORS with a 2-point stop (50 units each = 5,000 notional per order).
+  for (const symbol of ["BTCUSDT", "ETHUSDT", "SOLUSDT"]) {
+    const res = await service.submitOrder(ACTOR, account.id, {
+      ...ORDER,
+      symbol,
+      marketClass: "crypto",
+      stopLoss: 98,
+      takeProfit: 110,
+    });
+    assert.equal(res.filled, true, `expected ${symbol} to fill under maxCorrelatedPositions=3`);
+  }
+
+  // A 4th position in CRYPTO_MAJORS must be rejected by RiskEngine.evaluate (closes F-30).
+  const fourthCrypto = await service.submitOrder(ACTOR, account.id, {
+    ...ORDER,
+    symbol: "BNBUSDT",
+    marketClass: "crypto",
+    stopLoss: 98,
+    takeProfit: 110,
+  });
+  assert.equal(fourthCrypto.filled, false);
+  assert.equal(fourthCrypto.order.status, "REJECTED");
+  assert.match(fourthCrypto.order.reject_reason, /Correlated position count in CRYPTO_MAJORS \(4\) would exceed limit 3/);
+
+  // An uncorrelated symbol in USD_MAJORS still fills (bringing total gross notional to ~20,000 = ~2.0x equity).
+  const uncorrelated = await service.submitOrder(ACTOR, account.id, {
+    ...ORDER,
+    symbol: "EURUSD",
+    marketClass: "forex",
+    stopLoss: 98,
+    takeProfit: 110,
+  });
+  assert.equal(uncorrelated.filled, true);
+
+  // Scan with 3 positions in CRYPTO_MAJORS (<= maxCorrelatedPositions=3, >= 2) emits CORRELATED_GROUP_EXPOSURE.
+  const scanAtThree = await service.portfolioRiskScan(ACTOR);
+  assert.equal(scanAtThree.correlationModel, "static disclosed groups (v1 heuristic, not statistical)");
+  assert.ok(Array.isArray(scanAtThree.correlationGroups.CRYPTO_MAJORS));
+  const entryAtThree = scanAtThree.accounts[0];
+  assert.ok(entryAtThree.breaches.some((b) => b.code === "CORRELATED_GROUP_EXPOSURE" && b.symbol === "CRYPTO_MAJORS"));
+
+  // Set maxPortfolioExposurePct and maxLeverage so the scan crosses the 80% early-warning tiers.
+  // Total open risk is ~4% of equity, gross notional is ~2.0x equity.
+  await service.updateRiskLimits({
+    maxPortfolioExposurePct: 0.048, // ~4.0% > 0.048 * 0.8 (3.84%) -> PORTFOLIO_EXPOSURE_APPROACHING
+    maxLeverage: 2.3, // ~2.0x > 2.3 * 0.8 (1.84x) and <= 2.3x -> LEVERAGE_APPROACHING
+  }, { actorId: ACTOR });
+  const approachingScan = await service.portfolioRiskScan(ACTOR);
+  const approachingCodes = approachingScan.accounts[0].breaches.map((b) => b.code);
+  assert.ok(approachingCodes.includes("PORTFOLIO_EXPOSURE_APPROACHING"), `expected PORTFOLIO_EXPOSURE_APPROACHING in ${JSON.stringify(approachingCodes)}`);
+  assert.ok(approachingCodes.includes("LEVERAGE_APPROACHING"), `expected LEVERAGE_APPROACHING in ${JSON.stringify(approachingCodes)}`);
+
+  // Lower maxLeverage to 1.5 so ~2.0x gross notional exceeds the hard limit -> LEVERAGE_LIMIT (critical).
+  await service.updateRiskLimits({ maxLeverage: 1.5 }, { actorId: ACTOR });
+  const leverageLimitScan = await service.portfolioRiskScan(ACTOR);
+  const leverageCodes = leverageLimitScan.accounts[0].breaches.map((b) => b.code);
+  assert.ok(leverageCodes.includes("LEVERAGE_LIMIT"), `expected LEVERAGE_LIMIT in ${JSON.stringify(leverageCodes)}`);
+});
+

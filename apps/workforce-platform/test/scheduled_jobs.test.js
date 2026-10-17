@@ -772,9 +772,64 @@ test("every breach code the paper scan can emit is classified", async () => {
     "a new breach code must be classified in src/jobs/scheduled.js, or it silently arrives as a warning-severity alert",
   );
   assert.equal(severityForBreachCode("DRAWDOWN_LIMIT"), "critical");
+  assert.equal(severityForBreachCode("LEVERAGE_LIMIT"), "critical");
+  assert.equal(severityForBreachCode("CORRELATED_POSITION_LIMIT"), "critical");
+  assert.equal(severityForBreachCode("DAILY_LOSS_APPROACHING"), "warning");
+  assert.equal(severityForBreachCode("DRAWDOWN_APPROACHING"), "warning");
+  assert.equal(severityForBreachCode("PORTFOLIO_EXPOSURE_APPROACHING"), "warning");
+  assert.equal(severityForBreachCode("LEVERAGE_APPROACHING"), "warning");
+  assert.equal(severityForBreachCode("CORRELATED_GROUP_EXPOSURE"), "warning");
   assert.equal(severityForBreachCode("SYNTHETIC_EXPOSURE"), "warning");
   assert.equal(severityForBreachCode("SOMETHING_NEW"), "warning", "an unknown code degrades to a warning rather than throwing");
   assert.ok(WARNING_BREACH_CODES.has("SCAN_FAILED"), "SCAN_FAILED is produced by the sweep itself");
+});
+
+test("CORRELATION_GROUPS and 80/70/60% early-warning ratios match legacy PortfolioRiskMonitor.php and classify early warnings below hard limits (SJ-8, SJ-9, F-30)", async (t) => {
+  const { CORRELATION_GROUPS, EARLY_WARNING_RATIOS } = await import("../src/modules/analysis/risk-engine.js");
+  const phpSource = await readFile(
+    path.join(path.dirname(fileURLToPath(import.meta.url)), "..", "..", "..", "application", "libraries", "Aegis", "Portfolio", "PortfolioRiskMonitor.php"),
+    "utf8",
+  );
+  for (const [group, members] of Object.entries(CORRELATION_GROUPS)) {
+    assert.ok(phpSource.includes(`'${group}'`), `PHP monitor defines correlation group ${group}`);
+    for (const symbol of members) {
+      assert.ok(phpSource.includes(`'${symbol}'`), `PHP monitor includes ${symbol} in ${group}`);
+    }
+  }
+  assert.equal(EARLY_WARNING_RATIOS.portfolioExposure, 0.8);
+  assert.equal(EARLY_WARNING_RATIOS.leverage, 0.8);
+  assert.equal(EARLY_WARNING_RATIOS.drawdown, 0.7);
+  assert.equal(EARLY_WARNING_RATIOS.dailyLoss, 0.6);
+  assert.match(phpSource, /maxPortfolioExposurePct'\s*\]\s*\*\s*0\.8/);
+  assert.match(phpSource, /maxLeverage'\s*\]\s*\*\s*0\.8/);
+  assert.match(phpSource, /maxDrawdownPct'\s*\]\s*\*\s*0\.7/);
+  assert.match(phpSource, /maxDailyLossPct'\s*\]\s*\*\s*0\.6/);
+
+  const { store, jobs } = await harness(t);
+  const account = await seedAccount(store, OWNER, "Tiered account");
+  const paper = scriptedPaper({
+    scans: {
+      [OWNER]: [
+        accountScan(account.id, [
+          { code: "PORTFOLIO_EXPOSURE_APPROACHING", message: "Open risk 13.0% of equity is approaching the 15.0% limit" },
+          { code: "LEVERAGE_APPROACHING", message: "Gross notional 4.20x equity is approaching the 5.0x limit" },
+          { code: "DRAWDOWN_APPROACHING", message: "Drawdown 7.5% is approaching the 10.0% limit" },
+          { code: "DAILY_LOSS_APPROACHING", message: "Daily loss 2.0% is approaching the 3.0% limit" },
+          { code: "CORRELATED_GROUP_EXPOSURE", symbol: "CRYPTO_MAJORS", message: "2 positions in correlated group CRYPTO_MAJORS (BTCUSDT, ETHUSDT)" },
+          { code: "LEVERAGE_LIMIT", message: "Gross notional 5.50x equity exceeds the 5.0x limit" },
+          { code: "CORRELATED_POSITION_LIMIT", symbol: "USD_MAJORS", message: "4 positions in correlated group USD_MAJORS exceed limit 3" },
+        ]),
+      ],
+    },
+  });
+  const sweep = await jobs(paper).portfolioRiskSweep();
+  assert.equal(sweep.alerts.length, 7);
+  // Critical breaches sort before warning tiers.
+  assert.deepEqual(
+    sweep.alerts.slice(0, 2).map((alert) => `${alert.severity}:${alert.code}`),
+    ["critical:CORRELATED_POSITION_LIMIT", "critical:LEVERAGE_LIMIT"],
+  );
+  assert.ok(sweep.alerts.slice(2).every((alert) => alert.severity === "warning" && alert.classified === true));
 });
 
 // ------------------------------------------------------------------ runOperations
