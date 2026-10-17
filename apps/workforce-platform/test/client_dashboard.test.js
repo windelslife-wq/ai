@@ -413,8 +413,8 @@ test("the two absences the page explains are the ledger's and the router's own",
   for (const landed of ["/app/sports", "/app/paper", "/app/risk", "/app/execution", "/app/brokers", "/app/journal"]) {
     assert.ok(declared.has(landed), `${landed} is declared, and the F-29 list above is about the screens still absent`);
   }
-  // The module counts are untouched by this phase: the dashboard is a screen for the
-  // shell, not a promotion for a module.
-  assert.equal(modules.filter((module) => module.state === "ported").length, 10);
-  assert.equal(modules.filter((module) => module.state === "partial").length, 5);
+  // Phase 43 promoted `publicSite` from `partial` to `ported` when the grounded
+  // public chat assistant (`POST /api/v1/chat/respond`) and floating widget landed.
+  assert.equal(modules.filter((module) => module.state === "ported").length, 11);
+  assert.equal(modules.filter((module) => module.state === "partial").length, 4);
 });

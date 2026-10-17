@@ -1,8 +1,44 @@
 # JavaScript / Node.js / cPanel migration status
 
-**Updated:** 2026-10-17 · **Branch:** `arena/046b29ac-ai`
+**Updated:** 2026-10-17 · **Branch:** `arena/0d5104b6-ai`
 
-## Current Phase 42 status (2026-10-17)
+## Current Phase 43 status (2026-10-17)
+
+**Row 18's last unported surface and Row 4's last code gap are closed: the grounded public website
+assistant (`Aegis\ChatAssistant`, `Api_chat::respond`) and its floating widget
+(`views/partials/chat_widget.php`) are ported at `POST /api/v1/chat/respond`, advancing
+`publicSite` from `partial` to `ported` and moving the 17-module ledger to
+11 ported / 4 partial / 2 not-ported.**
+
+**Grounded and isolated by construction.** `createChatService` (`src/modules/chat/service.js`) is
+not handed `store`, `paper`, `strategies`, `execution`, `sports`, `lottery`, `brokers`,
+`notifications` or the caller's session: it cannot read private account or domain records. By
+default (`AI_CHAT_ENABLED=0` or any missing/unsafe `AI_CHAT_*` variable), `POST /api/v1/chat/respond`
+answers from the deterministic local product guide (`provider: "local-guide"`, 8 keyword branches
+plus fallback proven byte-identical to `application/libraries/Aegis/ChatAssistant.php`). When
+`AI_CHAT_ENABLED=1` and a valid `https://` `AI_CHAT_API_URL` (with no embedded credentials —
+divergence **CH-2**), `AI_CHAT_API_KEY` and `AI_CHAT_MODEL` are configured, it calls the
+OpenAI-compatible chat-completions endpoint with legacy's exact `SYSTEM` prompt, `temperature: 0.2`
+and `max_tokens: 260`, caps replies at 2 000 characters, redacts `AI_CHAT_API_KEY` from any warning
+log entry, and falls back cleanly to `local-guide` on any upstream error.
+
+**One new public route (`148 → 149`) and two widget mounts.** `POST /api/v1/chat/respond` is public
+(`auth: false`, `permission: null`, `validated: true`, `rateLimited: true`), enforces 1–1 000
+Unicode characters with legacy's exact 400 message (`message must contain 1–1000 characters`), and
+throttles at 30 requests per 60 seconds per client address with legacy's exact 429 message (`chat
+rate limit exceeded; please try again shortly` — divergence **CH-1**, closing the session-cookie
+bypass). The floating widget is rendered on every public page (`src/modules/site/render.js`,
+`public/site.js`, `public/styles.css`) without inline handlers or styles (divergence **CH-3**,
+keeping `script-src 'self'; style-src 'self'` intact) and in the signed-in workspace shell
+(`WorkspaceShell` in `client/src/App.jsx`), while remaining absent on the guest auth screens
+(`EntryLayout`), matching `views/partials/chat_widget.php`.
+
+Gates: `npm run check:workforce` **1212 / 1212** (1205 before: +7 in `test/chat.test.js`),
+`verify:install` **30 / 30** (`180` source files, `91` documented env vars), `npm run typecheck`
+clean, and `npm run test:contracts` **12 / 12**. Full record:
+[`PHASE43_CHAT_ASSISTANT.md`](PHASE43_CHAT_ASSISTANT.md).
+
+## Phase 42 status (2026-10-17) — superseded by Phase 43
 
 **Row 5's two open decisions are closed: one retention policy over four tables, and the outbound
 SMTP transport.** Neither is a new module — `audit` and `notifications` were already `ported` — so

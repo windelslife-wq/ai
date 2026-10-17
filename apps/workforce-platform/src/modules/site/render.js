@@ -270,6 +270,88 @@ export function renderBlocks(blocks, tokens) {
 }
 
 /**
+ * Verbatim copy of `application/views/partials/chat_widget.php` (Phase 43).
+ *
+ * Rendered without inline `onerror=` or `style=` attributes so the strict
+ * `script-src 'self'; style-src 'self'` Content-Security-Policy holds.
+ */
+export const CHAT_WIDGET_COPY = Object.freeze({
+  endpoint: "/api/v1/chat/respond",
+  dialogLabel: "WINDELS Assistant",
+  title: "WINDELS Assistant",
+  subtitle: "Product help · grounded responses",
+  closeLabel: "Close assistant",
+  closeTitle: "Close",
+  greeting: "Hi, I'm the WINDELS Assistant. Ask me how to use the platform.",
+  placeholder: "Ask about a page or feature…",
+  inputLabel: "Message",
+  sendLabel: "Send message",
+  sendText: "Send",
+  pendingText: "Thinking…",
+  note: "Guidance only. No private account, market, sports, lottery or lead records are exposed to this assistant.",
+  launchLabel: "Open WINDELS Assistant",
+  launchTitle: "Ask WINDELS Assistant",
+  launchText: "Ask WINDELS",
+  fallbackInitial: "W",
+});
+
+export function renderChatWidget() {
+  return tag("div", { id: "aegis-chat", class: "aegis-chat", "data-endpoint": CHAT_WIDGET_COPY.endpoint }, [
+    tag("section", {
+      id: "aegis-chat-panel",
+      class: "aegis-chat-panel",
+      hidden: true,
+      role: "dialog",
+      "aria-label": CHAT_WIDGET_COPY.dialogLabel,
+    }, [
+      tag("header", {}, [
+        tag("span", { class: "aegis-chat-avatar is-fallback" }, [
+          tag("span", { class: "aegis-chat-fallback", "aria-hidden": "true" }, escapeHtml(CHAT_WIDGET_COPY.fallbackInitial)),
+        ]),
+        tag("span", { class: "aegis-chat-id" }, [
+          tag("strong", {}, escapeHtml(CHAT_WIDGET_COPY.title)),
+          tag("small", {}, escapeHtml(CHAT_WIDGET_COPY.subtitle)),
+        ]),
+        tag("button", {
+          type: "button",
+          class: "aegis-chat-close",
+          "aria-label": CHAT_WIDGET_COPY.closeLabel,
+          title: CHAT_WIDGET_COPY.closeTitle,
+        }, "×"),
+      ]),
+      tag("div", { class: "aegis-chat-messages", "aria-live": "polite" }, [
+        tag("div", { class: "aegis-chat-message agent" }, escapeHtml(CHAT_WIDGET_COPY.greeting)),
+      ]),
+      tag("form", { class: "aegis-chat-form" }, [
+        tag("input", {
+          name: "message",
+          maxlength: "1000",
+          required: true,
+          placeholder: CHAT_WIDGET_COPY.placeholder,
+          autocomplete: "off",
+          "aria-label": CHAT_WIDGET_COPY.inputLabel,
+        }),
+        tag("button", { type: "submit", "aria-label": CHAT_WIDGET_COPY.sendLabel }, escapeHtml(CHAT_WIDGET_COPY.sendText)),
+      ]),
+      tag("p", { class: "aegis-chat-note" }, escapeHtml(CHAT_WIDGET_COPY.note)),
+    ]),
+    tag("button", {
+      class: "aegis-chat-launch",
+      type: "button",
+      "aria-expanded": "false",
+      "aria-controls": "aegis-chat-panel",
+      "aria-label": CHAT_WIDGET_COPY.launchLabel,
+      title: CHAT_WIDGET_COPY.launchTitle,
+    }, [
+      tag("span", { class: "aegis-chat-avatar is-fallback" }, [
+        tag("span", { class: "aegis-chat-fallback", "aria-hidden": "true" }, escapeHtml(CHAT_WIDGET_COPY.fallbackInitial)),
+      ]),
+      tag("span", { class: "aegis-chat-launch-label", "aria-hidden": "true" }, escapeHtml(CHAT_WIDGET_COPY.launchText)),
+    ]),
+  ]);
+}
+
+/**
  * The full document. `flash` is a verified one-shot message from a contact
  * submission; `active` marks the current nav entry.
  */
@@ -368,6 +450,7 @@ ${flashMarkup}
 ${renderBlocks(blocks, tokens)}
 </main>
 ${footer}
+${renderChatWidget()}
 ${tag("script", { src: "/site.js", defer: true })}
 </body>
 </html>

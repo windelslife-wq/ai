@@ -101,7 +101,7 @@ export const JOURNAL_PORT_COPY = Object.freeze({
   manualWrite:
     "`POST /api/v1/journal/manual` is the module's one human write — a session plus a CSRF token, and the row it returns is audited as `journal.entry-recorded`. Legacy's page drew no form for it either, so this screen is a read.",
   row18:
-    "Row 18's other surface has no Node port: the public chat assistant (`Api_chat::respond`, `Aegis\\ChatAssistant`). The legacy CLI `tools` commands map to `npm run migrate`, `npm run seed:platform`, `npm test`, `npm run jobs`, `npm run sports:jobs` and `npm run lottery:jobs`.",
+    "Row 18's other surface — the public chat assistant (`Api_chat::respond`, `Aegis\\ChatAssistant`) — is ported at `POST /api/v1/chat/respond` with its floating widget on the public site and the workspace shell (Phase 43). The legacy CLI `tools` commands map to `npm run migrate`, `npm run seed:platform`, `npm test`, `npm run jobs`, `npm run sports:jobs` and `npm run lottery:jobs`.",
 });
 
 /* ---------------------------------------------------------------------------- formatting */

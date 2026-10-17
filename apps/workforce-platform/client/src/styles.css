@@ -317,6 +317,35 @@ button:focus-visible, input:focus-visible, a:focus-visible { outline: 2px solid 
 .portfolio-disclaimer p { margin: 0 0 .5rem; font-size: .68rem; line-height: 1.7; }
 .workspace-card-link { text-decoration: none; }
 .workspace-card-link:hover { border-color: rgba(193, 241, 139, .4); }
+/* Floating WINDELS Assistant widget (Phase 43 — ported from assets/css/chat-widget.css) */
+.aegis-chat { position: fixed; right: 20px; bottom: 20px; z-index: 85; display: flex; flex-direction: column; align-items: flex-end; gap: 10px; font-family: var(--sans); pointer-events: none; }
+.aegis-chat > * { pointer-events: auto; }
+.aegis-chat-launch { position: relative; display: inline-flex; align-items: center; gap: 9px; height: 48px; padding: 6px 15px 6px 6px; border: 1px solid rgba(193, 241, 139, .38); border-radius: 999px; background: rgba(9, 22, 17, .94); color: #edf4ef; font: 700 .78rem/1 var(--sans); letter-spacing: .04em; cursor: pointer; box-shadow: 0 14px 34px rgba(0, 0, 0, .42), 0 0 0 1px rgba(193, 241, 139, .08); backdrop-filter: blur(14px); transition: transform .18s ease, border-color .18s ease, box-shadow .18s ease; }
+.aegis-chat-launch:hover { transform: translateY(-2px); border-color: rgba(193, 241, 139, .72); box-shadow: 0 18px 40px rgba(0, 0, 0, .5), 0 0 24px rgba(59, 214, 159, .22); }
+.aegis-chat-launch:focus-visible, .aegis-chat-close:focus-visible, .aegis-chat-form input:focus-visible, .aegis-chat-form button:focus-visible { outline: 2px solid #c1f18b; outline-offset: 2px; }
+.aegis-chat-avatar { position: relative; width: 34px; height: 34px; flex: 0 0 34px; display: inline-grid; place-items: center; border-radius: 999px; background: linear-gradient(135deg, #c1f18b, #3bd69f); color: #06140f; overflow: hidden; box-shadow: inset 0 0 0 1px rgba(6, 20, 15, .28); }
+.aegis-chat-fallback { display: inline-grid; place-items: center; font: 800 .86rem/1 var(--sans); color: #06140f; }
+.aegis-chat-launch-label { white-space: nowrap; padding-right: 2px; }
+.aegis-chat.is-open .aegis-chat-launch { border-color: rgba(193, 241, 139, .72); }
+.aegis-chat-panel { width: min(360px, calc(100vw - 28px)); max-height: min(510px, calc(100vh - 96px)); display: flex; flex-direction: column; border: 1px solid rgba(193, 241, 139, .28); border-radius: 16px; background: rgba(9, 21, 17, .97); color: #e8f1eb; box-shadow: 0 24px 64px rgba(0, 0, 0, .55); overflow: hidden; backdrop-filter: blur(18px); opacity: 0; transform: translateY(10px) scale(.98); transition: opacity .18s ease, transform .18s ease; }
+.aegis-chat-panel[hidden] { display: none !important; }
+.aegis-chat.is-open .aegis-chat-panel { opacity: 1; transform: translateY(0) scale(1); }
+.aegis-chat-panel header { display: grid; grid-template-columns: 34px 1fr auto; align-items: center; gap: 10px; padding: 11px 12px; border-bottom: 1px solid rgba(154, 184, 168, .16); background: rgba(14, 31, 25, .92); }
+.aegis-chat-id { min-width: 0; display: grid; gap: 2px; }
+.aegis-chat-id strong { display: block; font-size: .83rem; line-height: 1.15; color: #f2f7f3; }
+.aegis-chat-id small { display: block; color: #9ab0a3; font-size: .68rem; line-height: 1.2; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.aegis-chat-close { width: 28px; height: 28px; display: inline-grid; place-items: center; border: 1px solid rgba(154, 184, 168, .22); border-radius: 999px; background: rgba(255, 255, 255, .04); color: #d5e3da; font-size: 1rem; line-height: 1; cursor: pointer; }
+.aegis-chat-close:hover { border-color: rgba(193, 241, 139, .55); color: #fff; }
+.aegis-chat-messages { padding: 12px; max-height: 270px; overflow-y: auto; display: grid; gap: 8px; }
+.aegis-chat-message { padding: 9px 11px; border-radius: 12px; font-size: .81rem; line-height: 1.45; overflow-wrap: anywhere; }
+.aegis-chat-message.agent { background: rgba(59, 214, 159, .1); border: 1px solid rgba(59, 214, 159, .2); color: #e5f3ec; }
+.aegis-chat-message.user { justify-self: end; max-width: 88%; background: rgba(93, 169, 255, .16); border: 1px solid rgba(93, 169, 255, .28); color: #edf5ff; }
+.aegis-chat-message.is-pending { opacity: .72; font-style: italic; }
+.aegis-chat-form { display: grid; grid-template-columns: 1fr auto; gap: 7px; padding: 10px 12px 8px; border-top: 1px solid rgba(154, 184, 168, .14); }
+.aegis-chat-form input { min-width: 0; width: 100%; min-height: 36px; padding: 7px 10px; border: 1px solid rgba(154, 184, 168, .24); border-radius: 999px; background: rgba(5, 13, 10, .82); color: #eff7f2; font: inherit; font-size: .8rem; }
+.aegis-chat-form button { min-height: 36px; padding: 7px 13px; border: 0; border-radius: 999px; background: #c1f18b; color: #06140f; font: 800 .76rem/1 var(--sans); cursor: pointer; }
+.aegis-chat-form button:disabled { opacity: .55; cursor: wait; }
+.aegis-chat-note { margin: 0; padding: 0 12px 10px; color: #8fa599; font-size: .66rem; line-height: 1.35; }
 
 /* Lottery console (Phase 30): an operations board and a lab. The grid keeps the
    evidence columns readable without a horizontal scroll on a laptop. */

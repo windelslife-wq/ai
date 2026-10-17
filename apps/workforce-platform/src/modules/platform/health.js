@@ -19,10 +19,17 @@ let cachedVersion = null;
 /** Ported product modules and their acceptance state. Never invented. */
 export const MODULE_STATUS = Object.freeze([
   { key: "identity", label: "Identity, sessions, RBAC, account management", state: "ported", tests: "unit + http + compatibility fixtures" },
-  // Pages, robots/sitemap/manifest, the PWA shell and contact intake have local
-  // rendering/content checks; the legacy chat assistant is absent, so the module
-  // remains partial. These checks do not claim complete legacy parity.
-  { key: "publicSite", label: "Public site, SEO + PWA shell, contact intake (chat assistant not ported)", state: "partial", tests: "unit + http + content checks" },
+  // Pages, robots/sitemap/manifest, the PWA shell, contact intake (stored, audited,
+  // throttled, with optional SMTP operator copy in Phase 42) and the grounded
+  // public chat assistant (Phase 43: POST /api/v1/chat/respond + floating widget on
+  // the public site and workspace shell) are ported and tested. SITE_ANNOUNCEMENT
+  // stays empty by default so no page advertises the unported language teacher.
+  {
+    key: "publicSite",
+    label: "Public site, SEO + PWA shell, contact intake (stored, audited, throttled, with optional SMTP operator copy) and the grounded public chat assistant at POST /api/v1/chat/respond (Phase 43: local product guide by default, optional https-only AI_CHAT_* provider, no private account/market/sports/lottery/lead data access, floating widget on public pages and the signed-in workspace shell, absent on auth pages; SITE_ANNOUNCEMENT stays empty by default so no page advertises the unported language teacher)",
+    state: "ported",
+    tests: "unit + http + content checks + php-parity",
+  },
   // The trail was already written by every ported action; Phase 10 adds the
   // permissioned browser over it (filter by actor, action, entity and time
   // window) and puts the actor's identity in the read view. Phase 28 adds the
@@ -183,7 +190,7 @@ function countConfiguredConnectors(brokers) {
   }
 }
 
-export async function healthRoutes(app, { store, config, adapter, router, marketData = null, analysis = null, notifications = null, brokers = null, sports = null }) {
+export async function healthRoutes(app, { store, config, adapter, router, marketData = null, analysis = null, notifications = null, brokers = null, sports = null, chat = null }) {
   app.get("/health/live", async () => ({
     status: "ok",
     uptimeSeconds: Math.round(process.uptime()),
@@ -252,6 +259,11 @@ export async function healthRoutes(app, { store, config, adapter, router, market
       // Same rule as the two snapshots above: this describes the module, it does
       // not read the inbox, so an unauthenticated caller cannot enumerate alerts.
       notifications: notifications ? notifications.statusSnapshot() : null,
+      // Same rule again: this describes the public chat assistant from
+      // configuration alone (local-guide vs configured-ai, model name when active,
+      // privateDataAccess: false). It never exposes AI_CHAT_API_KEY or probes the
+      // upstream model provider.
+      chat: chat ? chat.statusSnapshot() : null,
       // Same rule again: this describes the sports module from configuration alone.
       // It never contacts a provider, so an unauthenticated caller cannot make this
       // server reach a third-party feed. Derived health is therefore not reported

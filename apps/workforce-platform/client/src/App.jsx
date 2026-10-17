@@ -17,7 +17,7 @@ import { Link, matchRoute, RouterProvider, useRouter } from "./router.jsx";
 import { ConnectivityBanner, Notice, UpdateBanner } from "./ui.jsx";
 import {
   AccountView, AdminControlCentreView, AdminUsersView, AnalysisWorkforceView, AuditView, Brand,
-  BrokerCenterView, ExecutionView, InquiriesView, JournalView, LoginPanel,
+  BrokerCenterView, ChatWidget, ExecutionView, InquiriesView, JournalView, LoginPanel,
   LotteryLabView, LotteryOperationsView, ModuleCards, NotificationsView, NotFoundView, PortfolioOptimizerView,
   PaperConsoleView, RegisterPanel, RiskCenterView, SportsIntelligenceView, StatusPill, StatusView, StrategyLabView, WorkspaceDashboard,
   WorkspaceNav,
@@ -150,6 +150,7 @@ function WorkspaceShell({ user, permissions, health, current, busy, onLogout, no
         <span>Migration in progress · Existing PHP platform remains authoritative.</span>
         <a href="/">Public site ↗</a>
       </footer>
+      <ChatWidget />
     </div>
   );
 }

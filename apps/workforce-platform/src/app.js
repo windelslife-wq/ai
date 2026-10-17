@@ -28,6 +28,8 @@ import { createRateLimiter, createLoginGuard, createConcurrencyTracker } from ".
 import { healthRoutes } from "./modules/platform/health.js";
 import { identityRoutes } from "./modules/identity/routes.js";
 import { siteRoutes } from "./modules/site/routes.js";
+import { chatRoutes } from "./modules/chat/routes.js";
+import { createChatService } from "./modules/chat/service.js";
 import { mailRoutes } from "./modules/mail/routes.js";
 import { createMailService } from "./modules/mail/service.js";
 import { createSiteDocuments } from "./modules/site/documents.js";
@@ -177,6 +179,11 @@ export async function buildApp({ config, store, logger = true, publicDir = path.
   // operator alerts are still stored and read in-product.
   const mail = createMailService({ config: config.mail, log: app.log });
 
+  // Public website assistant (rows 4 and 18 — Phase 43). Deliberately not handed
+  // `store`, `paper`, `strategies`, `execution`, `sports`, `lottery`, `brokers` or
+  // `notifications`: it cannot read private account or domain records by construction.
+  const chat = createChatService({ config: config.chat, log: app.log });
+
   // One sports service per app (row 14). Providers come from the environment only,
   // and a default host registers none at all: the sandbox provider needs
   // WINDELS_SPORTS_MODE=SANDBOX *and* WINDELS_SPORTS_SANDBOX=1, and the HTTP
@@ -207,13 +214,14 @@ export async function buildApp({ config, store, logger = true, publicDir = path.
   // The status surface reports the notification module alongside market data and
   // analysis, so an operator can see that alerts are stored-and-read only and that
   // no outbound delivery channel exists.
-  await app.register(healthRoutes, { prefix: "/api/v1", store, config, adapter, router, marketData, analysis, notifications, brokers, sports });
+  await app.register(healthRoutes, { prefix: "/api/v1", store, config, adapter, router, marketData, analysis, notifications, brokers, sports, chat });
   if (config.auth !== false) {
     await app.register(identityRoutes, { prefix: "/api/v1", store, config, loginGuard });
   }
   // The public site: contact intake over JSON, plus the rendered documents the
   // transport consults before it falls back to static files.
   await app.register(siteRoutes, { prefix: "/api/v1", store, config, mail });
+  await app.register(chatRoutes, { prefix: "/api/v1", config, chat });
   await app.register(mailRoutes, { prefix: "/api/v1", store, config, mail });
   await app.register(marketDataRoutes, { prefix: "/api/v1", store, config, service: marketData });
   // The same tracker backs the platform-wide per-address ceiling; the analysis
@@ -377,7 +385,7 @@ export async function buildApp({ config, store, logger = true, publicDir = path.
       if (route.options?.config?.rateLimit && config.rateLimit.enabled !== false) {
         const limit = route.options.config.rateLimit;
         const wait = rateLimiter.check(`route:${route.path}:${client}`, { max: limit.max, windowMs: limit.windowMs ?? limit.timeWindow });
-        if (wait) throw AppError.tooManyRequests("Too many requests", { retryAfter: wait });
+        if (wait) throw AppError.tooManyRequests(limit.message || "Too many requests", { retryAfter: wait });
       }
 
       await readRequestBody(request, route, config);

@@ -240,4 +240,8 @@ export const endpoints = {
   notificationInbox: (query = "") => api(`/api/v1/notifications${query}`),
   markNotificationRead: (notificationId) => api(`/api/v1/notifications/${encodeURIComponent(notificationId)}/read`, { method: "POST", body: {} }),
   markAllNotificationsRead: () => api("/api/v1/notifications/read-all", { method: "POST", body: {} }),
+  // The public website assistant (rows 4 and 18 — Phase 43). Public route (`auth: false`,
+  // `permission: null`), mounted on both the public pages and the workspace shell and
+  // omitted from the auth screens (`EntryLayout`).
+  chatRespond: (payload) => api("/api/v1/chat/respond", { method: "POST", body: payload }),
 };

@@ -171,7 +171,124 @@
     });
   }
 
+  // ---- floating website assistant (assets/js/aegis-chat.js port — Phase 43) -
+
+  function bindChatWidget() {
+    const root = document.getElementById("aegis-chat");
+    if (!root) return;
+    const launch = root.querySelector(".aegis-chat-launch");
+    const closeBtn = root.querySelector(".aegis-chat-close");
+    const panel = root.querySelector(".aegis-chat-panel");
+    const form = root.querySelector(".aegis-chat-form");
+    const input = form ? form.querySelector("input[name='message']") : null;
+    const messages = root.querySelector(".aegis-chat-messages");
+    const endpoint = root.getAttribute("data-endpoint") || "/api/v1/chat/respond";
+    let closeTimer = null;
+
+    function isOpen() {
+      return Boolean(panel && !panel.hidden && root.classList.contains("is-open"));
+    }
+
+    function setOpen(open) {
+      if (!panel || !launch) return;
+      if (closeTimer) {
+        clearTimeout(closeTimer);
+        closeTimer = null;
+      }
+      launch.setAttribute("aria-expanded", open ? "true" : "false");
+      if (open) {
+        panel.hidden = false;
+        window.requestAnimationFrame(() => {
+          root.classList.add("is-open");
+          if (input) input.focus();
+        });
+        return;
+      }
+      root.classList.remove("is-open");
+      const finishClose = () => {
+        if (!root.classList.contains("is-open")) {
+          panel.hidden = true;
+        }
+      };
+      panel.addEventListener("transitionend", finishClose, { once: true });
+      closeTimer = window.setTimeout(finishClose, 250);
+    }
+
+    function addMessage(text, kind) {
+      if (!messages) return null;
+      const item = document.createElement("div");
+      item.className = `aegis-chat-message ${kind}`;
+      item.textContent = text;
+      messages.appendChild(item);
+      messages.scrollTop = messages.scrollHeight;
+      return item;
+    }
+
+    if (launch) {
+      launch.addEventListener("click", (event) => {
+        event.stopPropagation();
+        setOpen(!isOpen());
+      });
+    }
+    if (closeBtn) {
+      closeBtn.addEventListener("click", (event) => {
+        event.stopPropagation();
+        setOpen(false);
+        if (launch) launch.focus();
+      });
+    }
+    document.addEventListener("keydown", (event) => {
+      if (event.key === "Escape" && isOpen()) {
+        setOpen(false);
+        if (launch) launch.focus();
+      }
+    });
+    document.addEventListener("click", (event) => {
+      if (isOpen() && !root.contains(event.target)) {
+        setOpen(false);
+      }
+    });
+
+    if (form && input) {
+      form.addEventListener("submit", async (event) => {
+        event.preventDefault();
+        const message = input.value.trim();
+        if (!message) return;
+        const submitButton = form.querySelector("button[type='submit']");
+        input.value = "";
+        addMessage(message, "user");
+        const pending = addMessage("Thinking…", "agent is-pending");
+        if (submitButton) submitButton.disabled = true;
+
+        try {
+          const response = await fetch(endpoint, {
+            method: "POST",
+            credentials: "same-origin",
+            headers: {
+              accept: "application/json",
+              "content-type": "application/json",
+            },
+            body: JSON.stringify({ message }),
+          });
+          const body = await response.json().catch(() => ({}));
+          if (pending) pending.remove();
+          if (!response.ok) {
+            addMessage(body?.error?.message || body?.error || "The assistant could not process that question.", "agent");
+            return;
+          }
+          addMessage(body?.message || "No response was returned.", "agent");
+        } catch {
+          if (pending) pending.remove();
+          addMessage("The assistant is unavailable. Check the server connection and try again.", "agent");
+        } finally {
+          if (submitButton) submitButton.disabled = false;
+        }
+      });
+    }
+  }
+
   bindConnectivity();
   bindServiceWorker();
   bindContactForm();
+  bindChatWidget();
 })();

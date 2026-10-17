@@ -132,6 +132,9 @@ import {
   journalCalibrationRows, journalEntryRows, journalGroupRows, journalNote, journalTotals,
   journalVerdict, overallHeading,
 } from "./journal.js";
+import {
+  CHAT_MAX_MESSAGE_CHARS, CHAT_WIDGET_COPY, buildChatBody, formatChatFailure, formatChatReply, validateChatMessage,
+} from "./chat.js";
 import { Link } from "./router.jsx";
 import { ConnectivityBanner, Field, Notice, StateBox, useResource } from "./ui.jsx";
 
@@ -5894,6 +5897,128 @@ export function NotFoundView({ path }) {
         <Link className="text-button" to="/app/">Back to overview</Link>
       </header>
       <Notice tone="warn"><code>{path}</code> is not a declared workspace surface. The server routes every path it does not know to this shell, so an undeclared URL renders this page instead of failing silently.</Notice>
+    </div>
+  );
+}
+
+/**
+ * Floating website assistant (`views/partials/chat_widget.php` — Phase 43).
+ *
+ * Mounted in `WorkspaceShell` (matching `views/layout/footer.php`) and deliberately
+ * NOT mounted in `EntryLayout` (`/app/login`, `/app/register` — matching the
+ * legacy partial's "Deliberately NOT loaded on auth pages" rule).
+ */
+export function ChatWidget() {
+  const [open, setOpen] = useState(false);
+  const [draft, setDraft] = useState("");
+  const [busy, setBusy] = useState(false);
+  const [messages, setMessages] = useState([
+    { id: 0, kind: "agent", text: CHAT_WIDGET_COPY.greeting },
+  ]);
+
+  useEffect(() => {
+    if (!open) return undefined;
+    const onKeyDown = (event) => {
+      if (event.key === "Escape") setOpen(false);
+    };
+    window.addEventListener("keydown", onKeyDown);
+    return () => window.removeEventListener("keydown", onKeyDown);
+  }, [open]);
+
+  async function handleSubmit(event) {
+    event.preventDefault();
+    const validationError = validateChatMessage(draft);
+    if (validationError) return;
+    const body = buildChatBody(draft);
+    setDraft("");
+    setBusy(true);
+    setMessages((current) => [
+      ...current,
+      { id: current.length, kind: "user", text: body.message },
+      { id: current.length + 1, kind: "agent is-pending", text: CHAT_WIDGET_COPY.pendingText, pending: true },
+    ]);
+    try {
+      const response = await endpoints.chatRespond(body);
+      const reply = formatChatReply(response);
+      setMessages((current) => [
+        ...current.filter((item) => !item.pending),
+        { id: current.length + 1, kind: "agent", text: reply.text },
+      ]);
+    } catch (error) {
+      setMessages((current) => [
+        ...current.filter((item) => !item.pending),
+        { id: current.length + 1, kind: "agent", text: formatChatFailure(error) },
+      ]);
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  return (
+    <div id="aegis-chat" className={`aegis-chat${open ? " is-open" : ""}`} data-endpoint={CHAT_WIDGET_COPY.endpoint}>
+      <section
+        id="aegis-chat-panel"
+        className="aegis-chat-panel"
+        hidden={!open}
+        role="dialog"
+        aria-label={CHAT_WIDGET_COPY.dialogLabel}
+      >
+        <header>
+          <span className="aegis-chat-avatar is-fallback">
+            <span className="aegis-chat-fallback" aria-hidden="true">{CHAT_WIDGET_COPY.fallbackInitial}</span>
+          </span>
+          <span className="aegis-chat-id">
+            <strong>{CHAT_WIDGET_COPY.title}</strong>
+            <small>{CHAT_WIDGET_COPY.subtitle}</small>
+          </span>
+          <button
+            type="button"
+            className="aegis-chat-close"
+            aria-label={CHAT_WIDGET_COPY.closeLabel}
+            title={CHAT_WIDGET_COPY.closeTitle}
+            onClick={() => setOpen(false)}
+          >
+            ×
+          </button>
+        </header>
+        <div className="aegis-chat-messages" aria-live="polite">
+          {messages.map((item) => (
+            <div key={item.id} className={`aegis-chat-message ${item.kind}`}>
+              {item.text}
+            </div>
+          ))}
+        </div>
+        <form className="aegis-chat-form" onSubmit={handleSubmit}>
+          <input
+            name="message"
+            maxLength={CHAT_MAX_MESSAGE_CHARS}
+            required
+            placeholder={CHAT_WIDGET_COPY.placeholder}
+            autoComplete="off"
+            aria-label={CHAT_WIDGET_COPY.inputLabel}
+            value={draft}
+            onChange={(event) => setDraft(event.target.value)}
+          />
+          <button type="submit" aria-label={CHAT_WIDGET_COPY.sendLabel} disabled={busy}>
+            {CHAT_WIDGET_COPY.sendText}
+          </button>
+        </form>
+        <p className="aegis-chat-note">{CHAT_WIDGET_COPY.note}</p>
+      </section>
+      <button
+        className="aegis-chat-launch"
+        type="button"
+        aria-expanded={open ? "true" : "false"}
+        aria-controls="aegis-chat-panel"
+        aria-label={CHAT_WIDGET_COPY.launchLabel}
+        title={CHAT_WIDGET_COPY.launchTitle}
+        onClick={() => setOpen((current) => !current)}
+      >
+        <span className="aegis-chat-avatar is-fallback">
+          <span className="aegis-chat-fallback" aria-hidden="true">{CHAT_WIDGET_COPY.fallbackInitial}</span>
+        </span>
+        <span className="aegis-chat-launch-label" aria-hidden="true">{CHAT_WIDGET_COPY.launchText}</span>
+      </button>
     </div>
   );
 }
