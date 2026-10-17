@@ -19,7 +19,8 @@
  *    and permission keys it describes, so a test can assert the panel against the
  *    grants the server actually seeds (`src/db/platform-baseline.js`, the Node
  *    mirror of `tools/rbac.php`) instead of asking a reader to trust prose;
- *  - `SMTP_PANEL` states the one part of the page that cannot be ported, and why.
+ *  - `MAIL_PANEL` is the SMTP panel, ported in row 5: the server's
+ *    credential-free summary and the legacy test send.
  *
  * Two rules from the dashboard apply unchanged: no card prints a number the
  * server did not send (an unread or gated source is an em dash and a sentence),
@@ -251,20 +252,50 @@ export const DEACTIVATE_LABEL = "Deactivate";
 export const ACTIVATE_LABEL = "Activate";
 
 /**
- * The Email / SMTP panel. Legacy's panel reads the server's mail configuration
- * (`Aegis\Mailer::configSummary()`) and its button performs a real SMTP send
- * (`POST /admin/test-email`). This edition has no mail transport at all, so there
- * is nothing to summarise and nothing to test — and the panel says exactly that
- * instead of showing a form that could only fail.
+ * The Email / SMTP panel (row 5, Phase 42).
+ *
+ * Legacy's panel read the server's mail configuration
+ * (`Aegis\Mailer::configSummary()`) and its button performed a real SMTP send
+ * (`POST /admin/test-email`). Both are here: the summary is the server's own
+ * credential-free object, and the form posts to the ported route. Nothing about
+ * the configuration is editable from a browser — it lives in the server
+ * environment, exactly as the PHP application required.
+ *
+ * The panel never prints a password. It prints whether one is set, which is what
+ * legacy's `passwordConfigured` field was for.
  */
-export const SMTP_PANEL = Object.freeze({
+export const MAIL_PANEL = Object.freeze({
   title: "Email / SMTP",
-  state: "not-ported",
-  lines: [
-    "This edition has no outbound mail transport. There is no host, port or credential summary to show and no test send to run, because no code path delivers mail.",
-    "The flows that wait on one keep their own ledger rows: password reset still answers `delivered: false` (row 2), and operator notifications are stored and read in-product only — \"decide the outbound mail transport before any delivery claim\" (row 5).",
-  ],
+  lede: "The server's mail configuration, read from the environment, and a real test send. Credentials are never shown — only whether they are set.",
+  // Legacy's form fields, in legacy's order.
+  recipientLabel: "Recipient",
+  variantLabel: "Format",
+  submitLabel: "Send test email",
+  variants: Object.freeze([{ value: "html", label: "HTML" }, { value: "plain", label: "Plain text" }]),
+  footnote: "The test send is audited as ADMIN_TEST_EMAIL with its recipient and outcome. Operator notifications are still stored and read in-product only: SMTP is used by this test and by the contact-form copy, never by an alert.",
+  disabledNote: "Outbound email is disabled. Set VP_SMTP_ENABLED=1 and a VP_SMTP_HOST on the server, restart, then send a test.",
 });
+
+/** One row per `configSummary()` field, in the order the panel renders them. */
+export function mailSummaryRows(summary) {
+  const value = summary && typeof summary === "object" ? summary : {};
+  const dash = (text) => (text === null || text === undefined || text === "" ? "—" : String(text));
+  return [
+    { key: "status", label: "Status", value: value.enabled ? "Enabled" : "Disabled" },
+    { key: "protocol", label: "Protocol", value: dash(value.protocol) },
+    { key: "host", label: "Host", value: dash(value.host) },
+    { key: "port", label: "Port", value: dash(value.port) },
+    { key: "crypto", label: "Encryption", value: value.crypto ? String(value.crypto).toUpperCase() : "None" },
+    { key: "from", label: "From", value: value.fromEmail ? `${value.fromEmail}${value.fromName ? ` (${value.fromName})` : ""}` : "—" },
+    { key: "username", label: "Username", value: value.usernameConfigured ? "Configured" : "Not configured" },
+    { key: "password", label: "Password", value: value.passwordConfigured ? "Configured (never shown)" : "Not configured" },
+  ];
+}
+
+/** The badge the panel carries: a configured transport is live, a disabled one is not. */
+export function mailPanelState(summary) {
+  return summary?.enabled ? { state: "smtp", tone: "badge-live", label: "Enabled" } : { state: "none", tone: "badge-muted", label: "Disabled" };
+}
 
 /**
  * Every read this screen makes, with the permission the server enforces. The
@@ -280,6 +311,8 @@ export const ADMIN_READS = Object.freeze([
   // `lottery.view`: it reports configured state, and the console's data reads are
   // the ones behind the module permission.
   { key: "lottery", method: "GET", path: "/api/v1/lottery/status", permission: "system.authenticated", auth: true },
+  // Row 5: the mail summary is super-admin only, like the panel that showed it.
+  { key: "mail", method: "GET", path: "/api/v1/admin/mail", permission: "system.super_admin", auth: true },
   { key: "status", method: "GET", path: "/api/v1/system/status", permission: null, auth: false },
   { key: "features", method: "GET", path: "/api/v1/system/features", permission: null, auth: false },
 ]);

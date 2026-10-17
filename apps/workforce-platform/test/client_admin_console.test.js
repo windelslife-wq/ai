@@ -2,7 +2,7 @@
  * The administrator control centre against the API it reads (row 3, Phase 35).
  *
  * `views/admin/index.php` → `Admin::index` is legacy's privileged page: four
- * statistics, the access policy, the user directory, the SMTP panel and the
+ * statistics, the access policy, the user directory, the SMTP panel (ported in row 5) and the
  * feature-readiness table. The port split it — the directory has been at
  * `/app/admin/users` since the identity slice, and this screen is the rest.
  *
@@ -31,9 +31,9 @@ import path from "node:path";
 
 import {
   ACCESS_POLICY, ACCEPTANCE_TONES, ACTIVATE_LABEL, ADMIN_COPY, ADMIN_PERMISSION, ADMIN_READS, ADMIN_STATS,
-  DEACTIVATE_LABEL, LANGUAGE_STAT_NOTE, ROLE_LABELS, SMTP_PANEL, USER_STATUS,
-  acceptanceTone, featureRows, holdsPermission, legendRows, roleOptions, statCards, strategyShape,
-  unassignableRoles,
+  DEACTIVATE_LABEL, LANGUAGE_STAT_NOTE, MAIL_PANEL, ROLE_LABELS, USER_STATUS,
+  acceptanceTone, featureRows, holdsPermission, legendRows, mailPanelState, mailSummaryRows, roleOptions,
+  statCards, strategyShape, unassignableRoles,
 } from "../client/src/admin.js";
 import { MODULE_STATUS } from "../src/modules/platform/health.js";
 import { ADMIN_ROLES } from "../src/modules/identity/contracts.js";
@@ -241,13 +241,44 @@ test("the readiness table is the ledger itself, with the server's own legend", (
 
 // ------------------------------------------------------------- the SMTP panel
 
-test("the SMTP panel is stated as unported, with the ledger rows that wait on it", () => {
-  assert.equal(SMTP_PANEL.title, "Email / SMTP");
-  assert.equal(SMTP_PANEL.state, "not-ported");
-  assert.ok(SMTP_PANEL.lines.join(" ").includes("no outbound mail transport"));
-  assert.ok(SMTP_PANEL.lines.join(" ").includes("delivered: false"), "the password-reset row is named");
-  assert.ok(SMTP_PANEL.lines.join(" ").includes("row 5"), "the notification-delivery decision is named");
-  // Legacy's panel was a live SMTP send; there is no route here that could be one.
+test("the SMTP panel renders the server's credential-free summary and its two states", () => {
+  assert.equal(MAIL_PANEL.title, "Email / SMTP");
+  assert.equal(MAIL_PANEL.submitLabel, "Send test email");
+  assert.deepEqual(MAIL_PANEL.variants.map((option) => option.value), ["html", "plain"], "legacy's two formats");
+
+  const rows = mailSummaryRows({
+    enabled: true, protocol: "smtp", host: "mail.example.test", port: 587, crypto: "tls",
+    fromEmail: "no-reply@example.test", fromName: "WINDELS AI WORKFORCE",
+    usernameConfigured: true, passwordConfigured: true,
+  });
+  assert.deepEqual(rows.map((row) => row.label), ["Status", "Protocol", "Host", "Port", "Encryption", "From", "Username", "Password"]);
+  assert.equal(rows.find((row) => row.key === "status").value, "Enabled");
+  assert.equal(rows.find((row) => row.key === "encryption" || row.key === "crypto").value, "TLS");
+  assert.equal(rows.find((row) => row.key === "from").value, "no-reply@example.test (WINDELS AI WORKFORCE)");
+  assert.equal(rows.find((row) => row.key === "password").value, "Configured (never shown)", "the panel says a password exists, never what it is");
+
+  // A disabled mailer renders dashes, not zeros, and every blank field is an em dash.
+  const off = mailSummaryRows({ enabled: false, protocol: "disabled", host: "", port: 587, crypto: "", fromEmail: "", fromName: "", usernameConfigured: false, passwordConfigured: false });
+  assert.equal(off.find((row) => row.key === "status").value, "Disabled");
+  assert.equal(off.find((row) => row.key === "protocol").value, "disabled");
+  assert.equal(off.find((row) => row.key === "host").value, "—");
+  assert.equal(off.find((row) => row.key === "crypto").value, "None");
+  assert.equal(off.find((row) => row.key === "from").value, "—");
+  assert.equal(off.find((row) => row.key === "password").value, "Not configured");
+
+  assert.equal(mailPanelState({ enabled: true }).tone, "badge-live");
+  assert.equal(mailPanelState({ enabled: false }).tone, "badge-muted");
+  assert.equal(mailPanelState(null).label, "Disabled");
+
+  // The panel is the ported one now: the view reads the route and posts the form.
+  const views = readFileSync(path.join(CLIENT, "views.jsx"), "utf8");
+  assert.match(views, /endpoints\.adminMail\(\)/);
+  assert.match(views, /endpoints\.adminTestEmail\(mailForm\)/);
+  assert.match(views, /id="smtp-to"/);
+  assert.match(views, /id="smtp-variant"/);
+  assert.doesNotMatch(views, /SMTP_PANEL/, "the not-ported panel is gone");
+
+  // Legacy's panel was a live SMTP send and the route it posted to is named here.
   const legacy = readFileSync(LEGACY_ADMIN_VIEW, "utf8");
   assert.ok(legacy.includes("/admin/test-email"), "legacy's panel posted a real test send");
 });
@@ -267,9 +298,18 @@ test("every read is a registered route with the permission the server enforces",
   // The two administration reads are the same gate the directory uses; the lottery
   // status read carries its module's sign-in baseline; the strategy list and the two
   // ledger reads need a session or nothing at all.
-  assert.deepEqual(ADMIN_READS.filter((read) => read.permission).map((read) => read.key), ["users", "roles", "lottery"]);
+  assert.deepEqual(ADMIN_READS.filter((read) => read.permission).map((read) => read.key), ["users", "roles", "lottery", "mail"]);
   assert.equal(ADMIN_READS.find((read) => read.key === "users").permission, "identity.users.view");
   assert.equal(ADMIN_READS.find((read) => read.key === "lottery").permission, "system.authenticated");
+  assert.equal(ADMIN_READS.find((read) => read.key === "mail").permission, "system.super_admin");
+
+  // The test send is a POST and is guarded by the same permission; ADMIN_READS
+  // covers reads only, so the write is asserted here.
+  const testSend = inventory.find((entry) => entry.method === "POST" && entry.path === "/api/v1/admin/mail/test");
+  assert.ok(testSend, "the test send must be a registered route");
+  assert.equal(testSend.permission, "system.super_admin");
+  assert.equal(testSend.auth, true);
+  assert.equal(testSend.validated, true, "the recipient body is schema-validated");
 
   // The screen is declared where the router will find it, gated on legacy's own
   // permission, and it is the view that is rendered.

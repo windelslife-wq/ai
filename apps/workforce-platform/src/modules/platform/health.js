@@ -28,15 +28,19 @@ export const MODULE_STATUS = Object.freeze([
   // window) and puts the actor's identity in the read view. Phase 28 adds the
   // console at /app/admin/audit. Still read-only on both adapters: no route can
   // edit, redact or delete an audit event — the screen offers no such control
-  // either. Security-event retention is an undecided policy, and legacy audit_logs
-  // rows have not been imported, so neither is claimed here.
-  { key: "audit", label: "Security audit trail plus a permissioned read-only browser API and console (no retention policy, no historical import)", state: "ported", tests: "unit + http + both adapters" },
+  // either. Row 5 decided retention: `AUDIT_RETENTION_DAYS` is an operator-run
+  // window applied by `npm run prune:retention`, and it is 0 (keep forever) by
+  // default, because a trail that silently ages out is not an audit trail. Legacy
+  // audit_logs rows have not been imported, and that is still stated.
+  { key: "audit", label: "Security audit trail plus a permissioned read-only browser API and console (operator-run retention window, off by default, no historical import)", state: "ported", tests: "unit + http + both adapters" },
   // Notifications are ported: the unread-deduped notifier, broadcast/targeted
   // visibility and the three legacy inbox endpoints, with governance and
   // paper-proposal transitions publishing through it. Storage and in-product
   // reading only — there is no outbound delivery channel, so no alert is ever
-  // reported as delivered to a device or an email inbox.
-  { key: "notifications", label: "Operator notifications: unread-deduped inbox, broadcast + targeted, governance publishers (no outbound delivery)", state: "ported", tests: "unit + http + both adapters" },
+  // reported as delivered to a device or an email inbox. Row 5 ported SMTP, but
+  // only for the administrator test send and the contact-form copy; giving the
+  // notifier an email channel was not legacy behaviour and is not claimed.
+  { key: "notifications", label: "Operator notifications: unread-deduped inbox, broadcast + targeted, governance publishers (no outbound delivery; SMTP serves only the administrator test send and the contact-form copy)", state: "ported", tests: "unit + http + both adapters" },
   // Market data is ported: the provider chain, normalization, circuit breakers
   // and the three legacy endpoints, with provenance that labels synthetic output.
   { key: "marketData", label: "Market data providers and health", state: "ported", tests: "unit + http + provider fixtures" },

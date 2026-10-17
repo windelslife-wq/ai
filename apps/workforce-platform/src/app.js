@@ -28,6 +28,8 @@ import { createRateLimiter, createLoginGuard, createConcurrencyTracker } from ".
 import { healthRoutes } from "./modules/platform/health.js";
 import { identityRoutes } from "./modules/identity/routes.js";
 import { siteRoutes } from "./modules/site/routes.js";
+import { mailRoutes } from "./modules/mail/routes.js";
+import { createMailService } from "./modules/mail/service.js";
 import { createSiteDocuments } from "./modules/site/documents.js";
 import { marketDataRoutes } from "./modules/market-data/routes.js";
 import { createMarketDataService } from "./modules/market-data/service.js";
@@ -167,6 +169,14 @@ export async function buildApp({ config, store, logger = true, publicDir = path.
   // degrades to a logged no-op instead of failing the governance action.
   const notifications = createNotificationService({ store, log: app.log });
 
+  // One outbound-mail service per app (row 5). Configuration comes from the
+  // environment only; a default host has no transport, and every send then answers
+  // with the legacy "Outgoing email is disabled" sentence. It is handed to the
+  // public site as an optional collaborator (the contact copy) and to its own
+  // administrator routes (the test send); no notification publisher is given it —
+  // operator alerts are still stored and read in-product.
+  const mail = createMailService({ config: config.mail, log: app.log });
+
   // One sports service per app (row 14). Providers come from the environment only,
   // and a default host registers none at all: the sandbox provider needs
   // WINDELS_SPORTS_MODE=SANDBOX *and* WINDELS_SPORTS_SANDBOX=1, and the HTTP
@@ -203,7 +213,8 @@ export async function buildApp({ config, store, logger = true, publicDir = path.
   }
   // The public site: contact intake over JSON, plus the rendered documents the
   // transport consults before it falls back to static files.
-  await app.register(siteRoutes, { prefix: "/api/v1", store, config });
+  await app.register(siteRoutes, { prefix: "/api/v1", store, config, mail });
+  await app.register(mailRoutes, { prefix: "/api/v1", store, config, mail });
   await app.register(marketDataRoutes, { prefix: "/api/v1", store, config, service: marketData });
   // The same tracker backs the platform-wide per-address ceiling; the analysis
   // module keys its slots `analysis:session:<id>` so the two never collide (R-26).

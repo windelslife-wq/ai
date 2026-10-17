@@ -60,13 +60,13 @@ const MODEL = {
   createdAt: "2026-10-13T09:00:00.000Z",
 };
 
-test("the five slice-4 methods are part of the 185-method contract, on both adapters", async (t) => {
+test("the five slice-4 methods are part of the 188-method contract, on both adapters", async (t) => {
   const { storeDir, cleanup } = await tempStore(t);
   t.after(cleanup);
   const store = await createFileStore({ dir: storeDir, syncWrites: false });
   t.after(() => store.close());
 
-  assert.equal(REPOSITORY_METHODS.length, 185, "180 (slice 3) + 5 backtest/model methods");
+  assert.equal(REPOSITORY_METHODS.length, 188, "180 (slice 3) + 5 backtest/model methods + 3 row-5 retention methods");
   for (const name of ["ensureLotteryModelVersion", "listLotteryModelVersions", "saveLotteryBacktest", "findLotteryBacktest", "listLotteryBacktests"]) {
     assert.equal(typeof store[name], "function", `the file adapter implements ${name}`);
     assert.ok(LOTTERY_REPOSITORY_METHODS.includes(name), `the SQL adapter declares ${name}`);

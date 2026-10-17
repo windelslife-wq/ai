@@ -55,8 +55,8 @@ import {
   activityRows, alertRows, countLabel, dashboardPills, firstWord, kpiCards, quickActions,
 } from "./dashboard.js";
 import {
-  ACCESS_POLICY, ACTIVATE_LABEL, ADMIN_COPY, DEACTIVATE_LABEL, SMTP_PANEL, USER_STATUS, USERS_LIST_QUERY,
-  acceptanceTone, featureRows, holdsPermission, legendRows, roleOptions, statCards, unassignableRoles,
+  ACCESS_POLICY, ACTIVATE_LABEL, ADMIN_COPY, DEACTIVATE_LABEL, MAIL_PANEL, USER_STATUS, USERS_LIST_QUERY,
+  featureRows, holdsPermission, legendRows, mailPanelState, mailSummaryRows, roleOptions, statCards, unassignableRoles,
 } from "./admin.js";
 import {
   AVATAR_ACCEPT, AVATAR_HINT, AVATAR_NO_FILE_MESSAGE, AVATAR_REMOVED_NOTICE, AVATAR_UPLOADED_NOTICE,
@@ -788,7 +788,7 @@ export function AccountView({ user, permissions, onSessionChanged }) {
           <button className="primary-button" type="submit" disabled={busy}>Save</button>
         </form>
         <form className="panel-form" onSubmit={(event) => { event.preventDefault(); void submit("Email", () => endpoints.updateEmail({ email })); }}>
-          <Field label="Email" htmlFor="acct-email" hint="No confirmation mail is sent: the platform has no outbound mail transport yet.">
+          <Field label="Email" htmlFor="acct-email" hint="No confirmation mail is sent. Outbound SMTP serves only the administrator test send and the contact-form copy.">
             <input id="acct-email" type="email" maxLength="190" value={email} onChange={(event) => setEmail(event.target.value)} required />
           </Field>
           <button className="primary-button" type="submit" disabled={busy}>Save</button>
@@ -901,12 +901,38 @@ export function AdminControlCentreView({ permissions }) {
   const lottery = useResource(() => endpoints.lotteryStatus(), []);
   const status = useResource(() => endpoints.status(), []);
   const features = useResource(() => endpoints.features(), []);
+  // Row 5: the SMTP panel's two reads are the server's own summary and the legacy
+  // test send. The screen is already gated on system.super_admin, which is the
+  // permission both routes enforce.
+  const mail = useResource(() => endpoints.adminMail(), []);
+  const [mailForm, setMailForm] = useState({ to: "", variant: "html" });
+  const [mailResult, setMailResult] = useState(null);
+  const [mailBusy, setMailBusy] = useState(false);
 
   const cards = statCards({ permissions, users: users.data, strategies: strategies.data, lottery: lottery.data });
   const modules = featureRows(status.data?.modules);
   const legend = legendRows(features.data?.legend);
   const assignable = roles.data?.assignable || [];
   const unassignable = unassignableRoles(roles.data?.roles, assignable);
+  const mailSummary = mail.data?.summary ?? null;
+  const mailBadge = mailPanelState(mailSummary);
+
+  async function submitTestEmail(event) {
+    event.preventDefault();
+    setMailBusy(true);
+    setMailResult(null);
+    try {
+      const result = await endpoints.adminTestEmail(mailForm);
+      setMailResult({ tone: result.ok ? "info" : "error", text: result.message });
+      if (result.ok) setMailForm((current) => ({ ...current, to: "" }));
+    } catch (error) {
+      // The route answers 200 with {ok:false} for a server-side refusal; a thrown
+      // error here is the transport/HTTP layer, and its own sentence is printed.
+      setMailResult({ tone: "error", text: formFailure(error) });
+    } finally {
+      setMailBusy(false);
+    }
+  }
 
   return (
     <div className="view">
@@ -981,10 +1007,37 @@ export function AdminControlCentreView({ permissions }) {
       </section>
 
       <section className="panel">
-        <h2>{SMTP_PANEL.title} <span className={`badge ${acceptanceTone(SMTP_PANEL.state)}`}>{SMTP_PANEL.state}</span></h2>
-        <ul className="dash-notes">
-          {SMTP_PANEL.lines.map((line) => <li key={line}>{line}</li>)}
-        </ul>
+        <h2>{MAIL_PANEL.title} {mail.data ? <span className={`badge ${mailBadge.tone}`}>{mailBadge.label}</span> : null}</h2>
+        <p className="muted">{MAIL_PANEL.lede}</p>
+        <StateBox status={mail.status} error={mail.error} retry={mail.retry} label="Loading the mail configuration"
+          empty={mail.data ? null : <p className="empty">The mail configuration was not read.</p>}>
+          <div className="table-scroll">
+            <table className="data-table">
+              <thead><tr><th>Setting</th><th>Value</th></tr></thead>
+              <tbody>
+                {mailSummaryRows(mailSummary).map((row) => (
+                  <tr key={row.key}><td>{row.label}</td><td className="muted">{row.value}</td></tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+          {mailSummary && !mailSummary.enabled ? <Notice tone="info">{MAIL_PANEL.disabledNote}</Notice> : null}
+          <form className="panel-form inline" onSubmit={submitTestEmail}>
+            <Field label={MAIL_PANEL.recipientLabel} htmlFor="smtp-to">
+              <input id="smtp-to" type="email" maxLength="190" value={mailForm.to}
+                onChange={(event) => setMailForm((current) => ({ ...current, to: event.target.value }))} required />
+            </Field>
+            <Field label={MAIL_PANEL.variantLabel} htmlFor="smtp-variant">
+              <select id="smtp-variant" value={mailForm.variant}
+                onChange={(event) => setMailForm((current) => ({ ...current, variant: event.target.value }))}>
+                {MAIL_PANEL.variants.map((option) => <option key={option.value} value={option.value}>{option.label}</option>)}
+              </select>
+            </Field>
+            <button className="primary-button" type="submit" disabled={mailBusy}>{mailBusy ? "Sending…" : MAIL_PANEL.submitLabel}</button>
+          </form>
+          {mailResult ? <Notice tone={mailResult.tone}>{mailResult.text}</Notice> : null}
+          <p className="muted">{MAIL_PANEL.footnote}</p>
+        </StateBox>
       </section>
 
       <section className="panel">

@@ -34,14 +34,19 @@ production replacement and no traffic has been cut over.
   screen left absent**: the settings gap and the admin control centre closed in Phases
   34–35, the sports dashboard in Phase 36, the paper console in Phase 37, the Risk Center in
   Phase 38, the Execution Center in Phase 39, the Broker Center in Phase 40 and the journal in
-  Phase 41 — which closed F-29's list: no screen is unported platform-wide. The status surface
-  reports each state rather than implying coverage.
+  Phase 41 — which closed F-29's list: no screen is unported platform-wide. Phase 42 ported the
+  last piece of row 5's surface, the administrator's Email / SMTP panel, which is a read and a
+  test send rather than a new screen. The status surface reports each state rather than implying
+  coverage.
 - **Operator notifications are ported** (migration `009`, `wf_notifications`): an
   unread-deduped notifier, broadcast plus targeted visibility, the three legacy
   `/api/v1/notifications` endpoints, and publishers for the kill switch, trading-mode
   changes and the paper-proposal lifecycle. Alerts are stored and read in-product
-  only — there is **no** mail, push or webhook delivery channel, and no HTTP route
-  can publish one. See [`docs/migration/PHASE9_NOTIFICATIONS.md`](../../docs/migration/PHASE9_NOTIFICATIONS.md).
+  only — the notifier has **no** mail, push or webhook delivery channel, and no HTTP
+  route can publish one. Outbound SMTP (row 5, Phase 42) exists for exactly two
+  flows and neither is a notification: the administrator's test send and the copy of
+  a contact-form inquiry. See [`docs/migration/PHASE9_NOTIFICATIONS.md`](../../docs/migration/PHASE9_NOTIFICATIONS.md)
+  and [`docs/migration/PHASE42_RETENTION_AND_MAIL.md`](../../docs/migration/PHASE42_RETENTION_AND_MAIL.md).
 - **Research-only portfolio optimization is ported**: `POST /api/v1/portfolio/optimize`
   estimates returns and covariance from history aligned on the timestamps every asset
   shares, then solves minimum-variance and maximum-Sharpe allocations under a
@@ -117,9 +122,9 @@ production replacement and no traffic has been cut over.
   legacy's four statistics with legacy's captions (the language card renders an em dash and **row 16**
   rather than a zero, and the strategy card counts the version rows legacy counted), the access-policy
   list with machine-readable role and permission keys the suite holds to the seeded grants, the
-  directory's entry point, the SMTP panel stated as `not-ported` with the ledger rows that wait on a
-  transport, and the feature-readiness table built from `GET /system/status`'s own ledger and
-  `GET /system/features`' own legend. Auditing the directory for the same policy fixed three controls
+  directory's entry point, the Email / SMTP panel — the server's credential-free summary and the
+  legacy test send, ported in Phase 42 — and the feature-readiness table built from
+  `GET /system/status`'s own ledger and `GET /system/features`' own legend. Auditing the directory for the same policy fixed three controls
   that could never have worked: the create form's role list offered seven options of which only
   `super_admin` was accepted, the toggle sent `suspended` where the schema accepts `active`/`disabled`,
   and the signed-in administrator's own row offered a toggle the API refuses with `SELF_DEACTIVATION`.
@@ -214,13 +219,14 @@ the committed PNGs are byte-identical to what the generator produces.
 | `npm run backup` | `file`: copies the store log and uploads into a sha256-manifested directory. `mysql`: runs `mysqldump --single-transaction` with the password in a `0600` defaults file, never in argv. |
 | `npm run restore` | Verifies every manifest hash first, then restores. Refuses a non-empty file store without `--force`. |
 | `npm run import:identity` | One-time legacy identity import, dry-run first (see `docs/migration/IDENTITY_IMPORT.md`). |
-| `npm run prune:analysis` | Analysis-run retention (R-27). Measures by default; `--apply` deletes, `--batch` bounds each `DELETE`, `--days N` overrides `ANALYSIS_RETENTION_DAYS`. Deletion is irreversible and removes evidence, so take a backup first. |
+| `npm run prune:analysis` | Analysis-run retention (R-27) only. Measures by default; `--apply` deletes, `--batch` bounds each `DELETE`, `--days N` overrides `ANALYSIS_RETENTION_DAYS`. Deletion is irreversible and removes evidence, so take a backup first. |
+| `npm run prune:retention` | The platform's one retention policy (row 5, R-27 + R-28): `--target analysis\|notifications\|backtests\|audit`, per-table `--analysis-days`/`--notification-days`/`--backtest-days`/`--audit-days`, `--apply`, `--batch`, `--now`, `--json`. Dry run by default. Notifications prune only rows already **read**; backtests never lose the newest report for a (strategy, version), so lifecycle gates cannot be emptied; audit events are off by default because a trail that ages out is not a trail. |
 | `npm run jobs` | The scheduled operations sweep — portfolio risk across every owner, plus stale execution-proposal expiry. **Measures and writes nothing**, and takes no lock. |
 | `npm run jobs:apply` | The same sweep for real, under a `wf_job_locks` row: expires proposals, publishes `PORTFOLIO_RISK` and `PROPOSAL_EXPIRED` notifications, records one `system.job.run` audit event as the system actor. |
 | `npm run sports:jobs` | The sports cron (`tools/sports-jobs.mjs`): nine jobs in legacy's order — fixtures, odds, results, quality, ticket, settlement, performance, monitoring, cleanup — CLI-only, no HTTP route. Each job takes a `wf_job_locks` marker whose expiry **is** its window, and the syncs keep their per-provider execution keys, so firing it twice cannot double-write. `--job <name>`, `--date`, `--json`, `--now`; exit 1 when any job FAILED. |
 | `npm run lottery:jobs` | The lottery cron (`tools/lottery-jobs.mjs`): seven jobs in legacy's order — sync, health, statistics, systems (the consumer for the queued background builds the API creates), tickets, backtests, cleanup. Idempotent by execution key on `wf_lottery_sync_runs`; a failed run's key still blocks its window. `--job <name>`, `--date`, `--json`, `--now`; exit 1 when any job FAILED. |
 
-Backup, restore, the retention prune, the importers and the scheduled jobs are CLI-only; the
+Backup, restore, both retention prunes, the importers and the scheduled jobs are CLI-only; the
 web process never reads `LEGACY_DB_*`, and **no HTTP route can run a job or touch a lock**.
 `runOperations` takes no owner argument — it scans every account on the platform and expires
 every operator's proposals — so exposing it would turn any reachable caller into a

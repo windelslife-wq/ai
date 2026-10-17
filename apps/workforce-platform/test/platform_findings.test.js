@@ -678,7 +678,7 @@ test("F-01 the file store and the SQL store implement one repository contract, s
     () => assertRepositoryContract({ adapter: "stub", capabilities: {}, readiness: async () => ({}) }, { adapter: "stub" }),
     /does not implement the repository contract.*findUserByIdentifier/s,
   );
-  assert.equal(REPOSITORY_METHODS.length, 185, "8 identity + 6 sessions + 9 RBAC + 2 admin + 4 audit/profile + 2 contact intake + 4 analysis runs + 11 Strategy Lab (including persisted human sign-off) + 23 paper trading + 3 execution proposal reads (2 owner-scoped + 1 cross-owner for the scheduled job) + 6 operator notifications + 5 job locks + 2 job state + 22 sports foundation (3 provider registry + 4 health including retention + 4 fixtures + 4 odds + 2 results + 2 quality + 3 sync runs) + 12 sports intelligence (2 model versions + 4 predictions + 3 configuration + 3 calibration) + 13 ticket writes and reads (9 slice 4 + 4 slice-5 settlement updates and recovery) + 11 settlement, measurement and snapshot methods (2 result attestation + 2 outcome reads + 2 model metrics + 3 backtests + 2 performance snapshots) + 23 lottery foundation (1 game registry + 2 rules + 2 provider registry + 3 health + 5 draws + 4 draw numbers + 3 sync runs + 2 stats reads + 1 audit) + 6 lottery combinations and AI decisions (slice 2, migration 017) + 7 saved tickets and lines (slice 3, migration 018) + 5 backtest reports and model versions (slice 4, migration 019) + 1 readiness");
+  assert.equal(REPOSITORY_METHODS.length, 188, "8 identity + 6 sessions + 9 RBAC + 2 admin + 4 audit/profile + 2 contact intake + 4 analysis runs + 11 Strategy Lab (including persisted human sign-off) + 23 paper trading + 3 execution proposal reads (2 owner-scoped + 1 cross-owner for the scheduled job) + 6 operator notifications + 5 job locks + 2 job state + 22 sports foundation (3 provider registry + 4 health including retention + 4 fixtures + 4 odds + 2 results + 2 quality + 3 sync runs) + 12 sports intelligence (2 model versions + 4 predictions + 3 configuration + 3 calibration) + 13 ticket writes and reads (9 slice 4 + 4 slice-5 settlement updates and recovery) + 11 settlement, measurement and snapshot methods (2 result attestation + 2 outcome reads + 2 model metrics + 3 backtests + 2 performance snapshots) + 23 lottery foundation (1 game registry + 2 rules + 2 provider registry + 3 health + 5 draws + 4 draw numbers + 3 sync runs + 2 stats reads + 1 audit) + 6 lottery combinations and AI decisions (slice 2, migration 017) + 7 saved tickets and lines (slice 3, migration 018) + 5 backtest reports and model versions (slice 4, migration 019) + 1 readiness + 3 row-5 retention (audit, notifications, backtests)");
 
   // The 22 sports foundation methods, the 12 decision-chain methods (migration 012)
   // and the slice-5 settlement-and-measurement methods (migration 014) are named here
@@ -1068,7 +1068,12 @@ test("F-02 the status surface is honest about unported modules, and F-03 the rou
   assert.equal(body.modules.find((module) => module.key === "audit").state, "ported");
   assert.match(body.modules.find((module) => module.key === "audit").label, /console/i);
   assert.doesNotMatch(body.modules.find((module) => module.key === "audit").label, /no console screen/i);
-  assert.match(body.modules.find((module) => module.key === "audit").label, /no retention policy/i);
+  // Row 5 decided retention: one operator-run policy, four windows, all off by
+  // default except analysis. The audit label must say so and must not imply the
+  // trail ages out on its own.
+  assert.match(body.modules.find((module) => module.key === "audit").label, /operator-run retention window/i);
+  assert.match(body.modules.find((module) => module.key === "audit").label, /off by default/i);
+  assert.doesNotMatch(body.modules.find((module) => module.key === "audit").label, /no retention policy/i);
   assert.match(body.modules.find((module) => module.key === "audit").label, /no historical import/i);
   // Phase 11 ports the research-only portfolio optimizer (row 9) and Phase 29 adds
   // its console. What must stay true is the part `ported` could otherwise imply
@@ -1236,7 +1241,9 @@ test("F-02 the status surface is honest about unported modules, and F-03 the rou
   // `jobs`/`jobs:apply` join with Phase 12: the cPanel cron instructions name the
   // scheduled-operations CLI, so the script has to exist for the documented command
   // to work.
-  const operational = ["backup", "restore", "prune:analysis", "jobs", "jobs:apply", "verify:install", "verify:data", "seed:platform", "migrate", "import:identity", "start"];
+  // `prune:retention` joins with Phase 42: row 5's policy is documented as the one
+  // operator command over four windows, so it has to exist.
+  const operational = ["backup", "restore", "prune:analysis", "prune:retention", "jobs", "jobs:apply", "verify:install", "verify:data", "seed:platform", "migrate", "import:identity", "start"];
   const missing = operational.filter((name) => !(name in manifest.scripts));
   assert.deepEqual(missing, [], "the documented operational commands must exist as scripts");
   assert.equal(Object.keys(manifest.scripts).filter((name) => operational.includes(name)).length, operational.length);
@@ -1244,7 +1251,7 @@ test("F-02 the status surface is honest about unported modules, and F-03 the rou
   const routes = await app.app.inject({ method: "GET", url: "/api/v1/system/routes" });
   const inventory = routes.json().routes;
   const adminRoutes = inventory.filter((entry) => entry.path.startsWith("/api/v1/admin/"));
-  assert.equal(adminRoutes.length, 7, "account-admin routes, the audit browser, the inquiry listing, the deprecated identity listing — and no admin route is unguarded");
+  assert.equal(adminRoutes.length, 9, "account-admin routes, the audit browser, the inquiry listing, the mail panel and its test send, the deprecated identity listing — and no admin route is unguarded");
   for (const route of adminRoutes) {
     assert.ok(["identity.users.view", "identity.users.manage", "system.super_admin"].includes(route.permission), `${route.method} ${route.path} must report its permission in the ledger, got ${route.permission}`);
   }

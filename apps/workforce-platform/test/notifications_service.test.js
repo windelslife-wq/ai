@@ -354,7 +354,10 @@ test("the module reports storage-and-read only, with no delivery channel it does
   const snapshot = service.statusSnapshot();
   assert.equal(snapshot.emailDeliveryAvailable, false);
   assert.deepEqual(snapshot.deliveryChannels, []);
-  assert.match(snapshot.reason, /no outbound mail transport/i);
+  // Row 5 ported SMTP, but not to this module: the reason must still deny that an
+  // alert was emailed, and must say what the transport is actually used for.
+  assert.match(snapshot.reason, /stored and read in-product only/i);
+  assert.match(snapshot.reason, /administrator test send and the contact-form copy/i);
   assert.match(snapshot.reason, /nothing here claims to have delivered/i, "the reason denies a delivery it cannot make");
   assert.deepEqual(snapshot.types, [...NOTIFICATION_TYPES]);
   assert.match(snapshot.dedupe, /unread/i);

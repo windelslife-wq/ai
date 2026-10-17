@@ -44,6 +44,10 @@ export const REPOSITORY_METHODS = Object.freeze([
   // audit and profile files
   "recordAudit",
   "listAuditEvents",
+  // Retention is a contract obligation, like every other row-touching call: the
+  // audit trail can be pruned only through the operator CLI, and both adapters
+  // must delete exactly the same rows. See `AUDIT_RETENTION_DAYS` in `config.js`.
+  "pruneAuditEvents",
   "setAvatarPath",
   "findAvatarPath",
   // public site (Phase 3): visitor contact intake
@@ -64,6 +68,9 @@ export const REPOSITORY_METHODS = Object.freeze([
   "listBacktests",
   "countStrategyBacktests",
   "latestStrategyBacktest",
+  // R-28: older backtest payloads can be pruned, but never the newest report for
+  // a (strategy, version) — the BACKTESTED and VALIDATED gates read that row.
+  "pruneBacktests",
   "saveJournalEntry",
   "listJournalEntries",
   // paper trading + persisted trading governance (Phase 7)
@@ -107,6 +114,9 @@ export const REPOSITORY_METHODS = Object.freeze([
   "markAllNotificationsRead",
   "countUnreadNotifications",
   "hasUnreadNotificationDedupe",
+  // Only rows already read are ever eligible; an unread alert is a to-do item
+  // and is also what suppresses a duplicate publish.
+  "pruneNotifications",
   // scheduled-job coordination locks (row 19, migration 010). These are the only
   // cross-process primitive in the contract, and they write only to `wf_job_locks`.
   "findJobLock",

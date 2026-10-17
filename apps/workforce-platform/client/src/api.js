@@ -115,6 +115,9 @@ export const endpoints = {
   adminRoles: () => api("/api/v1/admin/roles"),
   adminInquiries: (query = "") => api(`/api/v1/admin/inquiries${query}`),
   adminAudit: (query = "") => api(`/api/v1/admin/audit${query}`),
+  // Row 5: the credential-free mail summary and the legacy test send.
+  adminMail: () => api("/api/v1/admin/mail"),
+  adminTestEmail: (payload) => api("/api/v1/admin/mail/test", { method: "POST", body: payload }),
   optimizePortfolio: (payload) => api("/api/v1/portfolio/optimize", { method: "POST", body: payload }),
   lotteryStatus: () => api("/api/v1/lottery/status"),
   lotteryLotteries: () => api("/api/v1/lottery/lotteries"),

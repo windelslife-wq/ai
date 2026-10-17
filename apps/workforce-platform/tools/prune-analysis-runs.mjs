@@ -24,6 +24,10 @@
  * A dry run is the default because deletion here is irreversible and the thing being
  * deleted is evidence. Take a backup first (`npm run backup`); the tool says so.
  *
+ * This tool remains the analysis-only command. `tools/prune-retention.mjs` (row 5)
+ * applies the same cutoff arithmetic to this table and to audit, notifications and
+ * backtests under one policy; `npm run prune:retention` is the general entry point.
+ *
  * Exit: 0 the prune completed or there was nothing to do (including retention being
  * disabled); 1 refused or failed. An unfinished prune — `maxBatches` reached with
  * rows still matching — exits 0 but warns, because re-running is the remedy and
@@ -39,8 +43,12 @@ const SILENT = { warn: () => {}, info: () => {}, error: () => {} };
 const DAY_MS = 86_400_000;
 const DEFAULT_BATCH = 500;
 
-/** Same flag grammar as `tools/backup.mjs`: `--name value`, `--name=value`, `--flag`. */
-function parseFlags(entries) {
+/**
+ * Same flag grammar as `tools/backup.mjs`: `--name value`, `--name=value`, `--flag`.
+ * Exported because `tools/prune-retention.mjs` drives four tables with it and two
+ * copies of a flag parser is two chances to disagree about `--name=` vs `--name`.
+ */
+export function parseFlags(entries) {
   const flags = new Map();
   for (let index = 0; index < entries.length; index += 1) {
     const entry = entries[index];

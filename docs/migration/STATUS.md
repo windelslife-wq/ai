@@ -2,7 +2,64 @@
 
 **Updated:** 2026-10-17 · **Branch:** `arena/046b29ac-ai`
 
-## Current Phase 41 status (2026-10-17)
+## Current Phase 42 status (2026-10-17)
+
+**Row 5's two open decisions are closed: one retention policy over four tables, and the outbound
+SMTP transport.** Neither is a new module — `audit` and `notifications` were already `ported` — so
+the ledger is unchanged at **10 ported / 5 partial / 2 not-ported**. What changed is that the two
+sentences those modules had to carry ("no retention policy", "no outbound mail transport") are no
+longer true, and every place that printed them was updated to say what is now the case.
+
+**Retention is one operator command with four windows.** `npm run prune:retention`
+(`tools/prune-retention.mjs`) applies `ANALYSIS_RETENTION_DAYS` (default 90, R-27 unchanged),
+`NOTIFICATION_RETENTION_DAYS`, `BACKTEST_RETENTION_DAYS` and `AUDIT_RETENTION_DAYS` — the last three
+**0 = keep forever** by default. Dry run is still the default, `--apply` is still required, and
+**no HTTP route can delete a row**. Three guards make the new windows safe: notifications prune
+only rows already **read** (an unread alert is a to-do item and a dedupe key); backtests never lose
+the newest report for a `(strategy, version)`, so `countBacktests > 0` and `latestBacktest` cannot be
+changed by retention; and both text-timestamp tables are shape-checked before comparison, so a
+legacy `11/07/2026` row is skipped rather than deleted as "oldest". Measurement and deletion share
+one predicate, MySQL deletes in ordered clamped batches, and the file adapter's deletions replay
+from the log.
+
+**Mail is SMTP, from the server environment, with the transport injected.** `Aegis\Mailer` is ported
+method for method — `enabled()`, `configSummary()` (nine credential-free fields), `send()` with
+legacy's four refusals in legacy's order and words, `sendTest()` with legacy's subject — plus
+`Admin::test_email` (super-admin, CSRF, audits `ADMIN_TEST_EMAIL` `{to, ok}`) and `Site::tryMail`
+(the contact copy to `VP_MAIL_FROM` with the visitor as Reply-To, a failure never failing the
+intake). Two routes: `GET /api/v1/admin/mail`, `POST /api/v1/admin/mail/test` — **route inventory
+146 → 148**. `/app/admin`'s Email / SMTP panel is the ported panel: the server's summary, a real
+test send and the server's own sentence for either outcome.
+
+**Three divergences are on the record, not in a diff.** MA-1: production refuses credentials over
+an unencrypted socket (legacy sent them). MA-2: when `tls` is configured and the server offers no
+STARTTLS the send fails (CodeIgniter downgraded). MA-3: certificates are verified (CodeIgniter's
+client did not). Each is a deliberate tightening; none is called parity.
+
+**What this does *not* claim.** Notifications still have no delivery channel — no publisher is
+given the mail service, `emailDeliveryAvailable` stays `false`, and the notifier's reason now says
+what SMTP *is* for: the administrator test send and the contact-form copy. Password reset still
+answers `delivered: false`; its remaining blocker is the token store, not a transport. Settings
+screens are still absent.
+
+A sixteenth server suite (`test/retention_policy.test.js`, **13 tests**) and a mail suite
+(`test/mail.test.js`, **11 tests**) carry the work. The mail tests speak SMTP over a real socket to
+`test/smtp-server.js` on 127.0.0.1 — success, dot-stuffing, AUTH refusal, RCPT refusal, STARTTLS
+refusal and a dead port — so no assertion depends on a mocked return value and no test can reach a
+public host. Repository contract **185 → 188** (three prune methods, pinned in the five files that
+pin it). Gates: `npm run check:workforce` **1205 / 1205** (1181 before: +24), the client suites
+**204 / 204**, `npm run typecheck` clean, `npm run test:contracts` 12/12, the client build
+(`index-Dv9NrFsv.js` 590.71 kB / 157.00 kB gzip, `index-CkPGdTlp.css` 47.51 kB / 9.88 kB gzip) and
+`npm run verify:install -- --require-bundle` **30 / 30**. A live smoke test of the assembled
+server against the seeded file store — sign-in, the credential-free summary, a real test send and
+the contact copy over a local `127.0.0.1` SMTP listener, the served bundle, and the CLI's dry run —
+passed **17 / 17**; the harness was a throwaway script, and every assertion it repeats exists in the
+suites above. **Not run:** a real browser, real SMTP to an external host (every send went to the
+local test server), real MySQL/MariaDB, any live provider, cPanel/Passenger, and still no PHP↔Node
+numeric diff (F-26). Full record:
+[`PHASE42_RETENTION_AND_MAIL.md`](PHASE42_RETENTION_AND_MAIL.md).
+
+## Phase 41 status (2026-10-17) — superseded by Phase 42
 
 **Row 18 has no screen left, and F-29 is closed: `/app/journal` is the port of `Journal::index` →
 `views/journal/index.php`.** The five group switches, the six overall figures with their per-group

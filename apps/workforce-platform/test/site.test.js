@@ -327,9 +327,13 @@ test("contact intake stores, audits and reports the mail situation honestly", as
   const body = response.json();
   assert.match(body.reference, /^[0-9A-HJKMNP-TV-Z]{26}$/, "visitors get a quotable reference, not an auto-increment id");
   assert.equal(body.recorded, true);
-  assert.equal(body.mail.sent, false, "no transport exists, so no delivery may be claimed");
-  assert.match(body.mail.reason, /no outbound mail transport/i);
-  assert.match(body.notice, /recorded/);
+  assert.equal(body.mail.sent, false, "a host with no SMTP configuration delivers nothing");
+  // Row 5 ported the transport. With it disabled, the reason is legacy's own
+  // sentence naming the two variables, and the notice is legacy's wording — true
+  // in both states. `test/mail.test.js` covers the configured path end to end
+  // against a local SMTP server.
+  assert.match(body.mail.reason, /Outgoing email is disabled\. Set VP_SMTP_ENABLED=1 and a VP_SMTP_HOST/);
+  assert.match(body.notice, /If outbound mail is configured, a copy was sent to the site operator\./);
 
   const { inquiries } = await app.store.pageContactInquiries({});
   assert.equal(inquiries.length, 1);

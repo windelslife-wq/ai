@@ -18,6 +18,7 @@
 
 import { open, mkdir, readFile, rename, stat, writeFile } from "node:fs/promises";
 import { assertIsoCutoff, assertJobLockHolder, assertJobLockInstant, assertJobName } from "./contract.js";
+import { isIsoText, pruneReport } from "../db/retention.js";
 import { parseStrictInstant } from "../lib/php-date.js";
 import {
   HEALTH_STATUSES,
@@ -2716,6 +2717,38 @@ export async function createFileStore({ dir, logger = console, idFactory = () =>
       };
     },
 
+
+    /**
+     * Retention for `wf_audit_events` (row 5). Mirrors the MySQL adapter's
+     * `pruneAuditEvents`: same strictly-older predicate, same oldest-first order,
+     * same report shape, and the same "0 means keep forever" rule enforced one
+     * layer up in the CLI. Rows are removed with the log's existing `delete` op so
+     * replay reproduces the pruned state (see `pruneAnalysisRuns` above).
+     */
+    async pruneAuditEvents(beforeIso, { dryRun = false } = {}) {
+      const cutoff = assertIsoCutoff(beforeIso);
+      const doomed = [...tables.get("audit").values()]
+        .filter((row) => String(row.created_at) < cutoff)
+        .sort((a, b) => (String(a.created_at).localeCompare(String(b.created_at)) || Number(a.id) - Number(b.id)));
+      const report = {
+        ...pruneReport({ cutoff, dryRun }),
+        matching: doomed.length,
+        oldest: doomed.length ? String(doomed[0].created_at) : null,
+        newest: doomed.length ? String(doomed[doomed.length - 1].created_at) : null,
+        bytes: doomed.reduce((sum, row) => sum + Buffer.byteLength(JSON.stringify({
+          action: row.action_key,
+          entityType: row.entity_type ?? "",
+          entityId: row.entity_id ?? "",
+          detail: row.detail_json ?? {},
+        }), "utf8"), 0),
+      };
+      if (dryRun || doomed.length === 0) return report;
+      for (const row of doomed) await mutate("audit", "delete", { id: row.id });
+      report.deleted = doomed.length;
+      report.batches = 1;
+      return report;
+    },
+
     // ---- public site: contact intake ------------------------------------
     /**
      * Appends one inquiry. The reference is supplied by the caller (the site
@@ -2981,6 +3014,47 @@ export async function createFileStore({ dir, logger = console, idFactory = () =>
       return rows.length ? structuredClone(rows[0].payload) : null;
     },
 
+    /**
+     * Retention for `wf_backtests` (row 5, R-28), mirroring the MySQL guard: the
+     * newest row for every (strategy, version) is never deleted, so the
+     * BACKTESTED and VALIDATED gates (`countStrategyBacktests > 0`,
+     * `latestStrategyBacktest`) cannot be emptied by retention. Ties on
+     * `created_at` keep every tied row — deleting fewer is the safe direction.
+     */
+    async pruneBacktests(beforeIso, { dryRun = false } = {}) {
+      const cutoff = assertIsoCutoff(beforeIso);
+      const rows = [...tables.get("backtests").values()];
+      // Group by pair and remember the newest `created_at` (and every row that ties).
+      const newest = new Map();
+      for (const row of rows) {
+        const key = `${row.strategy_id}\u0000${row.strategy_version ?? ""}`;
+        const at = String(row.created_at);
+        const seen = newest.get(key);
+        if (!seen || at > seen) newest.set(key, at);
+      }
+      const protectedIds = new Set(rows
+        .filter((row) => String(row.created_at) === newest.get(`${row.strategy_id}\u0000${row.strategy_version ?? ""}`))
+        .map((row) => String(row.id)));
+      const doomed = rows
+        .filter((row) => !protectedIds.has(String(row.id)))
+        .filter((row) => isIsoText(row.created_at) && String(row.created_at) < cutoff)
+        .sort((a, b) => (String(a.created_at).localeCompare(String(b.created_at)) || String(a.id).localeCompare(String(b.id))));
+      const report = {
+        ...pruneReport({ cutoff, dryRun }),
+        matching: doomed.length,
+        oldest: doomed.length ? String(doomed[0].created_at) : null,
+        newest: doomed.length ? String(doomed[doomed.length - 1].created_at) : null,
+        bytes: doomed.reduce((sum, row) => sum + Buffer.byteLength(JSON.stringify(row.payload ?? null), "utf8")
+          + Buffer.byteLength(JSON.stringify(row.metrics ?? {}), "utf8")
+          + Buffer.byteLength(JSON.stringify(row.warnings ?? []), "utf8"), 0),
+      };
+      if (dryRun || doomed.length === 0) return report;
+      for (const row of doomed) await mutate("backtests", "delete", { id: row.id });
+      report.deleted = doomed.length;
+      report.batches = 1;
+      return report;
+    },
+
     async saveJournalEntry(entry) {
       const id = String(entry.id);
       const row = { ...entry, id, synthetic: Boolean(entry.synthetic) };
@@ -3230,6 +3304,37 @@ export async function createFileStore({ dir, logger = console, idFactory = () =>
       const key = String(dedupeKey);
       return [...tables.get("notifications").values()]
         .some((row) => row.dedupe_key === key && row.read_at === null);
+    },
+
+
+    /**
+     * Retention for `wf_notifications` (row 5), mirroring the MySQL predicate:
+     * read rows only, strictly older than the cutoff, and only rows whose
+     * `created_at` is canonical ISO-8601 text (`isIsoText` is the JS form of the
+     * SQL `LIKE` guard). Unread rows are never eligible.
+     */
+    async pruneNotifications(beforeIso, { dryRun = false } = {}) {
+      const cutoff = assertIsoCutoff(beforeIso);
+      const doomed = [...tables.get("notifications").values()]
+        .filter((row) => row.read_at !== null && row.read_at !== undefined
+          && isIsoText(row.created_at) && String(row.created_at) < cutoff)
+        .sort((a, b) => (String(a.created_at).localeCompare(String(b.created_at)) || Number(a.id) - Number(b.id)));
+      const report = {
+        ...pruneReport({ cutoff, dryRun }),
+        matching: doomed.length,
+        oldest: doomed.length ? String(doomed[0].created_at) : null,
+        newest: doomed.length ? String(doomed[doomed.length - 1].created_at) : null,
+        bytes: doomed.reduce((sum, row) => sum + Buffer.byteLength(JSON.stringify({
+          title: row.title,
+          detail: row.detail ?? {},
+          dedupeKey: row.dedupe_key ?? "",
+        }), "utf8"), 0),
+      };
+      if (dryRun || doomed.length === 0) return report;
+      for (const row of doomed) await mutate("notifications", "delete", { id: row.id });
+      report.deleted = doomed.length;
+      report.batches = 1;
+      return report;
     },
 
     // ---- maintenance ----------------------------------------------------
