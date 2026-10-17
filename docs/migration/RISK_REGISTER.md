@@ -74,7 +74,7 @@ and Phase 4 additions above are unchanged; these are additive, per the "never si
 | ID | Sev | Area | Risk / contradiction (evidence) | Mitigation / owner phase |
 |---|---|---|---|---|
 | **R-26** | ✅ **Closed** (was 🟠) | Cost / abuse amplification | **Analysis is the most expensive authenticated endpoint on the platform, and it is bounded only by the global limiter.** One `POST /api/v1/analysis/run` fetches up to **8** provider series (the symbol plus, for forex and commodities, the seven reference legs at 60 candles each); one `POST /api/v1/analysis/consensus` with no `symbols` scans the 7-symbol default watchlist, and with 10 symbols it can trigger **up to 80** upstream calls — four of those symbols being forex/commodity. The only bound is the process-wide `api:<client>` limiter at **120 requests / 60 s** (`src/app.js`), which the route inventory reports as `rateLimited: false` because it is not a per-route limit. On a host with real providers (R-24) a single authenticated account can therefore fan out into ten upstream requests per call, and shared-hosting CPU/second quotas (R-11) make the same call expensive locally: each run computes ~20 indicators over 300 candles, a seven-agent panel and a four-round debate. | **Closed in the Phase 5 hardening pass (`PHASE5_ANALYSIS.md` §13.2), on instruction to close it before porting another module.** Both POST routes carry their own window limits via the platform's per-route mechanism — `RATE_LIMIT_ANALYSIS_RUN_MAX` **12** and `RATE_LIMIT_ANALYSIS_CONSENSUS_MAX` **4** per `…_WINDOW_MS` **600 000** (10 min), per client address, charged *before* body validation so a malformed request still costs budget — and both hold a slot in a new per-session in-flight cap (`ANALYSIS_MAX_CONCURRENT_RUNS`, default **2**, `0` disables) implemented by `createAnalysisRunGate` over the existing `createConcurrencyTracker`. The cap is keyed **by session, not address**, so a shared office NAT cannot be used to starve a colleague (the reasoning that keeps login lockout per account); the release is in `finally`, so a run that throws cannot lock a session out. Window refusals are `429 RATE_LIMITED`, cap refusals `429 TOO_MANY_CONCURRENT_ANALYSES` — distinct because the client's remedy differs. Worst case per window is now **≤ 416 upstream series** (12 × 8 + 4 × 10 × 8) against 120 requests/min × 80 calls, pinned by a test; `GET /api/v1/system/routes` reports `rateLimited: true` for both POSTs. The market-data TTL cache (candles `max(15 s, 25 % interval)` = 15 min at `1h`) already meant repeat identical runs did not re-hit providers. **Still true and unchanged:** these limits are per *process*, so N Passenger workers each get their own (F-24). No load test was possible — this sandbox has no egress, so any throughput figure would have been invented. |
-| **R-27** | ✅ **Closed** (was 🟡) | Data growth / retention | **`wf_analysis_runs.payload` grows without bound and holds a full run per row.** Each row stores every agent report, the debate transcript, three scenarios, the setup, the risk decision, provenance and validation as `LONGTEXT` — deliberately, so a run can be re-read years later without re-deriving it from market data that no longer exists. Nothing prunes it: no retention window, no archive job, no CLI command. A consensus scan writes 7–10 such rows per call, so the same amplification as R-26 applies to storage. The legacy table has the same shape (`analysis_runs`), so this is inherited growth, not new — but the Node platform is the one that will run on a shared host with a database size quota (R-11 item 5, R-16). | **Closed in the Phase 5 hardening pass (`PHASE5_ANALYSIS.md` §13.3).** The audit-vs-operational question is answered explicitly: the run is an **audit record while it is inside the retention window and operational data after it**, so retention is an operator decision taken outside a request — `ANALYSIS_RETENTION_DAYS` (default **90**, `0` = keep forever, the pre-R-27 behaviour) plus `tools/prune-analysis-runs.mjs` / `npm run prune:analysis`, backed by a new `pruneAnalysisRuns` on **both** adapters (repository contract **35 → 36**). **Dry run is the default** and reports the matching count, the oldest and newest affected timestamps and the reclaimable payload bytes before anything is deleted; `--apply` deletes. MySQL deletes in clamped batches (default 500, ceiling 5 000) with `ORDER BY completed_at ASC`, because `DELETE … LIMIT` without an order is non-deterministic and statement-based replication logs that as unsafe, and it reports `exhausted: false` rather than implying completion when the batch ceiling is hit. The file adapter deletes through the log's existing `delete` op so replay and `compact()` need no format change, and a test reopens the store from disk to prove the deletions replay. Both adapters share `assertIsoCutoff`: `completed_at` is `VARCHAR(32)` compared as **text**, so a `+00:00` offset cutoff would sort differently from the `Z` form of the same instant and delete the wrong rows. **There is deliberately no HTTP route that can delete analysis history** — pinned by a test asserting the module registers no `DELETE` verb. `ANALYSIS_RETENTION_DAYS=0` with `--apply` still deletes nothing, because reading `0` as `now - 0` would mean "delete every run ever written". **Still open:** the cron entry does not exist on any host yet (`PHASE5_ANALYSIS.md` §12 criterion 7), and real legacy row counts are still unmeasured (R-16). |
+| **R-27** | ✅ **Closed** (was 🟡) | Data growth / retention | **`wf_analysis_runs.payload` grows without bound and holds a full run per row.** Each row stores every agent report, the debate transcript, three scenarios, the setup, the risk decision, provenance and validation as `LONGTEXT` — deliberately, so a run can be re-read years later without re-deriving it from market data that no longer exists. Nothing prunes it: no retention window, no archive job, no CLI command. A consensus scan writes 7–10 such rows per call, so the same amplification as R-26 applies to storage. The legacy table has the same shape (`analysis_runs`), so this is inherited growth, not new — but the Node platform is the one that will run on a shared host with a database size quota (R-11 item 5, R-16). | **Closed in the Phase 5 hardening pass (`PHASE5_ANALYSIS.md` §13.3).** The audit-vs-operational question is answered explicitly: the run is an **audit record while it is inside the retention window and operational data after it**, so retention is an operator decision taken outside a request — `ANALYSIS_RETENTION_DAYS` (default **90**, `0` = keep forever, the pre-R-27 behaviour) plus `tools/prune-analysis-runs.mjs` / `npm run prune:analysis`, backed by a new `pruneAnalysisRuns` on **both** adapters (repository contract **35 → 36**). **Dry run is the default** and reports the matching count, the oldest and newest affected timestamps and the reclaimable payload bytes before anything is deleted; `--apply` deletes. MySQL deletes in clamped batches (default 500, ceiling 5 000) with `ORDER BY completed_at ASC`, because `DELETE … LIMIT` without an order is non-deterministic and statement-based replication logs that as unsafe, and it reports `exhausted: false` rather than implying completion when the batch ceiling is hit. The file adapter deletes through the log's existing `delete` op so replay and `compact()` need no format change, and a test reopens the store from disk to prove the deletions replay. Both adapters share `assertIsoCutoff`: `completed_at` is `VARCHAR(32)` compared as **text**, so a `+00:00` offset cutoff would sort differently from the `Z` form of the same instant and delete the wrong rows. **There is deliberately no HTTP route that can delete analysis history** — pinned by a test asserting the module registers no `DELETE` verb. `ANALYSIS_RETENTION_DAYS=0` with `--apply` still deletes nothing, because reading `0` as `now - 0` would mean "delete every run ever written". **Still open:** the cron entry does not exist on any host yet (`PHASE5_ANALYSIS.md` §12 criterion 7), and real legacy row counts are still unmeasured (R-16). Phase 42 made this window one of four in the platform's single retention policy (`npm run prune:retention`, `PHASE42_RETENTION_AND_MAIL.md`); the analysis-only command and its default are unchanged. |
 
 **R-25 obligation discharged for this module, still open for the next ones.** R-25 required that every
 consumer of market data carry `provenance.synthetic`, `.live`, `.stale` and `.fallbackChain` forward into
@@ -102,7 +102,7 @@ PHP↔Node parity diff was performed.
 
 ## Additions after Phase 6 (2026-10-10)
 
-### R-28 — `wf_backtests` grows without bound and nothing prunes it (open)
+### R-28 — `wf_backtests` grows without bound and nothing prunes it (closed, Phase 42)
 
 Each row stores a full `LONGTEXT` payload: the request, the metrics, **every trade** and
 **every equity-curve point**. A 720-bar run produces ~720 curve points and one object per
@@ -124,12 +124,28 @@ keeping the summary columns, or keeping evidence for any strategy past `BACKTEST
 and pruning only abandoned drafts. Recorded so the table does not grow silently while the
 question is unanswered.
 
-### F-29 — ported domain APIs lack workspace consoles (open)
+**Closed in Phase 42 (`PHASE42_RETENTION_AND_MAIL.md`), with the evidence guard built in.**
+`BACKTEST_RETENTION_DAYS` defaults to **0 (keep forever)**, and when an operator does set a
+window the prune **never deletes the newest report for a (strategy, version)** — that row is
+excluded from both the measurement and the `DELETE`. Both gates are therefore preserved by
+construction: `countBacktests(...) > 0` stays true for any strategy that was ever measured,
+and `latestBacktest(...)` answers with the same row it answered with before the prune. Ties
+on `created_at` keep every tied row: deleting fewer is the safe direction. The payload bytes
+are measured and reported before anything is removed, deletion runs in bounded
+`ORDER BY created_at ASC, id ASC LIMIT n` batches on MySQL, and only canonical ISO-8601 text
+timestamps are compared (a malformed legacy import cannot sort itself to the front of the
+queue). The same operator command carries the policy for audit, notifications and analysis
+runs, so there is one dry-run default and one place a deletion can happen. **Still open:**
+archive-to-object-storage, which would let a deployment keep evidence indefinitely without
+keeping it in the database; the unused option is recorded rather than implied.
+
+### F-29 — ported domain APIs lack workspace consoles (closed, Phase 41)
 
 The SPA now ships identity, account, admin, status and an in-product notification inbox. The
 remaining product/domain APIs still have no operator console: market data (Phase 4), analysis
 (Phase 5), Strategy Lab (Phase 6), portfolio optimization (Phase 11), sports (Phases 15–20)
-and lottery (Phases 21–25). The legacy rendered these as pages; `views/strategy/index.php`
+and lottery (Phases 21–25). *(Historical: every one of those six has since landed — see the
+phase updates below, which are the current state of this finding.)* The legacy rendered these as pages; `views/strategy/index.php`
 alone is 8 466 bytes of operator UI with forms for backtest, optimize and advance, and its four
 document routes remain unported. The audit browser and portfolio optimizer APIs also still
 need workspace screens.
@@ -144,6 +160,84 @@ here, which they cannot. The middle state is styled blue rather than the green u
 The first shared-shell console is now the notification inbox. F-29 remains open until the
 remaining domain consoles are ported one module at a time; the notification view is not evidence
 that an unrelated API has a usable screen.
+
+**Update (Phases 28–35).** The consoles landed for the audit browser (28), the portfolio optimizer
+(29), the lottery (30), strategies (31), the analysis engines (32) and now the shared shell's own
+**workspace dashboard** (33, `/app` — `views/workspace/index.php`, legacy's `/dashboard`). The
+residual list was also **wrong before Phase 33**: it said *"still open for the Broker Center and the
+sports screens only"*, but a screen-by-screen pass over `application/views/*` finds consoles with no
+SPA counterpart for **paper** (`views/paper/{index,account}.php`), **risk** (`views/risk/index.php`),
+**execution** (`views/execution/index.php`), **brokers** (`views/brokers/index.php`), **journal**
+(`views/journal/index.php`), **sports** (`views/sports/{index,tickets}.php`) and the **admin control
+centre** (`views/admin/index.php`; its user table and create/toggle forms are at `/app/admin/users`,
+its SMTP panel needs a mail transport). The unported modules' own screens (`views/leads/`,
+`views/langlearn/*`) are the row 16/17 workstreams rather than this finding. F-29 stays open for
+those seven screens, and the dashboard's own quick actions name the two it touches rather than
+linking into the gap. Phase 34 added the account screen's avatar control, which is a settings control
+over routes that already existed rather than one of this finding's domain consoles, Phase 35 ported
+the **admin control centre** (`/app/admin`), and Phase 36 ported the **sports dashboard**
+(`/app/sports` — `views/sports/{index,tickets}.php`, row 3's last screen), which leaves the residual
+list at five: **paper, risk, execution, brokers and journal**. The sports console is also where the
+last *behavioural* half of parity for that module landed — the decision route now carries
+`Api_sports::decide_ticket`'s kill-switch refusal — so the entry leaves this finding whole rather
+than leaving a route behind.
+
+**Update (Phase 37).** The **paper console** landed (`/app/paper` —
+`views/paper/{index,account}.php`, row 10's own two screens), so the residual list is now **four:
+risk, execution, brokers and journal**. The paper console added no route: the module's HTTP surface
+was already ported in Phase 7, and this phase ported the screens over it (plus the dashboard note
+that had been saying the screen did not exist). It also recorded the one deliberate divergence the
+paper screens carry — the port's paper reads are owner-scoped while legacy's looked accounts up by
+id with no owner filter at all, asserted in `test/client_paper_console.test.js` against legacy's own
+controller source rather than described.
+
+**Update (Phase 38).** The **Risk Center** landed (`/app/risk` — `views/risk/index.php`,
+`Risk_center::index`), so the residual list is now **three: execution, brokers and journal**. The
+risk console is the first of these screens whose legacy page carried a *write*, and it is where
+two more accuracy corrections were needed: the limits write is `trading.control` and is offered
+only to a session holding it (the form's values are readable under `trading.view`), and the scan
+is a **read** in this API — `GET /portfolio/risk-scan` performs it and writes nothing, while the
+audited alert *transitions* legacy's POST produced are the scheduled operations job's
+(`portfolio.risk.alert` / `portfolio.risk.cleared`). The panel says so rather than implying an
+audit row the read does not write. The suite also pins the breach severity to the operations
+job's own classification (`CRITICAL_BREACH_CODES` / `WARNING_BREACH_CODES`), so a row the cron
+would publish as `critical` cannot render on the screen as a warning.
+
+**Update (Phase 39).** The **Execution Center** landed (`/app/execution` —
+`views/execution/index.php`, `Execution::index`), so the residual list is now **two: brokers and
+journal**. This console is the first of the series whose gap is a *missing half* rather than a
+divergence: legacy's page drew the automation envelope, the automated-execution form and the
+broker executions table, and this port registers none of those routes. The screen therefore shows
+all fifteen supervisor steps with the three the proposal path performs, the human decision and the
+broker-bound ones; states the envelope's values as legacy defaults with `automation_limits`'s
+absence named; and replaces legacy's "route order" with the paper submission that is the only step
+this platform can actually take. No route, migration, contract method or repository method was
+added. Building it also found **D-24**, a shell-wide rendering defect in the shared `StateBox`
+(it returned its `empty` node whenever a read was ready, hiding the data beside it); the primitive
+and its eighteen unconditional call sites were fixed, and the limits of that fix — no browser here —
+are stated in the record. Record: [`PHASE39_EXECUTION_CENTER.md`](PHASE39_EXECUTION_CENTER.md).
+
+**Update (Phase 40).** The **Broker Center** landed (`/app/brokers` — `views/brokers/index.php`,
+`Brokers::index`), so the residual list is now **one: the journal (row 18)**. This console is the
+first whose legacy page is mostly *controls the port deliberately does not have*: the simulated-bridge
+switch (`POST /brokers/sim-toggle`) has no in-process mock behind it here, and the two MT5 panels
+(`Api_system::mt5_account()` / `mt5_quote()`, unauthenticated in legacy — F-32) have no route, because
+a read that can only answer 503 on a host with no bridge is worse than no route. The screen carries
+legacy's own words for each and then the reason, rather than drawing a switch that turns on nothing.
+It adds no route: the module's single broker read was already ported in Phase 14, and the screen is a
+read over it plus `GET /trading/mode`. Record: [`PHASE40_BROKER_CENTER.md`](PHASE40_BROKER_CENTER.md).
+
+**Update (Phase 41) — F-29 closed.** The **journal console** landed (`/app/journal` —
+`views/journal/index.php`, `Journal::index`), the last of the seven screens this finding counted after
+the Phase 33 screen-by-screen audit: paper (37), risk (38), execution (39), brokers (40), journal (41),
+sports (36) and the admin control centre (35). Like the two consoles before it, it adds no route: the
+journal's four routes were ported in Phase 6, and the page is a read over three of them. It closes the
+finding with two boundaries stated rather than implied: the unported modules' own views
+(`views/leads/`, `views/langlearn/*`) were always rows 16–17's workstreams rather than this finding's,
+and the public chat assistant's floating window (`views/partials/chat_widget.php`) is row 18's
+remaining surface, not one of the consoles this finding tracked. The activity foot on the dashboard
+is legacy's again — `View analytics` → `/app/journal` — because it finally has a destination.
+Record: [`PHASE41_JOURNAL_CONSOLE.md`](PHASE41_JOURNAL_CONSOLE.md).
 
 ### F-30 — `maxCorrelatedPositions` is a declared risk limit with no enforcement (open)
 

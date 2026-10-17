@@ -28,6 +28,8 @@ import { createRateLimiter, createLoginGuard, createConcurrencyTracker } from ".
 import { healthRoutes } from "./modules/platform/health.js";
 import { identityRoutes } from "./modules/identity/routes.js";
 import { siteRoutes } from "./modules/site/routes.js";
+import { mailRoutes } from "./modules/mail/routes.js";
+import { createMailService } from "./modules/mail/service.js";
 import { createSiteDocuments } from "./modules/site/documents.js";
 import { marketDataRoutes } from "./modules/market-data/routes.js";
 import { createMarketDataService } from "./modules/market-data/service.js";
@@ -167,6 +169,14 @@ export async function buildApp({ config, store, logger = true, publicDir = path.
   // degrades to a logged no-op instead of failing the governance action.
   const notifications = createNotificationService({ store, log: app.log });
 
+  // One outbound-mail service per app (row 5). Configuration comes from the
+  // environment only; a default host has no transport, and every send then answers
+  // with the legacy "Outgoing email is disabled" sentence. It is handed to the
+  // public site as an optional collaborator (the contact copy) and to its own
+  // administrator routes (the test send); no notification publisher is given it —
+  // operator alerts are still stored and read in-product.
+  const mail = createMailService({ config: config.mail, log: app.log });
+
   // One sports service per app (row 14). Providers come from the environment only,
   // and a default host registers none at all: the sandbox provider needs
   // WINDELS_SPORTS_MODE=SANDBOX *and* WINDELS_SPORTS_SANDBOX=1, and the HTTP
@@ -203,7 +213,8 @@ export async function buildApp({ config, store, logger = true, publicDir = path.
   }
   // The public site: contact intake over JSON, plus the rendered documents the
   // transport consults before it falls back to static files.
-  await app.register(siteRoutes, { prefix: "/api/v1", store, config });
+  await app.register(siteRoutes, { prefix: "/api/v1", store, config, mail });
+  await app.register(mailRoutes, { prefix: "/api/v1", store, config, mail });
   await app.register(marketDataRoutes, { prefix: "/api/v1", store, config, service: marketData });
   // The same tracker backs the platform-wide per-address ceiling; the analysis
   // module keys its slots `analysis:session:<id>` so the two never collide (R-26).
@@ -242,11 +253,11 @@ export async function buildApp({ config, store, logger = true, publicDir = path.
   // Broker Center (row 13): one read-only route. There is no order endpoint and no
   // connector-enable endpoint here — routing stays in the execution supervisor.
   await app.register(brokerRoutes, { prefix: "/api/v1", store, config, brokers });
-  // Sports Intelligence (row 14, slice 1): one read-only status route. Legacy's
-  // twenty-odd sports endpoints all read the eleven tables this slice does not
-  // create, so none of them is ported; a matches endpoint that answered from a live
-  // provider call would return a different thing under a familiar name.
-  await app.register(sportsRoutes, { prefix: "/api/v1", store, config, sports });
+  // Sports Intelligence (row 14): the stored reads, the ingestion writes, the decision
+  // chain, the ticket engine and the measured surface. The paper service is passed in as
+  // well, because the ticket decision route carries legacy's second guard — the platform
+  // kill switch (`Api_sports::decide_ticket`), which only the paper module normalizes.
+  await app.register(sportsRoutes, { prefix: "/api/v1", store, config, sports, paper });
   // Lottery Intelligence (row 15, slice 1): the foundation surface — status, rules,
   // draws, statistics, providers, health, jobs, and the two lottery.manage writes
   // (probe and sync). Legacy's thirty-odd other lottery endpoints read tables this
@@ -541,7 +552,11 @@ export async function buildApp({ config, store, logger = true, publicDir = path.
       return;
     }
     const limit = route.options?.config?.multipart ? config.uploads.bodyLimitBytes : config.bodyLimitBytes;
-    const { buffer } = await readRawBody(request, limit);
+    // A route that knows what its body means can word the oversize refusal itself
+    // (the avatar upload says "Profile image must be 2 MB or smaller"); the limit
+    // is unchanged, only the sentence.
+    const oversizeMessage = route.options?.config?.oversizeMessage || null;
+    const { buffer } = await readRawBody(request, limit, { message: oversizeMessage });
     request.rawBody = buffer;
     const type = contentTypeOf(request);
     if (type === "application/json" || type === "text/json") {
@@ -556,7 +571,7 @@ export async function buildApp({ config, store, logger = true, publicDir = path.
       if (!route.options?.config?.multipart) {
         throw AppError.unsupportedMediaType("This endpoint does not accept multipart uploads");
       }
-      const { fields, files } = parseMultipart(buffer, boundaryOf(request), { maxFileBytes: config.uploads.maxBytes });
+      const { fields, files } = parseMultipart(buffer, boundaryOf(request), { maxFileBytes: config.uploads.maxBytes, message: oversizeMessage });
       request.body = fields;
       request.upload = { fields, file: files[0] || null, files };
       return;

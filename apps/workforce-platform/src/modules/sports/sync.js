@@ -60,8 +60,10 @@ export const FIXTURE_NOT_SYNCED = "fixture is not synchronized for this provider
  * Legacy emits `SPORTS_FIXTURE_SYNC_COMPLETED` and five siblings. This port uses the
  * platform's dotted-lowercase vocabulary (`execution.proposal.expired`,
  * `notification.published`) because the audit browser filters on these strings: one
- * event type spelled two ways is two event types to anyone building a filter, and the
- * Phase 10 browser is the only console this platform has (**F-29**). Divergence SP-24.
+ * event type spelled two ways is two event types to anyone building a filter, and every
+ * console this platform has — the audit browser included — filters on these strings.
+ * The sports console (`/app/sports`, Phase 36) reads them through the same audit
+ * browser. Divergence SP-24.
  */
 export const SYNC_AUDIT_ACTIONS = Object.freeze({
   FIXTURES_COMPLETED: "sports.sync.fixtures.completed",

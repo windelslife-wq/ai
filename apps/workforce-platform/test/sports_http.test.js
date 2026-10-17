@@ -93,12 +93,14 @@ test("a default host configures no provider, fabricates nothing, and lists what 
   assert.equal(body.message, "No sports provider is configured. No fixtures, odds, predictions, or tickets are fabricated.");
   assert.match(body.notice, /nothing is fabricated/i);
 
-  // The honesty matrix travels in the response because no ported module has a
-  // console screen (F-29) — the same decision as BC-10 in the broker port.
-  // Slice 5 empties the matrix down to three: settlement, verification, calibration
-  // fitting, backtesting, drift monitoring and performance analytics all exist now,
-  // and left the matrix rather than being re-labelled.
-  assert.equal(body.notPorted.length, 2, "slice 5 removed settlement, calibration fitting, backtesting, drift and analytics; row 19 removed the cron; what remains is sizing and the consoles");
+  // The honesty matrix travels in the response — the same decision as BC-10 in the
+  // broker port — and it has shrunk to one entry: slice 5 removed settlement,
+  // verification, calibration fitting, backtesting, drift monitoring and performance
+  // analytics; row 19 removed the cron; Phase 36 removed the console screens, which are
+  // `/app/sports` now. Only stake sizing is left, and an entry that is no longer true
+  // must not stay in a matrix named "not ported".
+  assert.equal(body.notPorted.length, 1, "slice 5 removed settlement, calibration fitting, backtesting, drift and analytics; row 19 removed the cron; Phase 36 removed the console screens; what remains is sizing");
+  assert.deepEqual(body.notPorted.map((entry) => entry.area), ["stake sizing"]);
   for (const entry of body.notPorted) {
     assert.ok(entry.area && entry.legacy && entry.state && entry.detail, JSON.stringify(entry));
     assert.notEqual(entry.state, "ported");
@@ -267,7 +269,9 @@ test("the public status surface reports sports from configuration and contacts n
   const sports = body.modules.find((module) => module.key === "sports");
   assert.equal(sports.state, "partial");
   assert.match(sports.label, /no stored result is trusted before a person attests/i);
-  assert.match(sports.label, /not ported: stake sizing and the console screens \(f-29\)/i);
+  assert.match(sports.label, /not ported: stake sizing\./i);
+  assert.match(sports.label, /Phase 36 ported the console screens/i, "the label reports the console, and the F-29 closure behind it");
+  assert.match(sports.label, /settlement stays available/i, "and the second guard the decision route gained");
   assert.ok(!/no persistence/i.test(sports.label), "persistence exists now; a stale label reads as current documentation");
   assert.equal(body.modules.length, 17);
 });

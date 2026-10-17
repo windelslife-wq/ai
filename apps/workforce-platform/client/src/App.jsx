@@ -16,8 +16,11 @@ import { endpoints, setCsrfToken, setUnauthorizedHandler } from "./api.js";
 import { Link, matchRoute, RouterProvider, useRouter } from "./router.jsx";
 import { ConnectivityBanner, Notice, UpdateBanner } from "./ui.jsx";
 import {
-  AccountView, AdminUsersView, AuditView, Brand, InquiriesView, LoginPanel, ModuleCards,
-  NotificationsView, NotFoundView, RegisterPanel, StatusPill, StatusView, WorkspaceNav,
+  AccountView, AdminControlCentreView, AdminUsersView, AnalysisWorkforceView, AuditView, Brand,
+  BrokerCenterView, ExecutionView, InquiriesView, JournalView, LoginPanel,
+  LotteryLabView, LotteryOperationsView, ModuleCards, NotificationsView, NotFoundView, PortfolioOptimizerView,
+  PaperConsoleView, RegisterPanel, RiskCenterView, SportsIntelligenceView, StatusPill, StatusView, StrategyLabView, WorkspaceDashboard,
+  WorkspaceNav,
 } from "./views.jsx";
 
 const NATIVE_BUILD = __NATIVE_BUILD__;
@@ -32,6 +35,63 @@ const ROUTES = [
   { path: "/app/account", view: "account", requiresAuth: true },
   { path: "/app/notifications", view: "notifications", requiresAuth: true },
   { path: "/app/status", view: "status" },
+  // Row 9 (Phase 29): the console over `POST /api/v1/portfolio/optimize`. The
+  // route and the API carry the same `trading.view` gate the legacy workspace page
+  // used, so a role without it sees the locked navigation entry and the denied
+  // state rather than a form the server would refuse.
+  { path: "/app/portfolio/optimizer", view: "portfolio-optimizer", requiresAuth: true, permission: "trading.view" },
+  // Row 15 (Phase 30): the lottery operations console and its lab. Both carry the
+  // module's own read gate (`lottery.view`); the two ingestion actions inside the
+  // operations screen are additionally gated on `lottery.manage` and checked again
+  // by the API, so a viewer never sees a control that would be refused.
+  { path: "/app/lottery", view: "lottery-operations", requiresAuth: true, permission: "lottery.view" },
+  { path: "/app/lottery/lab", view: "lottery-lab", requiresAuth: true, permission: "lottery.view" },
+  // Row 8 (Phase 31): the Strategy Lab console. Session-only on purpose — legacy's
+  // `Api_controller` guarded those routes with authentication alone (no permission),
+  // and the port kept that, so declaring one here would hide a screen the API serves.
+  // The human sign-off inside it is gated on `trading.control` by the server.
+  { path: "/app/strategy", view: "strategy-lab", requiresAuth: true },
+  // Row 3 (Phase 32): the AI Workforce console at `/analysis`. Session-only as
+  // well — the analysis and market-data routes are guarded by `authenticate` and
+  // nothing else — with the two governance controls inside gated server-side on
+  // `trading.control`.
+  { path: "/app/analysis", view: "analysis-workforce", requiresAuth: true },
+  // Row 3 (Phase 36): the Sports Intelligence console, the port of `Sports::index` and
+  // `Sports::tickets` on one screen. `sports.view` is the gate every sports read carries
+  // on the server — legacy's pages had no screen permission of their own, but its JSON
+  // API did, and this console reads that API.
+  { path: "/app/sports", view: "sports-intelligence", requiresAuth: true, permission: "sports.view" },
+  // Row 10 (Phase 37): the paper trading console, the port of `Paper::index` and
+  // `Paper::account` on one screen. `trading.view` is the gate every paper read carries on
+  // the server (legacy's `Api_paper` required it too); the mutations inside the screen are
+  // `trading.execute` and are checked by the view before they are offered.
+  { path: "/app/paper", view: "paper-console", requiresAuth: true, permission: "trading.view" },
+  // Row 11 (Phase 38): the Risk Center, the port of `Risk_center::index` →
+  // `views/risk/index.php`. Every read is `trading.view` (the limits, the governance state
+  // and the portfolio scan); the limits write inside is `trading.control` and the audit
+  // panel is `identity.users.view`, both checked by the view before they are offered.
+  { path: "/app/risk", view: "risk-center", requiresAuth: true, permission: "trading.view" },
+  // Row 2 (Phase 39): the Execution Center, the port of `Execution::index` →
+  // `views/execution/index.php`. Every read is `trading.view`; proposing and paper
+  // submission inside the screen are `trading.execute` and the decision is
+  // `trading.control`, checked by the view before they are offered. Broker routing and
+  // the automated modes are not registered anywhere, so no route here implies them.
+  { path: "/app/execution", view: "execution-center", requiresAuth: true, permission: "trading.view" },
+  // Row 18 (Phase 41): the journal console, the port of `Journal::index` →
+  // `views/journal/index.php`. Session-only, like the legacy `App_Controller` it extended:
+  // the three reads it makes are guarded by authentication and no permission.
+  { path: "/app/journal", view: "journal", requiresAuth: true },
+  // Row 13 (Phase 40): the Broker Center, the port of `Brokers::index` →
+  // `views/brokers/index.php`. One read (`GET /api/v1/brokers`, `trading.view`) and no
+  // write of any kind; the screen states the two legacy panels this port does not register.
+  { path: "/app/brokers", view: "broker-center", requiresAuth: true, permission: "trading.view" },
+  // Row 3 (Phase 35): the administrator control centre. Legacy's `Admin::index` was
+  // `requireAdmin()` — `system.super_admin`, a shortcut that also passes every
+  // permission check — so a viewer holding only `identity.users.view` sees the
+  // locked entry and a screen that names the gate. The two administration reads it
+  // needs are not attempted without that permission; its module ledger and the
+  // statistics it can source without it still render.
+  { path: "/app/admin", view: "admin-control-centre", requiresAuth: true, permission: "system.super_admin" },
   { path: "/app/admin/users", view: "admin-users", requiresAuth: true, permission: "identity.users.view" },
   { path: "/app/admin/audit", view: "audit", requiresAuth: true, permission: "identity.users.view" },
   { path: "/app/admin/inquiries", view: "inquiries", requiresAuth: true, permission: "system.super_admin" },
@@ -94,17 +154,15 @@ function WorkspaceShell({ user, permissions, health, current, busy, onLogout, no
   );
 }
 
+/**
+ * The signed-in home. Legacy's dashboard (Phase 33) leads, because that is the page
+ * sign-in lands on; the readiness strip and the module index below it are this
+ * shell's own additions, kept because they state what is ported and what is not.
+ */
 function WorkspaceOverview({ user, permissions, health }) {
   return (
     <div className="view">
-      <div className="workspace-welcome">
-        <div>
-          <div className="overline">PRIVATE WORKSPACE <span className="overline-line" /></div>
-          <h1>Good to see you,<br /><em>{user.displayName || user.username}.</em></h1>
-          <p className="workspace-lede">Your workspace foundation is online. Product modules are being migrated and will appear here only after their security and parity checks are complete.</p>
-        </div>
-        <div className="welcome-seal"><span>W</span><small>YOUR<br />WORKSPACE</small></div>
-      </div>
+      <WorkspaceDashboard user={user} permissions={permissions} />
 
       <section className="system-status" aria-label="Platform status">
         <div className="system-status-heading"><span className="overline">PLATFORM READINESS</span><StatusPill status={health?.status || "checking"} /></div>
@@ -112,7 +170,7 @@ function WorkspaceOverview({ user, permissions, health }) {
           <div><small>NODE API</small><strong>{health?.status === "ready" ? "Operational" : health?.status === "not_ready" ? "Database or schema unavailable" : "Checking"}</strong></div>
           <div><small>DATABASE</small><strong>{health?.database ? "Connected" : "Not ready"}</strong></div>
           <div><small>SCHEMA</small><strong>{health?.schema ? "Foundation ready" : "Migration needed"}</strong></div>
-          <div><small>TRADING MODE</small><strong>Not enabled in this shell</strong></div>
+          <div><small>ORDER ROUTING</small><strong>Simulation only · no live route</strong></div>
         </div>
         <Link className="text-button" to="/app/status">Open the full module status →</Link>
       </section>
@@ -362,7 +420,19 @@ function SessionApp() {
       account: <AccountView user={user} permissions={permissions} onSessionChanged={applySession} />,
       notifications: <NotificationsView onNotificationsChanged={refreshNotifications} />,
       status: <StatusView />,
-      "admin-users": <AdminUsersView permissions={permissions} />,
+      "portfolio-optimizer": <PortfolioOptimizerView permissions={permissions} />,
+      "lottery-operations": <LotteryOperationsView permissions={permissions} />,
+      "lottery-lab": <LotteryLabView permissions={permissions} />,
+      "strategy-lab": <StrategyLabView />,
+      "analysis-workforce": <AnalysisWorkforceView permissions={permissions} />,
+      "sports-intelligence": <SportsIntelligenceView permissions={permissions} />,
+      "paper-console": <PaperConsoleView permissions={permissions} />,
+      "risk-center": <RiskCenterView permissions={permissions} />,
+      "execution-center": <ExecutionView permissions={permissions} />,
+      journal: <JournalView />,
+      "broker-center": <BrokerCenterView permissions={permissions} />,
+      "admin-control-centre": <AdminControlCentreView permissions={permissions} />,
+      "admin-users": <AdminUsersView user={user} permissions={permissions} />,
       audit: <AuditView />,
       inquiries: <InquiriesView />,
     }[route.view]

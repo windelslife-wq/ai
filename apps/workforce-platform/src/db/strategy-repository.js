@@ -26,6 +26,30 @@
  * which is what makes the split possible without losing route parity.
  */
 
+import { assertIsoCutoff } from "../persistence/contract.js";
+import { deleteInBatches, ISO_TEXT_LIKE, pruneReport } from "./retention.js";
+
+/**
+ * The newest backtest for every (strategy, version), as a derived table.
+ *
+ * R-28's retention must be unable to change a lifecycle gate. The BACKTESTED gate
+ * requires `countBacktests(...) > 0` and the VALIDATED gate reads
+ * `latestBacktest(...)`; keeping the newest row for every pair preserves both by
+ * construction, whatever window an operator sets. The derived table is
+ * materialised by MySQL, which is also what makes it legal in a `DELETE`
+ * (`ERROR 1093` forbids reading the target table directly in a subquery).
+ */
+const KEEP_NEWEST_BACKTEST = `(
+  SELECT b.id AS keep_id
+    FROM wf_backtests b
+    JOIN (SELECT strategy_id, strategy_version, MAX(created_at) AS newest
+            FROM wf_backtests
+           GROUP BY strategy_id, strategy_version) m
+      ON m.strategy_id = b.strategy_id
+     AND m.strategy_version = b.strategy_version
+     AND m.newest = b.created_at
+)`;
+
 /** Clamp a caller-supplied LIMIT before it is interpolated into SQL. */
 function boundedLimit(value, fallback = 20, ceiling = 100) {
   const parsed = Number.parseInt(value, 10);
@@ -320,6 +344,54 @@ export function createStrategyRepository(pool, { lockRows = false } = {}) {
     },
 
     // ---- journal --------------------------------------------------------
+
+
+    /**
+     * Retention for `wf_backtests` (row 5, R-28, `BACKTEST_RETENTION_DAYS`).
+     *
+     * Default 0 (keep forever). When a window is configured, the newest report
+     * for every (strategy, version) is excluded from both the measurement and the
+     * delete, so this call can never empty a gate's evidence: `countBacktests`
+     * stays > 0 for a strategy that was ever measured, and `latestBacktest` keeps
+     * answering with the same row it answered with before. Ties on `created_at`
+     * keep every tied row — deleting fewer is the safe direction to be wrong in.
+     *
+     * Only canonical ISO-8601 text timestamps are compared (`ISO_TEXT_LIKE`), so a
+     * malformed legacy import cannot sort itself to the front of the queue. The
+     * `payload` column is a LONGTEXT copy of the whole run, which is why `bytes`
+     * is the number an operator actually cares about here.
+     */
+    async pruneBacktests(beforeIso, { dryRun = false, batchSize = 500, maxBatches = 1_000 } = {}) {
+      const cutoff = assertIsoCutoff(beforeIso);
+      const where = `created_at < ? AND created_at LIKE ? AND id NOT IN ${KEEP_NEWEST_BACKTEST}`;
+      const values = [cutoff, ISO_TEXT_LIKE];
+      const [[measured]] = await pool.execute(
+        `SELECT COUNT(*) AS total,
+                MIN(created_at) AS oldest,
+                MAX(created_at) AS newest,
+                COALESCE(SUM(LENGTH(payload) + LENGTH(metrics) + LENGTH(warnings)), 0) AS bytes
+           FROM wf_backtests
+          WHERE ${where}`,
+        values,
+      );
+      const report = {
+        ...pruneReport({ cutoff, dryRun }),
+        matching: Number(measured?.total ?? 0),
+        oldest: measured?.oldest ?? null,
+        newest: measured?.newest ?? null,
+        bytes: Number(measured?.bytes ?? 0),
+      };
+      return deleteInBatches(report, { batchSize, maxBatches }, async (batch) => {
+        const [result] = await pool.query(
+          `DELETE FROM wf_backtests
+            WHERE ${where}
+            ORDER BY created_at ASC, id ASC
+            LIMIT ${batch}`,
+          values,
+        );
+        return Number(result?.affectedRows ?? 0);
+      });
+    },
 
     async saveJournalEntry(entry) {
       await pool.execute(

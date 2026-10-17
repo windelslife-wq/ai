@@ -147,7 +147,7 @@ test("the eleven Strategy Lab methods are part of the contract, not adapter extr
   // Phase 12 adds one cross-owner execution read, the five job-lock methods and
   // the two job-state methods; slices 4-5 add the 13 settlement methods and row 19
   // the 2 performance-snapshot methods.
-  assert.equal(REPOSITORY_METHODS.length, 185);
+  assert.equal(REPOSITORY_METHODS.length, 188);
   // No method may be declared twice: a duplicate would let one adapter satisfy
   // the count while missing a distinct behaviour.
   assert.equal(new Set(REPOSITORY_METHODS).size, REPOSITORY_METHODS.length);

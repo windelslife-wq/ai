@@ -319,7 +319,10 @@ export function createNotificationService({ store = null, log = null, now = () =
       readStateScope: "global",
       deliveryChannels: [],
       emailDeliveryAvailable: false,
-      reason: "Notifications are stored and read in-product only. No outbound mail transport is ported, so nothing here claims to have delivered an alert to a device or an inbox.",
+      // True whether or not SMTP is configured: the mail transport ported in row 5
+      // serves the administrator test send and the contact-form copy. No publisher
+      // in this module is wired to it, so no alert is ever emailed.
+      reason: "Notifications are stored and read in-product only. Outbound SMTP, when configured, is used only by the administrator test send and the contact-form copy, so nothing here claims to have delivered an alert to a device or an inbox.",
     };
   }
 

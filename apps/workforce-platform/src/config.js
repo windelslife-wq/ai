@@ -634,6 +634,104 @@ function loadAnalysisConfig(env) {
   });
 }
 
+/**
+ * The platform's one retention policy (row 5; risks R-27 and R-28).
+ *
+ * There are four tables whose stored rows are evidence rather than live state,
+ * and each has a different consequence when a row disappears:
+ *
+ *  - `wf_analysis_runs` — the payload copy of a run. Default 90 days, unchanged
+ *    from R-27.
+ *  - `wf_audit_events` — who did what. A trail that silently ages out is not an
+ *    audit trail, so the default is **0: keep forever**. A deployment that must
+ *    answer a shorter statutory window can set one; the tool says so plainly.
+ *  - `wf_notifications` — the operator inbox. Only rows already read are ever
+ *    eligible, because an unread alert is somebody's to-do item, and an unread
+ *    row is also what suppresses a duplicate publish. Default 0 (keep forever).
+ *  - `wf_backtests` — the evidence behind a promoted strategy. Default 0, and
+ *    even when enabled the prune keeps the newest report for every
+ *    (strategy, version), so the BACKTESTED/VALIDATED gates cannot be emptied by
+ *    retention. Default 0 (keep forever).
+ *
+ * The windows are configurable; the *behaviour* is not. Retention only ever runs
+ * from `npm run prune:retention`, never from a request, on either adapter.
+ */
+function loadRetentionConfig(env) {
+  const days = (name) => integer(env[name], name, { fallback: 0, min: 0, max: 3_650 });
+  return Object.freeze({
+    analysisDays: integer(env.ANALYSIS_RETENTION_DAYS, "ANALYSIS_RETENTION_DAYS", { fallback: 90, min: 0, max: 3_650 }),
+    auditDays: days("AUDIT_RETENTION_DAYS"),
+    notificationDays: days("NOTIFICATION_RETENTION_DAYS"),
+    backtestDays: days("BACKTEST_RETENTION_DAYS"),
+  });
+}
+
+/** The first environment variable in `names` whose value is not empty. */
+function firstNonEmpty(env, names, fallback = "") {
+  for (const name of names) {
+    const value = env[name];
+    if (typeof value === "string" && value.trim() !== "") return value.trim();
+  }
+  return fallback;
+}
+
+/**
+ * Outbound mail (row 5), ported from `Aegis\Mailer` and `application/config/email.php`.
+ *
+ * Credentials live only in the server environment and are never echoed, logged or
+ * returned — `configSummary()` has the same credential-free shape legacy exposed
+ * to the administrator panel, and the password exists only inside this object.
+ *
+ * `enabled` is legacy's own rule: the switch is `1` **and** a host is configured.
+ * A half-configured mailer therefore reports `enabled: false` rather than looking
+ * ready and failing at send time. The `VP_` prefix is preferred, bare names are
+ * accepted, and each name means the same thing it meant in PHP.
+ *
+ * Divergence MA-1 (deliberate tightening): in production, an enabled mailer that
+ * would put credentials on an unencrypted socket is refused at boot. Legacy would
+ * happily send `AUTH` in clear text; on shared hosting that is the operator's
+ * password crossing the network in the clear, and it is not worth parity.
+ */
+function loadMailConfig(env, { production }) {
+  const enabledFlag = ["VP_SMTP_ENABLED", "SMTP_ENABLED"]
+    .map((name) => env[name])
+    .find((value) => typeof value === "string" && value.trim() !== "");
+  const host = firstNonEmpty(env, ["VP_SMTP_HOST", "SMTP_HOST"]);
+  const enabled = String(enabledFlag ?? "").trim() === "1" && host !== "";
+
+  const requestedCrypto = firstNonEmpty(env, ["VP_SMTP_CRYPTO", "SMTP_CRYPTO", "SMTP_ENCRYPTION"], "tls").toLowerCase();
+  // `application/config/email.php` coerced anything it did not recognise to "tls"
+  // rather than failing. The one value PHP could not express through the
+  // environment — "no encryption at all" — is spelled `none` here (or `off`), so
+  // a local relay can be tested without inventing a certificate. It is refused
+  // with credentials in production (MA-1).
+  const crypto = ["none", "off", ""].includes(requestedCrypto) ? "" : ["tls", "ssl"].includes(requestedCrypto) ? requestedCrypto : "tls";
+
+  const user = firstNonEmpty(env, ["VP_SMTP_USER", "SMTP_USER", "SMTP_USERNAME"]);
+  const pass = firstNonEmpty(env, ["VP_SMTP_PASS", "SMTP_PASS", "SMTP_PASSWORD"]);
+  const fromEmail = firstNonEmpty(env, ["VP_MAIL_FROM", "MAIL_FROM", "MAIL_FROM_ADDRESS"], user);
+  const fromName = firstNonEmpty(env, ["VP_MAIL_FROM_NAME", "MAIL_FROM_NAME", "VP_SITE_NAME"], "WINDELS AI WORKFORCE");
+  const replyTo = firstNonEmpty(env, ["VP_MAIL_REPLY_TO", "MAIL_REPLY_TO"], fromEmail);
+
+  if (production && enabled && crypto === "" && (user !== "" || pass !== "")) {
+    throw new Error("SMTP credentials must not be sent over an unencrypted connection in production: set VP_SMTP_CRYPTO=tls (or ssl)");
+  }
+
+  return Object.freeze({
+    enabled,
+    host,
+    port: integer(firstNonEmpty(env, ["VP_SMTP_PORT", "SMTP_PORT"], "587"), "VP_SMTP_PORT", { fallback: 587, min: 1, max: 65_535 }),
+    crypto,
+    user,
+    pass,
+    fromEmail,
+    fromName,
+    replyTo,
+    // Legacy's `VP_SMTP_TIMEOUT` is seconds (config default 10).
+    timeoutMs: integer(firstNonEmpty(env, ["VP_SMTP_TIMEOUT", "SMTP_TIMEOUT"], "10"), "VP_SMTP_TIMEOUT", { fallback: 10, min: 1, max: 120 }) * 1_000,
+  });
+}
+
 export function loadConfig(env = process.env) {
   assertSupportedNodeVersion();
   const mode = env.NODE_ENV || "development";
@@ -702,6 +800,8 @@ export function loadConfig(env = process.env) {
     sports: loadSportsConfig(env, { production }),
     lottery: loadLotteryConfig(env),
     analysis: loadAnalysisConfig(env),
+    retention: loadRetentionConfig(env),
+    mail: loadMailConfig(env, { production }),
     uploads: loadUploadConfig(env, { production }),
     rateLimit: loadRateLimitConfig(env),
     // Concurrent in-flight requests tracked per client address. A per-window

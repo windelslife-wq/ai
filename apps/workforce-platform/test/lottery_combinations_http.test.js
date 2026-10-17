@@ -120,6 +120,63 @@ test("generate persists a combination and a decision, audited, reproducible by s
   assert.equal(events[0].details.mode, "RANDOM");
 });
 
+test("locks and excludes survive the request edge — the generator's own validation is the only gate", async (t) => {
+  const instance = await sandboxApp(t);
+  t.after(() => instance.cleanup());
+  const headers = await signIn(instance.app);
+  await instance.app.inject({ method: "POST", url: "/api/v1/lottery/sync", headers, payload: { limit: 40 } });
+
+  // Regression (Phase 30): `locks` and `excludes` were declared as `{type: "object"}`
+  // with no properties, and the body validator keeps only DECLARED keys on an object
+  // node — so `{mains: [7, 21]}` reached the generator as `{}`. The route accepted a
+  // lock and generated without it, invisibly: the report echoed empty inputs and the
+  // parity suite never saw it because it calls the service directly. Legacy forwards
+  // `$body['locks']` unchanged (`is_array` and nothing more), so the node is now a
+  // passthrough and the generator stays the only validator — asserted below, because
+  // "passthrough" must not come to mean "unvalidated".
+  const locked = await instance.app.inject({
+    method: "POST",
+    url: "/api/v1/lottery/generate",
+    headers,
+    payload: {
+      mode: "RANDOM",
+      count: 3,
+      seed: 5,
+      locks: { mains: [7, 21], stars: [3] },
+      excludes: { mains: [13], stars: [1] },
+    },
+  });
+  assert.equal(locked.statusCode, 200, locked.body);
+  const report = locked.json();
+  assert.deepEqual(report.inputs.locks, { mains: [7, 21], stars: [3] }, "a locked pool must reach the engine, not be stripped to {}");
+  assert.deepEqual(report.inputs.excludes, { mains: [13], stars: [1] });
+  for (const line of report.lines) {
+    assert.ok(line.mains.includes(7) && line.mains.includes(21), `every line carries both locked mains: ${line.mains}`);
+    assert.ok(line.stars.includes(3), "every line carries the locked star");
+    assert.ok(!line.mains.includes(13) && !line.stars.includes(1), "no line carries an excluded number");
+  }
+
+  // The persisted record keeps the constraints the run was given (spec §33).
+  const combination = await instance.app.inject({ method: "GET", url: `/api/v1/lottery/combinations/${report.saved.combinationId}`, headers });
+  assert.equal(combination.statusCode, 200, combination.body);
+  assert.deepEqual(combination.json().combination.constraints.locks, { mains: [7, 21], stars: [3] });
+
+  // Passthrough is not laxity: the engine still refuses what legacy refused, with the
+  // same words, and the body is still strict about its own declared keys.
+  const duplicate = await instance.app.inject({ method: "POST", url: "/api/v1/lottery/generate", headers, payload: { mode: "RANDOM", locks: { mains: [7, 7] } } });
+  assert.equal(duplicate.statusCode, 400);
+  assert.equal(duplicate.json().error.code, "LOTTERY_INVALID_ARGUMENT");
+  assert.equal(duplicate.json().error.message, "duplicate locked main: 7");
+  const excludedLock = await instance.app.inject({
+    method: "POST", url: "/api/v1/lottery/generate", headers, payload: { mode: "RANDOM", locks: { mains: [7] }, excludes: { mains: [7] } },
+  });
+  assert.equal(excludedLock.statusCode, 400);
+  assert.equal(excludedLock.json().error.message, "a main number is both locked and excluded");
+  const unknownField = await instance.app.inject({ method: "POST", url: "/api/v1/lottery/generate", headers, payload: { nonsense: true } });
+  assert.equal(unknownField.statusCode, 400);
+  assert.match(unknownField.json().error.message, /nonsense is not an accepted field/);
+});
+
 test("the generation permission is legacy's split: lottery.view may generate, manage is for system builds", async (t) => {
   const instance = await sandboxApp(t);
   t.after(() => instance.cleanup());

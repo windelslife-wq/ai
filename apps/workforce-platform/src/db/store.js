@@ -231,6 +231,10 @@ export function createStore(pool, { requiredMigrations = REQUIRED_MIGRATIONS } =
     markAllNotificationsRead: notifications.markAllNotificationsRead,
     countUnreadNotifications: notifications.countUnreadNotifications,
     hasUnreadNotificationDedupe: notifications.hasUnreadNotificationDedupe,
+    // Retention is listed explicitly rather than spread, like every other
+    // notification method: the store composes a public contract, and a method
+    // that can delete rows should be visible in the list it is reviewed in.
+    pruneNotifications: notifications.pruneNotifications,
     adapter: "mysql",
     capabilities: Object.freeze({
       adapter: "mysql",

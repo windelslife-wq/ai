@@ -15,8 +15,8 @@ import { createAuthenticator, requirePermission } from "../platform/guards.js";
 import { CONTACT_SUBMIT, INQUIRY_LIST_QUERY } from "./contracts.js";
 import { createSiteService } from "./service.js";
 
-export function siteRoutes(app, { store, config }) {
-  const service = createSiteService({ store, config });
+export function siteRoutes(app, { store, config, mail = null }) {
+  const service = createSiteService({ store, config, mail });
   const authenticate = createAuthenticator({ store, config });
   const superAdminOnly = requirePermission("system.super_admin", config);
   superAdminOnly.permission = "system.super_admin";
@@ -44,7 +44,9 @@ export function siteRoutes(app, { store, config }) {
       limit: request.query.limit,
       offset: request.query.offset,
       inquiries,
-      mail: { transport: "none", note: "No outbound mail transport exists on this platform; inquiries are stored and audited only." },
+      mail: mail && mail.enabled()
+        ? { transport: "smtp", note: "A copy of each new inquiry is emailed to the configured sender (VP_MAIL_FROM). Delivery failures are recorded on the receipt and never fail the intake." }
+        : { transport: "none", note: "Outbound email is disabled, so inquiries are stored and audited only. Set VP_SMTP_ENABLED=1 and VP_SMTP_HOST to copy them to the operator." },
     };
   });
 }

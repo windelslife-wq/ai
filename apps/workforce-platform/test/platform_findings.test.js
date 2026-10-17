@@ -678,7 +678,7 @@ test("F-01 the file store and the SQL store implement one repository contract, s
     () => assertRepositoryContract({ adapter: "stub", capabilities: {}, readiness: async () => ({}) }, { adapter: "stub" }),
     /does not implement the repository contract.*findUserByIdentifier/s,
   );
-  assert.equal(REPOSITORY_METHODS.length, 185, "8 identity + 6 sessions + 9 RBAC + 2 admin + 4 audit/profile + 2 contact intake + 4 analysis runs + 11 Strategy Lab (including persisted human sign-off) + 23 paper trading + 3 execution proposal reads (2 owner-scoped + 1 cross-owner for the scheduled job) + 6 operator notifications + 5 job locks + 2 job state + 22 sports foundation (3 provider registry + 4 health including retention + 4 fixtures + 4 odds + 2 results + 2 quality + 3 sync runs) + 12 sports intelligence (2 model versions + 4 predictions + 3 configuration + 3 calibration) + 13 ticket writes and reads (9 slice 4 + 4 slice-5 settlement updates and recovery) + 11 settlement, measurement and snapshot methods (2 result attestation + 2 outcome reads + 2 model metrics + 3 backtests + 2 performance snapshots) + 23 lottery foundation (1 game registry + 2 rules + 2 provider registry + 3 health + 5 draws + 4 draw numbers + 3 sync runs + 2 stats reads + 1 audit) + 6 lottery combinations and AI decisions (slice 2, migration 017) + 7 saved tickets and lines (slice 3, migration 018) + 5 backtest reports and model versions (slice 4, migration 019) + 1 readiness");
+  assert.equal(REPOSITORY_METHODS.length, 188, "8 identity + 6 sessions + 9 RBAC + 2 admin + 4 audit/profile + 2 contact intake + 4 analysis runs + 11 Strategy Lab (including persisted human sign-off) + 23 paper trading + 3 execution proposal reads (2 owner-scoped + 1 cross-owner for the scheduled job) + 6 operator notifications + 5 job locks + 2 job state + 22 sports foundation (3 provider registry + 4 health including retention + 4 fixtures + 4 odds + 2 results + 2 quality + 3 sync runs) + 12 sports intelligence (2 model versions + 4 predictions + 3 configuration + 3 calibration) + 13 ticket writes and reads (9 slice 4 + 4 slice-5 settlement updates and recovery) + 11 settlement, measurement and snapshot methods (2 result attestation + 2 outcome reads + 2 model metrics + 3 backtests + 2 performance snapshots) + 23 lottery foundation (1 game registry + 2 rules + 2 provider registry + 3 health + 5 draws + 4 draw numbers + 3 sync runs + 2 stats reads + 1 audit) + 6 lottery combinations and AI decisions (slice 2, migration 017) + 7 saved tickets and lines (slice 3, migration 018) + 5 backtest reports and model versions (slice 4, migration 019) + 1 readiness + 3 row-5 retention (audit, notifications, backtests)");
 
   // The 22 sports foundation methods, the 12 decision-chain methods (migration 012)
   // and the slice-5 settlement-and-measurement methods (migration 014) are named here
@@ -1053,27 +1053,72 @@ test("F-02 the status surface is honest about unported modules, and F-03 the rou
   assert.equal(body.modules.find((module) => module.key === "identity").state, "ported");
   assert.equal(body.modules.find((module) => module.key === "marketData").state, "ported", "market data was ported in Phase 4");
   assert.equal(body.modules.find((module) => module.key === "analysis").state, "ported", "the analysis engines were ported in Phase 5");
-  assert.equal(body.modules.filter((module) => module.state === "ported").length, 9, "identity, market data, analysis, the portfolio optimizer, strategies, paper trading, risk, notifications and the audit browser have tested Node surfaces");
+  assert.equal(body.modules.filter((module) => module.state === "ported").length, 10, "identity, market data, analysis, the portfolio optimizer, strategies, paper trading, risk, notifications, the audit browser and lottery (Phase 30, when its last unported entry — the console screens — became a ported surface) have tested Node surfaces");
   // Notifications are stored and read in-product only; the module says so itself
   // rather than implying an alert reached a device or an email inbox.
   assert.equal(body.modules.find((module) => module.key === "notifications").state, "ported");
   assert.equal(body.notifications.emailDeliveryAvailable, false, "no outbound delivery channel is ported");
   assert.deepEqual(body.notifications.deliveryChannels, []);
-  // Phase 10 ports the audit browser API: attribution, filtering and pagination
-  // over the whole trail, permissioned and read-only. The console SCREEN is
-  // app-shell work (row 3) and retention is still undecided, so the label says
-  // both rather than letting `ported` imply a finished workstream.
+  // Phase 10 ports the audit browser API (attribution, filtering, pagination over
+  // the whole trail, permissioned and read-only) and Phase 28 adds its console at
+  // /app/admin/audit. The label therefore no longer says "no console screen" — it
+  // did until Phase 29 corrected it, which is exactly the understatement the
+  // module-card comment above warns about. Retention is still undecided and no
+  // historical audit_logs row has been imported, so both are named instead.
   assert.equal(body.modules.find((module) => module.key === "audit").state, "ported");
-  assert.match(body.modules.find((module) => module.key === "audit").label, /no console screen/i);
-  assert.match(body.modules.find((module) => module.key === "audit").label, /no retention policy/i);
-  // Phase 11 ports the research-only portfolio optimizer (row 9). It computes
-  // weights and nothing else: no console screen (views/portfolio/optimizer.php is
-  // app-shell work, row 3) and no saved reports — a run is returned, not persisted,
-  // so the label must not let `ported` imply a history a caller could read back.
+  assert.match(body.modules.find((module) => module.key === "audit").label, /console/i);
+  assert.doesNotMatch(body.modules.find((module) => module.key === "audit").label, /no console screen/i);
+  // Row 5 decided retention: one operator-run policy, four windows, all off by
+  // default except analysis. The audit label must say so and must not imply the
+  // trail ages out on its own.
+  assert.match(body.modules.find((module) => module.key === "audit").label, /operator-run retention window/i);
+  assert.match(body.modules.find((module) => module.key === "audit").label, /off by default/i);
+  assert.doesNotMatch(body.modules.find((module) => module.key === "audit").label, /no retention policy/i);
+  assert.match(body.modules.find((module) => module.key === "audit").label, /no historical import/i);
+  // Phase 11 ports the research-only portfolio optimizer (row 9) and Phase 29 adds
+  // its console. What must stay true is the part `ported` could otherwise imply
+  // away: a run is returned, never persisted, so there is no history to read back —
+  // the screen states that in the report itself rather than offering a list.
   assert.equal(body.modules.find((module) => module.key === "portfolioOptimizer").state, "ported");
   assert.match(body.modules.find((module) => module.key === "portfolioOptimizer").label, /research-only/i);
-  assert.match(body.modules.find((module) => module.key === "portfolioOptimizer").label, /no console screen/i);
+  assert.match(body.modules.find((module) => module.key === "portfolioOptimizer").label, /\/app\/portfolio\/optimizer/);
   assert.match(body.modules.find((module) => module.key === "portfolioOptimizer").label, /no saved reports/i);
+  // Phase 6 ports the strategy lab and Phase 31 adds its console (row 8's last
+  // entry). `strategies` was already `ported` — the console gap was the module's
+  // only recorded absence — so what the label has to carry now is the shape of the
+  // screen, because `ported` alone would not distinguish a session-only console
+  // whose one permissioned control is the API's own sign-off from one that invents
+  // a screen permission legacy never had.
+  assert.equal(body.modules.find((module) => module.key === "strategies").state, "ported");
+  const strategiesLabel = body.modules.find((module) => module.key === "strategies").label;
+  for (const pattern of [
+    /Strategy lab, lifecycle, backtesting and durable AI review/i,
+    /console at \/app\/strategy/i,
+    /six-stage lifecycle stepper/i,
+    /70\/30 optimizer/i,
+    /session-only/i,
+    /trading\.control/,
+    /DV-8/,
+  ]) {
+    assert.match(strategiesLabel, pattern);
+  }
+  assert.ok(!/console screens are not ported/i.test(strategiesLabel), "the strategy console is ported; the F-29 hedge for this module is closed");
+  // Phase 5 ports the analysis engines and Phase 32 adds their console (row 3).
+  // `analysis` was already `ported`; what the label has to carry now is the shape of
+  // the screen — session-only like the controller it ports, with the two governance
+  // controls being the paper module's own permissioned writes and the three modes
+  // this edition does not have refused at the request edge.
+  assert.equal(body.modules.find((module) => module.key === "analysis").state, "ported");
+  const analysisLabel = body.modules.find((module) => module.key === "analysis").label;
+  for (const pattern of [
+    /console at \/app\/analysis/i,
+    /views\/welcome\/partials\/chart\.php/,
+    /session-only/i,
+    /trading\.control writes/,
+    /refused by the request schema/i,
+  ]) {
+    assert.match(analysisLabel, pattern);
+  }
   // Phase 7 adds persisted governance and account-scoped paper risk. Phase 8A
   // adds human-reviewed paper proposals, not the full supervisor or a live route.
   assert.equal(body.modules.find((module) => module.key === "paperTrading").state, "ported");
@@ -1088,6 +1133,9 @@ test("F-02 the status surface is honest about unported modules, and F-03 the rou
   assert.match(body.modules.find((module) => module.key === "execution").label, /broker-bound/i);
   assert.match(body.modules.find((module) => module.key === "execution").label, /no live route/i);
   assert.match(body.modules.find((module) => module.key === "execution").label, /no automated mode/i);
+  // Phase 39 ported `Execution::index` to `/app/execution`; the label must name the
+  // console so `partial` cannot be read as "the screen is still missing".
+  assert.match(body.modules.find((module) => module.key === "execution").label, /\/app\/execution/);
   // Phase 14 ports the broker connector boundary. `partial` must say that what is
   // missing is a *verified adapter and an order path*, not the boundary itself, or a
   // reader cannot tell "half-built" from "built and switched off" — which is the
@@ -1112,12 +1160,17 @@ test("F-02 the status surface is honest about unported modules, and F-03 the rou
   for (const pattern of [
     // The absence is stated as one list, so the list is pinned as a list rather than
     // as separate "no X" phrases that the label does not and should not repeat.
-    // Slice 5 shrank it to three and row 19 removed the cron from it: stake sizing
-    // and the console screens (F-29) are what no slice owns. Settlement, calibration fitting, backtests, drift and
-    // analytics came OUT of this list, and the assertion that they are gone is as
-    // important as the ones that remain: a ledger label is documentation, and a stale
-    // one is worse than none because it is read as current.
-    /not ported: stake sizing and the console screens \(f-29\)/i,
+    // Slice 5 shrank it; row 19 removed the cron; Phase 36 removed the console screens.
+    // Stake sizing is what no slice owns, and it is now the whole list — settlement,
+    // verification, calibration fitting, backtests, drift, analytics and the consoles
+    // came OUT of it, and the assertion that they are gone is as important as the ones
+    // that remain: a ledger label is documentation, and a stale one is worse than none
+    // because it is read as current.
+    /not ported: stake sizing\./i,
+    // Phase 36's two claims, in the label: the console exists, and the decision route
+    // carries legacy's kill-switch guard rather than only its permission.
+    /Phase 36 ported the console screens/i,
+    /settlement stays available/i,
     /no stored result is trusted before a person attests/i,
     /never verified against a vendor/i,
     /nineteen sports\.view reads, two sports\.manage reads, ten sports\.manage writes/i,
@@ -1146,18 +1199,21 @@ test("F-02 the status surface is honest about unported modules, and F-03 the rou
   // Phase 14 moves `brokers` from not-ported to partial: the connector boundary, the
   // normalized data contracts and the demo-only order gates are ported and tested,
   // while no adapter is verified against its provider and no order can be routed.
-  // Row 15 slice 1 moves `lottery` from not-ported to partial: the foundation
-  // (providers, rules, validation, ingestion, derived health, statistics) is ported
-  // and PHP-parity proven, while combination intelligence, tickets, backtests, the
-  // lottery cron and the console screens are not (F-29 keeps that list).
+  // Phase 30 moves `lottery` from partial to ported: slices 1–5 were the whole module
+  // and the console screens were its only remaining entry, so the ledger's state now
+  // has to name both screens rather than hedge. The status matrix is asserted empty in
+  // test/lottery_http.test.js — a `ported` label with a non-empty matrix would fail
+  // there, which is the point of splitting the two checks.
   const lotteryLabel = body.modules.find((module) => module.key === "lottery").label;
-  assert.equal(body.modules.find((module) => module.key === "lottery").state, "partial");
+  assert.equal(body.modules.find((module) => module.key === "lottery").state, "ported");
   for (const pattern of [
     /draw validation before storage/i,
     /never overwrites a VERIFIED draw/i,
     /independence DISCLAIMER/i,
     /a default host has no provider and fabricates nothing/i,
-    /the console screens are not ported \(f-29, platform-wide\)/i,
+    /phase 30 ported the console screens/i,
+    /the operations board at \/app\/lottery/i,
+    /the lab at \/app\/lottery\/lab/i,
     /systems consumer that finally drains the queued background builds/i,
     /nineteen lottery\.view reads/i,
     /eight lottery\.view POSTs/i,
@@ -1165,7 +1221,8 @@ test("F-02 the status surface is honest about unported modules, and F-03 the rou
   ]) {
     assert.match(lotteryLabel, pattern);
   }
-  assert.equal(body.modules.filter((module) => module.state === "partial").length, 6, "the public site (chat widget), execution (the remaining supervisor steps are broker-bound, no live route, no automated mode), scheduled jobs (no early-warning tiers, no sports/lottery cron), brokers (no verified adapter, no order routing), sports (measured but person-gated: nothing executed, no stake sized, no stored result trusted before a person attests, no verified vendor, no cron and no console screens) and lottery (slices 1–5 ported and proven for parity; only the console screens are missing, F-29) remain partial");
+  assert.ok(!/console screens are not ported/i.test(lotteryLabel), "the ported label must not still carry the F-29 hedge");
+  assert.equal(body.modules.filter((module) => module.state === "partial").length, 5, "the public site (chat widget), execution (the remaining supervisor steps are broker-bound, no live route, no automated mode), scheduled jobs (no early-warning tiers, no sports cron), brokers (no verified adapter, no order routing) and sports (measured, console ported and person-gated: nothing executed, no stake sized, no stored result trusted before a person attests, no verified vendor) remain partial — lottery left the list in Phase 30, when its last entry (the console screens) was ported and its own matrix went empty, and sports keeps its own place for the one entry no slice owns rather than for a missing screen");
   assert.equal(body.modules.filter((module) => module.state === "not-ported").length, 2, "language learning and lead discovery remain legacy-only");
   assert.equal(body.modules.length, 17, "the ledger keeps listing every module, ported or not");
   // The public status surface carries a market-data snapshot that must not have
@@ -1184,7 +1241,9 @@ test("F-02 the status surface is honest about unported modules, and F-03 the rou
   // `jobs`/`jobs:apply` join with Phase 12: the cPanel cron instructions name the
   // scheduled-operations CLI, so the script has to exist for the documented command
   // to work.
-  const operational = ["backup", "restore", "prune:analysis", "jobs", "jobs:apply", "verify:install", "verify:data", "seed:platform", "migrate", "import:identity", "start"];
+  // `prune:retention` joins with Phase 42: row 5's policy is documented as the one
+  // operator command over four windows, so it has to exist.
+  const operational = ["backup", "restore", "prune:analysis", "prune:retention", "jobs", "jobs:apply", "verify:install", "verify:data", "seed:platform", "migrate", "import:identity", "start"];
   const missing = operational.filter((name) => !(name in manifest.scripts));
   assert.deepEqual(missing, [], "the documented operational commands must exist as scripts");
   assert.equal(Object.keys(manifest.scripts).filter((name) => operational.includes(name)).length, operational.length);
@@ -1192,7 +1251,7 @@ test("F-02 the status surface is honest about unported modules, and F-03 the rou
   const routes = await app.app.inject({ method: "GET", url: "/api/v1/system/routes" });
   const inventory = routes.json().routes;
   const adminRoutes = inventory.filter((entry) => entry.path.startsWith("/api/v1/admin/"));
-  assert.equal(adminRoutes.length, 7, "account-admin routes, the audit browser, the inquiry listing, the deprecated identity listing — and no admin route is unguarded");
+  assert.equal(adminRoutes.length, 9, "account-admin routes, the audit browser, the inquiry listing, the mail panel and its test send, the deprecated identity listing — and no admin route is unguarded");
   for (const route of adminRoutes) {
     assert.ok(["identity.users.view", "identity.users.manage", "system.super_admin"].includes(route.permission), `${route.method} ${route.path} must report its permission in the ledger, got ${route.permission}`);
   }

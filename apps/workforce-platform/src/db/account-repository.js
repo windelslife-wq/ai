@@ -1,3 +1,6 @@
+import { assertIsoCutoff } from "../persistence/contract.js";
+import { deleteInBatches, pruneReport } from "./retention.js";
+
 /**
  * Account-management SQL for the MySQL/MariaDB adapter.
  *
@@ -427,6 +430,55 @@ export function createAccountRepository(pool) {
             : { userId: Number(row.actor_user_id), username: row.actor_username ?? null, kind: "user" },
         })),
       };
+    },
+
+
+    /**
+     * Retention for `wf_audit_events` (row 5, `AUDIT_RETENTION_DAYS`).
+     *
+     * The trail is evidence, so the default is "keep forever": `config.js` maps an
+     * unset window to 0 and the CLI then skips this table. When an operator does
+     * set a window, this is the only code path that can delete a row — no route
+     * can, and `GET /admin/audit` remains read-only.
+     *
+     * `created_at` is `DATETIME(3)` (migration 001), so the cutoff is bound as a
+     * JS `Date` and compared by the server. The pool runs with `timezone: "Z"`,
+     * which is what makes that binding mean the UTC instant the CLI printed.
+     *
+     * Measurement and deletion share one predicate so the count an operator reads
+     * is exactly the set the loop removes. `bytes` is the stored text of the row —
+     * action, type, id and detail — not an index or row overhead.
+     */
+    async pruneAuditEvents(beforeIso, { dryRun = false, batchSize = 500, maxBatches = 1_000 } = {}) {
+      const cutoff = assertIsoCutoff(beforeIso);
+      const at = new Date(cutoff);
+      const [[measured]] = await pool.execute(
+        `SELECT COUNT(*) AS total,
+                MIN(created_at) AS oldest,
+                MAX(created_at) AS newest,
+                COALESCE(SUM(LENGTH(action_key) + LENGTH(COALESCE(entity_type, ''))
+                             + LENGTH(COALESCE(entity_id, '')) + LENGTH(detail_json)), 0) AS bytes
+           FROM wf_audit_events
+          WHERE created_at < ?`,
+        [at],
+      );
+      const report = {
+        ...pruneReport({ cutoff, dryRun }),
+        matching: Number(measured?.total ?? 0),
+        oldest: measured?.oldest ?? null,
+        newest: measured?.newest ?? null,
+        bytes: Number(measured?.bytes ?? 0),
+      };
+      return deleteInBatches(report, { batchSize, maxBatches }, async (batch) => {
+        const [result] = await pool.query(
+          `DELETE FROM wf_audit_events
+            WHERE created_at < ?
+            ORDER BY created_at ASC, id ASC
+            LIMIT ${batch}`,
+          [at],
+        );
+        return Number(result?.affectedRows ?? 0);
+      });
     },
 
     async setAvatarPath(userId, avatarPath) {

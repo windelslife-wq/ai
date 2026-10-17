@@ -92,16 +92,11 @@ test("a default host: status answers with the honest empty state and the not-por
   assert.deepEqual(body.rules.main, { count: 5, min: 1, max: 50 });
   assert.deepEqual(body.rules.stars, { count: 2, min: 1, max: 12 });
 
-  // The gap is stated, not silent (BC-10): one area since slice 5 landed the
-  // cron — removed, never re-labelled.
-  assert.equal(body.notPorted.length, 1);
-  const areas = body.notPorted.map((entry) => entry.area).join(" | ");
-  for (const expected of ["console screens"]) {
-    assert.ok(areas.includes(expected), `the matrix names ${expected}`);
-  }
-  for (const gone of ["combination intelligence", "generation persistence"]) {
-    assert.ok(!areas.includes(gone), `slice 2 removed "${gone}" from the matrix`);
-  }
+  // The gap is stated, not silent (BC-10). Phase 30 ported the console screens — the
+  // last entry — so the matrix is EMPTY: the module now claims nothing is missing,
+  // and this assertion is what makes that claim checkable. Entries are removed when
+  // they become untrue, never re-labelled.
+  assert.deepEqual(body.notPorted, []);
   // The registries read back empty rather than pretending.
   const lotteries = await instance.app.inject({ method: "GET", url: "/api/v1/lottery/lotteries", headers });
   assert.deepEqual(lotteries.json().lotteries, [{ code: "EUROMILLIONS", name: "EuroMillions", enabled: true }], "the game row is ensured by the first status read (LT-4), and it is the only seed");

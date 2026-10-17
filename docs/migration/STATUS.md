@@ -1,8 +1,793 @@
 # JavaScript / Node.js / cPanel migration status
 
-**Updated:** 2026-10-16 · **Branch:** `arena/3ec00218-ai`
+**Updated:** 2026-10-17 · **Branch:** `arena/046b29ac-ai`
 
-## Current Phase 28 status (2026-10-16)
+## Current Phase 42 status (2026-10-17)
+
+**Row 5's two open decisions are closed: one retention policy over four tables, and the outbound
+SMTP transport.** Neither is a new module — `audit` and `notifications` were already `ported` — so
+the ledger is unchanged at **10 ported / 5 partial / 2 not-ported**. What changed is that the two
+sentences those modules had to carry ("no retention policy", "no outbound mail transport") are no
+longer true, and every place that printed them was updated to say what is now the case.
+
+**Retention is one operator command with four windows.** `npm run prune:retention`
+(`tools/prune-retention.mjs`) applies `ANALYSIS_RETENTION_DAYS` (default 90, R-27 unchanged),
+`NOTIFICATION_RETENTION_DAYS`, `BACKTEST_RETENTION_DAYS` and `AUDIT_RETENTION_DAYS` — the last three
+**0 = keep forever** by default. Dry run is still the default, `--apply` is still required, and
+**no HTTP route can delete a row**. Three guards make the new windows safe: notifications prune
+only rows already **read** (an unread alert is a to-do item and a dedupe key); backtests never lose
+the newest report for a `(strategy, version)`, so `countBacktests > 0` and `latestBacktest` cannot be
+changed by retention; and both text-timestamp tables are shape-checked before comparison, so a
+legacy `11/07/2026` row is skipped rather than deleted as "oldest". Measurement and deletion share
+one predicate, MySQL deletes in ordered clamped batches, and the file adapter's deletions replay
+from the log.
+
+**Mail is SMTP, from the server environment, with the transport injected.** `Aegis\Mailer` is ported
+method for method — `enabled()`, `configSummary()` (nine credential-free fields), `send()` with
+legacy's four refusals in legacy's order and words, `sendTest()` with legacy's subject — plus
+`Admin::test_email` (super-admin, CSRF, audits `ADMIN_TEST_EMAIL` `{to, ok}`) and `Site::tryMail`
+(the contact copy to `VP_MAIL_FROM` with the visitor as Reply-To, a failure never failing the
+intake). Two routes: `GET /api/v1/admin/mail`, `POST /api/v1/admin/mail/test` — **route inventory
+146 → 148**. `/app/admin`'s Email / SMTP panel is the ported panel: the server's summary, a real
+test send and the server's own sentence for either outcome.
+
+**Three divergences are on the record, not in a diff.** MA-1: production refuses credentials over
+an unencrypted socket (legacy sent them). MA-2: when `tls` is configured and the server offers no
+STARTTLS the send fails (CodeIgniter downgraded). MA-3: certificates are verified (CodeIgniter's
+client did not). Each is a deliberate tightening; none is called parity.
+
+**What this does *not* claim.** Notifications still have no delivery channel — no publisher is
+given the mail service, `emailDeliveryAvailable` stays `false`, and the notifier's reason now says
+what SMTP *is* for: the administrator test send and the contact-form copy. Password reset still
+answers `delivered: false`; its remaining blocker is the token store, not a transport. Settings
+screens are still absent.
+
+A sixteenth server suite (`test/retention_policy.test.js`, **13 tests**) and a mail suite
+(`test/mail.test.js`, **11 tests**) carry the work. The mail tests speak SMTP over a real socket to
+`test/smtp-server.js` on 127.0.0.1 — success, dot-stuffing, AUTH refusal, RCPT refusal, STARTTLS
+refusal and a dead port — so no assertion depends on a mocked return value and no test can reach a
+public host. Repository contract **185 → 188** (three prune methods, pinned in the five files that
+pin it). Gates: `npm run check:workforce` **1205 / 1205** (1181 before: +24), the client suites
+**204 / 204**, `npm run typecheck` clean, `npm run test:contracts` 12/12, the client build
+(`index-Dv9NrFsv.js` 590.71 kB / 157.00 kB gzip, `index-CkPGdTlp.css` 47.51 kB / 9.88 kB gzip) and
+`npm run verify:install -- --require-bundle` **30 / 30**. A live smoke test of the assembled
+server against the seeded file store — sign-in, the credential-free summary, a real test send and
+the contact copy over a local `127.0.0.1` SMTP listener, the served bundle, and the CLI's dry run —
+passed **17 / 17**; the harness was a throwaway script, and every assertion it repeats exists in the
+suites above. **Not run:** a real browser, real SMTP to an external host (every send went to the
+local test server), real MySQL/MariaDB, any live provider, cPanel/Passenger, and still no PHP↔Node
+numeric diff (F-26). Full record:
+[`PHASE42_RETENTION_AND_MAIL.md`](PHASE42_RETENTION_AND_MAIL.md).
+
+## Phase 41 status (2026-10-17) — superseded by Phase 42
+
+**Row 18 has no screen left, and F-29 is closed: `/app/journal` is the port of `Journal::index` →
+`views/journal/index.php`.** The five group switches, the six overall figures with their per-group
+table, the newest 200 entries and the confidence-calibration meters — over the three journal reads
+the strategies module has served since Phase 6. **146 routes before and after — no route, migration,
+contract method, repository method, permission or dependency was added.** This was the quietest
+console in the series: the analytics were already ported and oracle-tested, so the work was in not
+introducing drift.
+
+**Nothing is recomputed in the browser.** `journalNumber`/`journalPercent`/`journalCount` reproduce
+`number_format`'s thousands separators and fixed decimals, and each panel uses the PHP's own
+precision (1/2/0/2/1/0 for the six overall cells, 0 for a group's `Win%`, 5 for prices). The screen
+and the endpoint cannot disagree about a number, because the screen only formats what the endpoint
+sent.
+
+**The page is a read and says what it does not draw.** All three reads are **session-only**, as
+`Journal`'s `App_Controller` and `Api_journal`'s `Api_controller` were — a signed-in account with no
+permissions reads every panel, which the suite and the probe both check. `POST
+/api/v1/journal/manual` is listed beside them with its CSRF requirement and marked **not drawn**:
+legacy's page drew no form for it either.
+
+**Two divergences are on the page rather than in a diff.** The group switch is in-page state (this
+shell's router matches exact paths and has no query string, so legacy's `?groupBy=` links cannot be
+reproduced), and the summary endpoint reads 500 rows while the table lists 200 — legacy's own page
+analysed the 200 it displayed — so the overall panel can describe trades the table does not show, and
+says so. DV-5 (analytics ordering by `execution_time` as text) is inherited from Phase 6, not fixed
+here.
+
+**The dashboard's last stale "not ported" sentence is gone.** `PANEL_FEET.activity` is legacy's own
+again — `View analytics` → `/app/journal` — where it used to say the journal screen did not exist.
+That was the last copy in the shell pointing at a screen this edition lacked.
+
+A fifteenth client contract suite (`test/client_journal_console.test.js`, **17 tests**, six over
+HTTP) asserts every page string inside the PHP, the port's sentences *outside* it, the formatting of
+every cell, the windows against the server's constants and the four routes against
+`/api/v1/system/routes` (all `permission: null`, no `/analytics` alias), and drives the live app:
+seeded rows flow into the table, the strategy groups, the confidence buckets and the small-sample
+verdict; an invalid grouping is 400; the manual write is 403 without CSRF; a member with no journal
+permission reads all three surfaces. Gates: `npm run check:workforce` **1181 / 1181** (1164 before:
++17), the client suites **204 / 204**, `npm run typecheck` clean, `npm run test:contracts` 12/12, the
+client build (`index-DqanVWU-.js` 587.69 kB / 156.25 kB gzip, `index-CkPGdTlp.css` 47.51 kB / 9.88 kB
+gzip) and `npm run verify:install -- --require-bundle` **30 / 30**, plus a **33 / 33** live probe on a
+reseeded demo host. **Not run:** a real browser, real MySQL/MariaDB, any live provider, SMTP,
+cPanel/Passenger, and still no PHP↔Node numeric diff (F-26) — the journal analytics themselves were
+compared against the PHP oracle in Phase 6. Full record:
+[`PHASE41_JOURNAL_CONSOLE.md`](PHASE41_JOURNAL_CONSOLE.md).
+
+**F-29 is closed.** Seven screens were counted after the Phase 33 audit — paper (37), risk (38),
+execution (39), brokers (40), journal (41), sports (36) and the admin control centre (35) — and all
+seven are now declared routes. The unported modules' own views (`views/leads/`,
+`views/langlearn/*`) were always rows 16–17's workstreams rather than this finding's, and the public
+chat assistant's floating window is row 18's remaining *surface*, not one of the five consoles F-29
+counted. **Module counts are unchanged — 10 ported / 5 partial / 2 not-ported.**
+
+## Phase 40 status (2026-10-17) — superseded by Phase 41
+
+**Row 13 has no screen left: `/app/brokers` is the port of `Brokers::index` → `views/brokers/index.php`.**
+The routing banner, the governance strip, the ten connector cards with their capability rows and
+bridge fields, the nine PLANNED adapters in the controller's own words, and the module's own list of
+surfaces this port does not have — over the module's **one** route, `GET /api/v1/brokers`
+(`trading.view`), plus `GET /api/v1/trading/mode` for the strip. **146 routes before and after — no
+route, migration, contract method, repository method, permission or dependency was added.**
+
+**This is the first console whose legacy page is mostly controls the port deliberately does not
+have, and it says so three times.** (1) **The screen is one read and nothing else**: `routable` is the
+server's boolean, every state and flag comes from the same response, and there is no enable, no toggle
+and no order button because there is no such route. (2) **The simulated bridge is absent with its
+switch** — the marker-file mock `DemoBridgeConfig` writes has no equivalent here, so
+`POST /brokers/sim-toggle` is not registered; the panel still reports the MT5 adapter's own `simulated`
+flag and names legacy's two button labels as text. (3) **The MT5 account and quote panels have no
+payload because they have no route** — both legacy reads were unauthenticated (**F-32**), and a read
+that can only answer 503 on a host with no bridge is worse than no route; the quote button is
+`disabled` with its title saying why, and neither panel draws an empty table.
+
+**Four divergences are named rather than discovered.** The roster is the registry's, in legacy's
+registration order, so a roster change cannot leave the page drawing a connector the server does not
+have; the PLANNED matrix keeps the controller's wording while cards carry adapter ids. A fifth state,
+`ERROR` (the manager's answer when an adapter throws), renders **neutral with its reason**, never
+green. `orderSubmission` (local intent) and `orderSubmissionEffective` (bridge-verified, the only one
+the supervisor trusts) are printed as different facts, with the disagreement stated as normal for a
+scaffolded adapter. And the state ladder is legacy's — `DISABLED → NOT_CONFIGURED → DOWN → READY`,
+bridge fields only in READY.
+
+A fourteenth client contract suite (`test/client_broker_console.test.js`, **16 tests**, five of them
+over HTTP) asserts every page string inside the PHP (markup/entity-insensitive) and the two simulation
+flashes against `Brokers.php` raw; parses legacy's four states and tones out of the PHP and pins the
+port's fifth as neutral; proves the ten-connector roster order and the nine controller PLANNED details;
+asserts both reads against `/api/v1/system/routes` and the three legacy surfaces **absent** (404 live);
+holds the view to **no write of any kind**; and drives the live app — the read returns ten connectors,
+nine planned rows, `routable: false` and no token, while a bridge configured against loopback port 9
+reports **DOWN** with `routable` still false and the banner still DISABLED. Gates: `npm run
+check:workforce` **1164 / 1164** (1148 before: +16), the client suites **187 / 187**, `npm run
+typecheck` clean, `npm run test:contracts` 12/12, the client build (`index-DJJMqW7Q.js` 576.08 kB /
+153.31 kB gzip, `index-BhV6cGTA.css` 45.68 kB / 9.59 kB gzip) and `npm run verify:install --
+--require-bundle` **30 / 30**, plus a **22 / 22** live probe on a reseeded demo host (146 routes, one
+broker route, three absent routes 404, a DOWN bridge on a second host, and no probe token in the
+body). **Not run:** a real browser, real MySQL/MariaDB, any live provider, SMTP, cPanel/Passenger, and
+still no PHP↔Node numeric diff (F-26). Full record:
+[`PHASE40_BROKER_CENTER.md`](PHASE40_BROKER_CENTER.md).
+
+**F-29's residual list is now one: the journal** — brokers left it. **The module counts are unchanged —
+10 ported / 5 partial / 2 not-ported.** `brokers` stays `partial` for reasons that are not the screen
+(no adapter verified against a provider, no order routing, no simulated bridge, no MT5 account/quote
+read), and the console states all four rather than letting a finished screen imply a finished module.
+
+## Phase 39 status (2026-10-17) — superseded by Phase 40
+
+**Row 2 has no screen left: `/app/execution` is the port of `Execution::index` →
+`views/execution/index.php`.** The propose form, the human decision, the proposals table with its
+persisted pipeline checks, the broker executions panel and the automation envelope — over the six
+routes `src/modules/execution/routes.js` actually registers. **146 routes before and after — no
+route, migration, contract method, repository method, permission or dependency was added.** The
+module's HTTP surface was ported in Phases 8A and 13; this phase ported the screen over it.
+
+**This is the first console whose gap is a missing half rather than a divergence, and it says so
+three times.** (1) **The port performs three of the fifteen supervisor steps** — `kill-switch`,
+`trading-mode` and `strategy`, plus the audit step — and the pipeline panel marks every step as this
+port's, the separate `trading.control` decision, or broker-bound (row 13), instead of presenting
+three checks as a fifteen-step run. (2) **The automation envelope is not stored**: there is no
+`GET /api/v1/trading/limits`, no `updateAutomationLimits`, no `POST /api/v1/execution` and no
+`automationModeGate`; the panel shows `ExecutionSupervisor::automationLimits()`'s own defaults
+labelled as **legacy defaults**, and notes that `POST /trading/mode` accepts only `ANALYSIS_ONLY`
+and `PAPER_TRADING`, so the automated modes cannot even be selected here. (3) **The step after
+approval is a paper submission**: there is no broker route and no executions read, so the Brokers
+panel carries legacy's empty-state sentence plus the reason it can only ever be empty, and the
+outcome sentence never borrows legacy's "broker order created".
+
+**Four divergences are named rather than discovered.** The form names the **paper account** because
+the port's proposals are owner- and account-scoped (legacy had one implicit portfolio); it offers a
+**risk fraction instead of a volume** because the intent has no volume field and the Risk Engine
+sizes the position; a decision needs a **written reason of 10–1000 characters** (`DECISION_BODY`)
+where legacy took a bare `approve=1|0`; and it uses the contract's market-class spellings
+(`futures, indices, bonds`) rather than legacy's singular three, which `PROPOSAL_BODY` would reject.
+Legacy's status vocabulary is pinned to the PHP's tone map and the port's to `PROPOSALS_QUERY`, so
+`READY_TO_ROUTE` / `EXECUTED` / `FAILED` cannot quietly appear where no broker route exists.
+
+A fourteenth client contract suite (`test/client_execution_console.test.js`, **27 tests**, ten of
+them over HTTP) parses the fifteen pipeline steps **out of the supervisor's own docblock** and
+compares them step for step, extracts the port's `addCheck` calls from `service.js` and compares them
+to the declared checks, asserts every read and write against `/api/v1/system/routes` (and asserts
+`/api/v1/execution`, `…/route` and `trading/limits` are **absent**), and drives the live app: a
+`trading.view` viewer reads all five surfaces and is refused all three writes; an executive holding
+`trading.execute` but not `trading.control` cannot approve their own proposal (403) and cannot submit
+it early (409); the kill switch stops a proposal at step 1 with legacy's detail sentence and
+`ANALYSIS_ONLY` at step 2; a short reason is the schema's 400 and changes nothing; a valid decision is
+audited and hands the proposal to `paper-submit`, producing `PAPER_EXECUTED` with a synthetic filled
+order. Gates: `npm run check:workforce` **1148 / 1148** (1121 before: +27), the client suites
+**171 / 171**, `npm run typecheck` clean, `npm run test:contracts` 12/12, the client build
+(`index-NvWKdgRS.js` 560.99 kB / 149.69 kB gzip, `index-D_kH6U8l.css` 44.85 kB / 9.44 kB gzip) and
+`npm run verify:install -- --require-bundle` **30 / 30**, plus a **39 / 39** live probe against a
+rebuilt demo host. The probe's first run was refused 409 `PAPER_REJECTED` because the demo leaves
+synthetic prices off — the paper engine's own gate — so the probe enables the flag for the submission
+and restores all three governance switches afterwards. **Not run:** a real browser, real
+MySQL/MariaDB, any live provider, SMTP, cPanel/Passenger, and still no PHP↔Node numeric diff (F-26).
+Full record: [`PHASE39_EXECUTION_CENTER.md`](PHASE39_EXECUTION_CENTER.md).
+
+**Building this screen found and fixed a shell-wide rendering defect, D-24:** `StateBox` returned its
+`empty` node whenever a read was `ready`, so every panel that passed both an empty message and its
+data rendered only the message — the paper boards, the Risk Center's scan and audit panels, the
+sports tables and the admin lists were all affected. The primitive now prefers `children`, and the
+eighteen call sites that passed an unconditional literal compute their fallback from the data.
+Rendering in a real browser is still unverified (there is none here), so the suite pins the shape
+rather than a screenshot.
+
+**F-29's residual list is now two: brokers and journal** — execution left it. **The module counts are
+unchanged — 10 ported / 5 partial / 2 not-ported.**
+
+## Phase 38 status (2026-10-17) — superseded by Phase 39
+
+
+**Row 11 has no screen left: `/app/risk` is the port of `Risk_center::index` → `views/risk/index.php`.**
+The eleven independent limits with veto power over every trade, the five persisted limits legacy's form
+never drew, the portfolio risk monitor, and the latest audit rows — plus the governance state legacy's
+layout header put on every page. **146 routes before and after — no route, migration, contract method,
+repository method, permission or dependency was added.** The module's HTTP surface was ported in Phase 7;
+this phase ported the screen over it.
+
+**It is the first of F-29's remaining consoles with a write on it, and it states three things legacy's
+page could not.** (1) **The scan is a read here**: legacy's `Risk_center::scan()` was a POST that scanned,
+audited alert *transitions* and stored the report, while the port's `GET /portfolio/risk-scan` performs the
+scan and writes nothing — the audited transitions are the scheduled operations job's
+(`portfolio.risk.alert` / `portfolio.risk.cleared`), and the panel says so beside the button. (2) **Legacy's
+notional field could never be saved**: the page rendered `maxPositionNotionalUsd` and
+`Risk_center::limits()` skipped it by name, so the input was decorative; the port keeps it as the twelfth
+editable limit and asserts the departure against the controller source. (3) **`maxCorrelatedPositions` is
+persisted and unenforced (F-30)**, said in the row itself. The form also sends only the fields that
+changed, so the audit row's `details.changed` means what it says; legacy re-audited all eleven on every
+save.
+
+**Severity is not invented.** The scan returns breach codes with no severity, so each badge uses
+`breachSeverity()`, pinned in the suite to the operations cron's own `CRITICAL_BREACH_CODES` /
+`WARNING_BREACH_CODES` — a code the cron would publish as `critical` cannot render on the screen as a
+warning. The audit panel names its gate: legacy showed the latest 25 rows to any signed-in member, the
+port requires `identity.users.view` (AV-1), and a session without it is told which gate it met rather than
+shown a subset.
+
+A thirteenth client contract suite (`test/client_risk_console.test.js`, **26 tests**, eight of them over
+HTTP) extracts the eleven form fields **from the PHP's own `$fields` array** and compares them key for key,
+label for label and scale for scale; asserts the form's bounds equal `RISK_LIMITS_BODY`'s and that the
+contract keys the form omits are exactly the read-only rows plus the immutable stop requirement; asserts
+every code the `portfolioRiskScan` function can emit is classified; and drives the live app: a
+`trading.view` viewer reads the limits, the state and the scan, is refused the audit read and the save
+(403 `PERMISSION_DENIED`); a save writes the persisted row, leaves every other limit untouched and audits
+exactly the one changed key; an out-of-bounds value is the schema's 400; the scan leaves **no** audit row;
+and a purposefully tightened `maxSymbolExposurePct` produces a real `SYMBOL_EXPOSURE_LIMIT` breach
+classified `critical`. Gates: `npm run check:workforce` **1121 / 1121** (1095 before: +26), the client
+suites **144 / 144**, `npm run typecheck` clean, `npm run test:contracts` 12/12, the client build
+(`index-BRQhhAzT.js` 528.70 kB / 142.36 kB gzip, `index-n6dzW65b.css` 43.05 kB / 9.19 kB gzip) and
+`npm run verify:install -- --require-bundle` **30 / 30**, plus a **25 / 25** live probe against a rebuilt
+demo host (`/app/risk` serving the shell, the limits save and its restore audited, an out-of-bounds 400
+changing nothing). **Not run:** a real browser, real MySQL/MariaDB, any live provider, SMTP,
+cPanel/Passenger, and still no PHP↔Node numeric diff (F-26). The `risk` ledger label now names the console
+and keeps F-30 and the read-vs-audit distinction in the same sentence. Full record:
+[`PHASE38_RISK_CENTER.md`](PHASE38_RISK_CENTER.md).
+
+**F-29's residual list is now three: execution, brokers, journal** — risk left it. **The module counts are
+unchanged — 10 ported / 5 partial / 2 not-ported.**
+
+## Phase 37 status (2026-10-16) — superseded by Phase 38
+
+
+**Row 10 has no screen left: `/app/paper` is the port of `views/paper/index.php` (`Paper::index`) and
+`views/paper/account.php` (`Paper::account`) on one screen.** The accounts board, the account console (its
+eight statistics, open positions with their close buttons, the orders table *including the rejected rows*,
+the closed positions the close journaled, the deployments and their tick), the order and deploy forms,
+legacy's three banners, the effective risk limits and the module's own statement of where its governance
+lives. **146 routes before and after — this phase adds no route, no migration, no repository method, no
+permission, no dependency and no server file at all**: the module's HTTP surface was ported in Phase 7, and
+this phase ported the screens over it.
+
+**The console reads governance rather than assuming it.** All three banners — the synthetic-paper one, the
+mode one and the kill-switch one — come from `GET /trading/mode`, and only an explicit `active: false`
+silences the third, so an absent switch field is not a released switch. The effective-limits panel reads the
+same sixteen persisted limits the Risk Engine enforces instead of a second copy of them. The three
+governance **writes** — trading mode, the kill switch and synthetic-paper prices — are `trading.control`
+acts the screen deliberately does **not** carry: they live on `/app/analysis`, the panel names them, and the
+suite asserts the view never posts them.
+
+**Refusal text is the server's own sentence everywhere.** An order refused under the switch is a stored
+`REJECTED` row whose `reject_reason` is what the console prints ("Kill switch is ACTIVE — all paper orders
+are blocked"); a fill is the API's own "Order FILLED: BUY …"; a rejection the Risk Engine wrote (the
+provenance refusal, the minimum risk/reward) prints verbatim. Nothing is paraphrased, softened or
+substituted with a client-side guess. A `null` balance, price, P&L or R renders an em dash, never a zero.
+
+**Two divergences are stated rather than hidden.** The port's paper reads are **owner-scoped** where
+legacy's `Paper::account($id)` and its order/position/deployment queries had no owner filter at all, and a
+foreign account is answered exactly as a missing one (`404 PAPER_ACCOUNT_NOT_FOUND`, no existence leak) —
+asserted against legacy's own controller source in the console suite. And legacy's order form labelled the
+risk field `Risk %` with `min="0.1" max="2"` while the engine multiplies equity by it as a **fraction**, so
+legacy's bounds meant 10 %–200 % of equity; the port keeps the fraction, names it (`Risk (fraction of
+equity)`) and bounds it by the contract's `1e-6`…`0.05`, with both labels pinned in the test so the change
+cannot later be mistaken for a transcription error.
+
+A twelfth client contract suite (`test/client_paper_console.test.js`, **29 tests**, five of them over HTTP)
+pins the two legacy views' own words (`readFileSync` against `application/views/paper/*.php`), `PAPER_COSTS`
+against the engine's own constants, the market-class and timeframe vocabularies against the server enums,
+every declared read and write against `GET /api/v1/system/routes` and the permission the server enforces
+(the `/api/v1/paper/` surface is 11 method+path entries), the shapers on empty and populated payloads, the
+form validators and body builders (a blank optional field is omitted so the server's defaults apply), and
+the live flow: create → refused by the switch → refused in `ANALYSIS_ONLY` → refused in `PAPER_TRADING` with
+synthetic prices off → filled → tick → close → read back from the closed table, plus the deploy route
+refusing a `DRAFT` strategy until the lifecycle chain reaches `RISK_REVIEWED`. Gates: `npm run check:workforce`
+**1095 / 1095** (1066 before: +29), the client suites **118 / 118**, `npm run typecheck` clean,
+`npm run test:contracts` 12/12, the client build (`index-BZ7bg51D.js` 509.21 kB / 137.59 kB gzip,
+`index-BbfC8AGb.css` 42.15 kB / 9.05 kB gzip) and `npm run verify:install -- --require-bundle` **30 / 30**,
+plus a **35 / 35** live probe against the demo host (the refusal stored and read back, the fill path, the
+tick, the close and the deployments table, `/app/paper` serving the shell, and the demo's governance state
+**restored exactly** afterwards: kill switch ACTIVE, `ANALYSIS_ONLY`, synthetic prices off). The phase's
+first push (`f20bf70`) went red on CI for a reason the record keeps: the new suite did not pin
+`MARKET_DATA_REAL_PROVIDERS=0`, so on a runner with internet the app served **live** quotes and the two
+order flows asserted against prices the suite never chose. Fixed in the follow-up commit — every assertion
+about a fill or a backtest now also states the synthetic provenance it depends on.
+**CI `38981437025` on `de05ed3` is success on both jobs.**
+**Not run:** a real browser, real MySQL/MariaDB, any live provider, SMTP, cPanel/Passenger, and still no
+PHP↔Node numeric diff (F-26). Full record: [`PHASE37_PAPER_CONSOLE.md`](PHASE37_PAPER_CONSOLE.md).
+
+**F-29's residual list is now four: risk, execution, brokers, journal** — paper left it. **The module
+counts are unchanged — 10 ported / 5 partial / 2 not-ported:** this phase ported screens over routes that
+already existed.
+
+## Phase 36 status (2026-10-16) — superseded by Phase 37
+
+
+**Row 3 is closed: `/app/sports` is the port of `views/sports/index.php` (`Sports::index`) and
+`views/sports/tickets.php` (`Sports::tickets`) on one screen.** Today's intelligence, the ticket the daily
+run produced and the person's decision over it, the measured performance, the models and their
+calibrations, the provider boundary and the module's own statement of what it does not do. The sports
+dashboard was the last screen row 3 named, so the row now has **no screen left**: the settings gap closed
+in Phases 34–35, and the screens F-29 still names (paper, risk, execution, brokers, journal) belong to
+other modules. **146 routes before and after — no route, migration, contract method, permission or
+dependency was added.**
+
+**The console also closed a divergence it would otherwise have been a lie about.** `Api_sports::decide_ticket`
+refuses an approval while the platform kill switch is ACTIVE; the Node decision route did not.
+`assertKillSwitchReleased(paper)` now runs on `POST /sports/tickets/:ticketId/decision` **after** schema
+validation and **before** the decision, and refuses with **409 `SPORTS_KILL_SWITCH_ACTIVE`** carrying
+legacy's own sentence: *"kill switch is ACTIVE — approving new tickets is blocked until it is released
+(settlement remains available)"*. The state is read through the **paper service** (`tradingState()` →
+`publicTradingState` → `normalizeTradingState`) — the module that owns the switch and the only one that
+normalizes it — so only a stored `active: false` releases it and absent state, a missing governance surface
+or malformed rows **fail closed**, exactly as a fresh host boots ACTIVE. The refusal applies to **rejects
+too**, because legacy's guard was on the route rather than the verb; **settlement is deliberately not
+behind it**, which is what the message itself promises. The client reads the switch rather than assuming it:
+the notice appears only when the session holds `trading.view` (the gate on `GET /trading/mode`) and carries
+both sentences — the console's flash and the API's own answer to a decision taken now.
+
+**The screen's honesty rules are the dashboard's and the lottery console's.** `isDemoData` renders legacy's
+`demoBanner` verbatim and a host with **no provider configured** says so (the API's `DISABLED_NO_PROVIDER`
+fact, never a zero-valued health card); a provider with nothing observed renders `UNKNOWN`, never a
+fabricated health; `enabled` (the env switch) is shown beside `configuration.module_enabled` (the stored
+setting) because the API keeps those two apart; the mean confidence of a day with no predictions is an em
+dash, never `0`; `GET /sports/predictions` has **no instant filter**, so the day attribution is computed
+client-side and the panel says the counts are a floor when the page is full; each displayed fixture's
+quality is one `GET /sports/matches/:id/intelligence` (25 rows at most) and a fixture that was not assessed
+is marked *not assessed*; and `GET /sports/configuration` is **not attempted** without `sports.manage` —
+the panel names the gate instead of filling with a refusal.
+
+**The honesty corrections this phase had to make were in the ledger, not the screen.** `SPORTS_NOT_PORTED`
+was still listing *"the console screens"* after the console landed — a matrix named *not ported* may not
+name a surface that exists — and is now a **single entry, "stake sizing"**; external execution and an
+unverified vendor are stated in words rather than added as rows with a fabricated `state`. The
+`health.js` sports label loses `Not ported: stake sizing and the console screens (F-29)` and states the
+console, the F-29 closure, the guard and the one remaining entry instead; the module **stays `partial`**
+because no stake is sized, nothing is executed, no stored result is trusted before a person attests to it,
+and no provider has been verified against a real vendor. `src/modules/sports/sync.js`'s audit-vocabulary
+docblock no longer says the screens are missing. Four suites moved with the claims, each with its reason in
+the assertion: `test/sports.test.js` (2 → 1, plus a guard that no ported area re-enters the matrix),
+`test/sports_http.test.js`, `test/platform_findings.test.js` and `test/client_dashboard.test.js` (whose
+F-29 absence list loses `/app/sports` **because it is now declared**).
+
+An eleventh client contract suite (`test/client_sports_console.test.js`, **20 tests**, three of them over
+HTTP with the sandbox double-gate) pins the legacy views' own words (`readFileSync` against
+`application/views/sports/*.php`), every declared read and write against `GET /api/v1/system/routes` and the
+permission the server enforces, the single `assertKillSwitchReleased` call site (so settlement cannot grow
+one), the shapers against real payloads, and the live behaviour: a `sports.view` analyst reads everything it
+asks for, the decision route answers 409 under the boot switch with nothing changed, and after an operator
+releases the switch through `/api/v1/trading/kill-switch` the same request succeeds and a second one is
+`409 SPORTS_TICKET_ALREADY_DECIDED`. Gates: `npm run check:workforce` **1066 / 1066** (1045 before: +20
+console tests, +1 HTTP guard test), the eight client suites **89 / 89**, `npm run typecheck` clean,
+`npm run test:contracts` 12/12, the client build (`index-D7L0hs05.js` 472.30 kB / 129.00 kB gzip,
+`index-B_XlxOxv.css` 41.01 kB / 8.83 kB gzip) and `npm run verify:install -- --require-bundle`
+**30 / 30**, plus a **36 / 36** live probe (the demo store seeded with four "… Test" fixtures and an
+approved calibration, the daily ticket run through the API, an approval refused 409 with nothing changed).
+**Not run:** a real browser, real MySQL/MariaDB, any live provider, SMTP, cPanel/Passenger, and still no
+PHP↔Node numeric diff (F-26). **CI `38976858301` on `1d959a0` is success on both jobs.** Full record:
+[`PHASE36_SPORTS_DASHBOARD.md`](PHASE36_SPORTS_DASHBOARD.md).
+
+**F-29's residual list is now five: paper, risk, execution, brokers, journal** — sports left it whole,
+route included. **The module counts are unchanged — 10 ported / 5 partial / 2 not-ported:** this phase
+ported a screen and one legacy guard over routes that already existed.
+
+## Phase 35 status (2026-10-16) — superseded by Phase 36
+
+**The administrator control centre is closed: `/app/admin` is the port of `views/admin/index.php`**
+(`Admin::index`). It is the super administrator's page — `requireAdmin()` → `isAdmin()` →
+`can($user, 'system.super_admin')`, the gate the route keeps — and it carries legacy's four statistics
+with legacy's captions, the access-policy list, the user directory's entry point, the SMTP panel (stated
+as unported) and the feature-readiness table. With it, row 3's settings gap is complete: there is no
+legacy settings controller, so **the sports dashboard is the last screen row 3 names. 146 routes before
+and after — no route, migration, contract method or permission was added, and no server file was touched
+in this phase.**
+
+**The screen's honesty rules are the same ones the dashboard set.** `Users` reads the directory's
+`meta.total`, not the length of a page; `Strategies` reports the number legacy counted — the **version
+rows**, because `Api_strategies::index()` groups `strategy_id → versions` and
+`count($this->Aegis_model->strategies->all())` counted rows — and names the group count beside it;
+`Lottery draws` reads `drawsTracked`; and `Languages`, the one card no Node module can answer, prints an
+em dash and *"language learning is not ported (row 16)"* instead of a zero. The readiness table is
+`GET /system/status` → `modules` (17 rows, 10 ported / 5 partial / 2 not-ported) with the checks behind
+each row and the server's own legend; the two rows with nothing listed are exactly the two unported
+modules, and the table says "not stated". Legacy's own table was `Api_system::FEATURES` — TESTED /
+IMPLEMENTED / PLANNED about the PHP build — and those words are not reused, because in Node they would be
+a claim this edition cannot support. The SMTP panel is labelled `not-ported` and names the two ledger rows
+that wait on a transport (password reset `delivered: false`, and row 5's delivery decision), rather than
+showing a form that could only fail.
+
+**The access-policy panel now states machine-readable keys, and the suite holds it to the server's
+grants.** Legacy's five hand-written lines are transcribed (plus the `platform_member` baseline the panel
+never named); each row carries the role keys it describes and how many permissions each holds, asserted
+against `src/db/platform-baseline.js` — the Node mirror of `tools/rbac.php` — so a seeded grant that
+drifts from the screen fails the tests. The super administrator's row says "all 14 permissions", which is
+both the seeded vocabulary and true at runtime through the service's short-circuit, and the screen mirrors
+that shortcut (`holdsPermission`) so it withholds exactly the reads the API refuses and no more.
+
+**Auditing `AdminUsersView` for the same policy found three controls that could never have worked, now
+fixed.** The create form's role `<select>` offered `member`, `analyst`, `operator`, `supervisor`,
+`compliance_officer`, `admin`, `super_admin`; `POST /admin/users` validates against the eight seeded
+roles, so **six of the seven options were refused** `INVALID_REQUEST` and the account screen could only
+ever create super administrators. The options are now `GET /admin/roles`'s `assignable` list in the
+server's order. The status button sent `suspended` where `USER_STATUS_UPDATE` accepts `active` /
+`disabled`; it now says what legacy's page said — **Deactivate / Activate** — and the directory filter is
+`any / active / disabled`. And the signed-in administrator's own row was offered a toggle the API refuses
+(`SELF_DEACTIVATION`); it now reads "Current account", as legacy's table did.
+
+A tenth client contract suite (`test/client_admin_console.test.js`, 10 tests; two of them seed the real
+platform baseline) pins the page's text, the policy-versus-grants claims, the four cards (no fabricated
+zero), the ledger and its legend, the SMTP panel's named rows, every read as a registered route, the live
+behaviour for the administrator and for a member holding only the signed-in baseline (403
+`PERMISSION_DENIED` on the two administration reads, while the session-only strategy list still
+answers), the store's single unassignable role, and the three fixes above — every offered role accepted,
+every refused one refused, both status values accepted and `suspended` not. Gates: `npm run
+check:workforce` **1045 / 1045** (1035 before), the six client suites **69 / 69**, `npm run typecheck`
+clean, the client build (`index-B-yTeuEP.js` 433.76 kB / 119.52 kB gzip, `index-CmBSwtE7.css` 39.72 kB /
+8.64 kB gzip), `npm run verify:install -- --require-bundle` **30 / 30**, and a **36 / 36** live probe
+against the demo store (a member created through the API with `platform_member`, then refused the two
+administration reads; `/app/admin` 200; the served bundle carrying the panel's strings and none of the
+three stale vocabularies). The demo store was re-seeded for this phase — the sandbox restart had left it
+without accounts — and the demo host ran with `RATE_LIMIT_LOGIN_MAX=50` so repeated probes do not trip
+the login limiter; neither is a product change. **Not run:** a real browser, real MySQL/MariaDB, any live
+provider, SMTP, and no PHP↔Node numeric diff (F-26 remains open). Full record:
+[`PHASE35_ADMIN_CONTROL_CENTRE.md`](PHASE35_ADMIN_CONTROL_CENTRE.md).
+
+**F-29's residual list shrinks by one: the admin control centre is now ported**, leaving paper, risk,
+execution, brokers, journal and sports. **The module counts are unchanged — 10 ported / 5 partial /
+2 not-ported:** this phase ported a screen over routes that already existed.
+
+## Phase 34 status (2026-10-16) — superseded by Phase 35
+
+**The account screen's profile image is closed: `/app/account` now drives the two routes that had no
+caller.** `POST`/`DELETE /api/v1/account/avatar` and the private read `GET /api/v1/files/avatars/:fileId`
+have existed since the identity slice while legacy's `/account` hero — the 84px circle, the upload form
+with its `accept` list and hint line, and the remove form that appears only when an image exists — was
+dropped in the port. The control carries legacy's own words (`Upload image`, `Save image`,
+`Remove image`, `Your profile image has been updated.` / `…removed.`), the initials fallback
+(`preg_replace('/[^A-Za-z0-9 ]/','')`, first character uppercased, `W` when nothing is left) and the
+session reload `Auth::reestablishIdentity()` performed. **No new HTTP route, migration, contract method
+or permission**: the server registers 146 routes before and after, and the screen adds no rule of its own
+— the accepted formats, the 2 MB cap, the content sniffing, the private storage and the audit trail were
+already the routes'.
+
+**Its refusals are the routes' own reasons, never a generic failure.** `avatarFailureMessage`
+(`client/src/avatar.js`) renders the server's message for every code: `Choose an image to upload`
+(`NO_FILE`), `Only PNG, JPEG, GIF or WebP images are allowed` (`UNSUPPORTED_TYPE`),
+`Profile image must be 2 MB or smaller` (413), `RATE_LIMITED` plus the `retry-after` to wait for, and —
+for `UPLOADS_DISABLED` — the server's sentence **plus the operator's remedy** (`UPLOADS_ENABLED=1`) and
+deliberately **no** retry advice, because that state carries `retryAfter: 3600` and "try again in about
+3600s" would be a lie about a switched-off feature. The bundle keeps no second copy of that sentence.
+
+**One parity defect and one latent one were fixed to make that true.** The route's own size refusal
+(legacy's `Profile image must be 2 MB or smaller`) was **unreachable**: `readRawBody` and
+`parseMultipart` answered first with byte counts (`must not exceed 2162688 bytes`), so a member
+uploading a 3 MB photo would have been told a number on a screen that says "up to 2 MB". Both layers now
+accept the route's `config.oversizeMessage`, declared once by the avatar route through
+`profileImageTooLargeMessage(config.uploads)` — the limit is unchanged, only the sentence. And `api()`
+had no multipart path: it set a JSON content type and ran `JSON.stringify(body)`, so the upload would
+have gone out as `{}` and been refused `MALFORMED_MULTIPART`; the multipart branch keeps the browser's
+boundary and still attaches the CSRF header.
+
+An 11-test client contract suite (`test/client_account_avatar.test.js`) pins the vocabulary against
+`views/auth/account.php`, the initials rule case by case (including the one deliberate deviation: legacy
+rendered a blank circle for `" Ada"`), the route inventory (session-only mutations, the rate-limited
+upload, the private read as the only way to the bytes), every refusal above, and the whole lifecycle —
+201, `/auth/me` agreeing, the bytes back byte-for-byte with `cache-control: private`, an anonymous read
+401, a replacement deleting the file it replaced, another member 403 `NOT_OWNER`, a missing CSRF token
+403 `CSRF_INVALID`, removal clearing the path and the file and falling back to initials, and both audit
+actions present. Gates: `npm run check:workforce` **1035 / 1035** (1024 before; one earlier run of the
+same command reported a single failure whose name was not captured, and the next full run plus three
+focused runs of the six client suites — 59 / 59 each — were green: recorded, unexplained),
+`test/client_account_avatar` **11 / 11**, the suites that exercise the changed body reader **62 / 62**,
+the client build (`index-CC_niHxZ.js` 421.96 kB / 116.41 kB gzip, `index-DF950OMU.css` 38.95 kB /
+8.48 kB gzip), `npm run verify:install -- --require-bundle` **30 / 30**, and a live probe against the
+demo store **21 / 21** (a real multipart upload over HTTP, the private read compared byte-for-byte, a
+text file named `.png` refused in the legacy words, a 3 MB upload refused as
+`Profile image must be 2 MB or smaller`, and the served bundle carrying the control's strings).
+**Not run:** a real browser, real MySQL/MariaDB, any live provider, SMTP, and no PHP↔Node numeric diff
+(F-26 remains open). Full record: [`PHASE34_ACCOUNT_AVATAR.md`](PHASE34_ACCOUNT_AVATAR.md).
+
+**Row 3 now owes the sports dashboard and the admin control centre** — nothing else in the settings gap:
+there is no legacy settings controller, and the avatar control was its first half (the admin control
+centre is the second; its SMTP panel cannot be ported while the platform has no mail transport). F-29's
+residual console list (paper, risk, execution, brokers, journal, sports, the admin control centre) is
+unchanged. **The module counts are unchanged — 10 ported / 5 partial / 2 not-ported:** wiring a control
+to existing routes is not a promotion.
+
+## Phase 33 status (2026-10-16) — superseded by Phase 34
+
+**Row 3's workspace dashboard is closed: `/app` is the port of legacy's `/dashboard`.** `Workspace::index`
+→ `views/workspace/index.php` is the page sign-in lands on, and the shell's signed-in home now renders
+it in legacy's own order: the `WINDELS AI WORKFORCE` hero with *"Welcome back, {first}"* (the first word
+of the display name, `Member` when unset), the three status pills — the trading state **replacing** the
+mode while the kill switch is engaged, which is what the page did — legacy's three quick actions, the
+four KPI cards with legacy's captions, the recent-activity table (Symbol, Timeframe, Bias, Completed;
+the bias in the shell's badge language and a **SIM** marker legacy's own dashboard could not show
+because its rows carried no provenance) and the notification feed that fetches eight and prints six.
+**No new HTTP route, migration, contract method or permission** — 146 routes before and after, and the
+four reads it makes all already existed.
+
+**The page's honesty rules are the point of the slice.** Two of the four reads are gated
+(`GET /trading/mode`, `GET /paper/accounts`, both `trading.view`) and are **not attempted** without it:
+the pills and cards name the gate rather than showing an error box for a request the viewer was never
+entitled to make. The language card is the one number no Node module can answer, so it shows an em dash
+and row 16 rather than a zero; the run count says it is the six most recent runs, not a lifetime total;
+the paper count says it is owner-scoped, because `GET /paper/accounts` is the viewer's accounts while
+legacy's `listAccounts()` read every row for any member. And two of the three quick actions — Paper
+trading and Learn a language — render as unavailable **with their reasons** (F-29 for the paper console,
+row 16 for language learning), because a link that 404s and a quiet omission are both worse than the
+sentence. The activity panel's foot says the same about legacy's `View analytics →`: it pointed at
+`/journal`, which this edition has not ported (row 18). Full record:
+[`PHASE33_WORKSPACE_DASHBOARD.md`](PHASE33_WORKSPACE_DASHBOARD.md).
+
+**A correction came before the screen.** Phase 32's record attributed the AI Workforce console to
+`views/workspace/index.php`; that file is the dashboard, and `/analysis` is `views/welcome/index.php`.
+The error had quietly removed the workspace dashboard from row 3's absence list. It is corrected in the
+Phase 32 record, in this file and in the row-3 ledger text, and the dashboard it hid is now ported.
+
+**F-29's residual scope is corrected, not just shortened.** It read *"still open for the Broker Center
+and the sports screens only"*; the legacy view directories say more: the consoles still absent are
+**paper, risk, execution, brokers, journal, sports** and the **admin control centre**, plus the screens
+of the modules that are not ported at all (leads, language learning). `RISK_REGISTER.md` carries the
+verified list. Row 3's remaining absences are stated the same way: the sports dashboard, the account
+screen's **avatar control** (`POST`/`DELETE /api/v1/account/avatar` exist and no control calls them) and
+the **admin control centre** (`views/admin/index.php`: the SMTP panel, the access-policy list and the
+feature-readiness table — its user table and the create/toggle forms are already at `/app/admin/users`,
+and the SMTP panel cannot be ported while there is no mail transport).
+
+Four defects were found and fixed on the way: `kpiCards` turned a null unread count into a confident
+**0** (`Number(null)` is 0 and finite — the exact failure the page exists to avoid, caught by the new
+suite's own no-zero assertion); the paper note explained the missing console without naming **F-29**;
+the readiness strip still claimed `TRADING MODE — Not enabled in this shell`, which stopped being true
+when Phase 32 made the mode real and writable, and is now `ORDER ROUTING — Simulation only · no live
+route`; and the shell's `mono`/`dim`/`num` class names are defined in no stylesheet (`.muted` is; recorded,
+not swept — defining them would restyle seventeen phases of reviewed screens, so it belongs to a
+stylesheet pass with its own before/after evidence).
+
+A fifth client contract suite (`test/client_dashboard.test.js`, 8 tests) asserts the page's vocabulary,
+its honesty rules (a member with nothing granted is told which gate stood there and gets **no `0`
+anywhere**), that every destination is a declared route and every missing one carries a reason, the two
+row shapes, that the four reads are the registered routes with the permissions the server enforces, the
+live behaviour as both the administrator and a member holding only the signed-in baseline (the two
+governance reads answer, or **403 `PERMISSION_DENIED`**), the screen and its bundle, and that the two
+absences the page explains are the ledger's own (`languageLearning` `not-ported`, `paperTrading`
+`ported`, and `/app/paper`, `/app/risk`, `/app/execution`, `/app/journal`, `/app/brokers`, `/app/sports`
+not declared). Gates: `npm run check:workforce` **1024 / 1024** across 5 suites (1016 before), the client
+build OK (`index-3X6YJttD.js` 419.51 kB / 115.71 kB gzip, `index-Cyo6EhCz.css` 38.08 kB / 8.29 kB gzip),
+`npm run verify:install -- --require-bundle` **30/30**, and a live probe driven by the module's own
+helpers (six SIM activity rows, unread 4, the pills `Kill switch active · 0 paper accounts · Language
+learning not ported`, `/app` plus both assets 200 with the bundle carrying the dashboard's strings, all
+four reads matching the route inventory). **Not run:** a real browser, real MySQL/MariaDB, any live
+provider, SMTP, and no PHP↔Node numeric diff (F-26 remains open).
+
+**The module counts are unchanged — 10 ported / 5 partial / 2 not-ported.** This phase closed a screen,
+not a ledger state.
+
+## Phase 32 status (2026-10-16) — superseded by Phase 33
+
+**Row 3's analysis dashboard is closed: `/app/analysis` is the AI Workforce console.** It is the port
+of `views/welcome/index.php` (`/analysis` → `Welcome::index`) with the
+`views/welcome/partials/chart.php` chart behind it, driving the twelve analysis/market-data routes
+that already existed. **This record first said `views/workspace/index.php`, which is the dashboard,
+not the console** — Phase 33 records the correction and ports the screen the error had hidden. A run is requested on the legacy page's own eight symbols and six timeframes, with
+`marketClass` derived by the legacy rule; the result renders the headline, the synthetic-data banner
+built from the run's **own** provenance, the three meters, the consensus line naming its voting and
+abstaining agents, the nine signal rows, the five-agent panel, the four-round debate, the stored
+history, and the risk engine's proposal and decision — **only when the run produced them**, with the
+run's `riskContext` beside them, because on this edition's default `ANALYSIS_ONLY` posture a null
+proposal is a rendered outcome rather than a gap. The chart partial is ported as geometry
+(1000×380, 140 of 200 bars, the EMA warm-up rule, the volume strip, ±10 % S/R from the technical
+agent's levels) and a candle fetch that fails drops only the chart.
+
+**The screen is session-only, like the controller it ports** — every `/analysis*` and
+`/market-data/*` route is permission-`null`, so the exact-path route and the nav entry declare none.
+Its two governance controls are the paper module's own writes (`trading.view` to read the mode,
+`trading.control` to change it or the kill switch), so they render **disabled with the reason**
+instead of 403-ing on click; the three modes this edition does not have are named as unavailable with
+the capability each is missing, and refused by the request schema (400 `INVALID_REQUEST`) if posted.
+**No new HTTP route, migration, contract method or permission** — 146 routes before and after.
+
+Three defects were found and fixed in the port itself: `provenanceFacts(null)` rendered a **LIVE** banner for
+a payload that carried no provenance (it now returns null and the banner is not drawn); the console's
+copy claimed a 409 the API **cannot** return — the request schema refuses the legacy-only modes at the
+edge, so the service's `TRADING_MODE_UNSUPPORTED` 409 is unreachable over HTTP (the same shape as the
+lottery's unreachable statistics-kind refusal); and the phase-31 console's `.secondary-button` class
+was referenced but never defined, now defined. One divergence from legacy is **recorded rather than
+copied**: legacy's kill switch kept the reason and stamped a fresh `activatedAt` on **release** as
+well as engagement, so a released switch described itself as engaged at a time it was not; the port
+clears both and the release reason survives in the audit row. See
+[`PHASE32_AI_WORKFORCE_CONSOLE.md`](PHASE32_AI_WORKFORCE_CONSOLE.md).
+
+**CI had been failing since Phase 29, and the gate could not pass on a clean checkout.** The console suites
+assert that a bookmarked `/app/...` path answers the SPA shell; `public/app/` is generated and git-ignored, so
+without a build every deep link is a 404 by design — and CI ran the release gate **before** the client build, so
+the last four pushes failed at `npm run check` with only the failing test names visible. The workflow now installs
+and builds the client before the gate, and each deep-link test asserts the built shell up front with the remedy
+in its message. Reproduced both ways locally (bundle moved aside → one clear failure; rebuilt → 40/40 across the
+four console suites). CI run `38905032261` (`c0416cc`) then completed **green** in both jobs — the first green
+run on this branch since Phase 28. The app README's stale test counts (1008 tests / 74 files) are corrected to
+1016 / 72.
+
+A fourth contract suite (`test/client_workforce_console.test.js`, 8 tests) reads the console's
+vocabulary out of the server's own contracts, checks each built body against its schema property by
+property, asserts the pre-flights refuse what the schema refuses and nothing stricter, pins the chart
+geometry and the EMA warm-up, drives a run/scan/history/governance sequence against an in-process
+hermetic server, and asserts the route inventory holds **exactly three** permissioned routes on the
+console's whole surface. Gates: `npm run check:workforce` **1016 / 1016** across 5 suites (1008
+before), the client production build OK (`index-Brdr6qjd.js`, `index-C8opwlwx.css`),
+`npm run verify:install -- --require-bundle` **30/30**, and a live probe driving the console's own
+builders against the demo server (run, scan, history, both governance writes, all three refused
+modes, all three chart assets 200). **Not run:** a real browser, real MySQL/MariaDB, any live
+provider, and no PHP↔Node numeric diff (F-26 remains open).
+
+**The module counts are unchanged — 10 ported / 5 partial / 2 not-ported.** Row 3 stays `partial`:
+its remaining absences are the **sports dashboard** (waiting on stake sizing and a verified vendor)
+and the **settings screens** (waiting on row 5's decisions).
+
+F-29 was written here as closed *"for the audit browser (Phase 28), the portfolio optimizer (Phase 29),
+the lottery (Phase 30) and strategies (Phase 31); still open for the Broker Center and the sports
+screens only"* — **a residual list that was too short.** The legacy view directories also hold console
+screens for paper (`views/paper/{index,account}.php`), risk (`views/risk/index.php`), execution and
+journal, none of which the SPA has. Phase 33 records the verified list. See the current section.
+
+## Phase 31 status (2026-10-16) — superseded by Phase 32
+
+**Row 8's console gap is closed, and F-29 is closed for `strategies`.** `/app/strategy` is the port
+of `views/strategy/index.php` and of the three posts behind it (`Strategy_lab::run_backtest`,
+`::optimize`, `::advance`), which the SPA performs as API calls instead of a redirect each: a
+backtest run against the version on screen, the returned report (every metric, the equity curve,
+the trades, the data provenance and the engine's own warnings), the stored history with its
+SIM/LIVE badge, the six-stage lifecycle stepper whose advance button always targets the server's
+own `nextStage`, the 70/30 optimizer with its finalists, overfit warnings and method note, and the
+strategy cards with legacy's badge colours.
+
+**The screen is session-only, like legacy's `Api_controller`.** Those routes were guarded by a
+session and no permission, so the exact-path route declares none; the one permissioned control the
+console can render — the human sign-off on an `ai`-sourced version — is `trading.control` on the
+route that already enforced it. A refused promotion renders the server's `reasons` **and**
+`warnings` verbatim: legacy's gates computed those advisories and `transition()` then discarded
+them on the way out (DV-3), so a console that showed only "rejected" would lose what a person acts
+on. **No new HTTP route, migration, contract method or permission** — 146 routes before and after.
+
+A third contract suite (`test/client_strategy_console.test.js`, 8 tests) imports the console's
+plain-ESM logic and the server's own contracts side by side: timeframes, market classes, stage
+order and bar bounds are read from the API's declarations rather than restated, the four request
+bodies are checked against `BACKTEST_BODY`/`OPTIMIZE_BODY`/`STATUS_BODY`/`HUMAN_SIGNOFF_BODY`
+property by property, the pre-flights are asserted **not** to refuse what the engine only clamps
+(60–5000 backtest bars, 420–2000 optimizer candles), and the route inventory is asserted to hold
+exactly one permissioned route on the console's whole surface. One defect was found and fixed
+against the live endpoint: `optimizeRecommendation` prefixed "keep current parameters — " onto a
+reason that already began with it, printing the phrase twice.
+
+Gates: `npm run check:workforce` **1008 / 1008** across 5 suites (1000 before), the client
+production build OK, `node tools/verify-install.mjs --require-bundle` **30/30**. Live, against the
+demo server on the console's own builders: a run 200 (240 equity points for 300 bars, 3 trades,
+synthetic provenance, both warnings), the history and detail reads, the optimizer 200 (18
+combinations, split 350/150, `adopt:false`, one overfit warning), transitions refused 409 with
+reasons *and* warnings, sign-off 409 for a builtin strategy, `/app/strategy` and both bundle
+assets 200. **Not run:** a real browser, real MySQL/MariaDB, any live provider, and no PHP↔Node
+numeric diff (F-26 remains open). Full record:
+[`PHASE31_STRATEGY_CONSOLE.md`](PHASE31_STRATEGY_CONSOLE.md).
+
+F-29 now reads: closed for the audit browser (Phase 28), the portfolio optimizer (Phase 29), the
+lottery (Phase 30) and strategies (Phase 31); **still open for the Broker Center and the sports
+screens only**.
+
+## Phase 30 status (2026-10-16) — superseded by Phase 31
+
+
+**Row 15 is closed and `lottery` is `ported`.** The lottery console screens — the module's last
+unported entry — landed as two exact-path SPA routes under `lottery.view`, the same permission
+legacy's `Lottery.php` required: `/app/lottery` (the port of `views/lottery/index.php` plus the
+surfaces the Node module added — the four KPI cards, provider health with its six legacy facts and
+the persisted history, the latest stored draw with its typed numbers and the rules-as-configuration
+note, the provider registry, a date-filtered draw browser, the seven statistics kinds, the AI
+decision reports with each stored payload, job runs, the performance overview and the module's own
+boundary) and `/app/lottery/lab` (the generator with locks and excludes, saved combinations,
+diversity, tickets as records, the Strategy Lab with its mandatory baseline, stored backtest
+reports, model versions). Only the provider probe, the sync and the system build are
+`lottery.manage`. **No new HTTP route, migration, contract method or permission** — 146 routes
+before and after.
+
+`LOTTERY_NOT_PORTED` went from one entry to **empty**, and `test/lottery_http.test.js` now asserts
+the empty list rather than naming the last area; `health.js` moved `lottery` to `ported` and its
+label names both screens by route. The ledger is **10 ported / 5 partial / 2 not-ported (17
+modules)**; the partial count in `test/platform_findings.test.js` moved 6 → 5 and the ported count
+9 → 10, each with its reason in the assertion. Two defects were fixed on the way: `POST
+/lottery/generate` was **silently stripping `locks` and `excludes`** at the request edge (the
+validator keeps only declared keys on an object node, so `{mains: [7, 21]}` reached the generator as
+`{}` — legacy forwards the array unchanged and lets the engine's `normalizeField` be the only
+validator; the two nodes are now `additionalProperties: true` passthroughs), and the console's mode
+list spelled the generator's `ANTI-POPULAR` as `ANTI_POPULAR`.
+
+A second contract suite (`test/client_lottery_console.test.js`, 13 tests) drives the console's own
+request builders against the live engine: every statistic kind, every generator mode, every
+backtest strategy and the comparison are exercised for real, the refusals on the other side of each
+one are asserted, and the normalisers are run against real payloads rather than fixtures. Full
+record: [`PHASE30_LOTTERY_CONSOLE.md`](PHASE30_LOTTERY_CONSOLE.md).
+
+Gates: `npm run check:workforce` **1000 / 1000** across 5 suites (986 before), client production
+build OK, `node tools/verify-install.mjs --require-bundle` **30/30**. **Not run:** a real browser,
+real MySQL/MariaDB, any live provider, and no PHP↔Node numeric diff (F-26 remains open).
+
+## Phase 29 status (2026-10-16) — superseded by Phase 30
+
+**Row 9's console gap is closed.** `/app/portfolio/optimizer` exposes the Phase 11 endpoint
+as a workspace screen, guarded by `trading.view` in both the exact-path SPA route and the
+API, mirroring `views/portfolio/optimizer.php`. It carries the legacy screen's defaults and
+option order, pre-flights the refusals a person can fix before spending the endpoint's widest
+fan-out (universe size, symbol shape and uniqueness, bar bounds, the `1/n` cap floor, a mixed
+calendar without an explicit `periodsPerYear`), and renders the report as the API returns it:
+`SIMULATION` badge, every warning, per-asset provenance, the four-allocation comparison, the
+correlation matrix marked **unshrunk**, and the constraints block. **No saved reports** — the
+screen states that a run is returned, never stored, and that the audit trail records the run
+rather than the report. No new HTTP route, migration, contract method or permission: the route
+count stays 146.
+
+A new contract suite (`test/client_console.test.js`, 11 tests) closes the gap no server test can
+see: it imports the console's plain-ESM request module **and** the server's own
+`OPTIMIZE_BODY`/`PORTFOLIO_MARKET_CLASSES`/`OBJECTIVES` to fail on vocabulary drift, asserts the
+built body carries only declared properties and no order-shaped key, checks every literal path
+in `client/src/api.js` against the live `GET /api/v1/system/routes` inventory, requires every
+declared `/app*` route to answer the SPA shell for an HTML deep link, and pins the route, nav
+entry and guard to the same `trading.view` literal. It found two real defects while being
+written: `formatPercent(null)` rendered `0.00%`, and the first order-equality assertions would
+have forced the console to drop the legacy display order.
+
+Two stale status labels were corrected — the same class of error as overstating, in the other
+direction: `audit` still said "no console screen" after Phase 28 shipped one, and the workspace
+module cards still claimed sports and lottery were "Not yet ported to Node" long after their
+measured halves landed. Record: [`PHASE29_PORTFOLIO_OPTIMIZER_CONSOLE.md`](PHASE29_PORTFOLIO_OPTIMIZER_CONSOLE.md).
+
+Gates on this branch: client production build passed; `npm run check:workforce` **986/986** across
+72 files; `verify-install --require-bundle` 30/30; and a real server run (file adapter, seeded
+administrator) where the optimizer answered **422** for synthetic data without the opt-in and
+**200** with `RESEARCH_ONLY` + `SIMULATION:` + `synthetic-demo` provenance with it.
+**Not run:** a real browser, MySQL/MariaDB, SMTP, official feeds, a live provider call, or cPanel
+deployment. Still open: settings and the remaining domain dashboards (row 3), the retention
+decision and outbound delivery (row 5).
+
+## Phase 28 status (2026-10-16) — superseded by Phase 29
 
 The existing platform-wide audit API now has a read-only workspace console at
 `/app/admin/audit`. It is guarded by `identity.users.view` in both the exact-path SPA
@@ -13,8 +798,8 @@ The server-resolved actor, event entity, timestamp and JSON details are visible,
 with loading/error/empty states and the API's `mutable: false` signal. Record:
 [`PHASE28_AUDIT_BROWSER_SCREEN.md`](PHASE28_AUDIT_BROWSER_SCREEN.md). The API contract and
 storage are unchanged from Phase 10; no retention policy or historical audit import is
-implemented. The portfolio optimizer screen, settings and domain dashboards remain
-separate work.
+implemented. Settings and the remaining domain dashboards (analysis, strategy, sports,
+lottery) remain separate work; the portfolio optimizer screen followed in Phase 29.
 
 Gates on this branch: client production build passed; `npm run check:workforce` passed
 (30/30 install checks, 975/975 tests). **Not run:** a real browser, MySQL/MariaDB,
@@ -83,9 +868,10 @@ Gates on this branch: `npm test` **970 / 970** across **66** files, `npm run che
 001–019 against any database, any official feed, and a crontab — the CLI is proven by spawning
 the real tool against a real file store.
 
-**Still not ported (lottery):** the console screens only (F-29, platform-wide — no ported module
-has one). Platform-wide: F-15 (real MySQL), R-30 (file-adapter atomicity), row 22 (cutover), and
-the sports remainder (stake sizing, console screens).
+**Still not ported (lottery, as of Phase 25):** the console screens only (F-29, platform-wide — no
+ported module had one). **Closed in Phase 30** — see the current status above. Platform-wide: F-15
+(real MySQL), R-30 (file-adapter atomicity), row 22 (cutover), and the sports remainder (stake
+sizing, console screens).
 
 ## Phase 24 status (2026-10-13) — superseded by Phase 25
 

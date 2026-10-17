@@ -274,9 +274,32 @@ adapters, and can report an orphan rather than refuse the row. `paper_position_i
 is reserved for row 10 (paper trading); nothing in this migration writes it, but
 legacy rows carry values and dropping the column would lose them on import.
 
-Retention for `wf_backtests` is **not implemented** — recorded as **R-28**, because
-unlike analysis runs these rows are load-bearing evidence for promotions already
-granted.
+Retention for `wf_backtests` (R-28) is implemented in Phase 42 and **guarded**:
+`BACKTEST_RETENTION_DAYS` is `0` (keep forever) by default, and when a window is set the
+prune never deletes the newest report for a `(strategy_id, strategy_version)` pair — that
+row is excluded from both the measurement and the `DELETE`, so `countBacktests(...) > 0`
+and `latestBacktest(...)` cannot be changed by retention. Only canonical ISO-8601 text
+timestamps are compared, so a malformed import row is never sorted into the delete set.
+
+---
+### Retention policy over the four evidence tables (row 5, Phase 42)
+
+One operator command applies every window — `tools/prune-retention.mjs` /
+`npm run prune:retention` — with a dry run by default and no HTTP route that can delete a row:
+
+| Table | Window | Default | Guard |
+|---|---|---|---|
+| `wf_analysis_runs` | `ANALYSIS_RETENTION_DAYS` | 90 | R-27's original rule: strictly older than the cutoff, canonical ISO text |
+| `wf_notifications` | `NOTIFICATION_RETENTION_DAYS` | 0 (keep forever) | only rows already **read**; unread alerts are a to-do item and a dedupe key |
+| `wf_backtests` | `BACKTEST_RETENTION_DAYS` | 0 (keep forever) | newest report per `(strategy, version)` is never deleted |
+| `wf_audit_events` | `AUDIT_RETENTION_DAYS` | 0 (keep forever) | `DATETIME(3)`, compared as a bound UTC instant; deleting an event is a deliberate act and the CLI says so |
+
+The two text-timestamp tables (`wf_notifications`, `wf_backtests`) are compared with a
+`LIKE '____-__-__T__:__:__%'` shape guard on MySQL and the equivalent in the file adapter:
+text order is chronological only while every writer uses the canonical form (see migration 006's
+note), and a `11/07/2026` row would otherwise sort before every `2026-…` string and be deleted
+as "oldest". Measurement and deletion share one predicate in all four methods, and each report
+carries `matching`, `deleted`, `oldest`, `newest`, `bytes`, `batches` and `exhausted`.
 
 
 ---

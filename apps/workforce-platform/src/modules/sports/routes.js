@@ -18,10 +18,10 @@
  * module's reads correctly and left another's open, so "legacy did it this way" is
  * evidence about a controller, never about the application.
  *
- * Since no domain module has a sports console screen (**F-29**), the list of what is
- * *not* ported travels in the response — the same decision as BC-10 in the broker
- * port. The shared shell has a notification inbox, not a sports surface, so a module
- * that reported only what it has would still look complete.
+ * The list of what is *not* ported travels in the response (`status.notPorted`), the
+ * same decision as BC-10 in the broker port: a module that reported only what it has
+ * would look complete. Phase 36 ported the two console screens (**F-29**, closed for
+ * this module) and the matrix lost that entry rather than being re-labelled.
  */
 
 import { AppError } from "../../http/errors.js";
@@ -327,13 +327,47 @@ async function guarded(promise) {
 }
 
 /**
+ * Legacy's kill-switch refusal, transcribed — `Api_sports::decide_ticket` answers with
+ * exactly this sentence and status 409, and `Sports::decide` flashes the console form of
+ * it. The port put the guard here rather than in the console, because on this stack the
+ * console is a client: a control the browser hides is not a control, and the legacy
+ * controller checked this before it looked at the body.
+ *
+ * Settlement is deliberately *not* behind this guard, and the message says so: settling
+ * existing records is how a book is closed while new approvals wait.
+ */
+const KILL_SWITCH_ACTIVE_MESSAGE = "kill switch is ACTIVE — approving new tickets is blocked until it is released (settlement remains available)";
+
+/**
+ * Approve nothing while the platform kill switch is ACTIVE.
+ *
+ * The state comes from the paper service — the module that owns the kill switch and the
+ * only one that normalizes it (`normalizeTradingState`: only a stored `active: false`
+ * releases it). Absent state, a missing governance surface, or malformed rows all fail
+ * closed, which is what legacy's `Platform::state()` does at boot: the switch starts
+ * ACTIVE. `store.loadTradingState()` is not read directly here on purpose — two
+ * normalizations of the same flag is how a guard and a status page end up disagreeing
+ * about whether the switch is on.
+ *
+ * @param {object|null} paper the paper trading service, or null on a host without one
+ */
+async function assertKillSwitchReleased(paper) {
+  const state = typeof paper?.tradingState === "function" ? await paper.tradingState() : null;
+  if (state === null || state.killSwitch?.active !== false) {
+    throw new AppError(409, "SPORTS_KILL_SWITCH_ACTIVE", KILL_SWITCH_ACTIVE_MESSAGE);
+  }
+}
+
+/**
  * @param {import("fastify").FastifyInstance} app
  * @param {object} options
  * @param {object} options.config
  * @param {object} options.store
  * @param {object|null} [options.sports] the sports service
+ * @param {object|null} [options.paper] the paper trading service, which owns the platform
+ *   kill switch the ticket-approval guard reads
  */
-export function sportsRoutes(app, { config, store, sports = null }) {
+export function sportsRoutes(app, { config, store, sports = null, paper = null }) {
   const authenticate = createAuthenticator({ store, config });
   const actorOf = (request) => request.auth?.user?.id ?? null;
   const guardFor = (permission) => {
@@ -673,7 +707,8 @@ export function sportsRoutes(app, { config, store, sports = null }) {
   // ── tickets (slice 4) ─────────────────────────────────────────────────────
   // Generating a run is an operator's action (`sports.manage`). Reading is `sports.view`.
   // Deciding a ticket is `sports.approve`, the permission legacy's `Api_sports` checks, and
-  // it records a decision only: nothing is executed.
+  // it records a decision only: nothing is executed. Approval is the one sports write behind
+  // a second guard — the platform kill switch (Phase 36) — because legacy put two there.
 
   /**
    * Run the daily ticket generation for one UTC day over the fixtures already stored. A
@@ -709,16 +744,25 @@ export function sportsRoutes(app, { config, store, sports = null }) {
     paramsSchema: TICKET_PARAMS,
   }, async (request) => guarded(sports.tickets.getTicket(request.params.ticketId)));
 
+  /**
+   * A person approves or rejects one ticket, under `sports.approve` **and** a released
+   * kill switch. Schema validation runs first (Fastify's own order), then the switch, then
+   * the decision — so a malformed body is still a 400 rather than a refusal that reads like
+   * a governance state.
+   */
   app.post("/sports/tickets/:ticketId/decision", {
     preHandler: guardFor("sports.approve"),
     paramsSchema: TICKET_PARAMS,
     bodySchema: TICKET_DECISION_BODY,
-  }, async (request) => guarded(sports.tickets.decideTicket({
-    id: request.params.ticketId,
-    approve: request.body.approve,
-    reason: request.body.reason ?? "",
-    actorId: actorOf(request),
-  })));
+  }, async (request) => {
+    await assertKillSwitchReleased(paper);
+    return guarded(sports.tickets.decideTicket({
+      id: request.params.ticketId,
+      approve: request.body.approve,
+      reason: request.body.reason ?? "",
+      actorId: actorOf(request),
+    }));
+  });
 
   // ── settlement, verification, backtests and monitoring (slice 5) ───────────
   // Verification and settlement are `sports.settle`, the separate permission legacy

@@ -10,10 +10,16 @@
  * broadcast rows (`user_id IS NULL`) plus their own; an unauthenticated caller
  * sees broadcasts only. `read_at` is global to the row (see migration 009).
  *
- * There is no delete method. Notifications are operator evidence, and the
- * legacy application never offered a way to erase them; retention is a separate
- * decision (cf. R-27/R-28 for `wf_analysis_runs` and `wf_backtests`).
+ * There is no HTTP delete and no per-row delete: notifications are operator
+ * evidence. The one erasing path is `pruneNotifications`, driven only by
+ * `npm run prune:retention`, and it is deliberately narrow — a row is eligible
+ * only once it has been READ and is older than `NOTIFICATION_RETENTION_DAYS`.
+ * An unread alert is somebody's to-do item, and an unread row is also what
+ * suppresses a duplicate publish, so deleting it would lose both.
  */
+
+import { assertIsoCutoff } from "../persistence/contract.js";
+import { deleteInBatches, ISO_TEXT_LIKE, pruneReport } from "./retention.js";
 
 function boundedLimit(value, fallback = 50, ceiling = 200) {
   const parsed = Number.parseInt(value, 10);
@@ -138,6 +144,52 @@ export function createNotificationRepository(pool) {
         scope.values,
       );
       return Number(rows[0]?.unread ?? 0);
+    },
+
+
+    /**
+     * Retention for `wf_notifications` (row 5, `NOTIFICATION_RETENTION_DAYS`).
+     *
+     * Three conditions, all deliberate:
+     *  - `read_at IS NOT NULL` — unread rows are never eligible;
+     *  - `created_at < ?` — strictly older, so a row on the boundary survives;
+     *  - `created_at LIKE ?` — only canonical ISO-8601 text is ever compared, so a
+     *    malformed import cannot sort itself into the delete set.
+     *
+     * The default window is 0 (keep forever). Measurement and deletion share the
+     * same predicate. Read rows are small, but `bytes` still reports the stored
+     * title, detail and dedupe key so the CLI can say what was reclaimed.
+     */
+    async pruneNotifications(beforeIso, { dryRun = false, batchSize = 500, maxBatches = 1_000 } = {}) {
+      const cutoff = assertIsoCutoff(beforeIso);
+      const where = "read_at IS NOT NULL AND created_at < ? AND created_at LIKE ?";
+      const values = [cutoff, ISO_TEXT_LIKE];
+      const [[measured]] = await pool.execute(
+        `SELECT COUNT(*) AS total,
+                MIN(created_at) AS oldest,
+                MAX(created_at) AS newest,
+                COALESCE(SUM(LENGTH(title) + LENGTH(detail_json) + LENGTH(COALESCE(dedupe_key, ''))), 0) AS bytes
+           FROM wf_notifications
+          WHERE ${where}`,
+        values,
+      );
+      const report = {
+        ...pruneReport({ cutoff, dryRun }),
+        matching: Number(measured?.total ?? 0),
+        oldest: measured?.oldest ?? null,
+        newest: measured?.newest ?? null,
+        bytes: Number(measured?.bytes ?? 0),
+      };
+      return deleteInBatches(report, { batchSize, maxBatches }, async (batch) => {
+        const [result] = await pool.query(
+          `DELETE FROM wf_notifications
+            WHERE ${where}
+            ORDER BY created_at ASC, id ASC
+            LIMIT ${batch}`,
+          values,
+        );
+        return Number(result?.affectedRows ?? 0);
+      });
     },
 
     /**
