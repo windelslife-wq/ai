@@ -1059,7 +1059,7 @@ test("F-02 the status surface is honest about unported modules, and F-03 the rou
   assert.doesNotMatch(publicSiteLabel, /chat assistant not ported/i);
   assert.equal(body.modules.find((module) => module.key === "marketData").state, "ported", "market data was ported in Phase 4");
   assert.equal(body.modules.find((module) => module.key === "analysis").state, "ported", "the analysis engines were ported in Phase 5");
-  assert.equal(body.modules.filter((module) => module.state === "ported").length, 11, "identity, the public site (Phase 43, when the grounded chat assistant and floating widget closed its last unported surface), market data, analysis, the portfolio optimizer, strategies, paper trading, risk, notifications, the audit browser and lottery (Phase 30, when its last unported entry — the console screens — became a ported surface) have tested Node surfaces");
+  assert.equal(body.modules.filter((module) => module.state === "ported").length, 12, "identity, the public site (Phase 43, when the grounded chat assistant and floating widget closed its last unported surface), market data, analysis, the portfolio optimizer, strategies, paper trading, risk, notifications, the audit browser, scheduled jobs (Phase 44, when the 80/70/60% early-warning tiers, leverage check and correlation-group enforcement closed SJ-8, SJ-9 and F-30) and lottery (Phase 30, when its last unported entry — the console screens — became a ported surface) have tested Node surfaces");
   // Notifications are stored and read in-product only; the module says so itself
   // rather than implying an alert reached a device or an email inbox.
   assert.equal(body.modules.find((module) => module.key === "notifications").state, "ported");
@@ -1193,15 +1193,17 @@ test("F-02 the status surface is honest about unported modules, and F-03 the rou
   // permission exists precisely so that managing sports data and attesting to a
   // result are different grants.
   assert.match(sportsLabel, /sports\.settle/i);
-  // Phase 12 ports `Tools::cron()` as a scheduled-jobs module. It is `partial` and
-  // the label must carry the gap: legacy alerted at 80/70/60% of a limit as a
-  // `warning` and at the limit as `critical`, while this port alerts only on the
-  // paper scan's at-limit breaches. Without that in the label, `partial` would be a
-  // vague hedge instead of a statement of what is missing.
-  assert.equal(body.modules.find((module) => module.key === "scheduledJobs").state, "partial");
+  // Phase 12 ported `Tools::cron()` as a scheduled-jobs module, Phase 14 added broker
+  // connect/disconnect transition alerts, and Phase 44 closed SJ-8, SJ-9 and F-30 by
+  // porting the 80/70/60% early-warning tiers, gross notional leverage check and static
+  // disclosed correlation-group checks (`CORRELATED_GROUP_EXPOSURE` and `CORRELATED_POSITION_LIMIT`),
+  // promoting `scheduledJobs` from `partial` to `ported`.
+  assert.equal(body.modules.find((module) => module.key === "scheduledJobs").state, "ported");
   assert.match(body.modules.find((module) => module.key === "scheduledJobs").label, /no HTTP route/i);
-  assert.match(body.modules.find((module) => module.key === "scheduledJobs").label, /no early-warning tiers/i);
+  assert.match(body.modules.find((module) => module.key === "scheduledJobs").label, /80\/70\/60% early-warning tiers/i);
+  assert.match(body.modules.find((module) => module.key === "scheduledJobs").label, /CORRELATED_POSITION_LIMIT/);
   assert.match(body.modules.find((module) => module.key === "scheduledJobs").label, /CLI only/i);
+  assert.ok(!/no early-warning tiers/i.test(body.modules.find((module) => module.key === "scheduledJobs").label), "the ported label must not still carry the SJ-8 hedge");
   // Phase 14 moves `brokers` from not-ported to partial: the connector boundary, the
   // normalized data contracts and the demo-only order gates are ported and tested,
   // while no adapter is verified against its provider and no order can be routed.
@@ -1228,7 +1230,7 @@ test("F-02 the status surface is honest about unported modules, and F-03 the rou
     assert.match(lotteryLabel, pattern);
   }
   assert.ok(!/console screens are not ported/i.test(lotteryLabel), "the ported label must not still carry the F-29 hedge");
-  assert.equal(body.modules.filter((module) => module.state === "partial").length, 4, "execution (the remaining supervisor steps are broker-bound, no live route, no automated mode), scheduled jobs (no early-warning tiers, no sports cron), brokers (no verified adapter, no order routing) and sports (measured, console ported and person-gated: nothing executed, no stake sized, no stored result trusted before a person attests, no verified vendor) remain partial — lottery left the list in Phase 30 and the public site left it in Phase 43 when the grounded chat assistant and floating widget landed");
+  assert.equal(body.modules.filter((module) => module.state === "partial").length, 3, "execution (the remaining supervisor steps are broker-bound, no live route, no automated mode), brokers (no verified adapter, no order routing) and sports (measured, console ported and person-gated: nothing executed, no stake sized, no stored result trusted before a person attests, no verified vendor) remain partial — lottery left the list in Phase 30, the public site left it in Phase 43 when the grounded chat assistant and floating widget landed, and scheduled jobs left it in Phase 44 when the 80/70/60% early-warning tiers, leverage check and correlation-group enforcement landed");
   assert.equal(body.modules.filter((module) => module.state === "not-ported").length, 2, "language learning and lead discovery remain legacy-only");
   assert.equal(body.modules.length, 17, "the ledger keeps listing every module, ported or not");
   assert.ok(body.chat && body.chat.privateDataAccess === false, "status reports the credential-free public chat assistant snapshot");

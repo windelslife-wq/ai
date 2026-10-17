@@ -12,7 +12,14 @@ import { randomUUID } from "node:crypto";
 import { AppError } from "../../http/errors.js";
 import { marketDataFailure, isProviderFailure } from "../market-data/errors.js";
 import { MARKET_CLASSES } from "../market-data/timeframes.js";
-import { DEFAULT_RISK_LIMITS, createRiskEngine } from "../analysis/risk-engine.js";
+import {
+  CORRELATION_GROUPS,
+  CORRELATION_MODEL_DESCRIPTION,
+  DEFAULT_RISK_LIMITS,
+  EARLY_WARNING_RATIOS,
+  createRiskEngine,
+  findCorrelatedGroupOverlaps,
+} from "../analysis/risk-engine.js";
 import {
   fillEntry,
   limitTouched,
@@ -528,6 +535,7 @@ export function createPaperService({ store = null, marketData = null, strategies
       equity: summary.equity,
       peakEquity: Math.max(summary.peakEquity, summary.equity),
       openPositions: summary.openPositions,
+      openSymbols: (summary.positions || []).map((position) => position.symbol),
       openRiskBySymbol: summary.openRiskBySymbol,
       dailyPnl: summary.dailyPnl,
       weeklyPnl: summary.weeklyPnl,
@@ -1477,21 +1485,80 @@ export function createPaperService({ store = null, marketData = null, strategies
       if (summary.equity <= 0) breaches.push({ code: "NON_POSITIVE_EQUITY", message: "Equity is not positive; portfolio risk cannot be measured" });
       if (!summary.valuationAvailable) breaches.push({ code: "VALUATION_UNAVAILABLE", message: "One or more open positions could not be marked with current market data" });
       if (summary.openPositions > state.riskLimits.maxOpenPositions) breaches.push({ code: "OPEN_POSITION_LIMIT", message: `Open positions ${summary.openPositions} exceed limit ${state.riskLimits.maxOpenPositions}` });
-      if (summary.equity > 0 && summary.dailyPnl < 0 && -summary.dailyPnl / summary.equity > state.riskLimits.maxDailyLossPct) {
-        breaches.push({ code: "DAILY_LOSS_LIMIT", message: "Daily loss limit exceeded" });
+      if (summary.equity > 0 && summary.dailyPnl < 0) {
+        const dailyLossRatio = -summary.dailyPnl / summary.equity;
+        if (dailyLossRatio > state.riskLimits.maxDailyLossPct) {
+          breaches.push({ code: "DAILY_LOSS_LIMIT", message: "Daily loss limit exceeded" });
+        } else if (dailyLossRatio > state.riskLimits.maxDailyLossPct * EARLY_WARNING_RATIOS.dailyLoss) {
+          breaches.push({
+            code: "DAILY_LOSS_APPROACHING",
+            message: `Daily loss ${(dailyLossRatio * 100).toFixed(1)}% is approaching the ${(state.riskLimits.maxDailyLossPct * 100).toFixed(1)}% limit`,
+          });
+        }
       }
       if (summary.equity > 0 && summary.weeklyPnl < 0 && -summary.weeklyPnl / summary.equity > state.riskLimits.maxWeeklyLossPct) {
         breaches.push({ code: "WEEKLY_LOSS_LIMIT", message: "Weekly loss limit exceeded" });
       }
-      if (summary.peakEquity > 0 && (summary.peakEquity - summary.equity) / summary.peakEquity > state.riskLimits.maxDrawdownPct) {
-        breaches.push({ code: "DRAWDOWN_LIMIT", message: "Maximum drawdown limit exceeded" });
+      if (summary.peakEquity > 0) {
+        const drawdownRatio = (summary.peakEquity - summary.equity) / summary.peakEquity;
+        if (drawdownRatio > state.riskLimits.maxDrawdownPct) {
+          breaches.push({ code: "DRAWDOWN_LIMIT", message: "Maximum drawdown limit exceeded" });
+        } else if (drawdownRatio > state.riskLimits.maxDrawdownPct * EARLY_WARNING_RATIOS.drawdown) {
+          breaches.push({
+            code: "DRAWDOWN_APPROACHING",
+            message: `Drawdown ${(drawdownRatio * 100).toFixed(1)}% is approaching the ${(state.riskLimits.maxDrawdownPct * 100).toFixed(1)}% limit`,
+          });
+        }
       }
-      if (summary.equity > 0 && summary.openRisk / summary.equity > state.riskLimits.maxPortfolioExposurePct) {
-        breaches.push({ code: "PORTFOLIO_EXPOSURE_LIMIT", message: "Open risk exceeds the portfolio exposure limit" });
+      if (summary.equity > 0) {
+        const openRiskRatio = summary.openRisk / summary.equity;
+        if (openRiskRatio > state.riskLimits.maxPortfolioExposurePct) {
+          breaches.push({ code: "PORTFOLIO_EXPOSURE_LIMIT", message: "Open risk exceeds the portfolio exposure limit" });
+        } else if (openRiskRatio > state.riskLimits.maxPortfolioExposurePct * EARLY_WARNING_RATIOS.portfolioExposure) {
+          breaches.push({
+            code: "PORTFOLIO_EXPOSURE_APPROACHING",
+            message: `Open risk ${(openRiskRatio * 100).toFixed(1)}% of equity is approaching the ${(state.riskLimits.maxPortfolioExposurePct * 100).toFixed(1)}% limit`,
+          });
+        }
+      }
+      const grossNotional = summary.positions.reduce(
+        (sum, position) => sum + numeric(position.units) * numeric(position.current_price ?? position.entry_price),
+        0,
+      );
+      const rawLeverage = summary.equity > 0 ? grossNotional / summary.equity : 0;
+      const leverage = Math.round(rawLeverage * 10_000) / 10_000;
+      if (summary.equity > 0) {
+        if (rawLeverage > state.riskLimits.maxLeverage) {
+          breaches.push({
+            code: "LEVERAGE_LIMIT",
+            message: `Gross notional ${rawLeverage.toFixed(2)}x equity exceeds the ${Number(state.riskLimits.maxLeverage).toFixed(1)}x limit`,
+          });
+        } else if (rawLeverage > state.riskLimits.maxLeverage * EARLY_WARNING_RATIOS.leverage) {
+          breaches.push({
+            code: "LEVERAGE_APPROACHING",
+            message: `Gross notional ${rawLeverage.toFixed(2)}x equity is approaching the ${Number(state.riskLimits.maxLeverage).toFixed(1)}x limit`,
+          });
+        }
       }
       for (const [symbol, risk] of Object.entries(summary.openRiskBySymbol)) {
         if (summary.equity > 0 && numeric(risk) / summary.equity > state.riskLimits.maxSymbolExposurePct) {
           breaches.push({ code: "SYMBOL_EXPOSURE_LIMIT", symbol, message: `Open risk in ${symbol} exceeds the symbol exposure limit` });
+        }
+      }
+      const correlatedGroups = findCorrelatedGroupOverlaps(summary.positions.map((position) => position.symbol));
+      for (const overlap of correlatedGroups) {
+        if (overlap.count > state.riskLimits.maxCorrelatedPositions) {
+          breaches.push({
+            code: "CORRELATED_POSITION_LIMIT",
+            symbol: overlap.group,
+            message: `${overlap.count} positions in correlated group ${overlap.group} (${overlap.symbols.join(", ")}) exceed limit ${state.riskLimits.maxCorrelatedPositions} — ${CORRELATION_MODEL_DESCRIPTION}`,
+          });
+        } else if (overlap.count >= 2) {
+          breaches.push({
+            code: "CORRELATED_GROUP_EXPOSURE",
+            symbol: overlap.group,
+            message: `${overlap.count} positions in correlated group ${overlap.group} (${overlap.symbols.join(", ")}) — ${CORRELATION_MODEL_DESCRIPTION}`,
+          });
         }
       }
       const syntheticPositions = summary.positions.filter((position) => position.synthetic);
@@ -1510,6 +1577,8 @@ export function createPaperService({ store = null, marketData = null, strategies
         openPositions: summary.openPositions,
         openRisk: summary.openRisk,
         openRiskBySymbol: summary.openRiskBySymbol,
+        grossNotional: Math.round(grossNotional * 100) / 100,
+        leverage,
         peakEquity: summary.peakEquity,
         drawdownPct: summary.drawdownPct,
         valuationAvailable: summary.valuationAvailable,
@@ -1525,6 +1594,8 @@ export function createPaperService({ store = null, marketData = null, strategies
       killSwitch: state.killSwitch,
       allowSyntheticPaperData: state.allowSyntheticPaperData,
       limits: state.riskLimits,
+      correlationModel: CORRELATION_MODEL_DESCRIPTION,
+      correlationGroups: CORRELATION_GROUPS,
       simulationOnly: true,
       accounts: scanned,
       totals: {

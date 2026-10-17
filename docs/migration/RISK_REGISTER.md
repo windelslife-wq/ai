@@ -273,6 +273,11 @@ optimizer already builds, or to **remove the limit from the API** so it stops re
 enforced. The third is the only one that is honest without doing any modelling, and it is the
 minimum acceptable action. Related: R-20 and divergence SJ-9.
 
+**Update (Phase 44 — Closed).** Option 1 was implemented in [`PHASE44_SCHEDULED_JOBS_AND_CORRELATION.md`](PHASE44_SCHEDULED_JOBS_AND_CORRELATION.md), closing **F-30**, **SJ-8** and **SJ-9**:
+- `CORRELATION_GROUPS` (`CRYPTO_MAJORS`, `USD_MAJORS`, `USD_COUNTER`, `METALS`, `ENERGY`, `US_EQUITY_INDEX`) and `CORRELATION_MODEL_DESCRIPTION` (`"static disclosed groups (v1 heuristic, not statistical)"`) are ported verbatim from `PortfolioRiskMonitor.php` into `src/modules/analysis/risk-engine.js`.
+- `RiskEngine.evaluate(setup, context)` enforces `limits.maxCorrelatedPositions` at order time (`evaluatePaperRisk` passes `openSymbols` from `summary.positions`), vetoing any order that would push a correlation group's open position count above `maxCorrelatedPositions`.
+- `portfolioRiskScan` (`src/modules/paper/service.js`) emits `CORRELATED_POSITION_LIMIT` (`critical`) when a group's open position count exceeds `maxCorrelatedPositions` and `CORRELATED_GROUP_EXPOSURE` (`warning`) when `2 <= count <= maxCorrelatedPositions`, alongside the 80/70/60% early-warning tiers (`PORTFOLIO_EXPOSURE_APPROACHING`, `LEVERAGE_APPROACHING`, `DRAWDOWN_APPROACHING`, `DAILY_LOSS_APPROACHING`) and `LEVERAGE_LIMIT`.
+
 ### F-31 — legacy `automation_limits` authenticated but never authorized (open, legacy-only)
 
 Found in Phase 13 while reconciling the Execution Supervisor against its controller surface

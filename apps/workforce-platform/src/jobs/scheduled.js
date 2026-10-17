@@ -109,12 +109,16 @@ export const CRITICAL_BREACH_CODES = Object.freeze(new Set([
   "WEEKLY_LOSS_LIMIT",
   "DRAWDOWN_LIMIT",
   "PORTFOLIO_EXPOSURE_LIMIT",
+  "LEVERAGE_LIMIT",
   "SYMBOL_EXPOSURE_LIMIT",
+  "CORRELATED_POSITION_LIMIT",
 ]));
 
 /**
- * Breaches meaning the *measurement* is untrustworthy rather than that capital is
- * outside a limit.
+ * Breaches meaning the *measurement* is untrustworthy or that an early-warning
+ * threshold (80% exposure/leverage, 70% drawdown, 60% daily loss, or 2+ positions
+ * in a disclosed static correlation group) has been crossed rather than that
+ * capital is outside a hard limit.
  *
  * Listed explicitly rather than treated as "everything else", so a code added to the
  * paper scan later has to be classified here deliberately. `test/scheduled_jobs.test.js`
@@ -126,6 +130,11 @@ export const WARNING_BREACH_CODES = Object.freeze(new Set([
   "VALUATION_UNAVAILABLE",
   "SYNTHETIC_EXPOSURE",
   "SCAN_FAILED",
+  "DAILY_LOSS_APPROACHING",
+  "DRAWDOWN_APPROACHING",
+  "PORTFOLIO_EXPOSURE_APPROACHING",
+  "LEVERAGE_APPROACHING",
+  "CORRELATED_GROUP_EXPOSURE",
 ]));
 
 /**

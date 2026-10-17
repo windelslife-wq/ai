@@ -162,7 +162,7 @@ export const RISK_FIELDS = Object.freeze([
  * on every read, so no request can turn the stop requirement off.
  */
 export const RISK_OTHER_LIMITS = Object.freeze([
-  Object.freeze({ key: "maxCorrelatedPositions", label: "Max correlated positions", kind: "count", note: "Declared and persisted; no code path enforces it yet (F-30)." }),
+  Object.freeze({ key: "maxCorrelatedPositions", label: "Max correlated positions", kind: "count", note: "Enforced at order time by the Risk Engine and in the portfolio scan across the six disclosed static correlation groups (closes F-30)." }),
   Object.freeze({ key: "minDataQuality", label: "Minimum data quality", kind: "ratio" }),
   Object.freeze({ key: "blockSyntheticData", label: "Block synthetic data", kind: "flag" }),
   Object.freeze({ key: "blockStaleData", label: "Block stale data", kind: "flag" }),
@@ -172,7 +172,7 @@ export const RISK_OTHER_LIMITS = Object.freeze([
 /**
  * The six codes legacy's monitor raised (`PortfolioRiskMonitor`'s docblock), kept here so the
  * screen can state what legacy's vocabulary was *as vocabulary* and not as if this API emitted
- * it. The Node scan emits the nine codes in `RISK_SCAN_CODES` instead.
+ * it. The Node scan emits the sixteen codes in `RISK_SCAN_CODES` instead.
  */
 export const LEGACY_ALERT_CODES = Object.freeze([
   "HIGH_EXPOSURE", "EXCESSIVE_LEVERAGE", "CORRELATED_POSITIONS",
@@ -182,8 +182,9 @@ export const LEGACY_ALERT_CODES = Object.freeze([
 /** Every code `portfolioRiskScan` can emit (`src/modules/paper/service.js`). */
 export const RISK_SCAN_CODES = Object.freeze([
   "NON_POSITIVE_EQUITY", "VALUATION_UNAVAILABLE", "OPEN_POSITION_LIMIT", "DAILY_LOSS_LIMIT",
-  "WEEKLY_LOSS_LIMIT", "DRAWDOWN_LIMIT", "PORTFOLIO_EXPOSURE_LIMIT", "SYMBOL_EXPOSURE_LIMIT",
-  "SYNTHETIC_EXPOSURE",
+  "DAILY_LOSS_APPROACHING", "WEEKLY_LOSS_LIMIT", "DRAWDOWN_LIMIT", "DRAWDOWN_APPROACHING",
+  "PORTFOLIO_EXPOSURE_LIMIT", "PORTFOLIO_EXPOSURE_APPROACHING", "LEVERAGE_LIMIT", "LEVERAGE_APPROACHING",
+  "SYMBOL_EXPOSURE_LIMIT", "CORRELATED_POSITION_LIMIT", "CORRELATED_GROUP_EXPOSURE", "SYNTHETIC_EXPOSURE",
 ]);
 
 /**
@@ -192,8 +193,16 @@ export const RISK_SCAN_CODES = Object.freeze([
  * against `src/jobs/scheduled.js`'s own sets — a code the cron treats as critical may not
  * render here as a warning.
  */
-export const CRITICAL_BREACH_CODES = Object.freeze(["NON_POSITIVE_EQUITY", "OPEN_POSITION_LIMIT", "DAILY_LOSS_LIMIT", "WEEKLY_LOSS_LIMIT", "DRAWDOWN_LIMIT", "PORTFOLIO_EXPOSURE_LIMIT", "SYMBOL_EXPOSURE_LIMIT"]);
-export const WARNING_BREACH_CODES = Object.freeze(["VALUATION_UNAVAILABLE", "SYNTHETIC_EXPOSURE", "SCAN_FAILED"]);
+export const CRITICAL_BREACH_CODES = Object.freeze([
+  "NON_POSITIVE_EQUITY", "OPEN_POSITION_LIMIT", "DAILY_LOSS_LIMIT", "WEEKLY_LOSS_LIMIT",
+  "DRAWDOWN_LIMIT", "PORTFOLIO_EXPOSURE_LIMIT", "LEVERAGE_LIMIT", "SYMBOL_EXPOSURE_LIMIT",
+  "CORRELATED_POSITION_LIMIT",
+]);
+export const WARNING_BREACH_CODES = Object.freeze([
+  "VALUATION_UNAVAILABLE", "SYNTHETIC_EXPOSURE", "SCAN_FAILED",
+  "DAILY_LOSS_APPROACHING", "DRAWDOWN_APPROACHING", "PORTFOLIO_EXPOSURE_APPROACHING",
+  "LEVERAGE_APPROACHING", "CORRELATED_GROUP_EXPOSURE",
+]);
 
 /** `critical` for codes that mean capital is outside a limit, `warning` for the rest. */
 export function breachSeverity(code) {

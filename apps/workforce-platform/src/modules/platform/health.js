@@ -103,23 +103,25 @@ export const MODULE_STATUS = Object.freeze([
   // outside the transaction that rolled back, and the governance refusal broadcasts a
   // daily-deduped `ROUTING_BLOCKED` alert, as legacy's `routingBlocked()` did.
   { key: "execution", label: "Human-reviewed paper proposals with fail-closed governance and blocked-submission evidence, and the Execution Center console at /app/execution (Phase 39), which ports `Execution::index`'s propose and decide panels, shows all fifteen supervisor steps and marks where this port stops, and states the automation envelope as unported rather than faking it. No live route and no automated mode: the remaining supervisor steps are broker-bound (row 13), not unfinished governance. F-29 no longer counts the execution screen as absent; brokers left that list in Phase 40 and the journal in Phase 41, so F-29's screen list is empty", state: "partial", tests: "unit + http + persistence + governance bypass/recovery + client console" },
-  // Phase 12 ports `Tools::cron()`: the portfolio risk sweep across every owner and
+  // Phase 12 ported `Tools::cron()` (the portfolio risk sweep across every owner and
   // the cross-owner stale-proposal expiry, coordinated by a `wf_job_locks` row and
-  // driven by the host's cron through `tools/scheduled-jobs.mjs`. It is `partial`,
-  // and the label says precisely what is missing rather than letting `ported` imply
-  // the legacy monitor's full alert vocabulary:
-  //   * no early-warning tiers. Legacy raised a `warning` at 80% (exposure,
-  //     leverage), 70% (drawdown) and 60% (daily loss) of a limit, and `critical`
-  //     at the limit. This port alerts on the paper scan's at-limit breaches only,
-  //     so an operator hears about a breach when it happens, not as it approaches.
-  //     The tiers live in the paper scan's vocabulary (row 11, already accepted),
-  //     and adding them here would have meant a second, divergent set of thresholds.
-  //   * the sports and lottery crons are their own CLI lines (`sports:jobs`, `lottery:jobs`).
-  // (Broker transition alerts were added in Phase 14 — `BROKER_CONNECTED` and
-  // `BROKER_DISCONNECTED` now come from the same sweep, and `DISABLED` is never
-  // counted, so a default host with ten disabled connectors stays silent.)
+  // driven by the host's cron through `tools/scheduled-jobs.mjs`), Phase 14 added
+  // broker connect/disconnect transition alerts (`BROKER_CONNECTED` /
+  // `BROKER_DISCONNECTED`, with `DISABLED` never counted), and Phase 44 completed
+  // the legacy monitor's early-warning tiers and leverage/correlation checks:
+  //   * 80% early-warning tiers for portfolio exposure (`PORTFOLIO_EXPOSURE_APPROACHING`)
+  //     and gross notional leverage (`LEVERAGE_APPROACHING`), 70% for maximum drawdown
+  //     (`DRAWDOWN_APPROACHING`) and 60% for daily loss (`DAILY_LOSS_APPROACHING`),
+  //     all classified as `warning` while hard breaches (`PORTFOLIO_EXPOSURE_LIMIT`,
+  //     `LEVERAGE_LIMIT`, `DRAWDOWN_LIMIT`, `DAILY_LOSS_LIMIT`, `CORRELATED_POSITION_LIMIT`)
+  //     remain `critical` (closing SJ-8, SJ-9 and F-30);
+  //   * static disclosed correlation groups (`CRYPTO_MAJORS`, `USD_MAJORS`, `USD_COUNTER`,
+  //     `METALS`, `ENERGY`, `US_EQUITY_INDEX`) checked at 2+ positions as
+  //     `CORRELATED_GROUP_EXPOSURE` (`warning`) and above `maxCorrelatedPositions` as
+  //     `CORRELATED_POSITION_LIMIT` (`critical`, plus vetoed at order time in `RiskEngine.evaluate`);
+  //   * the sports cron (`sports:jobs`) and lottery cron (`lottery:jobs`) are their own CLI entrypoints.
   // There is deliberately no HTTP route: `runOperations` takes no owner argument.
-  { key: "scheduledJobs", label: "Scheduled operations cron: cross-owner portfolio risk sweep, stale-proposal expiry and broker connect/disconnect transitions under a DB-backed lock (CLI only, no HTTP route, no early-warning tiers — the sports cron is its own CLI, `sports:jobs`, and the lottery cron is its own, `lottery:jobs`)", state: "partial", tests: "unit + both adapters + CLI" },
+  { key: "scheduledJobs", label: "Scheduled operations cron: cross-owner portfolio risk sweep with 80/70/60% early-warning tiers (`PORTFOLIO_EXPOSURE_APPROACHING`, `LEVERAGE_APPROACHING`, `DRAWDOWN_APPROACHING`, `DAILY_LOSS_APPROACHING`), gross notional leverage (`LEVERAGE_LIMIT`), static disclosed correlation-group checks (`CORRELATED_GROUP_EXPOSURE` at 2+ positions and `CORRELATED_POSITION_LIMIT` above `maxCorrelatedPositions`, also enforced at order time in `RiskEngine.evaluate`), stale-proposal expiry and broker connect/disconnect transitions under a DB-backed lock (CLI only, no HTTP route — the sports cron is its own CLI, `sports:jobs`, and the lottery cron is its own, `lottery:jobs`)", state: "ported", tests: "unit + both adapters + CLI + early-warning & correlation parity" },
   // Phase 14 ports the connector *boundary* and its gates, not a working
   // integration. What exists: the normalized data contracts every adapter must
   // satisfy, the DISABLED -> NOT_CONFIGURED -> DOWN -> READY health ladder, and the

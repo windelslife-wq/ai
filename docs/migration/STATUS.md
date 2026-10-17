@@ -2,7 +2,37 @@
 
 **Updated:** 2026-10-17 · **Branch:** `arena/0d5104b6-ai`
 
-## Current Phase 43 status (2026-10-17)
+## Current Phase 44 status (2026-10-17)
+
+**Row 11's `F-30` (`maxCorrelatedPositions` enforcement) and Row 19's `SJ-8` / `SJ-9`
+(early-warning tiers at 80/70/60 %, gross notional leverage and correlated-position checks) are
+closed, advancing `scheduledJobs` from `partial` to `ported` and moving the 17-module ledger to
+12 ported / 3 partial / 2 not-ported.**
+
+**Static disclosed correlation groups enforced at order time and in the portfolio scan (`F-30`,
+`SJ-9`).** `src/modules/analysis/risk-engine.js` ports `PortfolioRiskMonitor::CORRELATION_GROUPS`
+(`CRYPTO_MAJORS`, `USD_MAJORS`, `USD_COUNTER`, `METALS`, `ENERGY`, `US_EQUITY_INDEX`) and
+`CORRELATION_MODEL_DESCRIPTION` (`"static disclosed groups (v1 heuristic, not statistical)"`) from
+`application/libraries/Aegis/Portfolio/PortfolioRiskMonitor.php`. `RiskEngine.evaluate(setup,
+context)` enforces `limits.maxCorrelatedPositions` whenever `context.openSymbols` (or
+`context.positions`) is supplied, and `evaluatePaperRisk` (`src/modules/paper/service.js`) passes
+`openSymbols` from `summary.positions`, vetoing any paper order that would push a correlation
+group's open position count above `maxCorrelatedPositions`. In `portfolioRiskScan`,
+`findCorrelatedGroupOverlaps` emits `CORRELATED_POSITION_LIMIT` (`critical`) when a group's open
+position count exceeds `maxCorrelatedPositions` and `CORRELATED_GROUP_EXPOSURE` (`warning`) when
+`2 <= count <= maxCorrelatedPositions`.
+
+**Early-warning tiers and gross notional leverage (`SJ-8`, `SJ-9`).** `portfolioRiskScan` ports
+legacy's `0.8 / 0.8 / 0.7 / 0.6` early-warning thresholds (`EARLY_WARNING_RATIOS`) and gross
+notional leverage calculation (`sum(units * current_price) / equity`), emitting
+`PORTFOLIO_EXPOSURE_APPROACHING` (`> 80 %` of `maxPortfolioExposurePct`), `LEVERAGE_APPROACHING`
+(`> 80 %` of `maxLeverage`), `DRAWDOWN_APPROACHING` (`> 70 %` of `maxDrawdownPct`) and
+`DAILY_LOSS_APPROACHING` (`> 60 %` of `maxDailyLossPct`) as `warning` breaches while keeping
+`LEVERAGE_LIMIT` (`> maxLeverage`) and `CORRELATED_POSITION_LIMIT` (`> maxCorrelatedPositions`) in
+`CRITICAL_BREACH_CODES` across both `src/jobs/scheduled.js` and `client/src/risk.js`. Full record:
+[`PHASE44_SCHEDULED_JOBS_AND_CORRELATION.md`](PHASE44_SCHEDULED_JOBS_AND_CORRELATION.md).
+
+## Phase 43 status (2026-10-17) — superseded by Phase 44
 
 **Row 18's last unported surface and Row 4's last code gap are closed: the grounded public website
 assistant (`Aegis\ChatAssistant`, `Api_chat::respond`) and its floating widget

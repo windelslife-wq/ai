@@ -414,7 +414,9 @@ test("the two absences the page explains are the ledger's and the router's own",
     assert.ok(declared.has(landed), `${landed} is declared, and the F-29 list above is about the screens still absent`);
   }
   // Phase 43 promoted `publicSite` from `partial` to `ported` when the grounded
-  // public chat assistant (`POST /api/v1/chat/respond`) and floating widget landed.
-  assert.equal(modules.filter((module) => module.state === "ported").length, 11);
-  assert.equal(modules.filter((module) => module.state === "partial").length, 4);
+  // public chat assistant (`POST /api/v1/chat/respond`) and floating widget landed,
+  // and Phase 44 promoted `scheduledJobs` from `partial` to `ported` when the
+  // 80/70/60% early-warning tiers, leverage check and correlation-group enforcement landed.
+  assert.equal(modules.filter((module) => module.state === "ported").length, 12);
+  assert.equal(modules.filter((module) => module.state === "partial").length, 3);
 });

@@ -10,31 +10,32 @@ already exist and pass tests in the PHP application; they are still unfinished a
 
 ---
 
-## A. Platform status ledger — 17 modules, 6 unfinished (11 ported / 4 partial / 2 not-ported)
+## A. Platform status ledger — 17 modules, 5 unfinished (12 ported / 3 partial / 2 not-ported)
 
-### Partial (code exists, work remains) — 4
+### Partial (code exists, work remains) — 3
 
 | # | Module key | Name | What is still missing |
 |---:|---|---|---|
 | 1 | `execution` | **Execution Supervisor and trading governance** | Console landed (Phase 39, `/app/execution`); no live route and no automated mode; remaining supervisor steps are broker-bound (row 13). Whole live path is paper-only. |
-| 2 | `scheduledJobs` | **Scheduled jobs, CLI and resumable work** | Legacy early-warning tiers at 80/70/60 % of a limit (SJ-8); `EXCESSIVE_LEVERAGE` / `CORRELATED_POSITIONS` codes (SJ-9); no crontab installed on a real host. |
-| 3 | `brokers` | **Broker Center and broker connectors** | Console landed (Phase 40, `/app/brokers`); ten adapters registered but all disabled by default, no order routing, no simulated bridge, no MT5 account/quote read, no adapter verified against its provider (MT5 real-terminal validation outstanding). |
-| 4 | `sports` | **Sports intelligence** | Stake sizing; no live provider verified against a real vendor. (The console screens left this row in Phase 36: `/app/sports` is `Sports::index` and `Sports::tickets`, and the decision route gained `Api_sports::decide_ticket`'s kill-switch refusal.) |
+| 2 | `brokers` | **Broker Center and broker connectors** | Console landed (Phase 40, `/app/brokers`); ten adapters registered but all disabled by default, no order routing, no simulated bridge, no MT5 account/quote read, no adapter verified against its provider (MT5 real-terminal validation outstanding). |
+| 3 | `sports` | **Sports intelligence** | Stake sizing; no live provider verified against a real vendor. (The console screens left this row in Phase 36: `/app/sports` is `Sports::index` and `Sports::tickets`, and the decision route gained `Api_sports::decide_ticket`'s kill-switch refusal.) |
 
 ### Not ported (Node equivalent absent) — 2
 
 | # | Module key | Name | Existing code |
 |---:|---|---|---|
-| 5 | `languageLearning` | **Language learning / AI teacher** | PHP only: `application/libraries/Aegis/LangLearn/`, `application/views/langlearn/`, `tests/cases/36-language-teacher.php`. |
-| 6 | `leadDiscovery` | **Lead discovery** | PHP `application/libraries/LeadDiscovery/` + legacy Scout; separate Node/TypeScript stacks in `apps/api/` and `apps/web/`. |
+| 4 | `languageLearning` | **Language learning / AI teacher** | PHP only: `application/libraries/Aegis/LangLearn/`, `application/views/langlearn/`, `tests/cases/36-language-teacher.php`. |
+| 5 | `leadDiscovery` | **Lead discovery** | PHP `application/libraries/LeadDiscovery/` + legacy Scout; separate Node/TypeScript stacks in `apps/api/` and `apps/web/`. |
 
 Ported (for contrast): `identity`, `publicSite` (Phase 43 ported the grounded public chat
 assistant `POST /api/v1/chat/respond` and the floating widget on both the public pages and the
 signed-in workspace shell, advancing `publicSite` from `partial` to `ported`), `audit`,
 `notifications`, `marketData`, `analysis`, `portfolioOptimizer`, `strategies` (its console landed
-in Phase 31, closing the module's last recorded entry), `paperTrading`, `risk`, and — since Phase
-30, when its last unported entry (the console screens) became a ported surface and its own
-`notPorted` matrix went empty — `lottery`.
+in Phase 31, closing the module's last recorded entry), `paperTrading`, `risk`, `scheduledJobs`
+(Phase 44 ported the 80/70/60 % early-warning tiers, gross notional leverage check and static
+disclosed correlation-group enforcement, closing SJ-8, SJ-9 and F-30 and advancing `scheduledJobs`
+from `partial` to `ported`), and — since Phase 30, when its last unported entry (the console
+screens) became a ported surface and its own `notPorted` matrix went empty — `lottery`.
 
 ---
 
@@ -58,7 +59,7 @@ in Phase 31, closing the module's last recorded entry), `paperTrading`, `risk`, 
 | 16 | **Language learning / AI teacher** | Node port absent |
 | 17 | **Lead Discovery: CI3 module + Scout consolidation** | Unity/consolidation decision outstanding |
 | 18 | **Chat, journal, trading tools and remaining platform surfaces** | **Closed** (Phases 41 & 43): journal console landed in Phase 41 (`/app/journal`), the public chat assistant (`Api_chat::respond`, `Aegis\ChatAssistant`) and floating widget landed in Phase 43 (`POST /api/v1/chat/respond`), and the legacy CLI tools map to the npm commands named in `UNFINISHED_MODULES.md` row 18. |
-| 19 | Scheduled jobs, CLI and resumable work | Broker transition alerts; SJ-8/SJ-9 tiers; real crontab |
+| 19 | Scheduled jobs, CLI and resumable work | **Ported** (Phase 12 + Phase 14 + Phase 20 + Phase 25 + Phase 44): operations cron (`npm run jobs`), sports cron (`npm run sports:jobs`), lottery cron (`npm run lottery:jobs`), broker connect/disconnect transitions, 80/70/60 % early-warning tiers (SJ-8), gross notional leverage and correlation-group checks (SJ-9, F-30). `scheduledJobs` moved from `partial` to `ported`. Host crontab installation and scheduled live-provider probe (F-25) remain deployment items. |
 | 20 | **Football Predictions app integration** | Isolated app; consolidate-or-not decision; first-run MySQL/live provider/cPanel staging unverified |
 | 21 | **Python MT5 bridge conversion or explicit exception** | FastAPI bridge remains; real demo-terminal check outstanding |
 | 22 | **Full legacy data migration and cutover** | Identity importer unexecuted; no business-data importer, checksum reconciliation or restore rehearsal |
