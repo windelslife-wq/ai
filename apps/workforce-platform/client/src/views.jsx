@@ -172,16 +172,79 @@ function formFailure(error) {
 export function LoginPanel({ onLogin, busy, error, native, notice }) {
   const [identifier, setIdentifier] = useState("");
   const [password, setPassword] = useState("");
+  const [resetMode, setResetMode] = useState(false);
+  const [resetIdentifier, setResetIdentifier] = useState("");
+  const [resetToken, setResetToken] = useState("");
+  const [resetPassword, setResetPassword] = useState("");
+  const [resetPasswordConfirm, setResetPasswordConfirm] = useState("");
+  const [resetBusy, setResetBusy] = useState(false);
+  const [resetFeedback, setResetFeedback] = useState(null);
+
+  async function submitResetRequest(event) {
+    event.preventDefault();
+    setResetBusy(true);
+    setResetFeedback(null);
+    try {
+      const result = await endpoints.passwordResetRequest({ identifier: resetIdentifier });
+      setResetFeedback({ tone: result.delivered ? "info" : "warn", text: result.notice });
+    } catch (err) {
+      setResetFeedback({ tone: "error", text: formFailure(err) });
+    } finally {
+      setResetBusy(false);
+    }
+  }
+
+  async function submitResetConfirm(event) {
+    event.preventDefault();
+    setResetBusy(true);
+    setResetFeedback(null);
+    try {
+      await endpoints.passwordResetConfirm({
+        token: resetToken,
+        newPassword: resetPassword,
+        newPasswordConfirm: resetPasswordConfirm,
+      });
+      setResetFeedback({ tone: "info", text: "Password updated and active sessions revoked. You may now sign in." });
+      setResetToken("");
+      setResetPassword("");
+      setResetPasswordConfirm("");
+      setResetMode(false);
+    } catch (err) {
+      setResetFeedback({ tone: "error", text: formFailure(err) });
+    } finally {
+      setResetBusy(false);
+    }
+  }
+
   return (
     <section className="login-panel" aria-labelledby="login-title">
       <div className="login-panel-top"><span className="overline">MEMBER ACCESS</span><span className="login-orbit" aria-hidden="true">✳</span></div>
-      <h2 id="login-title">Welcome<br /><em>back.</em></h2>
-      <p className="login-copy">Sign in to continue to your private workspace.</p>
+      <h2 id="login-title">{resetMode ? <>Reset<br /><em>password.</em></> : <>Welcome<br /><em>back.</em></>}</h2>
+      <p className="login-copy">{resetMode ? "Request a single-use 15-minute reset token via SMTP or confirm an issued token." : "Sign in to continue to your private workspace."}</p>
       {notice ? <Notice tone="info">{notice}</Notice> : null}
+      {resetFeedback ? <Notice tone={resetFeedback.tone}>{resetFeedback.text}</Notice> : null}
       {native ? (
         <div className="notice-box" role="status">
           <strong>Native sign-in is not enabled yet.</strong>
           <span>This build needs the reviewed native token and secure-storage flow before it can authenticate. No credentials are stored in the app.</span>
+        </div>
+      ) : resetMode ? (
+        <div className="login-reset-flow">
+          <form className="login-form" onSubmit={submitResetRequest}>
+            <label htmlFor="reset-identifier">Step 1 · Request reset token (username, email or user ID)</label>
+            <input id="reset-identifier" name="identifier" autoComplete="username" maxLength="254" value={resetIdentifier} onChange={(event) => setResetIdentifier(event.target.value)} required />
+            <button className="secondary-button" type="submit" disabled={resetBusy}>{resetBusy ? "Sending…" : "Request reset token"}</button>
+          </form>
+          <form className="login-form" onSubmit={submitResetConfirm}>
+            <label htmlFor="reset-token">Step 2 · Single-use reset token</label>
+            <input id="reset-token" name="token" maxLength="512" value={resetToken} onChange={(event) => setResetToken(event.target.value)} required />
+            <label htmlFor="reset-new-password">New password (12+ chars, 14+ for admins)</label>
+            <input id="reset-new-password" name="newPassword" type="password" autoComplete="new-password" minLength="12" maxLength="1024" value={resetPassword} onChange={(event) => setResetPassword(event.target.value)} required />
+            <label htmlFor="reset-confirm-password">Confirm new password</label>
+            <input id="reset-confirm-password" name="newPasswordConfirm" type="password" autoComplete="new-password" minLength="12" maxLength="1024" value={resetPasswordConfirm} onChange={(event) => setResetPasswordConfirm(event.target.value)} required />
+            <button className="primary-button" type="submit" disabled={resetBusy}>{resetBusy ? "Updating…" : "Confirm password reset"}<span aria-hidden="true">→</span></button>
+          </form>
+          <button className="text-button" type="button" onClick={() => setResetMode(false)}>← Back to sign in</button>
         </div>
       ) : (
         <form className="login-form" onSubmit={(event) => { event.preventDefault(); onLogin({ identifier, password }); }}>
@@ -191,6 +254,7 @@ export function LoginPanel({ onLogin, busy, error, native, notice }) {
           <input id="password" name="password" type="password" autoComplete="current-password" maxLength="1024" value={password} onChange={(event) => setPassword(event.target.value)} required />
           {error ? <p className="form-error" role="alert">{error}</p> : null}
           <button className="primary-button" type="submit" disabled={busy}>{busy ? "Checking…" : "Sign in"}<span aria-hidden="true">→</span></button>
+          <button className="text-button" type="button" onClick={() => { setResetIdentifier(identifier); setResetMode(true); }}>Forgot password?</button>
         </form>
       )}
       <div className="login-foot">
@@ -921,6 +985,7 @@ export function AdminControlCentreView({ permissions }) {
   const users = useResource(() => (canReadDirectory ? endpoints.adminUsers(USERS_LIST_QUERY) : Promise.resolve(null)), [canReadDirectory]);
   const roles = useResource(() => (canReadDirectory ? endpoints.adminRoles() : Promise.resolve(null)), [canReadDirectory]);
   const strategies = useResource(() => endpoints.strategies(), []);
+  const languages = useResource(() => endpoints.langLanguages(), []);
   const lottery = useResource(() => endpoints.lotteryStatus(), []);
   const status = useResource(() => endpoints.status(), []);
   const features = useResource(() => endpoints.features(), []);
@@ -932,7 +997,7 @@ export function AdminControlCentreView({ permissions }) {
   const [mailResult, setMailResult] = useState(null);
   const [mailBusy, setMailBusy] = useState(false);
 
-  const cards = statCards({ permissions, users: users.data, strategies: strategies.data, lottery: lottery.data });
+  const cards = statCards({ permissions, users: users.data, strategies: strategies.data, languages: languages.data, lottery: lottery.data });
   const modules = featureRows(status.data?.modules);
   const legend = legendRows(features.data?.legend);
   const assignable = roles.data?.assignable || [];

@@ -222,7 +222,7 @@ export async function buildApp({ config, store, logger = true, publicDir = path.
   // no outbound delivery channel exists.
   await app.register(healthRoutes, { prefix: "/api/v1", store, config, adapter, router, marketData, analysis, notifications, brokers, sports, chat, leads });
   if (config.auth !== false) {
-    await app.register(identityRoutes, { prefix: "/api/v1", store, config, loginGuard });
+    await app.register(identityRoutes, { prefix: "/api/v1", store, config, loginGuard, mail });
   }
   // The public site: contact intake over JSON, plus the rendered documents the
   // transport consults before it falls back to static files.

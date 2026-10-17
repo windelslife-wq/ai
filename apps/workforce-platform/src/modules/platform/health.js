@@ -18,15 +18,20 @@ let cachedVersion = null;
 
 /** Ported product modules and their acceptance state. Never invented. */
 export const MODULE_STATUS = Object.freeze([
-  { key: "identity", label: "Identity, sessions, RBAC, account management", state: "ported", tests: "unit + http + compatibility fixtures" },
+  {
+    key: "identity",
+    label: "Identity, sessions, RBAC, account management and self-service password reset (Phase 47: POST /api/v1/auth/password-reset-request + POST /api/v1/auth/password-reset-confirm with single-use 15-minute HMAC tokens delivered via SMTP when VP_SMTP_ENABLED=1, or legacy administrator-issued notice when SMTP is disabled)",
+    state: "ported",
+    tests: "unit + http + compatibility fixtures",
+  },
   // Pages, robots/sitemap/manifest, the PWA shell, contact intake (stored, audited,
   // throttled, with optional SMTP operator copy in Phase 42) and the grounded
   // public chat assistant (Phase 43: POST /api/v1/chat/respond + floating widget on
   // the public site and workspace shell) are ported and tested. SITE_ANNOUNCEMENT
-  // stays empty by default so no page advertises the unported language teacher.
+  // stays empty by default unless explicitly configured.
   {
     key: "publicSite",
-    label: "Public site, SEO + PWA shell, contact intake (stored, audited, throttled, with optional SMTP operator copy) and the grounded public chat assistant at POST /api/v1/chat/respond (Phase 43: local product guide by default, optional https-only AI_CHAT_* provider, no private account/market/sports/lottery/lead data access, floating widget on public pages and the signed-in workspace shell, absent on auth pages; SITE_ANNOUNCEMENT stays empty by default so no page advertises the unported language teacher)",
+    label: "Public site, SEO + PWA shell, contact intake (stored, audited, throttled, with optional SMTP operator copy) and the grounded public chat assistant at POST /api/v1/chat/respond (Phase 43: local product guide by default, optional https-only AI_CHAT_* provider, no private account/market/sports/lottery/lead data access, floating widget on public pages and the signed-in workspace shell, absent on auth pages; SITE_ANNOUNCEMENT stays empty by default unless configured)",
     state: "ported",
     tests: "unit + http + content checks + php-parity",
   },
@@ -82,9 +87,9 @@ export const MODULE_STATUS = Object.freeze([
     key: "risk",
     // The console is named here the way the other ported modules' labels name theirs: a
     // reader of `/system/status` should not have to guess whether a ported module has a
-    // screen. F-30 (`maxCorrelatedPositions` declared and unenforced) stays open, and the
-    // label says so rather than rounding "ported in code" up to "complete".
-    label: "Risk engine, persisted limits, kill switch and paper-portfolio monitor, with their console at /app/risk (Phase 38): the eleven editable limits the API accepts, the limits it persists but the legacy form never drew, the portfolio scan with each breach classified the way the operations job publishes it, and the audit trail (behind identity.users.view — AV-1). maxCorrelatedPositions is declared and persisted but still unenforced (F-30). The scan is a read here: the audited alert transitions belong to the scheduled operations job",
+    // screen. Phase 44 closed F-30 by enforcing `maxCorrelatedPositions` across the six
+    // disclosed static correlation groups at order time and in the portfolio scan.
+    label: "Risk engine, persisted limits, kill switch and paper-portfolio monitor, with their console at /app/risk (Phase 38 + Phase 44): the eleven editable limits the API accepts, the limits it persists, the portfolio scan with each breach classified the way the operations job publishes it, and the audit trail (behind identity.users.view — AV-1). maxCorrelatedPositions is enforced at order time and in the portfolio scan across the six disclosed static correlation groups (F-30 closed in Phase 44). The scan is a read here: the audited alert transitions belong to the scheduled operations job",
     state: "ported",
     tests: "unit + http + persistence",
   },

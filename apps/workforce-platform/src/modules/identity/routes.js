@@ -40,8 +40,8 @@ function withSessionCookie(reply, config, token, expiresAt) {
   reply.header("set-cookie", sessionCookie(config.cookieName, token, { maxAge, secure: config.secureCookie }));
 }
 
-export function identityRoutes(app, { store, config, loginGuard }) {
-  const service = createIdentityService({ store, config, loginGuard });
+export function identityRoutes(app, { store, config, loginGuard, mail = null }) {
+  const service = createIdentityService({ store, config, loginGuard, mail });
   const authenticate = createAuthenticator({ store, config });
   const csrf = requireCsrf(config);
   /**
@@ -83,13 +83,20 @@ export function identityRoutes(app, { store, config, loginGuard }) {
   });
 
   /**
-   * Legacy-compatible: the PHP form never mints a reset token, so neither does
-   * this one. The response is identical for known and unknown identifiers.
+   * Self-service password reset request and single-use token confirmation (Row 2 — Phase 47).
+   * When SMTP is disabled, answers `delivered: false` with the legacy notice; when SMTP
+   * is enabled (`VP_SMTP_ENABLED=1`), dispatches a 15-minute single-use token to the
+   * user's email address and returns an enumeration-safe response.
    */
   app.post("/auth/password-reset-request", {
     bodySchema: OBJECT(contracts.PASSWORD_RESET_REQUEST),
     config: { rateLimit: { max: 5, windowMs: 600_000 } },
   }, async (request) => service.requestPasswordReset({ ...request.body, clientIp: request.clientAddress }));
+
+  app.post("/auth/password-reset-confirm", {
+    bodySchema: OBJECT(contracts.PASSWORD_RESET_CONFIRM),
+    config: { rateLimit: { max: 5, windowMs: 600_000 } },
+  }, async (request) => service.confirmPasswordReset(request.body));
 
   app.get("/auth/csrf", { preHandler: [authenticate] }, async (request) => ({ csrfToken: request.auth.csrfToken }));
 

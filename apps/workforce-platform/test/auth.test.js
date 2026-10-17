@@ -180,3 +180,127 @@ test("request validation and hardening headers are enabled", async (t) => {
   assert.equal(health.headers["x-content-type-options"], "nosniff");
   assert.ok(health.headers["content-security-policy"]);
 });
+
+test("self-service password reset tokens are single-use, expire in 15 minutes, revoke active sessions, and integrate with SMTP", async (t) => {
+  const { createFileStoreApp } = await import("./helpers.js");
+  const { createIdentityService, mintPasswordResetToken, PASSWORD_RESET_TTL_MS } = await import("../src/modules/identity/service.js");
+
+  const instance = await createFileStoreApp();
+  t.after(() => instance.cleanup());
+
+  // 1. Register a regular member account
+  const reg = await instance.app.inject({
+    method: "POST",
+    url: "/api/v1/auth/register",
+    payload: {
+      username: "resetmember",
+      email: "resetmember@example.test",
+      password: "InitialPassword123!",
+      passwordConfirm: "InitialPassword123!",
+      termsAccepted: true,
+    },
+  });
+  assert.equal(reg.statusCode, 200, reg.body);
+  const memberCookie = cookieFrom(reg);
+
+  // 2. When SMTP is disabled (default host), password-reset-request returns delivered: false
+  const disabledReset = await instance.app.inject({
+    method: "POST",
+    url: "/api/v1/auth/password-reset-request",
+    payload: { identifier: "resetmember@example.test" },
+  });
+  assert.equal(disabledReset.statusCode, 200);
+  assert.equal(disabledReset.json().delivered, false);
+
+  // 3. With an enabled mailer stub, requestPasswordReset mints a token and sends it without leaking account existence
+  const sentMessages = [];
+  const fakeMail = {
+    enabled: () => true,
+    send: async (msg) => {
+      sentMessages.push(msg);
+      return { ok: true, message: "sent" };
+    },
+  };
+  let fakeNow = Date.now();
+  const identityWithSmtp = createIdentityService({
+    store: instance.store,
+    config: instance.config,
+    mail: fakeMail,
+    now: () => fakeNow,
+  });
+
+  const knownReq = await identityWithSmtp.requestPasswordReset({ identifier: "resetmember@example.test" });
+  const unknownReq = await identityWithSmtp.requestPasswordReset({ identifier: "nobody@example.test" });
+  assert.equal(knownReq.delivered, true);
+  assert.equal(unknownReq.delivered, true);
+  assert.equal(knownReq.notice, unknownReq.notice, "enumeration-safe response for known and unknown identifiers");
+  assert.equal(sentMessages.length, 1, "only the known active user triggers an outbound email");
+  assert.equal(sentMessages[0].to, "resetmember@example.test");
+
+  const tokenMatch = sentMessages[0].text.match(/(\d+\.\d+\.[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+)/);
+  assert.ok(tokenMatch, "reset email must include the single-use token");
+  const resetToken = tokenMatch[1];
+
+  // 4. An expired token is rejected with RESET_TOKEN_EXPIRED
+  const userRow = await instance.store.findUserByIdentifier("resetmember");
+  const expiredToken = mintPasswordResetToken({
+    userId: userRow.id,
+    passwordHash: userRow.password_hash,
+    sessionSecret: instance.config.sessionSecret,
+    nowMs: Date.now() - PASSWORD_RESET_TTL_MS - 5_000,
+  }).token;
+  const expiredRes = await instance.app.inject({
+    method: "POST",
+    url: "/api/v1/auth/password-reset-confirm",
+    payload: {
+      token: expiredToken,
+      newPassword: "UpdatedPassword456!",
+      newPasswordConfirm: "UpdatedPassword456!",
+    },
+  });
+  assert.equal(expiredRes.statusCode, 400);
+  assert.equal(expiredRes.json().error.code, "RESET_TOKEN_EXPIRED");
+
+  // 5. Confirming with the valid token updates the password, revokes all active sessions, and audits PASSWORD_CHANGED
+  const confirmRes = await instance.app.inject({
+    method: "POST",
+    url: "/api/v1/auth/password-reset-confirm",
+    payload: {
+      token: resetToken,
+      newPassword: "UpdatedPassword456!",
+      newPasswordConfirm: "UpdatedPassword456!",
+    },
+  });
+  assert.equal(confirmRes.statusCode, 200, confirmRes.body);
+  assert.equal(confirmRes.json().reset, true);
+  assert.ok(confirmRes.json().revokedSessions >= 1);
+
+  // Previous session cookie is now revoked
+  const meAfterReset = await instance.app.inject({
+    method: "GET",
+    url: "/api/v1/auth/me",
+    headers: { cookie: memberCookie },
+  });
+  assert.equal(meAfterReset.statusCode, 401);
+
+  // Replaying the same token is rejected immediately (single-use)
+  const replayRes = await instance.app.inject({
+    method: "POST",
+    url: "/api/v1/auth/password-reset-confirm",
+    payload: {
+      token: resetToken,
+      newPassword: "AnotherPassword789!",
+      newPasswordConfirm: "AnotherPassword789!",
+    },
+  });
+  assert.equal(replayRes.statusCode, 400);
+  assert.equal(replayRes.json().error.code, "RESET_TOKEN_INVALID");
+
+  // Signing in with the new password succeeds
+  const newLogin = await instance.app.inject({
+    method: "POST",
+    url: "/api/v1/auth/login",
+    payload: { identifier: "resetmember", password: "UpdatedPassword456!" },
+  });
+  assert.equal(newLogin.statusCode, 200);
+});

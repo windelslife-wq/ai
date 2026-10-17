@@ -61,15 +61,13 @@ export const ADMIN_COPY = Object.freeze({
  */
 export const ADMIN_STATS = Object.freeze([
   { key: "users", label: "Users", caption: "accounts in database", source: "/api/v1/admin/users", permission: "identity.users.view" },
-  // The strategy and lottery counts are legacy's too; the language count is the one
-  // this edition cannot answer, and its card says so rather than printing a zero.
   { key: "strategies", label: "Strategies", caption: "versioned implementations", source: "/api/v1/strategies", permission: null },
-  { key: "languages", label: "Languages", caption: "registry entries", source: null, permission: null },
+  { key: "languages", label: "Languages", caption: "registry entries", source: "/api/v1/language-learning/languages", permission: "system.authenticated" },
   { key: "lotteryDraws", label: "Lottery draws", caption: "verified or sandbox rows", source: "/api/v1/lottery/status", permission: null },
 ]);
 
-/** The card that has no Node module behind it: row 16, language learning. */
-export const LANGUAGE_STAT_NOTE = "No Node module can answer this: language learning is not ported (row 16).";
+/** Fallback note when the language registry payload has not been loaded yet. */
+export const LANGUAGE_STAT_NOTE = "The language registry could not be read (/api/v1/language-learning/languages, row 16).";
 
 /**
  * `GET /strategies` groups its rows by strategy id, and each row of the legacy
@@ -89,15 +87,27 @@ const EM_DASH = "—";
 /**
  * The four cards, each resolved against what was actually read.
  *
- * @param {{permissions?: string[], users?: object|null, strategies?: object|null, lottery?: object|null}} input
+ * @param {{permissions?: string[], users?: object|null, strategies?: object|null, languages?: object|null, lottery?: object|null}} input
  * @returns {Array<{key: string, label: string, value: string, caption: string, note: string}>}
  */
-export function statCards({ permissions = [], users = null, strategies = null, lottery = null } = {}) {
+export function statCards({ permissions = [], users = null, strategies = null, languages = null, lottery = null } = {}) {
   const shape = strategyShape(strategies);
   const lotteryCount = Number(lottery?.drawsTracked);
+  const languageEntries = languages?.languages && typeof languages.languages === "object"
+    ? (Array.isArray(languages.languages) ? languages.languages.length : Object.keys(languages.languages).length)
+    : null;
   return ADMIN_STATS.map((stat) => {
     const base = { key: stat.key, label: stat.label, caption: stat.caption, note: "" };
-    if (stat.key === "languages") return { ...base, value: EM_DASH, note: LANGUAGE_STAT_NOTE };
+    if (stat.key === "languages") {
+      if (typeof languageEntries === "number" && Number.isFinite(languageEntries)) {
+        return {
+          ...base,
+          value: String(languageEntries),
+          note: `${languageEntries} authored ${languageEntries === 1 ? "language" : "languages"} in the registry, from ${stat.source} (row 16).`,
+        };
+      }
+      return { ...base, value: EM_DASH, note: LANGUAGE_STAT_NOTE };
+    }
     if (stat.key === "users") {
       if (!holdsPermission(permissions, stat.permission)) {
         return { ...base, value: EM_DASH, note: `This session does not hold ${stat.permission}, so the count is not requested.` };
@@ -307,6 +317,7 @@ export const ADMIN_READS = Object.freeze([
   { key: "users", method: "GET", path: "/api/v1/admin/users", permission: "identity.users.view", auth: true },
   { key: "roles", method: "GET", path: "/api/v1/admin/roles", permission: "identity.users.view", auth: true },
   { key: "strategies", method: "GET", path: "/api/v1/strategies", permission: null, auth: true },
+  { key: "languages", method: "GET", path: "/api/v1/language-learning/languages", permission: "system.authenticated", auth: true },
   // The lottery status route carries the module's own sign-in baseline rather than
   // `lottery.view`: it reports configured state, and the console's data reads are
   // the ones behind the module permission.

@@ -2,7 +2,32 @@
 
 **Updated:** 2026-10-17 · **Branch:** `arena/0d5104b6-ai`
 
-## Current Phase 46 status (2026-10-17)
+## Current Phase 47 status (2026-10-17)
+
+**Row 2 (self-service password reset token flow & outbound SMTP wiring) and Row 3 / Row 16
+(`/app/admin` language registry statistic card & `MODULE_STATUS` label reconciliation) are ported
+and verified.**
+
+**Single-use, 15-minute password reset tokens and SMTP delivery (`src/modules/identity/`,
+`client/src/{api.js,views.jsx}`).** `mintPasswordResetToken` mints single-use 15-minute HMAC-SHA256
+tokens bound to `(userId, expiresAtMs, jti, sha256(passwordHash))`. When `VP_SMTP_ENABLED=1`,
+`POST /api/v1/auth/password-reset-request` dispatches the token via the Phase 42 SMTP service and
+returns a uniform enumeration-safe response; when SMTP is disabled, it preserves legacy's
+`delivered: false` notice. `POST /api/v1/auth/password-reset-confirm` verifies the token in constant
+time, enforces role-aware minimum password lengths (`14` chars for `super_admin`, `12` chars for
+regular users), updates the password hash (immediately invalidating the token signature), revokes
+all active sessions (`store.revokeAllSessions`), and audits `identity.user.password-reset`
+(`legacyAction: "PASSWORD_CHANGED"`). `LoginPanel` on `/app/login` exposes the two-step request and
+confirmation flow.
+
+**Admin Control Center language registry count (`client/src/admin.js`, `client/src/views.jsx`) and
+`MODULE_STATUS` label sync (`src/modules/platform/health.js`).** `ADMIN_STATS`, `ADMIN_READS`,
+`statCards`, and `AdminControlCentreView` now read `GET /api/v1/language-learning/languages`
+(`permission: "system.authenticated"`) so `/app/admin` displays the authored language count (`20`)
+when loaded and `—` when unloaded, matching legacy `Admin.php`. Full record:
+[`PHASE47_PASSWORD_RESET_AND_ADMIN_SYNC.md`](PHASE47_PASSWORD_RESET_AND_ADMIN_SYNC.md).
+
+## Phase 46 status (2026-10-17) — superseded by Phase 47
 
 **Row 16 (`languageLearning`) is ported end to end across schema, dual-adapter repository, 20-language
 registry, placement assessment staircase, curriculum path, AI teacher, vocabulary SRS, listening &
