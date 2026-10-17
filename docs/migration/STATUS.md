@@ -2,7 +2,58 @@
 
 **Updated:** 2026-10-17 · **Branch:** `arena/046b29ac-ai`
 
-## Current Phase 39 status (2026-10-17)
+## Current Phase 40 status (2026-10-17)
+
+**Row 13 has no screen left: `/app/brokers` is the port of `Brokers::index` → `views/brokers/index.php`.**
+The routing banner, the governance strip, the ten connector cards with their capability rows and
+bridge fields, the nine PLANNED adapters in the controller's own words, and the module's own list of
+surfaces this port does not have — over the module's **one** route, `GET /api/v1/brokers`
+(`trading.view`), plus `GET /api/v1/trading/mode` for the strip. **146 routes before and after — no
+route, migration, contract method, repository method, permission or dependency was added.**
+
+**This is the first console whose legacy page is mostly controls the port deliberately does not
+have, and it says so three times.** (1) **The screen is one read and nothing else**: `routable` is the
+server's boolean, every state and flag comes from the same response, and there is no enable, no toggle
+and no order button because there is no such route. (2) **The simulated bridge is absent with its
+switch** — the marker-file mock `DemoBridgeConfig` writes has no equivalent here, so
+`POST /brokers/sim-toggle` is not registered; the panel still reports the MT5 adapter's own `simulated`
+flag and names legacy's two button labels as text. (3) **The MT5 account and quote panels have no
+payload because they have no route** — both legacy reads were unauthenticated (**F-32**), and a read
+that can only answer 503 on a host with no bridge is worse than no route; the quote button is
+`disabled` with its title saying why, and neither panel draws an empty table.
+
+**Four divergences are named rather than discovered.** The roster is the registry's, in legacy's
+registration order, so a roster change cannot leave the page drawing a connector the server does not
+have; the PLANNED matrix keeps the controller's wording while cards carry adapter ids. A fifth state,
+`ERROR` (the manager's answer when an adapter throws), renders **neutral with its reason**, never
+green. `orderSubmission` (local intent) and `orderSubmissionEffective` (bridge-verified, the only one
+the supervisor trusts) are printed as different facts, with the disagreement stated as normal for a
+scaffolded adapter. And the state ladder is legacy's — `DISABLED → NOT_CONFIGURED → DOWN → READY`,
+bridge fields only in READY.
+
+A fourteenth client contract suite (`test/client_broker_console.test.js`, **16 tests**, five of them
+over HTTP) asserts every page string inside the PHP (markup/entity-insensitive) and the two simulation
+flashes against `Brokers.php` raw; parses legacy's four states and tones out of the PHP and pins the
+port's fifth as neutral; proves the ten-connector roster order and the nine controller PLANNED details;
+asserts both reads against `/api/v1/system/routes` and the three legacy surfaces **absent** (404 live);
+holds the view to **no write of any kind**; and drives the live app — the read returns ten connectors,
+nine planned rows, `routable: false` and no token, while a bridge configured against loopback port 9
+reports **DOWN** with `routable` still false and the banner still DISABLED. Gates: `npm run
+check:workforce` **1164 / 1164** (1148 before: +16), the client suites **187 / 187**, `npm run
+typecheck` clean, `npm run test:contracts` 12/12, the client build (`index-DJJMqW7Q.js` 576.08 kB /
+153.31 kB gzip, `index-BhV6cGTA.css` 45.68 kB / 9.59 kB gzip) and `npm run verify:install --
+--require-bundle` **30 / 30**, plus a **22 / 22** live probe on a reseeded demo host (146 routes, one
+broker route, three absent routes 404, a DOWN bridge on a second host, and no probe token in the
+body). **Not run:** a real browser, real MySQL/MariaDB, any live provider, SMTP, cPanel/Passenger, and
+still no PHP↔Node numeric diff (F-26). Full record:
+[`PHASE40_BROKER_CENTER.md`](PHASE40_BROKER_CENTER.md).
+
+**F-29's residual list is now one: the journal** — brokers left it. **The module counts are unchanged —
+10 ported / 5 partial / 2 not-ported.** `brokers` stays `partial` for reasons that are not the screen
+(no adapter verified against a provider, no order routing, no simulated bridge, no MT5 account/quote
+read), and the console states all four rather than letting a finished screen imply a finished module.
+
+## Phase 39 status (2026-10-17) — superseded by Phase 40
 
 **Row 2 has no screen left: `/app/execution` is the port of `Execution::index` →
 `views/execution/index.php`.** The propose form, the human decision, the proposals table with its

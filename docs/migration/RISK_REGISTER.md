@@ -202,6 +202,16 @@ added. Building it also found **D-24**, a shell-wide rendering defect in the sha
 and its eighteen unconditional call sites were fixed, and the limits of that fix — no browser here —
 are stated in the record. Record: [`PHASE39_EXECUTION_CENTER.md`](PHASE39_EXECUTION_CENTER.md).
 
+**Update (Phase 40).** The **Broker Center** landed (`/app/brokers` — `views/brokers/index.php`,
+`Brokers::index`), so the residual list is now **one: the journal (row 18)**. This console is the
+first whose legacy page is mostly *controls the port deliberately does not have*: the simulated-bridge
+switch (`POST /brokers/sim-toggle`) has no in-process mock behind it here, and the two MT5 panels
+(`Api_system::mt5_account()` / `mt5_quote()`, unauthenticated in legacy — F-32) have no route, because
+a read that can only answer 503 on a host with no bridge is worse than no route. The screen carries
+legacy's own words for each and then the reason, rather than drawing a switch that turns on nothing.
+It adds no route: the module's single broker read was already ported in Phase 14, and the screen is a
+read over it plus `GET /trading/mode`. Record: [`PHASE40_BROKER_CENTER.md`](PHASE40_BROKER_CENTER.md).
+
 ### F-30 — `maxCorrelatedPositions` is a declared risk limit with no enforcement (open)
 
 Found in Phase 12 while porting the portfolio risk monitor's alert vocabulary

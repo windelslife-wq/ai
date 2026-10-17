@@ -190,6 +190,10 @@ export const endpoints = {
   riskLimits: () => api("/api/v1/risk/limits"),
   updateRiskLimits: (patch) => api("/api/v1/risk/limits/update", { method: "POST", body: patch }),
   portfolioRiskScan: (query = "") => api(`/api/v1/portfolio/risk-scan${query}`),
+  // The Broker Center console (Phase 40). One read, and it is the module's only route:
+  // `trading.view` on the server. There is deliberately no enable, toggle, order or MT5
+  // read here — `src/modules/brokers/routes.js` registers none of them.
+  brokers: () => api("/api/v1/brokers"),
   // The Execution Center console (Phase 39). Every read is `trading.view` except the
   // strategy list, which the server guards with authentication alone; proposing and
   // paper submission are `trading.execute`, and the decision — a governance act — is

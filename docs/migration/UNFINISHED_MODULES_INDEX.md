@@ -19,7 +19,7 @@ already exist and pass tests in the PHP application; they are still unfinished a
 | 1 | `publicSite` | **Public website, help/contact and SEO** | Public chat widget; legacy announcement-bar default copy; outbound contact-mail delivery (messages are stored only). |
 | 2 | `execution` | **Execution Supervisor and trading governance** | Console landed (Phase 39, `/app/execution`); no live route and no automated mode; remaining supervisor steps are broker-bound (row 13). Whole live path is paper-only. |
 | 3 | `scheduledJobs` | **Scheduled jobs, CLI and resumable work** | Legacy early-warning tiers at 80/70/60 % of a limit (SJ-8); `EXCESSIVE_LEVERAGE` / `CORRELATED_POSITIONS` codes (SJ-9); no crontab installed on a real host. |
-| 4 | `brokers` | **Broker Center and broker connectors** | Ten adapters registered but all disabled by default; no order routing, no simulated bridge, no adapter verified against its provider (MT5 real-terminal validation outstanding). |
+| 4 | `brokers` | **Broker Center and broker connectors** | Console landed (Phase 40, `/app/brokers`); ten adapters registered but all disabled by default, no order routing, no simulated bridge, no MT5 account/quote read, no adapter verified against its provider (MT5 real-terminal validation outstanding). |
 | 5 | `sports` | **Sports intelligence** | Stake sizing; no live provider verified against a real vendor. (The console screens left this row in Phase 36: `/app/sports` is `Sports::index` and `Sports::tickets`, and the decision route gained `Api_sports::decide_ticket`'s kill-switch refusal.) |
 
 ### Not ported (Node equivalent absent) — 2
@@ -74,9 +74,9 @@ screen in Phase 38 (`/app/risk`).
 - `apps/workforce-platform/` — Node modular monolith (`v0.23.0`); the 8 modules in section A.
   Consoles now exist for notifications, the audit trail, the portfolio optimizer, lottery (both
   screens), the Strategy Lab, the AI Workforce analysis run, the workspace dashboard, the admin
-  control centre, sports, paper, risk and execution; the remaining F-29 gap is the Broker Center and
-  journal screens (settings closed with the account avatar and the control centre, and no legacy
-  settings controller exists).
+  control centre, sports, paper, risk, execution and brokers; the remaining F-29 gap is the journal
+  screen (settings closed with the account avatar and the control centre, and no legacy settings
+  controller exists).
 - `apps/api/` — TypeScript Lead Discovery API (routes, pipeline, quality, providers).
 - `apps/web/` — Next.js `@lead-discovery/web` SPA for the same workstream.
 - `apps/football-predictions/` — independent Express/MySQL app with 29 tests; production verification pending.

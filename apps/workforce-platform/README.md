@@ -27,14 +27,14 @@ production replacement and no traffic has been cut over.
   governance, the paper-proposal workflow, operator notifications and lottery
   intelligence are ported**, as are the audit, inbox, portfolio-optimizer, lottery,
   Strategy Lab, AI Workforce, workspace-dashboard, administrator-control-centre,
-  sports, paper, risk and execution screens; `/api/v1/system/status` states each module's acceptance level
+  sports, paper, risk, execution and brokers screens; `/api/v1/system/status` states each module's acceptance level
   individually. Brokers and sports are ported **in part** (`partial`, each with its own
   stated remainder — no verified adapter, and for sports no stake sizing and no vendor);
   language learning and lead discovery remain legacy-only. **The shared shell has no
   screen left absent**: the settings gap and the admin control centre closed in Phases
   34–35, the sports dashboard in Phase 36, the paper console in Phase 37, the Risk Center in
-  Phase 38 and the Execution Center in Phase 39, and the screens still unported platform-wide
-  are F-29's — brokers and journal. The status surface reports
+  Phase 38, the Execution Center in Phase 39 and the Broker Center in Phase 40, and the one screen
+  still unported platform-wide is F-29's — the journal (row 18). The status surface reports
   each state rather than implying coverage.
 - **Operator notifications are ported** (migration `009`, `wf_notifications`): an
   unread-deduped notifier, broadcast plus targeted visibility, the three legacy

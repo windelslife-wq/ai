@@ -17,7 +17,7 @@ import { Link, matchRoute, RouterProvider, useRouter } from "./router.jsx";
 import { ConnectivityBanner, Notice, UpdateBanner } from "./ui.jsx";
 import {
   AccountView, AdminControlCentreView, AdminUsersView, AnalysisWorkforceView, AuditView, Brand,
-  ExecutionView, InquiriesView, LoginPanel,
+  BrokerCenterView, ExecutionView, InquiriesView, LoginPanel,
   LotteryLabView, LotteryOperationsView, ModuleCards, NotificationsView, NotFoundView, PortfolioOptimizerView,
   PaperConsoleView, RegisterPanel, RiskCenterView, SportsIntelligenceView, StatusPill, StatusView, StrategyLabView, WorkspaceDashboard,
   WorkspaceNav,
@@ -77,6 +77,10 @@ const ROUTES = [
   // `trading.control`, checked by the view before they are offered. Broker routing and
   // the automated modes are not registered anywhere, so no route here implies them.
   { path: "/app/execution", view: "execution-center", requiresAuth: true, permission: "trading.view" },
+  // Row 13 (Phase 40): the Broker Center, the port of `Brokers::index` →
+  // `views/brokers/index.php`. One read (`GET /api/v1/brokers`, `trading.view`) and no
+  // write of any kind; the screen states the two legacy panels this port does not register.
+  { path: "/app/brokers", view: "broker-center", requiresAuth: true, permission: "trading.view" },
   // Row 3 (Phase 35): the administrator control centre. Legacy's `Admin::index` was
   // `requireAdmin()` — `system.super_admin`, a shortcut that also passes every
   // permission check — so a viewer holding only `identity.users.view` sees the
@@ -421,6 +425,7 @@ function SessionApp() {
       "paper-console": <PaperConsoleView permissions={permissions} />,
       "risk-center": <RiskCenterView permissions={permissions} />,
       "execution-center": <ExecutionView permissions={permissions} />,
+      "broker-center": <BrokerCenterView permissions={permissions} />,
       "admin-control-centre": <AdminControlCentreView permissions={permissions} />,
       "admin-users": <AdminUsersView user={user} permissions={permissions} />,
       audit: <AuditView />,

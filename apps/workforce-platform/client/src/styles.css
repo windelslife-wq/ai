@@ -560,6 +560,20 @@ button:focus-visible, input:focus-visible, a:focus-visible { outline: 2px solid 
 .exec-checks li.down { color: #f0a2a2; }
 .exec-view table .badge { font-size: .55rem; }
 .exec-side .status-row small { font-size: .58rem; }
+.broker-view .panel h2, .broker-view .panel h3 { display: flex; align-items: center; gap: .5rem; flex-wrap: wrap; }
+.broker-facts { display: flex; flex-wrap: wrap; gap: .6rem 1.4rem; margin: .3rem 0 .6rem; font-size: .72rem; color: #a9b7ab; }
+.broker-facts b { color: #d3ddd1; font-weight: 600; }
+.broker-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 1rem; margin: 1rem 0; }
+.broker-card { margin: 0; }
+.broker-card .status-list { margin-top: .5rem; }
+.broker-message { min-height: 2.4em; }
+.broker-panels { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 1rem; margin: 1rem 0; }
+.broker-panels > .panel { margin: 0; }
+.broker-quote { display: flex; gap: .5rem; margin: .5rem 0; }
+.broker-quote input { flex: 1 1 auto; min-width: 0; }
+.broker-quote .secondary-button { width: auto; }
+.broker-absences { margin-top: .4rem; }
+.broker-absences .status-row { font-size: .68rem; }
 @media (max-width: 980px) {
   .workspace-body { grid-template-columns: 1fr; }
   .dash-kpis { grid-template-columns: repeat(2, minmax(0, 1fr)); }
@@ -616,6 +630,7 @@ button:focus-visible, input:focus-visible, a:focus-visible { outline: 2px solid 
   .risk-form-grid { grid-template-columns: 1fr; }
   .exec-board { grid-template-columns: 1fr; }
   .exec-form-grid { grid-template-columns: 1fr; }
+  .broker-grid, .broker-panels { grid-template-columns: 1fr; }
   .workforce-watchlist { grid-template-columns: 1fr; }
   .portfolio-meta { grid-template-columns: 1fr; }
   .dash-kpis { grid-template-columns: 1fr; }

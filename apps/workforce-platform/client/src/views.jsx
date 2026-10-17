@@ -114,6 +114,15 @@ import {
   proposalFormState, proposalOutcome, proposalRows, validateDecision, validateProposalForm,
   statusTone as executionStatusTone,
 } from "./execution.js";
+// Row 13 (Phase 40): the Broker Center. The module's vocabulary (`stateTone`, `moneyText`,
+// `countText`) collides with the risk and sports blocks, so those are aliased; the copy,
+// banner and matrix shapers are used as exported.
+import {
+  BROKERS_COPY, BROKERS_PERMISSION, BROKERS_PORT_COPY, BROKERS_READS, CONNECTOR_STATES,
+  LEGACY_ROUTES_NOT_PORTED,
+  connectorRows, flagText, governanceFacts as brokersGovernanceFacts,
+  plannedRows, routingBanner, simulationState, stateSummary,
+} from "./brokers.js";
 import { Link } from "./router.jsx";
 import { ConnectivityBanner, Field, Notice, StateBox, useResource } from "./ui.jsx";
 
@@ -258,6 +267,8 @@ export function WorkspaceNav({ permissions, current, signedIn = true, notificati
     // Row 2 (Phase 39): the Execution Center. Every read is `trading.view`; the
     // broker-bound half of legacy's page stays absent and the screen says so.
     { to: "/app/execution", label: "Execution", permission: EXECUTION_PERMISSION },
+    // Row 13 (Phase 40): the Broker Center — one gated read, no control of any kind.
+    { to: "/app/brokers", label: "Brokers", permission: BROKERS_PERMISSION },
     { to: "/app/strategy", label: "Strategy Lab", permission: null },
     // Legacy's `Admin::index` was super-admin only; the directory and the trail
     // beside it were always `identity.users.view` surfaces. The port keeps both
@@ -1922,6 +1933,211 @@ export function ExecutionView({ permissions }) {
         <p className="muted">{EXECUTION_PORT_COPY.submitNote}</p>
         <p className="muted">{EXECUTION_PORT_COPY.decisionOutcome}</p>
       </section>
+    </div>
+  );
+}
+
+/* ------------------------------------------------------------ broker console */
+
+/**
+ * The Broker Center (row 13, Phase 40) — the port of `Brokers::index` →
+ * `views/brokers/index.php`.
+ *
+ * Legacy drew five things: the routing banner, a simulated-bridge switch, a capability card per
+ * connector, two read-only MT5 panels and the PLANNED matrix. This port has one route —
+ * `GET /api/v1/brokers` — and the screen is that route, correctly read: the banner's three
+ * arms, every connector's state with the bridge fields only when the adapter reported them, the
+ * capability flags with the difference between local intent and effective submission stated,
+ * and the nine PLANNED adapters in legacy's own words.
+ *
+ * The two absences are drawn as absences. The simulated-bridge switch has no bridge to switch
+ * on (no marker file, no in-process mock), and the MT5 account and quote reads were
+ * unauthenticated in legacy (F-32) and are not registered here — a route that can only answer
+ * 503 on a host with no bridge would be worse than none. Both panels say so, with legacy's own
+ * sentences first, so a reader who knew the PHP page recognises what is missing and why.
+ */
+export function BrokerCenterView({ permissions }) {
+  const canView = holdsBrokersPermission(permissions, BROKERS_PERMISSION);
+  const brokers = useResource(() => endpoints.brokers(), []);
+  const state = useResource(() => endpoints.tradingMode(), []);
+  const [symbol, setSymbol] = useState("EURUSD");
+
+  const payload = brokers.data;
+  const banner = routingBanner(payload);
+  const rows = connectorRows(payload);
+  const summary = stateSummary(rows);
+  const planned = plannedRows(payload);
+  const simulation = simulationState(payload);
+  const governance = brokersGovernanceFacts(state.data);
+  const mt5 = payload?.brokers?.["mt5-bridge"] ?? null;
+
+  return (
+    <div className="view broker-view">
+      <header className="view-header">
+        <div>
+          <div className="overline">{BROKERS_COPY.eyebrow} <span className="overline-line" /></div>
+          <h1>{BROKERS_COPY.title}.</h1>
+          <p className="view-lede">{BROKERS_COPY.lede}</p>
+        </div>
+      </header>
+
+      {governance ? (
+        <div className="broker-facts">
+          <span>Mode <b>{governance.mode}</b></span>
+          <span>Kill switch <b className={governance.killSwitch ? "down" : "up"}>{governance.killSwitch ? "ACTIVE" : "released"}</b></span>
+          <span>Synthetic paper prices <b>{governance.synthetic ? "ON" : "OFF"}</b></span>
+          <span>Execution <b>simulation only</b></span>
+        </div>
+      ) : null}
+
+      <StateBox status={brokers.status} error={brokers.error} retry={brokers.retry} label="Reading connector health">
+        <Notice tone={banner.tone}><b>{banner.message}</b></Notice>
+        <p className="muted">{BROKERS_PORT_COPY.routingSource}</p>
+
+        <p className="muted">
+          {summary.total} connector{summary.total === 1 ? "" : "s"} · {summary.ready} READY ·{" "}
+          {summary.configured} configured. {BROKERS_PORT_COPY.states}
+        </p>
+
+        <section className="panel">
+          <h2>{BROKERS_COPY.simulatedTitle} <span className="badge badge-amber">{BROKERS_COPY.simulatedBadge}</span></h2>
+          <p className="muted">
+            <b>{BROKERS_COPY.simulationRunning}</b> — {simulation.enabled
+              ? "the MT5 adapter reports a simulated bridge."
+              : BROKERS_COPY.simulatedBlocked}
+          </p>
+          <p className="muted">{BROKERS_PORT_COPY.simulatedAbsent}</p>
+          <div className="broker-absences">
+            <div className="status-row">
+              <span>
+                <code>{LEGACY_ROUTES_NOT_PORTED[0].route}</code>{" "}
+                <small className="muted">— {BROKERS_COPY.startSimulated} / {BROKERS_COPY.stopSimulated}</small>
+              </span>
+              <b className="down">absent</b>
+            </div>
+          </div>
+        </section>
+
+        <div className="broker-grid">
+          {rows.map((row) => (
+            <section className="panel broker-card" key={row.key}>
+              <h3>{row.id} <span className={`badge ${row.tone}`}>{row.state}</span></h3>
+              <div className="broker-facts">
+                <span>{BROKERS_COPY.rowConfigured} <b>{flagText(row.configured)}</b></span>
+                {row.simulated ? <span>simulated <b>yes</b></span> : null}
+              </div>
+              <p className="muted broker-message">{row.message}</p>
+              <div className="status-list">
+                <div className="status-row">
+                  <span>{BROKERS_COPY.rowAccountRead}</span>
+                  <b className={row.capabilities.accountRead ? "up" : "down"}>{flagText(row.capabilities.accountRead)}</b>
+                </div>
+                <div className="status-row">
+                  <span>{BROKERS_COPY.rowMarketData}</span>
+                  <b className={row.capabilities.marketData ? "up" : "down"}>{flagText(row.capabilities.marketData)}</b>
+                </div>
+                <div className="status-row">
+                  <span>{BROKERS_COPY.rowOrderSubmission}</span>
+                  <b className={row.capabilities.orderSubmission ? "up" : "down"}>
+                    {row.capabilities.orderSubmission ? BROKERS_COPY.orderEnabled : BROKERS_COPY.orderDisabled}
+                  </b>
+                </div>
+                <div className="status-row">
+                  <span>{BROKERS_COPY.rowLiveTrading}</span>
+                  <b className={row.capabilities.liveTrading ? "up" : "down"}>
+                    {row.capabilities.liveTrading ? BROKERS_COPY.liveAllowed : BROKERS_COPY.demoOnly}
+                  </b>
+                </div>
+                {row.bridgeFields.map(([key, value]) => (
+                  <div className="status-row" key={key}>
+                    <span><code>{key}</code></span>
+                    <b>{typeof value === "boolean" ? (value ? "true" : "false") : String(value)}</b>
+                  </div>
+                ))}
+              </div>
+              {row.capabilities.reason ? <p className="muted">{row.capabilities.reason}</p> : null}
+            </section>
+          ))}
+        </div>
+        <p className="muted">{BROKERS_PORT_COPY.capabilitiesNote}</p>
+
+        <div className="broker-panels">
+          <section className="panel">
+            <h2>{BROKERS_COPY.accountTitle}</h2>
+            <p className="muted">{BROKERS_COPY.accountEmpty}</p>
+            <p className="muted">{BROKERS_PORT_COPY.accountAbsent}</p>
+            <div className="broker-absences">
+              <div className="status-row">
+                <span><code>GET /api/v1/brokers/mt5/account</code></span>
+                <b className="down">absent</b>
+              </div>
+            </div>
+            {mt5 ? <p className="muted">The MT5 adapter reports <code>{String(mt5.state)}</code>; an account read would need a deployed bridge.</p> : null}
+          </section>
+
+          <section className="panel">
+            <h2>{BROKERS_COPY.quoteTitle}</h2>
+            <form className="broker-quote" onSubmit={(event) => event.preventDefault()}>
+              <input name="symbol" value={symbol} aria-label="Symbol"
+                onChange={(event) => setSymbol(event.target.value)} />
+              <button className="secondary-button" type="button" disabled title="No MT5 quote route exists in this port">
+                {BROKERS_COPY.quoteFetch}
+              </button>
+            </form>
+            <p className="muted">{BROKERS_PORT_COPY.quoteAbsent}</p>
+            <div className="broker-absences">
+              <div className="status-row">
+                <span><code>GET /api/v1/brokers/mt5/quote</code></span>
+                <b className="down">absent</b>
+              </div>
+            </div>
+          </section>
+        </div>
+
+        <section className="panel">
+          <h2>{BROKERS_COPY.plannedTitle}</h2>
+          {planned.length === 0 ? <p className="empty">No adapter is marked PLANNED.</p> : (
+            <div className="table-scroll">
+              <table className="data-table">
+                <thead>
+                  <tr><th>{BROKERS_COPY.plannedConnector}</th><th>{BROKERS_COPY.plannedStatus}</th><th>{BROKERS_COPY.plannedNotes}</th></tr>
+                </thead>
+                <tbody>
+                  {planned.map((entry) => (
+                    <tr key={entry.key}>
+                      <td><b>{entry.name}</b></td>
+                      <td><span className="badge badge-gray">{entry.status}</span></td>
+                      <td className="muted">{entry.detail}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )}
+          <p className="muted">{BROKERS_PORT_COPY.oneRouteOnly}</p>
+        </section>
+
+        <section className="panel">
+          <h2>What this screen reads, and what it does not</h2>
+          <div className="status-list">
+            {BROKERS_READS.map((read) => (
+              <div className="status-row" key={read.key}>
+                <span><code>{read.method} {read.path}</code></span>
+                <b>{read.permission ?? "session"}</b>
+              </div>
+            ))}
+            {LEGACY_ROUTES_NOT_PORTED.map((entry) => (
+              <div className="status-row" key={entry.key}>
+                <span><code>{entry.legacy}</code> <small className="muted">— {entry.why}</small></span>
+                <b className="down">absent</b>
+              </div>
+            ))}
+          </div>
+          <p className="muted">
+            {Object.entries(CONNECTOR_STATES).map(([key, value]) => `${key}: ${value.note}`).join(" · ")}
+          </p>
+        </section>
+      </StateBox>
     </div>
   );
 }
