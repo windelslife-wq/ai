@@ -1,8 +1,110 @@
 # JavaScript / Node.js / cPanel migration status
 
-**Updated:** 2026-10-17 · **Branch:** `arena/0d5104b6-ai`
+**Updated:** 2026-10-17 · **Branch:** `arena/d57504c6-ai`
 
-## Current Phase 47 status (2026-10-17)
+## Current Phase 51 status (2026-10-17)
+
+**F-26 is now closed for the Strategy Lab as well:** the whole
+`Backtester::simulate` engine — SeriesView look-ahead-proof windows, next-open
+fills, pessimistic stop-first, fees/spread/slippage, mark-to-market equity —
+is diffed **end to end** against WASM PHP 8.2 through all four built-in
+strategies (7 market-shape simulations: 28 recorded trades, the
+`ignoredSignals` path with its verbatim warning, the no-trade empty case),
+plus `Backtest\Metrics` and `Journal\Analytics` (`bucketMetrics`, `analyze`,
+`calibration`, en-dash bucket keys, verbatim verdict strings). 27 golden
+cases, exact, no tolerance — and, unlike the analysis slice, **zero code
+repair**: Phase 6's ports were what they claimed. Recorded finding **F-48**:
+PHP's `Backtester::iso()` emits a malformed double-Z timestamp
+(`…T00:00:00Z.000Z`); the Node port keeps the canonical form of the same
+instant, pinned evidence-for-evidence by the harness. **Still standing under
+F-26:** the strategy-optimizer grid search, the portfolio optimizer, the
+analysis regime/setup/scenario layer and the notification rules. Full record:
+[`PHASE51_STRATEGIES_PARITY.md`](PHASE51_STRATEGIES_PARITY.md). Suite:
+**1 384 / 1 384** Node (+30), 367 / 367 PHP oracle, 30 / 30 verify:install.
+
+## Earlier Phase 50 status (2026-10-17)
+
+**F-26 is closed for the analysis module's pure numeric policies** — the 16
+`Indicators` methods, the analysis-layer half of `MathUtils` (PRNG/gaussian
+included), and the `round`/`number_format`/`sprintf` verbs embedded in payload
+strings are now proven **value-for-value against PHP's own output**:
+`runtime/analysis-parity.mjs` runs the real legacy classes in WASM PHP 8.2
+(`runtime/parity/analysis-golden.php`), writes 93 golden cases with each input
+stored beside its result, and `test/analysis_parity.test.js` (95 tests)
+replays them against the Node port with exact, no-tolerance comparison — the
+same rule the sports slices set. **It found a real bug on the first run
+(F-47):** PHP `round()` pre-rounds to 15 significant digits (`round(1.005, 2)`
+is `1.01`), and three Node sites rounded on the binary value — the pervasive
+`analysis/math.js:roundTo` (agents, regime, risk engine, paper, strategies,
+journal, optimizer), `paper/service.js`'s local `toFixed` helper, and
+`analysis/feeds.js`'s `Math.round(×10⁴)` score rounding. All three now delegate
+to the sports-proven `src/lib/php.js:phpRound`, so the platform shares one
+round helper. **Still standing under F-26, by name:** the optimizer, the
+regime/setup/scenario layer, strategy/journal metrics and the notification
+rules. Full record: [`PHASE50_ANALYSIS_PARITY.md`](PHASE50_ANALYSIS_PARITY.md).
+Suite: **1 354 / 1 354** Node (+95), 367 / 367 PHP oracle, 30 / 30
+verify:install; no existing expected value changed.
+
+## Earlier Phase 49 status (2026-10-17)
+
+**Row 5's last code surface — the notifier's missing delivery channel — is now ported:**
+the notification service can send an **opt-in, severity-gated email copy** of each stored
+alert to a fixed operator address list (divergence **DV-28**; legacy never emailed an
+alert). The copy is sent **after** the in-product row exists (`src/modules/notifications/service.js`
+→ `deliverEmailCopy`), carries no action links, is suppressed by dedupe exactly like the
+unread badge, counts each recipient's outcome in `notify()`'s result (`email: { attempted,
+sent, failed, recipients }`, mask-only), and leaves one audited `notification.email` event
+per alert. A refused or throwing transport never changes `created`, the stored row or the
+governance decision. The configuration is fail-fast at boot (`VP_NOTIFY_EMAIL_ENABLED=1`,
+≤10 valid `VP_NOTIFY_EMAIL_TO` addresses, `VP_NOTIFY_EMAIL_SEVERITIES` defaulting to
+`critical` only); an invalid entry stops the deploy. `emailDeliveryAvailable` is an AND
+gate — operator opt-in **and** working SMTP (enabled + credentials + valid sender) — and
+`/system/status` now reports `deliveryChannels: ["in-product", "email-copy"]` only when both
+hold. End to end it is proven against the real loopback SMTP server: boot engaged, release
+(info, not paged), engage (critical) → two envelopes, encoded subject decoding to the
+critical title, disclaimer present, one masked audit event. Defaults keep every host
+exactly as Phase 42 behaved. Full record: [`PHASE49_NOTIFICATION_EMAIL_DELIVERY.md`](PHASE49_NOTIFICATION_EMAIL_DELIVERY.md).
+Suite: 1 259 / 1 259 Node (+20), 367 / 367 PHP oracle, 30 / 30 verify:install.
+**Row 5's remainder** is preferences/settings screens (`views/settings`) and live-relay
+verification on the target host — host acceptance, not code.
+
+## Earlier Phase 48 status (2026-10-17)
+
+**Row 14 (`sports`) is now `ported` across all 17 modules' surfaces: bounded, record-only
+stake sizing (DV-27) — the not-ported matrix's last entry — lands as opt-in configuration,
+emptying the matrix and moving the ledger to 15 ported / 2 partial / 0 not-ported.**
+
+**Bounded sizing engine (`src/modules/sports/stake-sizing.js`) behind the versioned
+configuration's new `staking_method` (migration `022_sports_stake_sizing.sql`).** The
+user decided (2026-10-17) to build the bounded opt-in engine rather than declare the last
+matrix entry parity-by-absence. `FLAT` — the DDL default that fills every historical
+configuration row — returns the configured fixed `stake_amount` unchanged, byte-identical
+to `TicketGovernance::record`. The opt-in `CONFIDENCE_SCALED` multiplies that flat stake by
+confidence × risk × correlation factors (each ≤ 1, with a documented 0.10 floor and
+HIGH-classification fallback) and can therefore only size **down** from it; unknown
+classifications fail conservative, and an unsizable stake amount is a null stake, never an
+exception at ticket time. The sized stake is stored in the ticket's existing `stake` column
+(settlement already computes P/L on it), the breakdown is reconstructible from the stored
+ticket and its configuration version — so no breakdown column exists — and it travels in
+`runDaily`'s return and `sports.daily_ticket.run`'s audit details. `buildTicket` returns it
+as a third key the repositories never persist. Nothing is executed either way: no
+bookmaker connector, order path or trading endpoint is involved. Full record:
+[`PHASE48_SPORTS_STAKE_SIZING.md`](PHASE48_SPORTS_STAKE_SIZING.md).
+
+**Empty-matrix discipline, everywhere the matrix is read.** `MODULE_STATUS` moves
+`sports` to `ported` (15 / 2 / 0), the label naming DV-27, migration 022, the bound and
+the FLAT default because "sports: ported" otherwise reads as "a betting engine that runs";
+`status.notPorted` is `[]` and that emptiness is pinned in `test/sports_http.test.js`;
+the configured-host status message names `staking_method` and the unchanged boundaries
+(nothing executed; result attestation first; no verified vendor); and the console's
+boundary panel explains the same in its residual sentences. The PHP-parity defaults test
+exempts the one Node-only key and asserts it is `FLAT` — an asserted exemption, not a
+silent golden edit; `022` joins `REQUIRED_MIGRATIONS`, the last-migration pin and the
+readiness IN-list, because the configuration INSERT names the column. Test evidence:
+suite **1239/1239** (+12), legacy oracle **367/367** unchanged (no PHP edited),
+`verify:install` **30/30**.
+
+## Phase 47 status (2026-10-17) — superseded by Phase 48
 
 **Row 2 (self-service password reset token flow & outbound SMTP wiring) and Row 3 / Row 16
 (`/app/admin` language registry statistic card & `MODULE_STATUS` label reconciliation) are ported

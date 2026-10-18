@@ -54,32 +54,32 @@ import { createHttpSportsProvider } from "./providers/http.js";
 /**
  * The parts of row 14 this port still does not contain, in legacy's own terms.
  *
- * **One entry.** Slice 5 took settlement, verification, calibration fitting, backtesting,
+ * **Empty.** Slice 5 took settlement, verification, calibration fitting, backtesting,
  * drift monitoring and performance analytics out of this list; row 19 took the scheduled
  * jobs out; and Phase 36 took the console screens out — `Sports::index` and
- * `Sports::tickets` are `/app/sports` now, which closes **F-29** for this module. What is
- * left is the one thing no slice owns: stake sizing. Everything else left by being
- * REMOVED rather than re-labelled, and a matrix whose name is "not ported" must not
- * contain an entry that says otherwise.
- *
- * Two things this matrix deliberately does **not** list, and why:
+ * `Sports::tickets` are `/app/sports` now. The last entry was stake sizing, and **Phase
+ * 48 took it out**: the bounded, record-only sizing engine (`stake-sizing.js`, the
+ * versioned configuration's `staking_method`, migration 022) sizes the recorded stake
+ * under the default `FLAT` — exactly legacy's fixed stake — or the opt-in bounded
+ * `CONFIDENCE_SCALED` method, and executes nothing either way (DV-27). What remains is
+ * genuinely *not* a port gap, so the matrix is empty rather than relocated:
  *
  *  - *No external execution and no order path.* That is not a gap in the port; it is the
  *    module's design, and legacy's (`Sports::index`: "approval never places a bet").
- *    Listing it here would read as work outstanding.
+ *    Listing it here would read as work outstanding — and sizing changed nothing about
+ *    it: a sized stake is recorded, never staked with anyone.
  *  - *No verified vendor.* Legacy never verified one either — its own providers were
- *    registry rows with derived health — so this is parity rather than a shortfall. The
- *    module's `partial` state and the ledger label carry the claim as prose, where it
- *    belongs: `partial` is about the module's boundaries, not about unported slices.
+ *    registry rows with derived health — so this is parity rather than a shortfall.
+ *  - *No stored result trusted before a person attests to it* (sports.settle) — the
+ *    module's trust boundary, stated as prose in the status message and the ledger label.
  *
  * Surfaced by `status()` for the same reason the broker route surfaces its `PLANNED`
  * matrix (divergence BC-10): a distinction legacy showed an operator in a view has to
- * travel in the API response or it is lost. "Working" and "scaffolded, not yet ported"
- * must not look the same from the outside — and neither must `partial` and `ported`.
+ * travel in the API response or it is lost. The now-empty list is asserted in
+ * `test/sports_http.test.js` so that a future "not ported" entry arrives as a test
+ * change, not a silent edit.
  */
-export const SPORTS_NOT_PORTED = Object.freeze([
-  Object.freeze({ area: "stake sizing", legacy: "stake_amount copied onto each ticket (TicketGovernance::record)", state: "not ported", detail: "No stake is sized from bankroll or edge: the configured fixed stake_amount is recorded on each ticket, as legacy does, and settlement's P/L is computed on it. Sizing is not ported, and no slice owns it yet." }),
-]);
+export const SPORTS_NOT_PORTED = Object.freeze([]);
 
 /**
  * Create the sports service.
@@ -235,7 +235,7 @@ export function createSportsService({ config, store = null, notifications = null
       ticketEngine: "ON_REQUEST",
       message: configured
         ? (store
-          ? "Sports data providers are configured and ingestion is persisted: fixtures, odds observations, results, quality assessments, provider health and sync runs are stored. Derived provider health is computed from those rows. The decision chain, the ticket engine, settlement and verification, calibration fitting, the backtester, drift monitoring and measured performance are all runnable, on request. Nothing is executed: a ticket is a record a person approves, and settlement settles the record. No stake is sized, and no provider has been verified against a real vendor."
+          ? "Sports data providers are configured and ingestion is persisted: fixtures, odds observations, results, quality assessments, provider health and sync runs are stored. Derived provider health is computed from those rows. The decision chain, the ticket engine, settlement and verification, calibration fitting, the backtester, drift monitoring and measured performance are all runnable, on request. Nothing is executed: a ticket is a record a person approves, and settlement settles the record. Stakes are sized by the configuration's staking_method (Phase 48): FLAT is the default and is exactly legacy's fixed stake; CONFIDENCE_SCALED only sizes down from it. No sized stake is ever staked with anyone, no stored result is trusted before a person attests to it, and no provider has been verified against a real vendor."
           : "Sports data providers are configured but this host has no sports repository, so nothing is persisted: fixture, odds and result ingestion has nowhere to put its rows, and no decision, ticket, settlement or measurement can be produced.")
         : "No sports provider is configured. No fixtures, odds, predictions, or tickets are fabricated.",
     };
@@ -320,7 +320,7 @@ export function createSportsService({ config, store = null, notifications = null
       ticketEngine: "ON_REQUEST",
       reason: configured
         ? (store
-          ? "Providers are configured from the environment and ingestion is persisted. Decisions, tickets, settlement, verification, calibration fits, backtests, drift monitoring and measured performance are all runnable on request; nothing is executed and no stake is sized. This snapshot reports configuration only: derived health is computed from stored observations and is available on the authenticated GET /api/v1/sports/status, never here, because this surface is unauthenticated and must not trigger a read of provider history or an outbound call."
+          ? "Providers are configured from the environment and ingestion is persisted. Decisions, tickets, settlement, verification, calibration fits, backtests, drift monitoring and measured performance are all runnable on request; nothing is executed, and stakes are sized by the configuration's staking_method (record-only, bounded, FLAT by default — legacy's fixed stake exactly). This snapshot reports configuration only: derived health is computed from stored observations and is available on the authenticated GET /api/v1/sports/status, never here, because this surface is unauthenticated and must not trigger a read of provider history or an outbound call."
           : "Providers are configured from the environment but this host has no sports repository, so no fixture, odds or result is persisted, and no decision, ticket, settlement or measurement can be produced. The authenticated GET /api/v1/sports/status reports the same and can probe on request.")
         : "No sports provider is configured, so no fixture, odds, decision or ticket can be produced and nothing is fabricated to fill the gap.",
     });

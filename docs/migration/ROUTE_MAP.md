@@ -653,7 +653,7 @@ the engine mode and its limits. `AUTOMATED_EXECUTION` is refused in every case (
 |---|---|---|---|
 | `GET /api/v1/sports/configuration` | `sports.manage` | none | The stored configuration, or the built-in default |
 | `GET /api/v1/sports/configuration/versions` | `sports.manage` | `querySchema` | Newest first |
-| `PATCH /api/v1/sports/configuration` | `sports.manage` | `bodySchema` | Requires `reason`. An undeclared property is a 400 `UNKNOWN_PROPERTY`, not dropped |
+| `PATCH /api/v1/sports/configuration` | `sports.manage` | `bodySchema` | Requires `reason`. An undeclared property is a 400 `UNKNOWN_PROPERTY`, not dropped. Phase 48 extends the declared fields with `staking_method` (`FLAT`/`CONFIDENCE_SCALED`, DV-27) |
 | `GET /api/v1/sports/models` | `sports.view` | none | The registry of model identities |
 | `GET /api/v1/sports/models/performance` | `sports.view` | `querySchema` | `samples: 0` and `null` metrics until settlement (slice 5) |
 | `GET /api/v1/sports/calibrations` | `sports.view` | `querySchema` | Filter by status and model version |

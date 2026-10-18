@@ -39,6 +39,11 @@ export const REQUIRED_MIGRATIONS = Object.freeze([
   "020_lead_discovery",
   // Row 16 (Phase 46): AI Language Learning & AI Teacher tables.
   "021_language_learning",
+  // Row 14 slice 6 (Phase 48): `staking_method` on wf_sports_configurations (DV-27).
+  // Required, because the configuration INSERT names the column: an un-migrated host
+  // would fail at the write, not at readiness, which is exactly what this list exists
+  // to prevent.
+  "022_sports_stake_sizing",
 ]);
 
 /** Only driver codes are ever reported; never an SQL statement or credential. */

@@ -16,6 +16,8 @@
  * silent.
  */
 
+import { roundTo } from "./math.js";
+
 export const SENTIMENT_MAX_AGE_SECONDS = 3_600; // sentiment decays fast — one-hour horizon
 export const SENTIMENT_MIN_VALID_OBSERVATIONS = 2; // one data point is not a sentiment view
 const CLOCK_SKEW_SECONDS = 60; // tolerate slight feed clock drift into the future
@@ -98,7 +100,9 @@ export function createSentimentSnapshotValidator(maxAgeSeconds = SENTIMENT_MAX_A
         channel: SENTIMENT_CHANNELS.includes(observation.channel) ? observation.channel : "news",
         source: observationSource,
         observedAt,
-        score: Math.round(score * 10_000) / 10_000,
+        // F-47: legacy rounds with `round($s, 4)`; the binary-value Math.round
+        // shortcut disagreed on decimal ties (`round(1.005, 2) === 1.01` in PHP).
+        score: roundTo(score, 4),
         sampleSize,
         headline: typeof observation.headline === "string" ? observation.headline : null,
       });
@@ -115,7 +119,8 @@ export function createSentimentSnapshotValidator(maxAgeSeconds = SENTIMENT_MAX_A
     return {
       ok: true,
       reason: null,
-      score: Math.round(score * 10_000) / 10_000,
+      // F-47, as above: `round($score, 4)`, to the last double.
+      score: roundTo(score, 4),
       observations: valid,
       rejectedCount,
       provenance: {

@@ -282,7 +282,7 @@ export const MAIL_PANEL = Object.freeze({
   variantLabel: "Format",
   submitLabel: "Send test email",
   variants: Object.freeze([{ value: "html", label: "HTML" }, { value: "plain", label: "Plain text" }]),
-  footnote: "The test send is audited as ADMIN_TEST_EMAIL with its recipient and outcome. Operator notifications are still stored and read in-product only: SMTP is used by this test and by the contact-form copy, never by an alert.",
+  footnote: "The test send is audited as ADMIN_TEST_EMAIL with its recipient and outcome. Operator notifications are stored and read in-product; Phase 49 adds an opt-in severity-gated email copy for operators (VP_NOTIFY_EMAIL_*), sent by this transport after the in-product row exists and audited with masked recipients.",
   disabledNote: "Outbound email is disabled. Set VP_SMTP_ENABLED=1 and a VP_SMTP_HOST on the server, restart, then send a test.",
 });
 

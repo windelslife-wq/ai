@@ -28,9 +28,13 @@ production replacement and no traffic has been cut over.
   intelligence are ported**, as are the audit, inbox, portfolio-optimizer, lottery,
   Strategy Lab, AI Workforce, workspace-dashboard, administrator-control-centre,
   sports, paper, risk, execution, brokers and journal screens; `/api/v1/system/status` states each module's acceptance level
-  individually. Brokers and sports are ported **in part** (`partial`, each with its own
-  stated remainder — no verified adapter, and for sports no stake sizing and no vendor);
-  language learning and lead discovery remain legacy-only. **The shared shell has no
+  individually. Brokers remain ported **in part** (`partial` — ten connectors
+  registered, all disabled by default, no verified adapter, no order routing); sports
+  completed in Phase 48 with bounded record-only stake sizing, DV-27 (`ported`, by the
+  same empty-matrix rule lottery met in Phase 30 — its boundaries, nothing executed
+  and attestation-first results, stay in the ledger label); language learning
+  (Phase 46) and lead discovery (Phase 45) are ported with their consoles at
+  `/app/languages` and `/app/leads`. **The shared shell has no
   screen left absent**: the settings gap and the admin control centre closed in Phases
   34–35, the sports dashboard in Phase 36, the paper console in Phase 37, the Risk Center in
   Phase 38, the Execution Center in Phase 39, the Broker Center in Phase 40 and the journal in
@@ -41,12 +45,19 @@ production replacement and no traffic has been cut over.
 - **Operator notifications are ported** (migration `009`, `wf_notifications`): an
   unread-deduped notifier, broadcast plus targeted visibility, the three legacy
   `/api/v1/notifications` endpoints, and publishers for the kill switch, trading-mode
-  changes and the paper-proposal lifecycle. Alerts are stored and read in-product
-  only — the notifier has **no** mail, push or webhook delivery channel, and no HTTP
-  route can publish one. Outbound SMTP (row 5, Phase 42) exists for exactly two
-  flows and neither is a notification: the administrator's test send and the copy of
-  a contact-form inquiry. See [`docs/migration/PHASE9_NOTIFICATIONS.md`](../../docs/migration/PHASE9_NOTIFICATIONS.md)
-  and [`docs/migration/PHASE42_RETENTION_AND_MAIL.md`](../../docs/migration/PHASE42_RETENTION_AND_MAIL.md).
+  changes and the paper-proposal lifecycle. Alerts are stored and read in-product;
+  Phase 49 (row 5, divergence DV-28) adds one opt-in outbound channel: a
+  severity-gated email copy of each stored alert, sent **after** the in-product row
+  exists, carrying no action links, suppressed by dedupe exactly like the unread
+  badge, immune to send failure (a failed copy never changes the stored alert or
+  the decision behind it), and audited with masked recipients. Off unless
+  `VP_NOTIFY_EMAIL_ENABLED=1` plus `VP_NOTIFY_EMAIL_TO` and configured SMTP are all
+  present — a default host still makes no delivery claim. The same SMTP transport
+  (row 5, Phase 42) separately serves the administrator's test send and the copy
+  of a contact-form inquiry. See
+  [`docs/migration/PHASE9_NOTIFICATIONS.md`](../../docs/migration/PHASE9_NOTIFICATIONS.md),
+  [`docs/migration/PHASE42_RETENTION_AND_MAIL.md`](../../docs/migration/PHASE42_RETENTION_AND_MAIL.md)
+  and [`docs/migration/PHASE49_NOTIFICATION_EMAIL_DELIVERY.md`](../../docs/migration/PHASE49_NOTIFICATION_EMAIL_DELIVERY.md).
 - **Research-only portfolio optimization is ported**: `POST /api/v1/portfolio/optimize`
   estimates returns and covariance from history aligned on the timestamps every asset
   shares, then solves minimum-variance and maximum-Sharpe allocations under a

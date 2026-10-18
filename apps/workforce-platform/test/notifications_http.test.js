@@ -387,13 +387,14 @@ test("the status surface reports notifications as ported and denies a delivery c
   const body = status.json();
   const module = body.modules.find((entry) => entry.key === "notifications");
   assert.equal(module.state, "ported");
-  assert.match(module.label, /no outbound delivery/i, "the label itself states the limitation");
+  assert.match(module.label, /opt-in severity-gated audited email copy/i, "the label names the one outbound channel and its opt-in gate");
   assert.match(module.tests, /unit \+ http/);
 
   assert.equal(body.notifications.available, true);
   assert.equal(body.notifications.storeConfigured, true);
+  // The test host sets no VP_NOTIFY_EMAIL_* opt-in, so the email copy must stay off.
   assert.equal(body.notifications.emailDeliveryAvailable, false);
-  assert.deepEqual(body.notifications.deliveryChannels, []);
+  assert.deepEqual(body.notifications.deliveryChannels, ["in-product"]);
   assert.equal(body.notifications.readStateScope, "global");
   assert.ok(body.notifications.types.includes("KILL_SWITCH"));
 

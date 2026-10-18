@@ -421,8 +421,10 @@ test("the two absences the page explains are the ledger's and the router's own",
   // Phase 44 promoted `scheduledJobs` from `partial` to `ported` when the
   // 80/70/60% early-warning tiers, leverage check and correlation-group enforcement landed,
   // Phase 45 promoted `leadDiscovery` from `not-ported` to `ported`,
-  // and Phase 46 promoted `languageLearning` from `not-ported` to `ported`.
-  assert.equal(modules.filter((module) => module.state === "ported").length, 14);
-  assert.equal(modules.filter((module) => module.state === "partial").length, 3);
+  // Phase 46 promoted `languageLearning` from `not-ported` to `ported`,
+  // and Phase 48 promoted `sports` from `partial` to `ported` when bounded record-only
+  // stake sizing (DV-27) emptied its not-ported matrix.
+  assert.equal(modules.filter((module) => module.state === "ported").length, 15);
+  assert.equal(modules.filter((module) => module.state === "partial").length, 2);
   assert.equal(modules.filter((module) => module.state === "not-ported").length, 0);
 });

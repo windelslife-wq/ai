@@ -19,12 +19,20 @@
  *    value, which includes a confidence of exactly 0.0, not only null. The port keeps that
  *    behaviour, because the stored `confidence` must match what legacy would have stored.
  *
+ *  - **DV-27: the stake is sized where legacy only copied it.** Legacy records
+ *    `stake_amount` verbatim. The port records exactly the same value under the default
+ *    `staking_method: "FLAT"` and adds the opt-in bounded `CONFIDENCE_SCALED` method
+ *    (`stake-sizing.js`): `buildTicket` returns the sizing breakdown as a third key,
+ *    which the repositories ignore and the service carries to the audit trail and the
+ *    response. Nothing is executed either way.
+ *
  * Nothing in this module reaches an execution, paper or broker path. A decision is a
  * record. `externalExecution` is always false.
  */
 import { AppError } from "../../http/errors.js";
 import { phpRound } from "../../lib/php.js";
 import { classifySelections } from "./correlation.js";
+import { sizeStake } from "./stake-sizing.js";
 
 export const RISK_ORDER = Object.freeze({ LOW: 0, MEDIUM: 1, HIGH: 2 });
 export const TICKET_APPROVAL_PENDING = "PENDING_USER_APPROVAL";
@@ -60,8 +68,16 @@ export function buildTicket(optimized, { configurationVersion, modelVersionId = 
 
   const correlation = classifySelections(selections);
   const qualities = selections.map((selection) => Math.trunc(Number(selection?.quality?.score ?? 0)));
+  const confidence = usable.length > 0 ? phpRound(Math.min(...usable), 2) : null;
+
+  // DV-27 (Phase 48): the stake is sized by the configuration's `staking_method`, from
+  // the same numbers this ticket stores (`confidence`, `risk`, `correlation`), so the
+  // sizing is reconstructible from the ticket and its configuration version alone.
+  // `FLAT` — the default — is exactly what legacy recorded here.
+  const sizing = sizeStake(config, { confidence, risk, correlation: correlation.classification });
 
   return {
+    sizing,
     ticket: {
       id: optimized.ticketId,
       createdAt,
@@ -70,14 +86,14 @@ export function buildTicket(optimized, { configurationVersion, modelVersionId = 
       totalOdds: optimized.totalOdds,
       selectionCount: selections.length,
       combinedProbability: phpRound(combined, 8),
-      confidence: usable.length > 0 ? phpRound(Math.min(...usable), 2) : null,
+      confidence,
       risk,
       correlation: correlation.classification,
       dataQualityScore: Math.min(...qualities),
       status: "PENDING",
       approvalStatus: TICKET_APPROVAL_PENDING,
       settlementStatus: "PENDING",
-      stake: config.stake_amount ?? null,
+      stake: sizing.stake,
       reason: null,
       optimizationScore: optimized.optimizationScore,
       poolSize: optimized.poolSize,

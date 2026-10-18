@@ -431,6 +431,11 @@ export function prepareConfiguration(row) {
     min_liquidity: row.min_liquidity === null || row.min_liquidity === undefined ? null : Number(row.min_liquidity),
     max_exposure: Number(row.max_exposure),
     stake_amount: Number(row.stake_amount),
+    // Absent means the row predates the column (or a caller building from an older
+    // shape): the storage layer applies the same default the DDL does (DV-27).
+    staking_method: row.staking_method === null || row.staking_method === undefined
+      ? "FLAT"
+      : assertText(row.staking_method, 24, "staking_method"),
     void_policy: assertText(row.void_policy, 24, "void_policy"),
     updated_by: assertText(row.updated_by, 64, "updated_by"),
     reason: assertText(row.reason, 500, "reason"),
@@ -459,6 +464,10 @@ export function configurationRow(row) {
     min_liquidity: toDecimal(row.min_liquidity),
     max_exposure: toDecimal(row.max_exposure),
     stake_amount: toDecimal(row.stake_amount),
+    // Rows written before migration 022 (file adapter) have no key; the DDL default
+    // supplies it on MySQL. Both reads must agree, so the read applies the same
+    // default rather than projecting storage's absence onto the caller (DV-27).
+    staking_method: row.staking_method === null || row.staking_method === undefined ? "FLAT" : String(row.staking_method),
     void_policy: String(row.void_policy),
     updated_by: String(row.updated_by),
     reason: String(row.reason),

@@ -168,20 +168,23 @@ export async function buildApp({ config, store, logger = true, publicDir = path.
   // directly — the execution supervisor asks the manager, exactly as legacy did.
   const brokers = createBrokerRegistry({ brokers: config.brokers });
 
+  // One outbound-mail service per app (row 5). Configuration comes from the
+  // environment only; a default host has no transport, and every send then answers
+  // with the legacy "Outgoing email is disabled" sentence. It is handed to the
+  // public site as an optional collaborator (the contact copy), to its own
+  // administrator routes (the test send), and — Phase 49, divergence DV-28 — to
+  // the notification service for the opt-in severity-gated email copy. It is
+  // built before notifications only for that reason.
+  const mail = createMailService({ config: config.mail, log: app.log });
+
   // One notification service per app. It is built before the sports and paper
   // services because governance transitions publish through it, and it is handed to
   // each as an *optional* collaborator: a host whose migration 009 has not
   // been applied must still be able to move the kill switch, so the publisher
-  // degrades to a logged no-op instead of failing the governance action.
-  const notifications = createNotificationService({ store, log: app.log });
-
-  // One outbound-mail service per app (row 5). Configuration comes from the
-  // environment only; a default host has no transport, and every send then answers
-  // with the legacy "Outgoing email is disabled" sentence. It is handed to the
-  // public site as an optional collaborator (the contact copy) and to its own
-  // administrator routes (the test send); no notification publisher is given it —
-  // operator alerts are still stored and read in-product.
-  const mail = createMailService({ config: config.mail, log: app.log });
+  // degrades to a logged no-op instead of failing the governance action. The mail
+  // collaborators are optional too: with no `VP_NOTIFY_EMAIL_*` opt-in the service
+  // behaves exactly as it did before Phase 49 — stored and read in-product only.
+  const notifications = createNotificationService({ store, log: app.log, mail, notifyEmail: config.notifyEmail });
 
   // Public website assistant (rows 4 and 18 — Phase 43). Deliberately not handed
   // `store`, `paper`, `strategies`, `execution`, `sports`, `lottery`, `brokers` or
@@ -218,8 +221,8 @@ export async function buildApp({ config, store, logger = true, publicDir = path.
   const languageLearning = createLanguageLearningService({ store });
 
   // The status surface reports the notification module alongside market data and
-  // analysis, so an operator can see that alerts are stored-and-read only and that
-  // no outbound delivery channel exists.
+  // analysis, so an operator can see whether the in-product inbox stands alone or
+  // the opt-in email copy (Phase 49, DV-28) is genuinely able to send.
   await app.register(healthRoutes, { prefix: "/api/v1", store, config, adapter, router, marketData, analysis, notifications, brokers, sports, chat, leads });
   if (config.auth !== false) {
     await app.register(identityRoutes, { prefix: "/api/v1", store, config, loginGuard, mail });

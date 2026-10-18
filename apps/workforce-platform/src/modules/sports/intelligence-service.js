@@ -12,10 +12,13 @@
  * accuracy, Brier, ECE and the ticket aggregates from the same outcomes. What this
  * service still does NOT do:
  *
- *  - **It cannot size a stake.** The configured fixed stake is recorded on each
- *    ticket; sizing from bankroll or edge has no ported implementation.
  *  - **It cannot place a bet or execute anything.** A decision, a settlement and a
  *    fit are records. Nothing here reaches a paper, execution or broker path.
+ *  - **It cannot size a stake from a bankroll — there is none to size from.** Phase 48
+ *    added record-only stake sizing (`stake-sizing.js`, DV-27) under the configuration's
+ *    `staking_method`: `FLAT` is the default and is exactly legacy's fixed stake; the
+ *    opt-in `CONFIDENCE_SCALED` only sizes *down* from it. A sized stake is recorded,
+ *    never staked with anyone, because the boundary above stands.
  *
  * Predictions are immutable: this service inserts them and reads them, and there is no
  * method to change one.
@@ -31,6 +34,7 @@ import { calibrationVersion, fitCalibration as fitFromOutcomes } from "./calibra
 import { metricsFromOutcomes } from "./model-performance.js";
 import {
   CONFIGURATION_FIELDS,
+  STAKING_METHODS,
   changedConfigurationFields,
   defaultConfiguration,
   planConfigurationUpdate,
@@ -626,6 +630,8 @@ export function createSportsIntelligenceService({ store = null, now = () => Date
     decideCalibration,
     /** The configurable fields, exported so the route schema cannot drift from them. */
     configurationFields: CONFIGURATION_FIELDS,
+    /** The sizing methods `staking_method` accepts (DV-27), exported the same way. */
+    stakingMethods: STAKING_METHODS,
     market: MARKET,
     selection: SELECTION,
   });

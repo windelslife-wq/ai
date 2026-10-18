@@ -20,7 +20,9 @@
  */
 
 import { AppError } from "../../http/errors.js";
+import { isEmailAddress } from "../../mail/mime.js";
 import { NOTIFICATION_SEVERITIES, NOTIFICATION_TYPES } from "./contracts.js";
+import { buildNotificationEmail, maskEmail } from "./email-copy.js";
 
 /** Legacy `title VARCHAR(200)`, truncated by `mb_substr` rather than rejected. */
 const TITLE_MAX = 200;
@@ -168,7 +170,7 @@ function notificationView(row) {
   };
 }
 
-export function createNotificationService({ store = null, log = null, now = () => Date.now() } = {}) {
+export function createNotificationService({ store = null, log = null, now = () => Date.now(), mail = null, notifyEmail = null } = {}) {
   function requireStore() {
     if (
       !store
@@ -184,6 +186,87 @@ export function createNotificationService({ store = null, log = null, now = () =
   }
 
   /**
+   * Email the operator list a copy of one STORED notification (row 5, Phase 49;
+   * divergence DV-28 — legacy had no outbound alert channel at all).
+   *
+   * Returns `null` when no delivery should be attempted: the channel is not
+   * enabled, the module was composed without a mailer, or the severity is not in
+   * the configured list. Otherwise it attempts one `mail.send` per recipient and
+   * records one audit event, and resolves a mask-only summary:
+   * `{ attempted, sent, failed, recipients: [masked] }`.
+   *
+   * Three fail-safe guarantees:
+   *  - **Delivery can never change the stored alert.** This runs only after a
+   *    successful store, and a refusal or throw from the mailer is collected as
+   *    `ok: false`, never propagated — a governance publisher's outcome is
+   *    exactly what it was before email existed.
+   *  - **The audit trail sees no addresses.** Recipients are masked
+   *    (`o***@host.tld`) both in the return value and in the audit row.
+   *  - **The audit write itself is best-effort.** A broken audit append must not
+   *    turn a stored alert into an apparent failure.
+   */
+  async function deliverEmailCopy(view) {
+    if (!notifyEmail || notifyEmail.enabled !== true || !mail || typeof mail.send !== "function") return null;
+    if (!notifyEmail.severities.includes(view.severity)) return null;
+
+    const { subject, html, text, detailTruncated } = buildNotificationEmail(view);
+    const results = [];
+    for (const recipient of notifyEmail.recipients) {
+      let outcome;
+      try {
+        const response = await mail.send({ to: recipient, subject, html, text });
+        outcome = { to: maskEmail(recipient), ok: response?.ok === true };
+        if (outcome.ok === false) {
+          // `message` is deliberately not surfaced: the mailer's refusal strings
+          // describe SMTP configuration, which an alert consumer has no need for.
+          log?.warn?.({ notificationId: view.id, type: view.type }, "Notification email copy was not delivered");
+        }
+      } catch (error) {
+        log?.error?.({ err: error, notificationId: view.id, type: view.type }, "Notification email copy send threw");
+        outcome = { to: maskEmail(recipient), ok: false };
+      }
+      results.push(outcome);
+    }
+
+    const summary = {
+      attempted: results.length,
+      sent: results.filter((entry) => entry.ok).length,
+      failed: results.filter((entry) => !entry.ok).length,
+      recipients: results.map((entry) => entry.to),
+    };
+    if (typeof store?.recordAudit === "function") {
+      try {
+        await store.recordAudit({
+          actorId: null,
+          action: "notification.email",
+          entityType: "notification",
+          entityId: String(view.id),
+          details: {
+            notificationId: view.id,
+            type: view.type,
+            severity: view.severity,
+            ...summary,
+            detailTruncated,
+          },
+        });
+      } catch (error) {
+        log?.error?.({ err: error, notificationId: view.id }, "Notification email audit event was not recorded");
+      }
+    }
+    return summary;
+  }
+
+  /** The readiness gate behind `emailDeliveryAvailable` (see statusSnapshot). */
+  function emailDeliveryReady() {
+    if (!notifyEmail || notifyEmail.enabled !== true || !mail || typeof mail.send !== "function") return false;
+    const summary = typeof mail.configSummary === "function" ? mail.configSummary() : {};
+    return summary.enabled === true
+      && summary.usernameConfigured === true
+      && summary.passwordConfigured === true
+      && isEmailAddress(summary.fromEmail);
+  }
+
+  /**
    * Publish one notification. Returns `{ created: false, deduped: true }` when an
    * unread row already carries the same dedupe key, exactly as the legacy
    * `Notifier::notify()` did.
@@ -191,6 +274,12 @@ export function createNotificationService({ store = null, log = null, now = () =
    * Never throws for a storage failure the caller cannot act on: publishers are
    * governance code, and losing an alert must not roll back the decision that
    * caused it. A failed write is logged and reported as `created: false`.
+   *
+   * Row-5 email delivery (DV-28): after — and only after — a successful store, an
+   * opt-in severity-filtered copy is emailed to the configured operator list. The
+   * outcome is attached as `email: { attempted, sent, failed, recipients }` with
+   * masked addresses. A deduped or failed publish sends nothing: dedupe rate-
+   * limits the inbox copy exactly as it rate-limits the badge.
    */
   async function notify(type, severity, title, detail = {}, dedupeKey = null, userId = null) {
     requireStore();
@@ -215,7 +304,9 @@ export function createNotificationService({ store = null, log = null, now = () =
         dedupeKey: normalizedDedupeKey,
         createdAt,
       });
-      return { created: true, deduped: false, truncated, notification: notificationView(saved) };
+      const view = notificationView(saved);
+      const email = await deliverEmailCopy(view);
+      return { created: true, deduped: false, truncated, notification: view, ...(email ? { email } : {}) };
     } catch (error) {
       // Reported honestly rather than swallowed: the caller sees `created: false`
       // with the reason, and the log keeps the detail.
@@ -309,6 +400,7 @@ export function createNotificationService({ store = null, log = null, now = () =
 
   /** What `/api/v1/system/status` and `/system/features` report about this module. */
   function statusSnapshot() {
+    const emailReady = emailDeliveryReady();
     return {
       available: true,
       storeConfigured: Boolean(store && typeof store.createNotification === "function"),
@@ -317,12 +409,14 @@ export function createNotificationService({ store = null, log = null, now = () =
       dedupe: "An unread notification suppresses a new publish with the same dedupe key",
       broadcast: "A notification with no recipient is visible to every signed-in operator",
       readStateScope: "global",
-      deliveryChannels: [],
-      emailDeliveryAvailable: false,
-      // True whether or not SMTP is configured: the mail transport ported in row 5
-      // serves the administrator test send and the contact-form copy. No publisher
-      // in this module is wired to it, so no alert is ever emailed.
-      reason: "Notifications are stored and read in-product only. Outbound SMTP, when configured, is used only by the administrator test send and the contact-form copy, so nothing here claims to have delivered an alert to a device or an inbox.",
+      deliveryChannels: emailReady ? ["in-product", "email-copy"] : ["in-product"],
+      emailDeliveryAvailable: emailReady,
+      // The gate is AND-ed, not OR-ed: the operator opted in, AND the SMTP
+      // transport is actually configured. Either side missing means the badge
+      // stays off, so the console never advertises a channel that cannot send.
+      reason: emailReady
+        ? `Stored notifications are also emailed as an opt-in copy to the configured operator list (severities: ${notifyEmail.severities.join(", ")}), after the in-product row exists. A copy carries no action links; a failed send changes nothing about the stored alert; dedupe suppresses the copy; masked deliveries are audited.`
+        : "Notifications are stored and read in-product. The opt-in email copy (row 5, Phase 49) is off: it requires VP_NOTIFY_EMAIL_ENABLED=1, at least one VP_NOTIFY_EMAIL_TO address, a configured severity list, and outbound SMTP with credentials — so nothing here claims to have delivered an alert to an inbox it has not.",
     };
   }
 

@@ -16,6 +16,10 @@
  * repository rejects a duplicate version.
  */
 
+import { STAKING_METHODS } from "./stake-sizing.js";
+
+export { STAKING_METHODS };
+
 export const PLATFORM_MODES = Object.freeze(["SANDBOX", "PAPER", "PRODUCTION"]);
 export const ENGINE_MODES = Object.freeze([
   "VIEW_ONLY",
@@ -47,6 +51,9 @@ export const ENUM_FIELDS = Object.freeze({
   risk_level: RISK_LEVELS,
   max_correlation: CORRELATION_LIMITS,
   void_policy: VOID_POLICIES,
+  // DV-27 (Phase 48): a Node-only extension legacy does not have. Legacy has exactly one
+  // behaviour — the configured fixed stake — so its default fills every existing row.
+  staking_method: STAKING_METHODS,
 });
 
 /** Every field a caller may change. Anything else in a patch is ignored, as legacy does. */
@@ -68,6 +75,7 @@ export const CONFIGURATION_FIELDS = Object.freeze([
   "allowed_leagues",
   "max_exposure",
   "stake_amount",
+  "staking_method",
   "void_policy",
   "require_calibration",
 ]);
@@ -95,6 +103,10 @@ export function defaultConfiguration() {
     allowed_leagues: [],
     max_exposure: 100,
     stake_amount: 10,
+    // DV-27: Node's one addition to legacy's field list. `FLAT` is legacy's behaviour
+    // unchanged — the fixed `stake_amount` copied onto each ticket — so the defaults are
+    // otherwise what PHP asserts, and the parity test pins both facts.
+    staking_method: "FLAT",
     void_policy: "RESTITUTE_ODDS",
     require_calibration: true,
     updated_by: "system",
@@ -124,6 +136,15 @@ export function validateConfiguration(c, { allowAutomatedExecution = false } = {
   if (!RISK_LEVELS.includes(c.risk_level)) return `risk_level must be one of ${RISK_LEVELS.join(", ")}`;
   if (!CORRELATION_LIMITS.includes(c.max_correlation)) return "max_correlation must be LOW or MEDIUM";
   if (!VOID_POLICIES.includes(c.void_policy)) return `void_policy must be one of ${VOID_POLICIES.join(", ")}`;
+  // DV-27's field, validated with legacy's own style: one enumeration, one sentence.
+  // An ABSENT key is not an error: every read path (the DDL default, `prepareConfiguration`,
+  // `configurationRow`, `defaultConfiguration`) supplies FLAT, so a caller handing the
+  // validator a row shaped before migration 022 still means FLAT. A PRESENT key must be
+  // valid. This is also what keeps the PHP-parity golden cases — which carry only the
+  // keys legacy validates — meaningful on both sides.
+  if (c.staking_method !== undefined && c.staking_method !== null && !STAKING_METHODS.includes(c.staking_method)) {
+    return `staking_method must be one of ${STAKING_METHODS.join(", ")}`;
+  }
 
   for (const field of [...NUMBER_FIELDS]) {
     if (typeof c[field] !== "number" || !Number.isFinite(c[field])) return `${field} must be a finite number`;

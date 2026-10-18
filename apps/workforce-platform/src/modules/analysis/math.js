@@ -37,16 +37,23 @@ export function stdev(values) {
   return Math.sqrt(accumulator / values.length);
 }
 
+import { phpRound } from "../../lib/php.js";
+
 /**
  * PHP `round()`: half away from zero. `Math.round()` is half-up towards
- * +infinity, so -0.5 would round to -0 instead of -1 and a rounded
- * `directionalScore` of -0.15 could drift by one unit in the last place.
+ * +infinity, so -0.5 would round to -0 instead of -1.
+ *
+ * Finding **F-47** (surfaced by the F-26 analysis golden): the earlier body
+ * (`sign * Math.round(abs * factor) / factor`) got the sign rule right but not
+ * the *decimal-representation* rule — PHP pre-rounds to 15 significant digits,
+ * so `round(1.005, 2)` is `1.01` while `Math.round(1.005_00 × 100) / 100` is
+ * `1` because the double is `1.00499…`. The sports oracle proved the genuine
+ * algorithm in Phase 17 (`src/lib/php.js:phpRound`); this export delegates to
+ * it so the analysis layer — and every module that shares the helper — rounds
+ * the way PHP does. Pinned to the last double by `test/analysis_parity.test.js`.
  */
 export function roundTo(value, digits = 0) {
-  if (typeof value !== "number" || !Number.isFinite(value)) return value;
-  const factor = 10 ** digits;
-  const sign = value < 0 ? -1 : 1;
-  return (sign * Math.round(Math.abs(value) * factor)) / factor;
+  return phpRound(value, digits);
 }
 
 /** PHP `number_format($v, $d)`: fixed decimals plus thousands separators. */

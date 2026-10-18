@@ -18,7 +18,8 @@
  * module's reads correctly and left another's open, so "legacy did it this way" is
  * evidence about a controller, never about the application.
  *
- * The list of what is *not* ported travels in the response (`status.notPorted`), the
+ * The list of what is *not* ported travels in the response (`status.notPorted`) — empty
+ * since Phase 48 ported record-only stake sizing (DV-27) — the
  * same decision as BC-10 in the broker port: a module that reported only what it has
  * would look complete. Phase 36 ported the two console screens (**F-29**, closed for
  * this module) and the matrix lost that entry rather than being re-labelled.
@@ -34,6 +35,7 @@ import {
   NUMBER_FIELDS,
   PLATFORM_MODES,
   RISK_LEVELS,
+  STAKING_METHODS,
   VOID_POLICIES,
 } from "./configuration.js";
 
@@ -295,6 +297,9 @@ const CONFIGURATION_BODY = Object.freeze({
     risk_level: Object.freeze({ type: "string", values: RISK_LEVELS }),
     max_correlation: Object.freeze({ type: "string", values: CORRELATION_LIMITS }),
     void_policy: Object.freeze({ type: "string", values: VOID_POLICIES }),
+    // DV-27 (Phase 48): the sizing method, declared like legacy's enums so an unknown
+    // value is a 400 at the edge, the same refusal the other enumeration fields give.
+    staking_method: Object.freeze({ type: "string", values: STAKING_METHODS }),
     ...Object.fromEntries(NUMBER_FIELDS.map((field) => [field, Object.freeze({
       type: field === "max_selections" || field === "min_data_quality" ? "integer" : "number",
     })])),

@@ -476,14 +476,20 @@ test("the ticket, run, sync, provider and model tables are formatted as the page
 
 test("the boundary panel carries the server's matrix and the console's own residual lines", () => {
   const panel = boundaryPanel([
-    { area: "stake sizing", legacy: "stakeAmount", state: "not ported", detail: "no sizing" },
+    { area: "specimen", legacy: "somewhere", state: "not ported", detail: "an example entry" },
     { area: "vendor verification", legacy: "providers", state: "not ported", detail: "unverified" },
   ]);
-  assert.deepEqual(panel.rows.map((row) => row.area), ["stake sizing", "vendor verification"]);
+  assert.deepEqual(panel.rows.map((row) => row.area), ["specimen", "vendor verification"]);
   assert.equal(panel.rows[0].state, "not ported");
   assert.equal(boundaryPanel(null).rows.length, 0);
+  // The matrix is empty since Phase 48 (DV-27), so the panel's rows are [] in
+  // production; the residual lines are what the panel keeps showing, and the first one
+  // states the sizing boundary (record-only, bounded) rather than the old "not ported" claim.
+  assert.deepEqual(boundaryPanel([]).rows, []);
   assert.equal(panel.residual.length, 3);
-  assert.match(panel.residual[0], /No stake is sized/);
+  assert.match(panel.residual[0], /Stake sizing is record-only and bounded/);
+  assert.match(panel.residual[0], /staking_method \(FLAT by default/);
+  assert.match(panel.residual[0], /nothing is executed\./i);
   assert.match(panel.residual[2], /Nothing is executed/);
 });
 
@@ -577,7 +583,7 @@ test("the screen is declared where the router and the navigation will find it", 
 
 // --------------------------------------------------------------- over HTTP
 
-test("an empty host reports DISABLED_NO_PROVIDER, the demo banner, and a matrix without the console screens", async (t) => {
+test("an empty host reports DISABLED_NO_PROVIDER, the demo banner, and the empty not-ported matrix (Phase 48)", async (t) => {
   const app = await instance(t, { WINDELS_SPORTS_MODE: "", WINDELS_SPORTS_SANDBOX: "" });
   const root = await signIn(app.app);
   const status = (await get(app.app, "/api/v1/sports/status", root.headers)).json();
@@ -585,15 +591,13 @@ test("an empty host reports DISABLED_NO_PROVIDER, the demo banner, and a matrix 
   assert.equal(status.isDemoData, true, "and it is in SANDBOX mode, which is what legacy's demo flag reflects");
   assert.deepEqual(status.providers, []);
   assert.equal(status.ticketEngine, "ON_REQUEST", "the module's own field: the engine runs when a person asks");
-  // The matrix the boundary panel renders: the console screens are gone, and what is left
-  // is what no slice owns.
-  assert.deepEqual(status.notPorted.map((entry) => entry.area), ["stake sizing"]);
-  const areas = JSON.stringify(status.notPorted);
-  assert.ok(!/console screen/i.test(areas), "a not-ported matrix must not list a screen that is ported");
-  assert.ok(!/F-29/i.test(areas), "nor the finding that tracked it");
-  assert.match(status.notPorted[0].detail, /No stake is sized/);
+  // The matrix the boundary panel renders is empty: Phase 48 (DV-27) ported its last
+  // entry, stake sizing, as bounded record-only sizing, and an empty matrix — not a
+  // re-worded one — is the honest claim now. The panel then shows the residual
+  // sentences, which name the boundaries that remain (no execution, no verified vendor).
+  assert.deepEqual(status.notPorted, [], "Phase 48 ported the matrix's last entry; an entry that is no longer true must not stay listed");
+  assert.deepEqual(boundaryPanel(status.notPorted).rows, []);
   assert.equal(status.persistence, true, "this host has a sports repository");
-  assert.equal(boundaryPanel(status.notPorted).rows.length, 1);
 });
 
 test("a sports.view viewer reads every sports.view surface and is refused the sports.manage one", async (t) => {

@@ -3227,6 +3227,7 @@ export function SportsIntelligenceView({ permissions }) {
                 <p className="muted">
                   Configuration version {configuration.data?.configuration?.version ?? emDash()} ·
                   engine {configuration.data?.configuration?.engine_mode ?? emDash()} ·
+                  staking {configuration.data?.configuration?.staking_method ?? emDash()} ·
                   source {configuration.data?.source ?? emDash()} (read under {SPORTS_MANAGE}).
                 </p>
               ) : (
