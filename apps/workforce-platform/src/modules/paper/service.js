@@ -9,6 +9,7 @@
  */
 
 import { randomUUID } from "node:crypto";
+import { phpRound } from "../../lib/php.js";
 import { AppError } from "../../http/errors.js";
 import { marketDataFailure, isProviderFailure } from "../market-data/errors.js";
 import { MARKET_CLASSES } from "../market-data/timeframes.js";
@@ -82,9 +83,13 @@ function nullableNumeric(value) {
   return value === null || value === undefined ? null : numeric(value, null);
 }
 
+// F-47: this used to be `Number(value.toFixed(places))`, which JS rounds on the
+// binary value — `(1.005).toFixed(2)` is `"1.00"` where PHP's `round(1.005, 2)`
+// is `1.01` (PHP pre-rounds to 15 significant digits). Every balance/price
+// projection the paper module reports claims PHP round semantics, so the helper
+// now delegates to the proven port.
 function roundTo(value, places) {
-  const number = Number(value);
-  return Number.isFinite(number) ? Number(number.toFixed(places)) : number;
+  return phpRound(Number(value), places);
 }
 
 function actorIdOf(value) {

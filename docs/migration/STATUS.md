@@ -2,7 +2,30 @@
 
 **Updated:** 2026-10-17 · **Branch:** `arena/d57504c6-ai`
 
-## Current Phase 49 status (2026-10-17)
+## Current Phase 50 status (2026-10-17)
+
+**F-26 is closed for the analysis module's pure numeric policies** — the 16
+`Indicators` methods, the analysis-layer half of `MathUtils` (PRNG/gaussian
+included), and the `round`/`number_format`/`sprintf` verbs embedded in payload
+strings are now proven **value-for-value against PHP's own output**:
+`runtime/analysis-parity.mjs` runs the real legacy classes in WASM PHP 8.2
+(`runtime/parity/analysis-golden.php`), writes 93 golden cases with each input
+stored beside its result, and `test/analysis_parity.test.js` (95 tests)
+replays them against the Node port with exact, no-tolerance comparison — the
+same rule the sports slices set. **It found a real bug on the first run
+(F-47):** PHP `round()` pre-rounds to 15 significant digits (`round(1.005, 2)`
+is `1.01`), and three Node sites rounded on the binary value — the pervasive
+`analysis/math.js:roundTo` (agents, regime, risk engine, paper, strategies,
+journal, optimizer), `paper/service.js`'s local `toFixed` helper, and
+`analysis/feeds.js`'s `Math.round(×10⁴)` score rounding. All three now delegate
+to the sports-proven `src/lib/php.js:phpRound`, so the platform shares one
+round helper. **Still standing under F-26, by name:** the optimizer, the
+regime/setup/scenario layer, strategy/journal metrics and the notification
+rules. Full record: [`PHASE50_ANALYSIS_PARITY.md`](PHASE50_ANALYSIS_PARITY.md).
+Suite: **1 354 / 1 354** Node (+95), 367 / 367 PHP oracle, 30 / 30
+verify:install; no existing expected value changed.
+
+## Earlier Phase 49 status (2026-10-17)
 
 **Row 5's last code surface — the notifier's missing delivery channel — is now ported:**
 the notification service can send an **opt-in, severity-gated email copy** of each stored
