@@ -1,17 +1,18 @@
 /**
- * Phase 8A: owner-scoped, human-reviewed execution proposals that can submit
- * only through the simulation-only Paper Trading service.
+ * Owner-scoped, human-reviewed execution proposals. Approved proposals can use
+ * the simulation-only Paper Trading service or, when explicitly configured,
+ * the process-local simulated MT5 bridge behind the full 15-step supervisor
+ * pipeline. No real broker connector is routable from this module.
  *
- * This is intentionally not a port of the broader legacy broker supervisor. Market data,
- * account valuation, sizing and the complete RiskEngine decision are rerun by
- * `paper.submitOrder()` after approval. There is no broker dependency, live route,
- * automated mode or generic `/route` method in this module.
+ * SEMI_AUTONOMOUS and FULLY_AUTOMATED remain request-based Paper Trading modes;
+ * they are not unattended strategy loops and never submit to the broker simulator.
  */
 
 import { randomUUID } from "node:crypto";
 import { AppError } from "../../http/errors.js";
+import { createRiskEngine } from "../analysis/risk-engine.js";
 import { MARKET_CLASSES } from "../market-data/timeframes.js";
-import { normalizeTradingState } from "../paper/service.js";
+import { EXECUTION_MODES, normalizeTradingState } from "../paper/service.js";
 
 const MAX_PROPOSAL_AGE_MS = 4 * 60 * 60_000;
 /** Legacy swept a fixed 200 pending proposals per cron minute (`ExecutionSupervisor.php:372`). */
@@ -20,6 +21,23 @@ const PROPOSAL_ID = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}
 const SYMBOL = /^[A-Z0-9._-]{2,24}$/;
 const STRATEGY_ID = /^[a-z0-9][a-z0-9_-]{0,59}$/;
 const VERSION = /^[A-Za-z0-9._-]{1,20}$/;
+const SIMULATOR_PIPELINE_STEPS = Object.freeze({
+  "kill-switch": 1,
+  "trading-mode": 2,
+  strategy: 3,
+  "broker-connection": 4,
+  "market-open": 5,
+  "data-freshness": 6,
+  "duplicate-orders": 7,
+  "symbol-permissions": 8,
+  margin: 9,
+  "risk-engine": 10,
+  "human-approval": 11,
+  "order-placement": 12,
+  "execution-confirmation": 13,
+  "audit-log": 14,
+  "portfolio-update": 15,
+});
 
 function actorIdOf(value) {
   const id = Number(value);
@@ -88,6 +106,72 @@ function normalizeIntent(input = {}) {
     strategyId,
     strategyVersion,
   };
+}
+
+function normalizeAutomationPatch(patch = {}) {
+  if (!patch || typeof patch !== "object" || Array.isArray(patch)) {
+    throw AppError.badRequest("Automation limits must be supplied as an object", { code: "INVALID_AUTOMATION_LIMITS" });
+  }
+  const allowed = new Set(["maxDailyTrades", "maxTradeNotionalUsd", "maxRiskPerTradePct", "approvedSymbols"]);
+  const keys = Object.keys(patch);
+  if (!keys.length) throw AppError.badRequest("At least one automation limit must be supplied", { code: "NO_AUTOMATION_LIMITS" });
+  for (const key of keys) {
+    if (!allowed.has(key)) throw AppError.badRequest(`Unknown automation limit: ${key}`, { code: "INVALID_AUTOMATION_LIMIT" });
+  }
+  const normalized = {};
+  if (Object.hasOwn(patch, "maxDailyTrades")) {
+    const value = patch.maxDailyTrades;
+    if (!Number.isSafeInteger(value) || value < 1 || value > 100) {
+      throw AppError.badRequest("maxDailyTrades must be an integer from 1 to 100", { code: "INVALID_AUTOMATION_LIMIT" });
+    }
+    normalized.maxDailyTrades = value;
+  }
+  if (Object.hasOwn(patch, "maxTradeNotionalUsd")) {
+    const value = patch.maxTradeNotionalUsd;
+    if (typeof value !== "number" || !Number.isFinite(value) || value < 1 || value > 100_000_000) {
+      throw AppError.badRequest("maxTradeNotionalUsd must be between 1 and 100000000", { code: "INVALID_AUTOMATION_LIMIT" });
+    }
+    normalized.maxTradeNotionalUsd = value;
+  }
+  if (Object.hasOwn(patch, "maxRiskPerTradePct")) {
+    const value = patch.maxRiskPerTradePct;
+    if (typeof value !== "number" || !Number.isFinite(value) || value < 0.0001 || value > 0.05) {
+      throw AppError.badRequest("maxRiskPerTradePct must be between 0.0001 and 0.05", { code: "INVALID_AUTOMATION_LIMIT" });
+    }
+    normalized.maxRiskPerTradePct = value;
+  }
+  if (Object.hasOwn(patch, "approvedSymbols")) {
+    const symbols = patch.approvedSymbols;
+    if (!Array.isArray(symbols) || symbols.length > 100
+      || symbols.some((symbol) => typeof symbol !== "string" || !/^[A-Z0-9._-]{2,24}$/.test(symbol.trim().toUpperCase()))) {
+      throw AppError.badRequest("approvedSymbols must be an array of at most 100 valid symbols", { code: "INVALID_AUTOMATION_LIMIT" });
+    }
+    normalized.approvedSymbols = [...new Set(symbols.map((symbol) => symbol.trim().toUpperCase()))];
+  }
+  return normalized;
+}
+
+function utcDayBounds(now) {
+  const current = new Date(now());
+  const start = new Date(Date.UTC(current.getUTCFullYear(), current.getUTCMonth(), current.getUTCDate()));
+  const end = new Date(start.getTime() + 86_400_000 - 1);
+  return { from: start.toISOString(), to: end.toISOString() };
+}
+
+function simulatedMarketSessionOpen(marketClass, timestamp) {
+  if (marketClass === "crypto") return true;
+  if (!["forex", "commodity"].includes(marketClass)) return false;
+  const date = new Date(timestamp);
+  const day = date.getUTCDay();
+  const minutes = date.getUTCHours() * 60 + date.getUTCMinutes();
+  if (day === 6) return false;
+  if (day === 0) return minutes >= 21 * 60;
+  if (day === 5) return minutes < 21 * 60;
+  return true;
+}
+
+function roundVolume(value) {
+  return Math.floor(Number(value) * 1_000_000) / 1_000_000;
 }
 
 function proposalView(row) {
@@ -848,27 +932,705 @@ function utcDayStamp() {
     return { proposal: proposalView(completed), paper: safe };
   }
 
+  async function simulatorPreflight(owner, proposal) {
+    const intent = proposal.intent ?? {};
+    const checks = [];
+    const addSimulatorCheck = (check, ok, detail) => checks.push({ step: SIMULATOR_PIPELINE_STEPS[check] ?? 10, check, ok, detail });
+    const fail = (check, detail, code) => {
+      addSimulatorCheck(check, false, detail);
+      throw AppError.conflict(detail, { code, details: { checks: structuredClone(checks) } });
+    };
+    if (!brokers || typeof brokers.simulationConnector !== "function") {
+      throw AppError.unavailable("The in-process broker simulator is unavailable", { code: "SIMULATOR_DISABLED", retryAfter: 30 });
+    }
+    const connector = brokers.simulationConnector();
+    if (!connector) throw AppError.unavailable("The in-process broker simulator is disabled", { code: "SIMULATOR_DISABLED", retryAfter: 30 });
+    if (typeof store.loadTradingState !== "function") {
+      throw AppError.unavailable("Persisted trading governance is unavailable", { code: "TRADING_STATE_UNAVAILABLE", retryAfter: 30 });
+    }
+    const state = normalizeTradingState(await store.loadTradingState());
+    const killSwitchClear = state.killSwitch.active === false;
+    addSimulatorCheck("kill-switch", killSwitchClear, killSwitchClear ? "kill switch is released" : "kill switch is active");
+    if (!killSwitchClear) fail("kill-switch", "The kill switch must be released", "EXECUTION_GOVERNANCE_BLOCKED");
+
+    const modeAllowed = state.tradingMode === "PAPER_TRADING" && state.executionMode === "HUMAN_APPROVAL";
+    addSimulatorCheck("trading-mode", modeAllowed, modeAllowed
+      ? "PAPER_TRADING and HUMAN_APPROVAL are active"
+      : "the simulator proposal route requires PAPER_TRADING and HUMAN_APPROVAL; automated modes remain Paper Trading requests only");
+    if (!modeAllowed) fail("trading-mode", "The simulated broker requires PAPER_TRADING and HUMAN_APPROVAL mode", "EXECUTION_GOVERNANCE_BLOCKED");
+
+    let strategyDetail = "discretionary intent; strategy approval is not required, but human approval is";
+    if (intent.strategyId) {
+      const strategy = await store.findStrategy(intent.strategyId, intent.strategyVersion);
+      const implementation = requireStrategyRegistry().implementation(intent.strategyId, intent.strategyVersion);
+      const strategyAllowed = strategy && implementation && strategy.lifecycle === "APPROVED"
+        && (strategy.source !== "ai" || strategy.human_signoff === true);
+      strategyDetail = strategyAllowed
+        ? `${intent.strategyId}@${intent.strategyVersion} remains executable and APPROVED`
+        : `${intent.strategyId}@${intent.strategyVersion} is not an executable approved strategy version`;
+      addSimulatorCheck("strategy", Boolean(strategyAllowed), strategyDetail);
+      if (!strategyAllowed) fail("strategy", strategyDetail, "SIMULATOR_STRATEGY_NOT_APPROVED");
+    } else {
+      addSimulatorCheck("strategy", true, strategyDetail);
+    }
+
+    const paperAccount = await store.findPaperAccount(proposal.account_id, owner);
+    if (!paperAccount) throw AppError.notFound("Execution proposal not found", { code: "EXECUTION_PROPOSAL_NOT_FOUND" });
+
+    let status;
+    let account;
+    let quote;
+    let positions;
+    let pendingOrders;
+    let history;
+    try {
+      status = await connector.status();
+      account = await connector.account();
+      quote = await connector.quote(intent.symbol);
+      positions = await connector.positions();
+      pendingOrders = await connector.pendingOrders();
+      history = await connector.history(500);
+    } catch {
+      throw AppError.unavailable("The in-process broker simulator could not complete its read checks", { code: "SIMULATOR_READ_FAILED", retryAfter: 5 });
+    }
+    const bridgeReady = status?.state === "READY" && status?.simulated === true && status?.orderSubmissionEffective === true;
+    addSimulatorCheck("broker-connection", bridgeReady, bridgeReady
+      ? "simulated demo bridge is READY and order submission is enabled"
+      : "simulator must be READY with its separate order-submission flag enabled");
+    if (!bridgeReady) fail("broker-connection", "The simulated broker is not ready for order submission", "SIMULATOR_ORDERING_DISABLED");
+
+    const at = now();
+    const marketOpen = simulatedMarketSessionOpen(intent.marketClass, at);
+    addSimulatorCheck("market-open", marketOpen, marketOpen ? `${intent.marketClass} simulator session is open` : `${intent.marketClass} market session is closed or unsupported by the simulator`);
+    if (!marketOpen) fail("market-open", "The simulated market session is closed", "SIMULATOR_MARKET_CLOSED");
+
+    const quoteAt = Date.parse(quote.timestamp);
+    const freshnessLimit = intent.marketClass === "crypto" ? 120_000 : intent.marketClass === "forex" ? 300_000 : 600_000;
+    const fresh = Number.isFinite(quoteAt) && quoteAt <= at + 30_000 && at - quoteAt <= freshnessLimit;
+    addSimulatorCheck("data-freshness", fresh, fresh
+      ? `simulated quote is within the ${Math.floor(freshnessLimit / 1000)}-second ${intent.marketClass} freshness window`
+      : `simulated quote is stale or has an invalid timestamp (limit ${Math.floor(freshnessLimit / 1000)} seconds)`);
+    if (!fresh) fail("data-freshness", "The simulated quote is stale or invalid", "SIMULATOR_QUOTE_STALE");
+
+    const duplicate = positions.some((row) => row.symbol === intent.symbol) || pendingOrders.some((row) => row.symbol === intent.symbol);
+    addSimulatorCheck("duplicate-orders", !duplicate, duplicate ? `a position or pending order already exists for ${intent.symbol}` : "no simulated position or pending order exists for this symbol");
+    if (duplicate) fail("duplicate-orders", `A simulated position or pending order already exists for ${intent.symbol}`, "SIMULATOR_DUPLICATE_SYMBOL");
+
+    const symbolIsProvided = quote.symbol === intent.symbol && ["forex", "crypto", "commodity"].includes(intent.marketClass);
+    const approvedSymbols = state.automationLimits.approvedSymbols;
+    const symbolOnAutomationList = approvedSymbols.includes(intent.symbol);
+    const symbolAllowed = symbolIsProvided;
+    const permissionDetail = !symbolAllowed
+      ? `${intent.symbol} is not enabled for this simulator market class`
+      : approvedSymbols.length === 0
+        ? `${intent.symbol} is simulator-supported; no automation allowlist is configured and human approval governs`
+        : symbolOnAutomationList
+          ? `${intent.symbol} is simulator-supported and appears on the automation allowlist`
+          : `${intent.symbol} is simulator-supported; the human-approved proposal allows a symbol outside the automation allowlist`;
+    addSimulatorCheck("symbol-permissions", symbolAllowed, permissionDetail);
+    if (!symbolAllowed) fail("symbol-permissions", permissionDetail, "SIMULATOR_SYMBOL_NOT_ALLOWED");
+
+    const entry = intent.type === "LIMIT" ? Number(intent.price) : (intent.side === "BUY" ? quote.ask : quote.bid);
+    const stopLoss = Number(intent.stopLoss);
+    const stopDistance = Math.abs(entry - stopLoss);
+    const targetPrice = intent.takeProfit === null || intent.takeProfit === undefined
+      ? (intent.side === "BUY" ? entry + stopDistance * 2 : entry - stopDistance * 2)
+      : Number(intent.takeProfit);
+    const protectionValid = Number.isFinite(entry) && entry > 0 && Number.isFinite(stopDistance) && stopDistance > 0
+      && Number.isFinite(targetPrice) && targetPrice > 0
+      && (intent.side === "BUY" ? stopLoss < entry && targetPrice > entry : stopLoss > entry && targetPrice < entry);
+    if (!protectionValid) fail("risk-engine", "Stop loss and take profit must protect the selected simulated entry", "SIMULATOR_INVALID_PROTECTION");
+
+    const riskCap = state.riskLimits.maxRiskPerTradePct;
+    const requestedRiskPct = intent.riskPct === null || intent.riskPct === undefined ? state.riskLimits.riskPerTradePct : intent.riskPct;
+    // A small headroom accounts for the simulator/paper stores' six-decimal unit
+    // precision so independent risk checking cannot fail from a rounding sliver.
+    const effectiveRiskPct = Math.min(requestedRiskPct, riskCap) * 0.99;
+    const maxNotional = state.riskLimits.maxPositionNotionalUsd;
+    let volume = roundVolume(Math.min(account.equity * effectiveRiskPct / stopDistance, maxNotional / entry));
+    if (!Number.isFinite(volume) || volume <= 0) fail("risk-engine", "Risk sizing did not produce a positive simulated order volume", "SIMULATOR_INVALID_SIZE");
+    const notional = volume * entry;
+    const leverage = Number(account.leverage);
+    const requiredMargin = leverage > 0 ? notional / leverage : notional * 0.033;
+    const marginAvailable = Number.isFinite(account.freeMargin) && requiredMargin <= account.freeMargin;
+    addSimulatorCheck("margin", marginAvailable, marginAvailable
+      ? `required simulated margin ${requiredMargin.toFixed(2)} is within free margin ${Number(account.freeMargin).toFixed(2)}`
+      : `required simulated margin ${requiredMargin.toFixed(2)} exceeds free margin ${Number(account.freeMargin).toFixed(2)}`);
+    if (!marginAvailable) fail("margin", "The simulated order exceeds free margin", "SIMULATOR_MARGIN_EXCEEDED");
+
+    const openRiskBySymbol = {};
+    for (const row of positions) {
+      if (Number.isFinite(Number(row.stopLoss))) {
+        openRiskBySymbol[row.symbol] = (openRiskBySymbol[row.symbol] ?? 0)
+          + Math.abs(Number(row.entry) - Number(row.stopLoss)) * Number(row.volume);
+      }
+    }
+    const today = new Date(at).toISOString().slice(0, 10);
+    const weekCutoff = at - 7 * 86_400_000;
+    let dailyPnl = 0;
+    let weeklyPnl = 0;
+    for (const row of history) {
+      const closedAt = Date.parse(row.closedAt);
+      if (!Number.isFinite(closedAt)) continue;
+      if (new Date(closedAt).toISOString().slice(0, 10) === today) dailyPnl += Number(row.profit || 0);
+      if (closedAt >= weekCutoff) weeklyPnl += Number(row.profit || 0);
+    }
+    const allowSynthetic = state.allowSyntheticPaperData && state.riskLimits.blockSyntheticData === false;
+    const riskDecision = createRiskEngine(state.riskLimits).evaluate({
+      symbol: intent.symbol,
+      action: intent.side,
+      entry: { reference: entry, min: quote.bid, max: quote.ask },
+      stopLoss,
+      takeProfit: targetPrice,
+      riskReward: Math.abs(targetPrice - entry) / stopDistance,
+      marketClass: intent.marketClass,
+    }, {
+      killSwitchActive: state.killSwitch.active,
+      syntheticData: true,
+      staleData: !fresh,
+      dataQuality: 1,
+      equity: account.equity,
+      givenUnits: volume,
+      openRiskBySymbol,
+      openPositions: positions.length,
+      openSymbols: positions.map((row) => row.symbol),
+      dailyPnl,
+      weeklyPnl,
+      peakEquity: account.equity,
+    });
+    const approved = allowSynthetic && riskDecision.approved;
+    addSimulatorCheck("risk-engine", approved, allowSynthetic
+      ? (riskDecision.approved ? "Risk Engine approved the simulated order" : riskDecision.reasons.join("; "))
+      : "synthetic broker data requires synthetic-paper permission and blockSyntheticData=false");
+    if (!approved) {
+      throw AppError.conflict("The simulated order was refused by Paper Trading governance or the Risk Engine", {
+        code: "SIMULATOR_RISK_REJECTED",
+        details: { checks: structuredClone(checks), reasons: riskDecision.reasons },
+      });
+    }
+
+    return {
+      connector,
+      state,
+      account,
+      quote,
+      positions,
+      pendingOrders,
+      intent: { ...intent, takeProfit: targetPrice },
+      entry,
+      volume,
+      effectiveRiskPct,
+      requiredMargin,
+      riskDecision,
+      checks,
+    };
+  }
+
+  async function submitToSimulator(ownerUserId, proposalId) {
+    requireStore();
+    const owner = actorIdOf(ownerUserId);
+    const id = requireProposalId(proposalId);
+    if (!store || typeof store.acquireJobLock !== "function" || typeof store.releaseJobLock !== "function") {
+      throw AppError.unavailable("The simulated broker route requires persisted execution locking", { code: "SIMULATOR_LOCK_UNAVAILABLE", retryAfter: 30 });
+    }
+    const existing = await store.findExecutionProposal(id, owner);
+    if (!existing || !(await store.findPaperAccount(existing.account_id, owner))) {
+      throw AppError.notFound("Execution proposal not found", { code: "EXECUTION_PROPOSAL_NOT_FOUND" });
+    }
+    if (existing.status !== "APPROVED") {
+      throw AppError.conflict(`Proposal is ${existing.status}; only APPROVED proposals can be sent to the simulator`, { code: "SIMULATOR_SUBMISSION_NOT_APPROVED" });
+    }
+
+    const lockName = "execution-simulated-broker";
+    const holder = `${process.pid}@simulator#${randomUUID()}`;
+    const acquiredAt = isoNow(now);
+    const lock = await store.acquireJobLock(lockName, {
+      holder,
+      nowIso: acquiredAt,
+      expiresAt: new Date(now() + 5 * 60_000).toISOString(),
+    });
+    if (!lock?.acquired) {
+      throw AppError.conflict("Another simulated broker order is currently being processed", {
+        code: "SIMULATOR_BUSY",
+        details: { reason: lock?.reason ?? "lock held" },
+      });
+    }
+
+    const submittingStatus = "SIMULATOR_SUBMITTING";
+    let claimed = null;
+    let orderWasSubmitted = false;
+    let preflight = null;
+    try {
+      preflight = await simulatorPreflight(owner, existing);
+      claimed = await store.withPaperTransaction(async (tx) => {
+        const proposal = await tx.findExecutionProposal(id, owner);
+        if (!proposal || proposal.status !== "APPROVED") {
+          throw AppError.conflict("Proposal changed before simulator submission", { code: "SIMULATOR_SUBMISSION_STATE_CHANGED" });
+        }
+        const account = await tx.findPaperAccount(proposal.account_id, owner);
+        if (!account) throw AppError.notFound("Execution proposal not found", { code: "EXECUTION_PROPOSAL_NOT_FOUND" });
+        const current = normalizeTradingState(await tx.loadTradingState());
+        if (current.killSwitch.active || current.tradingMode !== "PAPER_TRADING" || current.executionMode !== "HUMAN_APPROVAL") {
+          throw AppError.conflict("Simulator submission is blocked by current trading governance", { code: "EXECUTION_GOVERNANCE_BLOCKED" });
+        }
+        const humanApproved = proposal.status === "APPROVED"
+          && proposal.decision_by_user_id !== null && proposal.decision_by_user_id !== undefined
+          && String(proposal.decision_reason ?? "").trim().length >= 10;
+        preflight.checks.push({
+          step: SIMULATOR_PIPELINE_STEPS["human-approval"],
+          check: "human-approval",
+          ok: humanApproved,
+          detail: humanApproved ? `approved by user ${proposal.decision_by_user_id}: ${proposal.decision_reason}` : "a persisted human decision and approval reason are required",
+        });
+        if (!humanApproved) {
+          throw AppError.conflict("Simulator routing requires a separately persisted human approval", {
+            code: "SIMULATOR_HUMAN_APPROVAL_REQUIRED",
+            details: { checks: structuredClone(preflight.checks) },
+          });
+        }
+        const updatedAt = isoNow(now);
+        const row = await tx.claimExecutionProposal(id, owner, updatedAt, { submittingStatus });
+        if (!row) throw AppError.conflict("Proposal is already being submitted or has changed state", { code: "SIMULATOR_SUBMISSION_ALREADY_CLAIMED" });
+        await tx.recordAudit({
+          actorId: owner,
+          action: "execution.simulated-broker.started",
+          entityType: "execution_proposal",
+          entityId: id,
+          details: { accountId: Number(proposal.account_id), symbol: preflight.intent.symbol, broker: "simulated-mt5", simulationOnly: true, summary: "Approved proposal claimed for one in-process simulated broker submission" },
+        });
+        return proposal;
+      });
+
+      let order;
+      try {
+        order = await preflight.connector.placeOrder({
+          symbol: preflight.intent.symbol,
+          side: preflight.intent.side,
+          type: preflight.intent.type,
+          price: preflight.intent.type === "LIMIT" ? preflight.entry : null,
+          volume: preflight.volume,
+          stopLoss: preflight.intent.stopLoss,
+          takeProfit: preflight.intent.takeProfit,
+        });
+      } catch (error) {
+        preflight.checks.push({ step: SIMULATOR_PIPELINE_STEPS["order-placement"], check: "order-placement", ok: false, detail: String(error?.message ?? "simulator refused order").slice(0, 240) });
+        throw error;
+      }
+      orderWasSubmitted = true;
+      preflight.checks.push({ step: SIMULATOR_PIPELINE_STEPS["order-placement"], check: "order-placement", ok: true, detail: `simulated broker accepted order ticket ${order.ticket}` });
+
+      const observed = preflight.intent.type === "LIMIT"
+        ? await preflight.connector.pendingOrders()
+        : await preflight.connector.positions();
+      const confirmed = observed.find((row) => Number(row.ticket) === Number(order.ticket));
+      preflight.checks.push({
+        step: SIMULATOR_PIPELINE_STEPS["execution-confirmation"],
+        check: "execution-confirmation",
+        ok: Boolean(confirmed),
+        detail: confirmed ? `ticket ${order.ticket} is visible in simulated ${preflight.intent.type === "LIMIT" ? "pending orders" : "positions"}` : `ticket ${order.ticket} was not found in simulated account state`,
+      });
+      if (!confirmed) {
+        throw AppError.conflict("Simulator acknowledged the order but did not confirm it in its account state", {
+          code: "SIMULATOR_CONFIRMATION_FAILED",
+          details: { checks: structuredClone(preflight.checks) },
+        });
+      }
+
+      await store.withPaperTransaction(async (tx) => {
+        await tx.recordAudit({
+          actorId: owner,
+          action: "execution.simulated-broker.order-confirmed",
+          entityType: "execution_proposal",
+          entityId: id,
+          details: { ticket: Number(order.ticket), symbol: preflight.intent.symbol, side: preflight.intent.side, simulationOnly: true, summary: "In-process simulator order was placed and confirmed" },
+        });
+      });
+      preflight.checks.push({ step: SIMULATOR_PIPELINE_STEPS["audit-log"], check: "audit-log", ok: true, detail: "simulator order placement and confirmation were durably audited" });
+
+      let portfolioAfter;
+      try {
+        const [accountAfter, positionsAfter, pendingAfter] = await Promise.all([
+          preflight.connector.account(),
+          preflight.connector.positions(),
+          preflight.connector.pendingOrders(),
+        ]);
+        portfolioAfter = {
+          accountId: accountAfter.accountId,
+          balance: accountAfter.balance,
+          equity: accountAfter.equity,
+          margin: accountAfter.margin,
+          freeMargin: accountAfter.freeMargin,
+          openPositions: positionsAfter.length,
+          pendingOrders: pendingAfter.length,
+        };
+        preflight.checks.push({ step: SIMULATOR_PIPELINE_STEPS["portfolio-update"], check: "portfolio-update", ok: true, detail: "post-order simulated account and portfolio counts were refreshed" });
+      } catch (error) {
+        portfolioAfter = { warning: "simulated order is confirmed; post-trade portfolio snapshot is unavailable" };
+        preflight.checks.push({ step: SIMULATOR_PIPELINE_STEPS["portfolio-update"], check: "portfolio-update", ok: false, detail: String(error?.message ?? "post-trade snapshot unavailable").slice(0, 240) });
+      }
+
+      const completedAt = isoNow(now);
+      const status = preflight.intent.type === "LIMIT" ? "SIMULATOR_PENDING" : "SIMULATOR_EXECUTED";
+      const result = {
+        broker: "simulated-mt5",
+        ticket: Number(order.ticket),
+        volume: preflight.volume,
+        price: Number(order.price),
+        type: preflight.intent.type,
+        side: preflight.intent.side,
+        symbol: preflight.intent.symbol,
+        confirmed: true,
+        simulationOnly: true,
+        liveTradingEnabled: false,
+        effectiveRiskPct: preflight.effectiveRiskPct,
+        requiredMargin: preflight.requiredMargin,
+        checks: preflight.checks,
+        riskDecision: {
+          approved: preflight.riskDecision.approved,
+          reasons: preflight.riskDecision.reasons,
+          warnings: preflight.riskDecision.warnings,
+        },
+        portfolioAfter,
+        executedAt: completedAt,
+      };
+      const completed = await store.withPaperTransaction(async (tx) => {
+        const row = await tx.completeExecutionProposal(id, owner, {
+          status,
+          paperOrderId: null,
+          result,
+          updatedAt: completedAt,
+          submittingStatus,
+        });
+        if (!row) throw AppError.conflict("Simulator result could not be attached to its proposal", { code: "SIMULATOR_SUBMISSION_STATE_CHANGED" });
+        await tx.recordAudit({
+          actorId: owner,
+          action: "execution.simulated-broker.completed",
+          entityType: "execution_proposal",
+          entityId: id,
+          details: { accountId: Number(row.account_id), symbol: result.symbol, side: result.side, ticket: result.ticket, volume: result.volume, status, simulationOnly: true, summary: `In-process simulated order confirmed as ${status}` },
+        });
+        return row;
+      });
+      return { proposal: proposalView(completed), execution: result, simulationOnly: true, liveTradingEnabled: false };
+    } catch (error) {
+      const failure = {
+        code: String(error?.code ?? "SIMULATOR_SUBMISSION_FAILED").slice(0, 80),
+        message: String(error?.message ?? "Simulator submission failed").slice(0, 300),
+        checks: structuredClone(preflight?.checks ?? error?.details?.checks ?? []),
+        simulationOnly: true,
+        liveTradingEnabled: false,
+      };
+      if (claimed) {
+        try {
+          await store.withPaperTransaction(async (tx) => {
+            const row = await tx.completeExecutionProposal(id, owner, {
+              status: "SIMULATOR_FAILED",
+              paperOrderId: null,
+              result: { ...failure, orderCreated: orderWasSubmitted },
+              updatedAt: isoNow(now),
+              submittingStatus,
+            });
+            if (row) await tx.recordAudit({
+              actorId: owner,
+              action: "execution.simulated-broker.failed",
+              entityType: "execution_proposal",
+              entityId: id,
+              details: { accountId: Number(row.account_id), code: failure.code, summary: failure.message, simulationOnly: true },
+            });
+          });
+        } catch (stateError) {
+          log?.error?.({ err: stateError, proposalId: id }, "failed to persist simulated broker failure");
+        }
+      } else {
+        await auditOutsideTransaction({
+          actorId: owner,
+          action: "execution.simulated-broker.blocked",
+          entityType: "execution_proposal",
+          entityId: id,
+          details: { accountId: Number(existing.account_id), code: failure.code, symbol: existing.intent?.symbol ?? null, summary: failure.message, orderCreated: false, simulationOnly: true },
+        });
+      }
+      throw error;
+    } finally {
+      try {
+        const released = await store.releaseJobLock(lockName, holder);
+        if (!released) log?.warn?.({ lockName }, "simulated broker lock was no longer owned at release");
+      } catch (error) {
+        log?.warn?.({ err: error, lockName }, "simulated broker lock could not be released");
+      }
+    }
+  }
+
+  async function automationConfig(ownerUserId) {
+    requireStore();
+    const owner = actorIdOf(ownerUserId);
+    if (typeof store.loadTradingState !== "function") {
+      throw AppError.unavailable("Persisted execution governance is unavailable", { code: "TRADING_STATE_UNAVAILABLE", retryAfter: 30 });
+    }
+    const state = normalizeTradingState(await store.loadTradingState());
+    return {
+      executionMode: state.executionMode,
+      automationLimits: {
+        ...state.automationLimits,
+        approvedSymbols: [...state.automationLimits.approvedSymbols],
+      },
+      availableModes: [...EXECUTION_MODES],
+      simulationOnly: true,
+      liveTradingEnabled: false,
+      actorUserId: owner,
+    };
+  }
+
+  async function updateAutomationLimits(ownerUserId, patch = {}) {
+    requireStore();
+    const owner = actorIdOf(ownerUserId);
+    const normalizedPatch = normalizeAutomationPatch(patch);
+    const result = await store.withPaperTransaction(async (tx) => {
+      const current = normalizeTradingState(await tx.loadTradingState());
+      const limits = { ...current.automationLimits, ...normalizedPatch };
+      if (limits.maxTradeNotionalUsd > current.riskLimits.maxPositionNotionalUsd) {
+        throw AppError.conflict("maxTradeNotionalUsd cannot exceed the global paper maxPositionNotionalUsd", { code: "AUTOMATION_LIMIT_EXCEEDS_GOVERNANCE" });
+      }
+      if (limits.maxRiskPerTradePct > current.riskLimits.maxRiskPerTradePct) {
+        throw AppError.conflict("maxRiskPerTradePct cannot exceed the global maxRiskPerTradePct", { code: "AUTOMATION_LIMIT_EXCEEDS_GOVERNANCE" });
+      }
+      const updatedAt = isoNow(now);
+      const saved = await tx.saveTradingState({ ...current, automationLimits: { ...limits, updatedAt } }, { updatedByUserId: owner, updatedAt });
+      const applied = normalizeTradingState(saved);
+      await tx.recordAudit({
+        actorId: owner,
+        action: "governance.automation-limits.updated",
+        entityType: "trading_governance",
+        entityId: "global",
+        details: { changed: Object.keys(normalizedPatch), automationLimits: applied.automationLimits },
+      });
+      return {
+        automationLimits: { ...applied.automationLimits, approvedSymbols: [...applied.automationLimits.approvedSymbols] },
+        updatedAt,
+        simulationOnly: true,
+        liveTradingEnabled: false,
+      };
+    });
+    return result;
+  }
+
+  async function setExecutionMode(ownerUserId, mode) {
+    requireStore();
+    const owner = actorIdOf(ownerUserId);
+    if (!EXECUTION_MODES.includes(mode)) {
+      throw AppError.badRequest(`mode must be one of: ${EXECUTION_MODES.join(", ")}`, { code: "INVALID_EXECUTION_MODE" });
+    }
+    if (mode !== "HUMAN_APPROVAL") requirePaperService();
+    return store.withPaperTransaction(async (tx) => {
+      const current = normalizeTradingState(await tx.loadTradingState());
+      if (mode !== "HUMAN_APPROVAL") {
+        if (current.killSwitch.active || current.tradingMode !== "PAPER_TRADING") {
+          throw AppError.conflict("Automated execution requires the kill switch released and PAPER_TRADING mode active", { code: "EXECUTION_AUTOMATION_GOVERNANCE_BLOCKED" });
+        }
+        if (current.automationLimits.approvedSymbols.length === 0 || !current.automationLimits.updatedAt) {
+          throw AppError.conflict("Configure automation limits and at least one approved symbol before enabling an automated mode", { code: "EXECUTION_AUTOMATION_NOT_CONFIGURED" });
+        }
+      }
+      const changed = current.executionMode !== mode;
+      const updatedAt = isoNow(now);
+      const saved = await tx.saveTradingState({ ...current, executionMode: mode }, { updatedByUserId: owner, updatedAt });
+      const applied = normalizeTradingState(saved);
+      await tx.recordAudit({
+        actorId: owner,
+        action: "governance.execution-mode.changed",
+        entityType: "trading_governance",
+        entityId: "global",
+        details: { previous: current.executionMode, mode: applied.executionMode, changed, simulationOnly: true },
+      });
+      return {
+        executionMode: applied.executionMode,
+        changed,
+        updatedAt,
+        automationLimits: { ...applied.automationLimits, approvedSymbols: [...applied.automationLimits.approvedSymbols] },
+        simulationOnly: true,
+        liveTradingEnabled: false,
+      };
+    });
+  }
+
+  async function executeAutomated(ownerUserId, input = {}) {
+    requireStore();
+    requirePaperService();
+    const owner = actorIdOf(ownerUserId);
+    const accountId = positiveId(input.accountId, "accountId");
+    const intent = normalizeIntent(input);
+    if (!intent.strategyId || !intent.strategyVersion) {
+      throw AppError.badRequest("Automated execution requires an exact strategy id and version", { code: "EXECUTION_STRATEGY_REQUIRED" });
+    }
+    if (typeof store.loadTradingState !== "function" || typeof store.listAuditEvents !== "function"
+      || typeof store.acquireJobLock !== "function" || typeof store.releaseJobLock !== "function") {
+      throw AppError.unavailable("Automated execution requires persisted governance, audit and lock support", { code: "EXECUTION_AUTOMATION_STORE_UNAVAILABLE", retryAfter: 30 });
+    }
+
+    const lockName = `execution-automation-${owner}`;
+    const holder = `${process.pid}@execution#${randomUUID()}`;
+    const acquiredAt = isoNow(now);
+    const lock = await store.acquireJobLock(lockName, {
+      holder,
+      nowIso: acquiredAt,
+      expiresAt: new Date(now() + 5 * 60_000).toISOString(),
+    });
+    if (!lock?.acquired) {
+      throw AppError.conflict("Another automated execution is already in progress for this user", {
+        code: "EXECUTION_AUTOMATION_BUSY",
+        details: { reason: lock?.reason ?? "lock held" },
+      });
+    }
+
+    try {
+      const state = normalizeTradingState(await store.loadTradingState());
+      if (state.executionMode === "HUMAN_APPROVAL") {
+        throw AppError.conflict("Automated execution is disabled while HUMAN_APPROVAL mode is active", { code: "EXECUTION_AUTOMATION_DISABLED" });
+      }
+      if (state.killSwitch.active || state.tradingMode !== "PAPER_TRADING") {
+        throw AppError.conflict("Automated execution is blocked by current trading governance", { code: "EXECUTION_AUTOMATION_GOVERNANCE_BLOCKED" });
+      }
+      const limits = state.automationLimits;
+      if (!limits.updatedAt || limits.approvedSymbols.length === 0) {
+        throw AppError.conflict("Automation limits and approved symbols are not configured", { code: "EXECUTION_AUTOMATION_NOT_CONFIGURED" });
+      }
+      if (!limits.approvedSymbols.includes(intent.symbol)) {
+        throw AppError.conflict(`${intent.symbol} is not on the automation approved-symbol list`, { code: "EXECUTION_SYMBOL_NOT_APPROVED" });
+      }
+      const account = await store.findPaperAccount(accountId, owner);
+      if (!account) throw AppError.notFound("Paper account not found", { code: "PAPER_ACCOUNT_NOT_FOUND" });
+      const strategy = await store.findStrategy(intent.strategyId, intent.strategyVersion);
+      const implementation = requireStrategyRegistry().implementation(intent.strategyId, intent.strategyVersion);
+      if (!strategy || !implementation || strategy.lifecycle !== "APPROVED" || (strategy.source === "ai" && !strategy.human_signoff)) {
+        throw AppError.conflict("Automated execution requires an executable, approved strategy version with any required human sign-off", { code: "EXECUTION_STRATEGY_NOT_APPROVED" });
+      }
+
+      const { from, to } = utcDayBounds(now);
+      const daily = await store.listAuditEvents({
+        userId: owner,
+        action: "execution.automation.completed",
+        from,
+        to,
+        limit: 1,
+      });
+      if (Number(daily?.total ?? 0) >= limits.maxDailyTrades) {
+        throw AppError.conflict("The configured maximum number of automated paper orders for today has been reached", { code: "EXECUTION_DAILY_LIMIT_REACHED" });
+      }
+
+      const hardRiskCap = Math.min(limits.maxRiskPerTradePct, state.riskLimits.maxRiskPerTradePct);
+      // Paper sizing rounds volume to six decimals and risk to cents. Leave a
+      // small headroom so that rounding cannot turn a mathematically-at-cap order
+      // into one that exceeds the independent RiskEngine veto by a fraction.
+      const effectiveRiskPct = Math.min(intent.riskPct ?? hardRiskCap, hardRiskCap) * 0.99;
+      const paperResult = await paper.submitOrder(owner, accountId, {
+        symbol: intent.symbol,
+        marketClass: intent.marketClass,
+        side: intent.side,
+        type: intent.type,
+        price: intent.price,
+        stopLoss: intent.stopLoss,
+        takeProfit: intent.takeProfit,
+        riskPct: effectiveRiskPct,
+        reason: intent.reason ?? `automated ${state.executionMode.toLowerCase()} strategy ${intent.strategyId}@${intent.strategyVersion}`,
+        confidence: intent.confidence,
+        strategy: intent.strategyId,
+        strategyVersion: intent.strategyVersion,
+      }, {
+        actorId: owner,
+        constraints: {
+          maxTradeNotionalUsd: limits.maxTradeNotionalUsd,
+          maxRiskPerTradePct: effectiveRiskPct,
+          automation: {
+            executionMode: state.executionMode,
+            automationLimitsUpdatedAt: limits.updatedAt,
+            strategyId: intent.strategyId,
+            strategyVersion: intent.strategyVersion,
+          },
+        },
+      });
+      const safe = safePaperResult(paperResult);
+      const status = paperResult?.order?.status === "REJECTED" ? "REJECTED"
+        : paperResult?.filled ? "PAPER_EXECUTED" : "PAPER_PENDING";
+      return {
+        status,
+        executionMode: state.executionMode,
+        accountId,
+        symbol: intent.symbol,
+        strategyId: intent.strategyId,
+        strategyVersion: intent.strategyVersion,
+        effectiveRiskPct,
+        automationLimits: {
+          maxDailyTrades: limits.maxDailyTrades,
+          maxTradeNotionalUsd: limits.maxTradeNotionalUsd,
+          maxRiskPerTradePct: limits.maxRiskPerTradePct,
+          approvedSymbols: [...limits.approvedSymbols],
+        },
+        paper: safe,
+        simulationOnly: true,
+        liveTradingEnabled: false,
+      };
+    } catch (error) {
+      await auditOutsideTransaction({
+        actorId: owner,
+        action: "execution.automation.blocked",
+        entityType: "trading_governance",
+        entityId: "global",
+        details: {
+          code: String(error?.code ?? "EXECUTION_AUTOMATION_FAILED").slice(0, 80),
+          symbol: intent.symbol,
+          strategyId: intent.strategyId,
+          strategyVersion: intent.strategyVersion,
+          summary: String(error?.message ?? "Automated paper execution was blocked").slice(0, 240),
+          orderCreated: false,
+          simulationOnly: true,
+        },
+      });
+      throw error;
+    } finally {
+      try {
+        const released = await store.releaseJobLock(lockName, holder);
+        if (!released) log?.warn?.({ lockName }, "automated execution lock was no longer owned at release");
+      } catch (error) {
+        log?.warn?.({ err: error, lockName }, "automated execution lock could not be released");
+      }
+    }
+  }
+
   function statusSnapshot() {
     return {
       enabled: Boolean(store && typeof store.findExecutionProposal === "function" && typeof store.withPaperTransaction === "function"),
-      scope: "human-reviewed paper proposals only",
+      scope: "human-reviewed proposals through Paper Trading or the explicit in-process broker simulator; request-based governed automation through Paper Trading only",
       simulationOnly: true,
       paperSubmissionAvailable: Boolean(paper && typeof paper.submitOrder === "function"),
       liveTradingEnabled: false,
-      // Row 13 ports the connector boundary and its gates, and this stays `false`
-      // on purpose. It answers "could an order be routed", which needs a bridge
-      // health probe; `statusSnapshot()` is synchronous and this endpoint should not
-      // become as slow as the slowest configured adapter. The probed, authoritative
-      // answer is `routable` on `GET /api/v1/brokers`. The count below is
-      // config-only, so a host that set the env vars can see that they took effect
-      // without this snapshot reaching the network.
+      // This means a real provider-verified broker connector, not the isolated
+      // process-local simulator. Keep it false here: the authoritative real-bridge
+      // health answer is `routable` on the authenticated Broker Center surface.
       brokerConnectorAvailable: false,
       brokerConnectorsConfigured: configuredConnectorCount(brokers),
-      automatedModesAvailable: false,
+      simulatedBrokerAvailable: typeof brokers?.simulationStatus === "function" && brokers.simulationStatus().enabled === true,
+      simulatedOrderRoutingEnabled: typeof brokers?.simulationStatus === "function" && brokers.simulationStatus().ordersEnabled === true,
+      automatedModesAvailable: Boolean(paper && typeof paper.submitOrder === "function" && store && typeof store.withPaperTransaction === "function"),
+      availableModes: [...EXECUTION_MODES],
+      automationScope: "request-based Paper Trading only; no unattended strategy loop and no live-money route",
+      simulatorSubmissionScope: "separate human-approved proposals only; process-local simulated MT5 bridge; no live broker routing",
       approvalRequired: true,
       proposalExpiryMinutes: MAX_PROPOSAL_AGE_MS / 60_000,
     };
   }
 
-  return { propose, list, find, decide, submitToPaper, expireStaleProposals, statusSnapshot };
+  return {
+    propose,
+    list,
+    find,
+    decide,
+    submitToPaper,
+    submitToSimulator,
+    automationConfig,
+    updateAutomationLimits,
+    setExecutionMode,
+    executeAutomated,
+    expireStaleProposals,
+    statusSnapshot,
+  };
 }

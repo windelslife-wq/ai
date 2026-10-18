@@ -264,10 +264,11 @@ test("every endpoint the workspace client calls exists in the server's own route
 
   const unresolved = [];
   for (const call of calls) {
-    const literal = call[1];
-    // `/api/v1/account/activity${query}` and `/api/v1/notifications/${id}/read` are
-    // templates: check the fixed prefix against the inventory as a prefix match so a
-    // parameterised route still has to be registered.
+    const literal = call[1].split("?", 1)[0];
+    // Query strings (including a dynamic `?symbol=${...}`) are not part of the
+    // registered route path. `/api/v1/account/activity${query}` and
+    // `/api/v1/notifications/${id}/read` are templates too: check the fixed path
+    // against the inventory so each parameterised endpoint still has to exist.
     const exact = known.has(`GET ${literal}`) || known.has(`POST ${literal}`)
       || inventory.some((route) => route.path.startsWith(literal));
     if (!exact) unresolved.push(literal);

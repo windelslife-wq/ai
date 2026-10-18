@@ -1,30 +1,26 @@
 /**
- * The Broker Center console (row 13, Phase 40).
+ * The Broker Center console (row 13, Phase 40, extended with authenticated reads).
  *
- * Legacy has one page over this module: `Brokers::index` → `views/brokers/index.php`. It drew
- * the routing banner, a simulated-bridge switch, one capability card per connector, the two
- * read-only MT5 panels and the PLANNED matrix. The port registers **one** route —
- * `GET /api/v1/brokers` — and this screen is that route rendered honestly, plus the panels the
- * port deliberately does not have.
+ * Legacy has one page over this module: `Brokers::index` → `views/brokers/index.php`. The Node
+ * port exposes broker status, authenticated MT5 account/quote reads and authenticated in-process
+ * simulator account/quote reads. It does not expose a direct broker-order or toggle route; the
+ * only order path is an approved proposal submitted through the separate simulator-only
+ * Execution Supervisor route.
  *
  * Four rules, the same ones every console in this shell follows:
  *
- *  1. **The screen states what it is reading, and the API decides it.** `routable`, every
- *     connector state, every capability flag and the PLANNED matrix all come from the one
- *     response. `notice` is the server's sentence and is shown as the server's.
- *  2. **The absences are the page's, not the reader's.** Two of legacy's panels cannot be drawn
- *     here: the simulated-bridge switch (the marker-file mock `DemoBridgeConfig` writes has no
- *     equivalent in this platform, and porting the switch without the bridge would advertise a
- *     capability that does not exist) and the MT5 account/quote reads (the port registers no
- *     such route, because a route that can only answer 503 on a host with no bridge is worse
- *     than no route — and legacy's were unauthenticated, F-32). Both are stated with legacy's
- *     own words before the reason.
+ *  1. **The screen states what it is reading, and the API decides it.** Connector health and
+ *     routing eligibility come from `GET /api/v1/brokers`; account and quote panels use the
+ *     authenticated MT5 or simulator reads. The simulator's `memoryOnly` and order flags are
+ *     displayed as supplied; they are not inferred from the real connector roster.
+ *  2. **The demo bridge stays distinct from real connectors.** It is process-local, opt-in and
+ *     unavailable after restart; its reads never make a real adapter routable. No toggle route
+ *     or direct broker-order endpoint is exposed.
  *  3. **Nothing is offered that the API would refuse.** Every control on this page is a read.
- *     There is no enable, no toggle and no order button, because there is no such route — and
- *     the screen says so rather than rendering disabled buttons that imply one exists.
- *  4. **Legacy's copy is legacy's.** Every heading, note, label, empty state and flash sentence
- *     is asserted against the PHP with `readFileSync`; the sentences this port adds live in
- *     `BROKERS_PORT_COPY`.
+ *     An order can only be submitted from an APPROVED proposal on the Execution Center, under
+ *     `trading.execute`; it is not a direct Broker Center action.
+ *  4. **Legacy's copy is legacy's.** Every legacy sentence remains asserted against PHP with
+ *     `readFileSync`; the port-specific capability statements live in `BROKERS_PORT_COPY`.
  *
  * Every function here is pure: `views.jsx` binds them to reads, and
  * `test/client_broker_console.test.js` holds them to the legacy text and to the one route the
@@ -132,13 +128,15 @@ export const BROKERS_COPY = Object.freeze({
  * string in `BROKERS_COPY` inside the PHP and every string here only in the client module.
  */
 export const BROKERS_PORT_COPY = Object.freeze({
-  routingSource: "Read from `GET /api/v1/brokers`: `routable` is the server's answer, not this page's inference.",
-  simulatedAbsent: "This port has no simulated-bridge switch. Legacy's `Brokers::sim_toggle()` wrote a marker file its dev front controller turned into environment variables; this platform has no equivalent in-process mock, so the toggle is not ported — a switch that turns on nothing would advertise a capability that does not exist.",
-  accountAbsent: "This port registers no MT5 account read. Legacy's `Api_system::mt5_account()` returned the broker login, currency, balance and equity with no permission check at all (F-32); the port answers with a single broker route that is gated, and a read that can only answer 503 on a host with no bridge is worse than no route.",
-  quoteAbsent: "This port registers no MT5 quote read, for the same reason: `Api_system::mt5_quote()` was unauthenticated and can only answer 503 without a deployed bridge (F-32).",
-  oneRouteOnly: "The Broker Center is one read and nothing else: no enable, no toggle, no order. Routing lives exclusively in the Execution Supervisor, and it stays unavailable until an adapter is verified against its provider.",
+  routingSource: "Read from `GET /api/v1/brokers`: `routable` describes real connector health/capability; the isolated simulator is reported separately and never makes a real adapter routable.",
+  simulatedSummary: "The optional MT5-shaped bridge is an in-process test double. `WF_SIMULATED_BROKER_ENABLED=1` enables reads; a separate `WF_SIMULATED_BROKER_ORDERS_ENABLED=1` is required before an approved proposal may submit. State is lost on restart.",
+  toggleAbsent: "There is no runtime enable/toggle endpoint. The simulator is opt-in at process start so the UI cannot silently enable order writes.",
+  accountAbsent: "Authenticated account reads are available at `/api/v1/brokers/mt5/account` and `/api/v1/brokers/simulation/account`; the latter is process-local demo state, not a funded or terminal account.",
+  quoteAbsent: "Authenticated quote reads are available at `/api/v1/brokers/mt5/quote` and `/api/v1/brokers/simulation/quote`. Simulator quotes are synthetic and only used by the explicit simulation route.",
+  oneRouteOnly: "Broker Center exposes read-only status/account/quote endpoints. No direct broker order route exists; only an approved Execution Supervisor proposal can reach the isolated simulator. Real provider-backed routing stays disabled and unverified.",
   states: "The four-state ladder is legacy's: DISABLED → NOT_CONFIGURED → DOWN → READY, with only READY carrying bridge-reported fields. `ERROR` is this port's fifth value: it means the adapter threw instead of answering, and it is never treated as READY.",
-  capabilitiesNote: "`order submission` is the local intent flag. `orderSubmissionEffective` is the bridge-verified answer, and it is the only one the supervisor trusts — the two disagreeing is the normal state of a scaffolded adapter.",
+  capabilitiesNote: "`order submission` is the real connector's local intent flag. `orderSubmissionEffective` is its bridge-verified answer. The separate simulator's order flag never changes either value or the real connector routing answer.",
+  realValidation: "No real MT5 terminal was contacted or verified in this repository-only change. Demo-terminal validation remains an external deployment task.",
 });
 
 /* ------------------------------------------------------------------------ the state ladder */
@@ -164,15 +162,20 @@ export function stateTone(state) {
   return CONNECTOR_STATES[String(state)]?.tone ?? "badge-gray";
 }
 
-/** The three routing banners, chosen from the API's `routable` and the MT5 adapter's own flag. */
+/** Separate real-connector readiness from the process-local simulator's configured flags. */
 export function routingBanner(payload) {
   const routable = payload?.routable === true;
-  const simulated = payload?.brokers?.["mt5-bridge"]?.simulated === true;
-  if (routable && simulated) {
-    return { key: "simulated", tone: "ok", message: BROKERS_COPY.routingActiveSimulated };
+  const simulation = simulationState(payload);
+  if (routable) {
+    return { key: "real-connector-eligible", tone: "warn", message: "A real connector reports effective submission capability, but no real order endpoint is enabled by this port." };
   }
-  if (routable) return { key: "active", tone: "ok", message: BROKERS_COPY.routingActive };
-  return { key: "disabled", tone: "warn", message: BROKERS_COPY.routingDisabled };
+  if (simulation.enabled && simulation.ordersEnabled) {
+    return { key: "simulator-ready", tone: "info", message: "Real broker routing is disabled. The isolated process-local simulator can accept only separately approved execution proposals; no live order exists." };
+  }
+  if (simulation.enabled) {
+    return { key: "simulator-read-only", tone: "warn", message: "Real broker routing is disabled. The in-process simulator is available for reads, but simulator order submission is disabled." };
+  }
+  return { key: "disabled", tone: "warn", message: "Real broker routing is disabled. No verified provider-backed order route is available; the optional process-local simulator is disabled." };
 }
 
 /* ------------------------------------------------------------------------------ the cards */
@@ -243,11 +246,7 @@ export function plannedRows(payload) {
   }));
 }
 
-/**
- * The MT5 panels' payloads. Neither has a route in this port, so both are `null` and the
- * screen renders legacy's sentences plus the reason — never an empty table that looks like a
- * successful read with no data.
- */
+/** Normalized account/quote payloads read from an authenticated MT5 or simulator endpoint. */
 export function mt5Panels(payload) {
   return {
     account: isPlainObject(payload?.account) ? payload.account : null,
@@ -281,13 +280,16 @@ export function quoteRows(quote) {
   ];
 }
 
-/** The simulated bridge's state, from the MT5 adapter's own `simulated` flag. */
+/** The separate in-process simulator status block returned by `GET /api/v1/brokers`. */
 export function simulationState(payload) {
-  const mt5 = payload?.brokers?.["mt5-bridge"];
+  const state = isPlainObject(payload?.simulation) ? payload.simulation : {};
   return {
-    enabled: mt5?.simulated === true,
-    port: null,
-    // The port has no marker file, so there is no port to show and no control to offer.
+    enabled: state.enabled === true,
+    ordersEnabled: state.ordersEnabled === true,
+    memoryOnly: state.memoryOnly === true,
+    liveTradingEnabled: state.liveTradingEnabled === true,
+    state: String(state.state ?? "DISABLED"),
+    message: String(state.message ?? ""),
     toggleAvailable: false,
   };
 }
@@ -300,6 +302,7 @@ export function governanceFacts(state) {
   const killSwitch = state.killSwitch && typeof state.killSwitch === "object" ? state.killSwitch : {};
   return {
     mode: state.tradingMode ?? "UNKNOWN",
+    executionMode: state.executionMode ?? "HUMAN_APPROVAL",
     killSwitch: killSwitch.active === true,
     synthetic: state.allowSyntheticPaperData === true,
     simulated: state.simulationOnly === true,
@@ -315,17 +318,14 @@ export function governanceFacts(state) {
  */
 export const BROKERS_READS = Object.freeze([
   { key: "brokers", method: "GET", path: "/api/v1/brokers", permission: BROKERS_PERMISSION, section: "Connector matrix" },
-  { key: "tradingState", method: "GET", path: "/api/v1/trading/mode", permission: "trading.view", section: "Governance strip" },
+  { key: "mt5Account", method: "GET", path: "/api/v1/brokers/mt5/account", permission: BROKERS_PERMISSION, section: "MT5 account" },
+  { key: "mt5Quote", method: "GET", path: "/api/v1/brokers/mt5/quote", permission: BROKERS_PERMISSION, section: "MT5 quote" },
+  { key: "simulationAccount", method: "GET", path: "/api/v1/brokers/simulation/account", permission: BROKERS_PERMISSION, section: "Simulator account" },
+  { key: "simulationQuote", method: "GET", path: "/api/v1/brokers/simulation/quote", permission: BROKERS_PERMISSION, section: "Simulator quote" },
+  { key: "tradingState", method: "GET", path: "/api/v1/trading/mode", permission: BROKERS_PERMISSION, section: "Governance strip" },
 ]);
 
-/**
- * Legacy's two panels and one switch that this port deliberately does not register, each with
- * the reason. The suite asserts every one of these paths is **absent** from the route
- * inventory — a docblock that says "not ported" while a route answers is the failure mode this
- * list exists to catch.
- */
+/** The legacy runtime toggle remains absent; the simulator is enabled only at process start. */
 export const LEGACY_ROUTES_NOT_PORTED = Object.freeze([
-  Object.freeze({ key: "simToggle", legacy: "POST /brokers/sim-toggle → Brokers::sim_toggle()", route: "/api/v1/brokers/sim-toggle", why: "no in-process mock bridge exists in this platform" }),
-  Object.freeze({ key: "mt5Account", legacy: "GET /api/system/mt5-account → Api_system::mt5_account()", route: "/api/v1/brokers/mt5/account", why: "unauthenticated in legacy (F-32); a read that can only answer 503 is worse than no route" }),
-  Object.freeze({ key: "mt5Quote", legacy: "GET /api/system/mt5-quote → Api_system::mt5_quote()", route: "/api/v1/brokers/mt5/quote", why: "unauthenticated in legacy (F-32); same 503-without-a-bridge problem" }),
+  Object.freeze({ key: "simToggle", legacy: "POST /brokers/sim-toggle → Brokers::sim_toggle()", route: "/api/v1/brokers/sim-toggle", why: "runtime toggling is deliberately omitted; opt-in configuration is read at process start" }),
 ]);

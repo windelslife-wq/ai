@@ -818,8 +818,8 @@ test("status surface: analysis remains proposal-only while paper and persisted r
     assert.equal(moduleState.analysis, "ported");
     assert.equal(moduleState.risk, "ported", "Phase 7 adds persisted limits, kill switch and a paper portfolio scan");
     assert.equal(moduleState.marketData, "ported");
-    assert.equal(moduleState.execution, "partial", "Phase 8A adds paper proposals, not the full supervisor");
-    assert.equal(moduleState.brokers, "partial", "Phase 14 ports the connector boundary and its demo-only order gates; no adapter is verified and no order can be routed");
+    assert.equal(moduleState.execution, "partial", "the full 15-step supervisor is simulation-only; real connector routing and unattended automation remain unavailable");
+    assert.equal(moduleState.brokers, "partial", "authenticated reads and a process-local simulator exist, but real adapters remain unverified");
     assert.equal(moduleState.paperTrading, "ported");
 
     assert.deepEqual(body.analysis.agents, ["technical", "market-structure", "forex", "crypto", "sentiment", "fundamentals"]);
@@ -834,7 +834,8 @@ test("status surface: analysis remains proposal-only while paper and persisted r
     assert.equal(body.trading.simulationOnly, true);
     assert.equal(body.trading.liveTradingEnabled, false);
     assert.match(body.trading.reason, /simulation-only/i);
-    assert.match(body.trading.reason, /no adapter is verified and no order can be routed/i);
+    assert.match(body.trading.reason, /process-local MT5-shaped simulator may submit only an approved proposal after all fifteen checks/i);
+    assert.match(body.trading.reason, /real adapters remain unverified and live trading is disabled/i);
     assert.equal(body.trading.paperProposalWorkflowAvailable, true);
 
     const features = await instance.app.inject({ method: "GET", url: "/api/v1/system/features" });

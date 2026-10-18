@@ -38,7 +38,7 @@ async function addPaperOperator(store) {
   return user;
 }
 
-test("Phase 8A exposes only human-reviewed paper proposals and reports live routes unavailable", async (t) => {
+test("execution exposes human-reviewed Paper/simulator routes and reports real/live routing unavailable", async (t) => {
   const instance = await createFileStoreApp({ configOverrides: { env: EXECUTION_ENV } });
   t.after(() => instance.cleanup());
 
@@ -48,11 +48,16 @@ test("Phase 8A exposes only human-reviewed paper proposals and reports live rout
   const routeMap = new Map(routes.map((route) => [`${route.method} ${route.path}`, route]));
   for (const [method, path, permission] of [
     ["GET", "/api/v1/execution/status", "trading.view"],
+    ["GET", "/api/v1/execution/automation", "trading.view"],
     ["POST", "/api/v1/execution/proposals", "trading.execute"],
     ["GET", "/api/v1/execution/proposals", "trading.view"],
     ["GET", "/api/v1/execution/proposals/:proposalId", "trading.view"],
     ["POST", "/api/v1/execution/proposals/:proposalId/decision", "trading.control"],
     ["POST", "/api/v1/execution/proposals/:proposalId/paper-submit", "trading.execute"],
+    ["POST", "/api/v1/execution/proposals/:proposalId/simulator-submit", "trading.execute"],
+    ["PATCH", "/api/v1/execution/automation-limits", "trading.control"],
+    ["POST", "/api/v1/execution/mode", "trading.control"],
+    ["POST", "/api/v1/execution/automated-paper", "trading.execute"],
   ]) {
     const route = routeMap.get(`${method} ${path}`);
     assert.ok(route, `${method} ${path} is registered`);
@@ -67,8 +72,12 @@ test("Phase 8A exposes only human-reviewed paper proposals and reports live rout
   assert.equal(status.json().simulationOnly, true);
   assert.equal(status.json().approvalRequired, true);
   assert.equal(status.json().liveTradingEnabled, false);
-  assert.equal(status.json().brokerConnectorAvailable, false);
-  assert.equal(status.json().automatedModesAvailable, false);
+  assert.equal(status.json().brokerConnectorAvailable, false, "real broker connector is not routable");
+  assert.equal(status.json().simulatedBrokerAvailable, false, "simulator is opt-in");
+  assert.equal(status.json().simulatedOrderRoutingEnabled, false);
+  assert.equal(status.json().automatedModesAvailable, true, "automated modes are explicit request-based Paper Trading only");
+  assert.match(status.json().automationScope, /request-based Paper Trading only/);
+  assert.match(status.json().simulatorSubmissionScope, /process-local simulated MT5 bridge/);
 
   const overall = await instance.app.inject({ method: "GET", url: "/api/v1/system/status" });
   assert.equal(overall.json().modules.find((module) => module.key === "execution").state, "partial");

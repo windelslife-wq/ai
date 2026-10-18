@@ -33,8 +33,20 @@ import {
 import { SeriesView, precomputeIndicators } from "../strategies/series-view.js";
 import { nextStage } from "../strategies/registry.js";
 
+export const EXECUTION_MODES = Object.freeze(["HUMAN_APPROVAL", "SEMI_AUTONOMOUS", "FULLY_AUTOMATED"]);
+
+export const DEFAULT_AUTOMATION_LIMITS = Object.freeze({
+  maxDailyTrades: 5,
+  maxTradeNotionalUsd: 500,
+  maxRiskPerTradePct: 0.01,
+  approvedSymbols: Object.freeze([]),
+  updatedAt: null,
+});
+
 export const DEFAULT_PAPER_TRADING_STATE = Object.freeze({
   tradingMode: "ANALYSIS_ONLY",
+  executionMode: "HUMAN_APPROVAL",
+  automationLimits: DEFAULT_AUTOMATION_LIMITS,
   killSwitch: Object.freeze({
     active: true,
     activatedAt: null,
@@ -149,6 +161,29 @@ function normalizeRiskLimits(value) {
   return limits;
 }
 
+function normalizeAutomationLimits(value) {
+  const raw = value && typeof value === "object" && !Array.isArray(value) ? value : {};
+  const maxDailyTrades = Number(raw.maxDailyTrades);
+  const maxTradeNotionalUsd = Number(raw.maxTradeNotionalUsd);
+  const maxRiskPerTradePct = Number(raw.maxRiskPerTradePct);
+  const approvedSymbols = Array.isArray(raw.approvedSymbols)
+    ? [...new Set(raw.approvedSymbols
+      .filter((entry) => typeof entry === "string")
+      .map((entry) => entry.trim().toUpperCase())
+      .filter((entry) => /^[A-Z0-9._-]{2,24}$/.test(entry)))].slice(0, 100)
+    : [];
+  return {
+    maxDailyTrades: Number.isSafeInteger(maxDailyTrades) && maxDailyTrades >= 1 && maxDailyTrades <= 100
+      ? maxDailyTrades : DEFAULT_AUTOMATION_LIMITS.maxDailyTrades,
+    maxTradeNotionalUsd: Number.isFinite(maxTradeNotionalUsd) && maxTradeNotionalUsd >= 1 && maxTradeNotionalUsd <= 100_000_000
+      ? maxTradeNotionalUsd : DEFAULT_AUTOMATION_LIMITS.maxTradeNotionalUsd,
+    maxRiskPerTradePct: Number.isFinite(maxRiskPerTradePct) && maxRiskPerTradePct >= 0.0001 && maxRiskPerTradePct <= 0.05
+      ? maxRiskPerTradePct : DEFAULT_AUTOMATION_LIMITS.maxRiskPerTradePct,
+    approvedSymbols,
+    updatedAt: typeof raw.updatedAt === "string" ? raw.updatedAt : null,
+  };
+}
+
 export function normalizeTradingState(stored) {
   const source = stored && typeof stored === "object" ? stored : {};
   const killSwitch = source.killSwitch && typeof source.killSwitch === "object" && !Array.isArray(source.killSwitch)
@@ -157,6 +192,8 @@ export function normalizeTradingState(stored) {
   const mode = source.tradingMode;
   return {
     tradingMode: mode === "PAPER_TRADING" ? mode : "ANALYSIS_ONLY",
+    executionMode: EXECUTION_MODES.includes(source.executionMode) ? source.executionMode : "HUMAN_APPROVAL",
+    automationLimits: normalizeAutomationLimits(source.automationLimits),
     killSwitch: {
       // Only the exact persisted boolean `false` releases the switch. Strings,
       // numbers, missing fields and malformed state all fail closed.
@@ -175,6 +212,11 @@ function publicTradingState(state) {
   const normalized = normalizeTradingState(state);
   return {
     tradingMode: normalized.tradingMode,
+    executionMode: normalized.executionMode,
+    automationLimits: {
+      ...normalized.automationLimits,
+      approvedSymbols: [...normalized.automationLimits.approvedSymbols],
+    },
     killSwitch: { ...normalized.killSwitch },
     allowSyntheticPaperData: normalized.allowSyntheticPaperData,
     riskLimits: { ...normalized.riskLimits },
@@ -630,8 +672,41 @@ export function createPaperService({ store = null, marketData = null, strategies
     return { filled: true, order: updatedOrder, position };
   }
 
-  async function submitOrderInTransaction(executor, account, ownerUserId, state, input, quote, actorId, { priceOverrides = new Map() } = {}) {
+  async function submitOrderInTransaction(executor, account, ownerUserId, state, input, quote, actorId, { priceOverrides = new Map(), constraints = null } = {}) {
+    // Execution automation may impose a stricter one-order ceiling than the
+    // operator's global paper limits. Apply it to the same sizing and RiskEngine
+    // state before any order write; never check notional only after a fill.
+    if (constraints && typeof constraints === "object") {
+      const maxNotional = Number(constraints.maxTradeNotionalUsd);
+      const maxRisk = Number(constraints.maxRiskPerTradePct);
+      const riskLimits = { ...state.riskLimits };
+      if (Number.isFinite(maxNotional) && maxNotional > 0) {
+        riskLimits.maxPositionNotionalUsd = Math.min(riskLimits.maxPositionNotionalUsd, maxNotional);
+      }
+      if (Number.isFinite(maxRisk) && maxRisk > 0) {
+        riskLimits.maxRiskPerTradePct = Math.min(riskLimits.maxRiskPerTradePct, maxRisk);
+        riskLimits.riskPerTradePct = Math.min(riskLimits.riskPerTradePct, riskLimits.maxRiskPerTradePct);
+      }
+      state = { ...state, riskLimits };
+    }
     const symbol = normalizeSymbol(input.symbol);
+    const automation = constraints?.automation && typeof constraints.automation === "object" ? constraints.automation : null;
+    if (automation) {
+      const expectedMode = automation.executionMode;
+      if (!["SEMI_AUTONOMOUS", "FULLY_AUTOMATED"].includes(expectedMode) || state.executionMode !== expectedMode) {
+        throw AppError.conflict("Automation mode changed before the paper order could be submitted", { code: "EXECUTION_AUTOMATION_STATE_CHANGED" });
+      }
+      if (state.automationLimits.updatedAt !== automation.automationLimitsUpdatedAt
+        || !state.automationLimits.approvedSymbols.includes(symbol)) {
+        throw AppError.conflict("Automation limits changed or the symbol is no longer approved", { code: "EXECUTION_AUTOMATION_STATE_CHANGED" });
+      }
+      const strategyId = String(automation.strategyId ?? "");
+      const strategyVersion = String(automation.strategyVersion ?? "");
+      const record = strategyId && strategyVersion ? await executor.findStrategy(strategyId, strategyVersion) : null;
+      if (!record || record.lifecycle !== "APPROVED" || (record.source === "ai" && !record.human_signoff)) {
+        throw AppError.conflict("The exact approved strategy is no longer eligible for automated execution", { code: "EXECUTION_STRATEGY_NOT_APPROVED" });
+      }
+    }
     const side = String(input.side ?? "").trim().toUpperCase();
     const type = String(input.type ?? "MARKET").trim().toUpperCase();
     const marketClass = normalizeMarketClass(input.marketClass, symbol);
@@ -910,7 +985,7 @@ export function createPaperService({ store = null, marketData = null, strategies
     return { orders: await store.listPaperOrders({ accountId: id, ownerUserId: owner, status, limit }) };
   }
 
-  async function submitOrder(ownerUserId, accountId, input = {}, { actorId = ownerUserId } = {}) {
+  async function submitOrder(ownerUserId, accountId, input = {}, { actorId = ownerUserId, constraints = null } = {}) {
     requireStore();
     const owner = actorIdOf(ownerUserId);
     const actor = actorIdOf(actorId);
@@ -924,7 +999,24 @@ export function createPaperService({ store = null, marketData = null, strategies
     return store.withPaperTransaction(async (tx) => {
       const state = normalizeTradingState(await tx.loadTradingState());
       const account = await requireAccount(tx, id, owner);
-      return submitOrderInTransaction(tx, account, owner, state, input, quote, actor);
+      const result = await submitOrderInTransaction(tx, account, owner, state, input, quote, actor, { constraints });
+      if (constraints?.automation && typeof constraints.automation === "object") {
+        const order = result?.order ?? null;
+        const rejected = order?.status === "REJECTED";
+        await audit(tx, actor, rejected ? "execution.automation.rejected" : "execution.automation.completed", "Automated execution completed in Paper Trading", {
+          accountId: id,
+          orderId: order?.id === null || order?.id === undefined ? null : Number(order.id),
+          symbol: String(input.symbol ?? "").toUpperCase(),
+          side: String(input.side ?? "").toUpperCase(),
+          strategyId: constraints.automation.strategyId,
+          strategyVersion: constraints.automation.strategyVersion,
+          executionMode: constraints.automation.executionMode,
+          accepted: !rejected,
+          simulationOnly: true,
+          summary: rejected ? "The Paper Trading risk engine rejected automated execution" : "The order was accepted by the simulation-only Paper Trading engine",
+        });
+      }
+      return result;
     });
   }
 

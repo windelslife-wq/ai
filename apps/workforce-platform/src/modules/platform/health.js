@@ -109,7 +109,7 @@ export const MODULE_STATUS = Object.freeze([
   // while the platform was stopped" was unanswerable. Every refusal is now audited
   // outside the transaction that rolled back, and the governance refusal broadcasts a
   // daily-deduped `ROUTING_BLOCKED` alert, as legacy's `routingBlocked()` did.
-  { key: "execution", label: "Human-reviewed paper proposals with fail-closed governance and blocked-submission evidence, and the Execution Center console at /app/execution (Phase 39), which ports `Execution::index`'s propose and decide panels, shows all fifteen supervisor steps and marks where this port stops, and states the automation envelope as unported rather than faking it. No live route and no automated mode: the remaining supervisor steps are broker-bound (row 13), not unfinished governance. F-29 no longer counts the execution screen as absent; brokers left that list in Phase 40 and the journal in Phase 41, so F-29's screen list is empty", state: "partial", tests: "unit + http + persistence + governance bypass/recovery + client console" },
+  { key: "execution", label: "Owner-scoped human-reviewed proposals with persisted trading governance and a full fifteen-step execution pipeline against the explicitly enabled, process-local simulated MT5 bridge; human-reviewed Execution console at /app/execution; separate Paper Trading submission; persisted HUMAN_APPROVAL / SEMI_AUTONOMOUS / FULLY_AUTOMATED modes and limits, where automated modes are explicit request-based Paper Trading only (no unattended strategy loop). The simulator is never a real connector: live/provider-backed routing remains disabled, and real MT5 terminal verification is external", state: "partial", tests: "unit + http + persistence + governance + simulator 15-step pipeline + client console" },
   // Phase 12 ported `Tools::cron()` (the portfolio risk sweep across every owner and
   // the cross-owner stale-proposal expiry, coordinated by a `wf_job_locks` row and
   // driven by the host's cron through `tools/scheduled-jobs.mjs`), Phase 14 added
@@ -139,7 +139,7 @@ export const MODULE_STATUS = Object.freeze([
   // path, or the simulated bridge legacy used for its offline demo. So `routable` is
   // false on every host that has not deployed and verified a real bridge, and the
   // label says that instead of letting `partial` imply a half-working broker.
-  { key: "brokers", label: "Broker connector boundary, normalized data contracts and demo-only order gates (ten adapters registered, all disabled by default; one read-only route, no order routing, no simulated bridge, no adapter verified against its provider), with the Broker Center console at /app/brokers (Phase 40): the read route and the governance state on one screen, the ten connectors in roster order with the nine PLANNED adapters in the controller's own words, and the three legacy routes this port does not have (`/brokers/sim-toggle` and the two MT5 reads legacy answered unauthenticated, F-32) named as absent rather than drawn as controls that call nothing. The screen holds no write: there is none behind it", state: "partial", tests: "unit + http + gates + client console" },
+  { key: "brokers", label: "Ten real connector adapters and normalized health/capability contracts, all disabled or unverified by default; authenticated status plus MT5/simulator account and quote reads; process-local opt-in simulated bridge with separate order flag, reachable only through an owner-scoped, human-approved Execution proposal. The simulator never makes a real connector routable. No real provider-backed order route and no real MT5 demo-terminal verification (external deployment task), with the Broker Center at /app/brokers showing the boundary rather than implying a live integration", state: "partial", tests: "unit + http + simulator + governance gates + client console" },
   // Slice 5 (row 14) completes the measured half: settlement from verified results,
   // result verification, calibration fitting, the point-in-time backtester, the drift
   // monitor (whose SPORTS_MODEL_DRIFT publisher closes NV-6) and measured performance.
@@ -298,10 +298,13 @@ export async function healthRoutes(app, { store, config, adapter, router, market
         // endpoint is also the safe direction to be wrong in, and it is stated
         // rather than left to inference.
         brokerConnectorAvailable: false,
-        // Config-only and probe-free: how many connectors this host has an enabled,
-        // reachable-looking configuration for. Zero on a default deployment.
+        // Config-only and probe-free: how many real connectors have an enabled,
+        // reachable-looking configuration. Zero on a default deployment.
         brokerConnectorsConfigured: countConfiguredConnectors(brokers),
-        reason: "Paper accounts, proposal submissions and fills are simulation-only. Human approval and the existing paper risk/governance checks are required. The broker connector boundary and its demo-only order gates are ported, but no adapter is verified and no order can be routed; `brokerConnectorAvailable` is not probed on this unauthenticated surface — see `routable` on GET /api/v1/brokers.",
+        simulatedBrokerAvailable: brokers?.simulationStatus?.().enabled === true,
+        simulatedOrderRoutingEnabled: brokers?.simulationStatus?.().ordersEnabled === true,
+        reason: "Paper Trading and proposal submissions are simulation-only. Human approval and current governance are required; an explicitly enabled process-local MT5-shaped simulator may submit only an approved proposal after all fifteen checks, but it never makes a real connector routable. Real adapters remain unverified and live trading is disabled. The real-connector capability is not probed on this unauthenticated surface — see `routable` on GET /api/v1/brokers.",
+
       },
     };
   });

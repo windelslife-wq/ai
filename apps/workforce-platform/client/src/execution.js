@@ -1,10 +1,12 @@
 /**
- * The Execution Center console (row 2, Phase 39).
+ * The Execution Center console (row 2, Phase 39, extended with the simulation-only route).
  *
  * Legacy has one page over this module: `Execution::index` → `views/execution/index.php`,
  * drawn over `Aegis\ExecutionSupervisor`'s fifteen-step pipeline. The port is
- * `/app/execution`, drawn over the six routes `src/modules/execution/routes.js` actually
- * registers — and the difference between those two sentences is most of this screen's job.
+ * `/app/execution`: human-approved proposals can submit to Paper Trading or the separately
+ * gated, in-process simulated MT5 bridge. The full 15 checks run for that simulator route;
+ * no live connector is routed. SEMI_AUTONOMOUS and FULLY_AUTOMATED remain request-based
+ * Paper Trading modes.
  *
  * Four rules, the same ones every console in this shell follows:
  *
@@ -12,16 +14,16 @@
  *     `GET /execution/proposals` (owner-scoped), the governance strip is `GET /trading/mode`,
  *     and the module's own scope is `GET /execution/status`. Nothing on the page is computed
  *     from a figure the server did not send.
- *  2. **The port's scope is stated, not papered over.** `statusSnapshot()` answers
- *     `brokerConnectorAvailable: false` and `automatedModesAvailable: false`, and there is no
- *     `/route` route to call: the supervisor's steps 4–10 and 12–15 need a connector with
- *     verified order submission (row 13). The screen shows the whole fifteen-step pipeline
- *     and marks which steps this port performs, which one is the human decision, and which
- *     ones are the broker's — instead of pretending three pre-checks are fifteen.
+ *  2. **The port's scope is stated, not papered over.** `brokerConnectorAvailable` remains
+ *     false because no real adapter is verified. The distinct simulator route rechecks all
+ *     fifteen supervisor steps through the process-local demo bridge after human approval.
+ *     Automated modes are supported only as request-based Paper Trading submissions, never
+ *     as unattended strategy loops or simulated-broker routing.
  *  3. **Nothing is offered that the API would refuse.** Proposing needs `trading.execute`;
  *     the decision needs `trading.control` **and** a written reason of 10–1000 characters;
- *     submitting to paper needs `trading.execute` and an APPROVED proposal. A session
- *     without a permission sees the rail and the reason, never a button the server refuses.
+ *     submitting to Paper Trading or the simulator needs `trading.execute` and an APPROVED
+ *     proposal; the simulator also requires enabled process-local bridge/order flags and
+ *     current governance. A session without permission never sees an actionable control.
  *  4. **Legacy's copy is legacy's.** Every heading, note, label, empty state and flash
  *     sentence is asserted against `views/execution/index.php` and `controllers/Execution.php`
  *     with `readFileSync`. Where this port departs, the departure is named in the suite: the
@@ -145,21 +147,26 @@ export const EXECUTION_COPY = Object.freeze({
  * a legacy sentence may not quietly become the port's own claim.
  */
 export const EXECUTION_PORT_COPY = Object.freeze({
-  paperOnlyTitle: "Paper-only supervisor",
-  paperOnly: "This port persists proposals and submits them to the paper ledger. No connector can route an order and no automated mode exists: the supervisor's broker steps are row 13's work, not a switch on this page.",
+  pageLede: "Human-reviewed, owner-scoped proposals can go to Paper Trading or the explicitly enabled process-local simulated MT5 bridge. No real broker or live-money route is available.",
+  paperOnlyTitle: "Simulation-only execution",
+  paperOnly: "Paper Trading and the separately gated simulated MT5 bridge are available for approved proposals. The 15-step supervisor runs against the process-local simulator; no real provider-verified broker is routable.",
   accountLabel: "Paper account",
-  accountNote: "Legacy's page had one implicit portfolio. This port's proposals are owner- and account-scoped, so the form names the account the risk checks will measure.",
-  volumeNote: "Legacy's form had a volume field. This port's intent has none — the Risk Engine sizes the position from equity, the stop distance and the risk fraction — so the form offers the risk fraction instead.",
+  accountNote: "Proposals remain owner- and account-scoped. The paper account owns approval and audit history; simulated MT5 positions live in a separate process-local demo account.",
+  volumeNote: "The intent has no volume field — the Risk Engine sizes from simulator equity, the stop distance and risk fraction, then the broker simulator independently checks margin and risk.",
   riskLabel: "Risk fraction (0.000001–0.05, optional)",
-  decisionReason: "A decision needs a written reason of 10–1000 characters. The server stores it in the audit row.",
+  decisionReason: "A decision needs a written reason of 10–1000 characters. The server stores it in the audit trail.",
   submitPaper: "Submit to paper",
-  submitNote: "The port's step after approval is a paper submission, not legacy's broker route: it re-runs the paper Risk Engine, fills nothing outside the simulation and audits every refusal.",
-  pipelineTitle: "The fifteen steps, and where this port stops",
-  pipelineNote: "Steps 1–3 run when a proposal is created and are persisted with it. Step 11 is the separate `trading.control` decision. Step 14 records creation, decision and submission in the audit trail. The rest need a connector with verified order submission (row 13).",
-  envelopeAbsent: "This port stores no automation envelope: there is no `GET /api/v1/trading/limits`, `updateAutomationLimits` does not exist, and `POST /api/v1/execution` is not registered. The values below are legacy's own defaults, shown so the gap is legible — they are not this host's configuration.",
-  modeEnum: "`POST /api/v1/trading/mode` accepts only ANALYSIS_ONLY and PAPER_TRADING, so SEMI_AUTONOMOUS and FULLY_AUTOMATED cannot be selected here either.",
-  executionsAbsent: "The port registers no executions read and no broker route, so this panel can only ever be empty. An approved proposal's only destination is the paper ledger, shown in the Proposals table as PAPER_EXECUTED or PAPER_PENDING.",
-  statusVocabulary: "Legacy's proposal vocabulary was PENDING_APPROVAL · APPROVED · REJECTED · READY_TO_ROUTE · EXECUTED · FAILED. This port replaces the routing half with paper outcomes: PAPER_SUBMITTING · PAPER_EXECUTED · PAPER_PENDING · PAPER_REJECTED · PAPER_FAILED, and adds DECLINED and EXPIRED.",
+  submitSimulator: "Submit to simulated MT5",
+  submitNote: "Paper submission re-runs the Paper Trading Risk Engine. Simulator submission is a different route: it requires an approved proposal, PAPER_TRADING + HUMAN_APPROVAL, enabled simulator/order flags, current quote/session, duplicate, margin and risk checks. Both are simulation-only.",
+  simulatorNote: "Simulator tickets and positions are process-local and reset when the application restarts. This is not MT5 terminal or live-broker verification.",
+  pipelineTitle: "The complete fifteen-step supervisor (simulator only)",
+  pipelineNote: "The simulator route rechecks steps 1–10 against current governance and demo-broker state, verifies the persisted human decision at step 11, then places, confirms, audits and snapshots the simulated order in steps 12–15. No real broker connector is used.",
+  envelopeTitle: "Persisted automation envelope",
+  envelopeNote: "Automation limits are stored in trading governance and can be reviewed or updated here. SEMI_AUTONOMOUS and FULLY_AUTOMATED are request-based Paper Trading submissions, not unattended strategy loops and not simulator routing.",
+  modeEnum: "The execution mode is HUMAN_APPROVAL by default. SEMI_AUTONOMOUS and FULLY_AUTOMATED require PAPER_TRADING, released kill switch, configured limits and approved symbols/strategy; each still needs an explicit request and remains simulation-only.",
+  executionsAbsent: "This port has no separate broker-executions feed. Successful simulator orders appear on the proposal with a SIMULATOR_EXECUTED or SIMULATOR_PENDING status and a confirmed simulated ticket; real broker executions remain unavailable.",
+  realBrokerAbsent: "Real broker connectors remain disabled/unverified by default. Simulator order submission never makes a real connector routable; live trading remains disabled.",
+  statusVocabulary: "Alongside proposal and Paper Trading states, the simulator path records SIMULATOR_SUBMITTING · SIMULATOR_EXECUTED · SIMULATOR_PENDING · SIMULATOR_FAILED. Its ticket is stored in the simulation-only result, not in the Paper Trading order column.",
   decisionOutcome: "The decision is recorded under `trading.control` and audited as `execution.proposal.approved` or `execution.proposal.declined`.",
   expiredNotice: "A PENDING_APPROVAL proposal older than the expiry window is expired by the read that finds it — the port's own sweep, not a hidden write.",
 });
@@ -173,7 +180,8 @@ export const EXECUTION_PORT_COPY = Object.freeze({
  *  - `port` — the paper-only supervisor runs it (`kill-switch`, `trading-mode`, `strategy`)
  *    or records it (`audit-log`).
  *  - `decision` — the separate `trading.control` call (`human-approval`).
- *  - `broker` — needs a connector with verified order submission; row 13.
+ *  - `simulator` — runs against the explicitly enabled, process-local demo bridge; it is not
+ *    a real connector or terminal verification.
  *
  * The suite compares the labels and order against the PHP docblock, so a step cannot be
  * added, dropped or renamed on the screen without the legacy file saying so.
@@ -182,18 +190,18 @@ export const EXECUTION_PIPELINE = Object.freeze([
   Object.freeze({ step: 1, key: "kill-switch", label: "kill switch", stage: "port" }),
   Object.freeze({ step: 2, key: "trading-mode", label: "trading mode", stage: "port" }),
   Object.freeze({ step: 3, key: "strategy", label: "strategy", stage: "port" }),
-  Object.freeze({ step: 4, key: "broker-connection", label: "broker connection", stage: "broker" }),
-  Object.freeze({ step: 5, key: "market-open", label: "market open", stage: "broker" }),
-  Object.freeze({ step: 6, key: "data-freshness", label: "data freshness", stage: "broker" }),
-  Object.freeze({ step: 7, key: "duplicate-orders", label: "duplicate orders", stage: "broker" }),
-  Object.freeze({ step: 8, key: "symbol-permissions", label: "symbol permissions", stage: "broker" }),
-  Object.freeze({ step: 9, key: "margin", label: "margin", stage: "broker" }),
-  Object.freeze({ step: 10, key: "risk-engine", label: "risk engine (+automation limits)", stage: "broker" }),
+  Object.freeze({ step: 4, key: "broker-connection", label: "broker connection", stage: "simulator" }),
+  Object.freeze({ step: 5, key: "market-open", label: "market open", stage: "simulator" }),
+  Object.freeze({ step: 6, key: "data-freshness", label: "data freshness", stage: "simulator" }),
+  Object.freeze({ step: 7, key: "duplicate-orders", label: "duplicate orders", stage: "simulator" }),
+  Object.freeze({ step: 8, key: "symbol-permissions", label: "symbol permissions", stage: "simulator" }),
+  Object.freeze({ step: 9, key: "margin", label: "margin", stage: "simulator" }),
+  Object.freeze({ step: 10, key: "risk-engine", label: "risk engine (+automation limits)", stage: "simulator" }),
   Object.freeze({ step: 11, key: "human-approval", label: "human approval", stage: "decision" }),
-  Object.freeze({ step: 12, key: "place-order", label: "place order", stage: "broker" }),
-  Object.freeze({ step: 13, key: "confirm-execution", label: "confirm execution", stage: "broker" }),
+  Object.freeze({ step: 12, key: "place-order", label: "place order", stage: "simulator" }),
+  Object.freeze({ step: 13, key: "confirm-execution", label: "confirm execution", stage: "simulator" }),
   Object.freeze({ step: 14, key: "audit-log", label: "audit log", stage: "port" }),
-  Object.freeze({ step: 15, key: "portfolio-update", label: "portfolio update", stage: "broker" }),
+  Object.freeze({ step: 15, key: "portfolio-update", label: "portfolio update", stage: "simulator" }),
 ]);
 
 /** The checks `propose()` actually writes into a proposal — steps 1–3, in its own order. */
@@ -203,7 +211,7 @@ export const PORT_CHECKS = Object.freeze(["kill-switch", "trading-mode", "strate
 export const PIPELINE_STAGES = Object.freeze({
   port: Object.freeze({ label: "this port", tone: "badge-green", note: "runs on create or records the transition" }),
   decision: Object.freeze({ label: "human decision", tone: "badge-amber", note: "separate `trading.control` call" }),
-  broker: Object.freeze({ label: "broker-bound", tone: "badge-gray", note: "row 13: needs verified order submission" }),
+  simulator: Object.freeze({ label: "process-local simulator", tone: "badge-sky", note: "simulation-only; no real provider or terminal" }),
 });
 
 /* ---------------------------------------------------------------------------- the vocabulary */
@@ -215,13 +223,14 @@ export const LEGACY_PROPOSAL_STATUSES = Object.freeze([
 
 /**
  * The statuses this port can persist — `PROPOSALS_QUERY`'s enum in
- * `src/modules/execution/contracts.js`, asserted against it in the suite. `READY_TO_ROUTE`,
- * `EXECUTED` and `FAILED` are absent because there is no broker route to reach them;
- * `DECLINED` and `EXPIRED` are this port's own words for a refused and a lapsed decision.
+ * `src/modules/execution/contracts.js`, asserted against it in the suite. Legacy's generic
+ * `READY_TO_ROUTE`/`EXECUTED`/`FAILED` are not used; paper and simulator submissions each
+ * have explicit, distinct outcome states.
  */
 export const PORT_PROPOSAL_STATUSES = Object.freeze([
   "REJECTED", "PENDING_APPROVAL", "APPROVED", "DECLINED", "EXPIRED",
   "PAPER_SUBMITTING", "PAPER_EXECUTED", "PAPER_PENDING", "PAPER_REJECTED", "PAPER_FAILED",
+  "SIMULATOR_SUBMITTING", "SIMULATOR_EXECUTED", "SIMULATOR_PENDING", "SIMULATOR_FAILED",
 ]);
 
 /** The badge tones legacy's view chose, extended over this port's vocabulary. */
@@ -231,13 +240,17 @@ const STATUS_TONES = Object.freeze({
   READY_TO_ROUTE: "badge-sky",
   PAPER_SUBMITTING: "badge-sky",
   PAPER_PENDING: "badge-sky",
+  SIMULATOR_SUBMITTING: "badge-sky",
+  SIMULATOR_PENDING: "badge-sky",
   EXECUTED: "badge-green",
   PAPER_EXECUTED: "badge-green",
+  SIMULATOR_EXECUTED: "badge-green",
   REJECTED: "badge-red",
   DECLINED: "badge-red",
   FAILED: "badge-red",
   PAPER_REJECTED: "badge-red",
   PAPER_FAILED: "badge-red",
+  SIMULATOR_FAILED: "badge-red",
   EXPIRED: "badge-gray",
 });
 
@@ -453,6 +466,19 @@ export function paperSubmitOutcome(result) {
   return { tone: "ok", message: `${proposal?.status ?? "SUBMITTED"} — no paper order was created (proposal ${id}).` };
 }
 
+/** The separately gated, process-local simulator outcome — never described as a real fill. */
+export function simulatorSubmitOutcome(result) {
+  const proposal = result?.proposal ?? null;
+  const execution = result?.execution ?? null;
+  const id = proposal?.id ?? EM_DASH;
+  const ticket = execution?.ticket ?? EM_DASH;
+  if (proposal && execution?.confirmed === true && execution?.simulationOnly === true) {
+    const verb = proposal.status === "SIMULATOR_PENDING" ? "pending order accepted" : "simulated order confirmed";
+    return { tone: "ok", message: `${proposal.status} — ${verb}, ticket #${ticket} (process-local simulator; proposal ${id}).` };
+  }
+  return { tone: "error", message: `${proposal?.status ?? "SIMULATOR_SUBMISSION_FAILED"} — no confirmed simulated order (proposal ${id}).` };
+}
+
 /* --------------------------------------------------------------------------- the proposals */
 
 /**
@@ -471,7 +497,9 @@ export function proposalRows(payload) {
 export function proposalRow(proposal) {
   if (!proposal || typeof proposal !== "object") return null;
   const intent = proposal.intent && typeof proposal.intent === "object" ? proposal.intent : {};
-  const checks = (Array.isArray(proposal.checks) ? proposal.checks : []).map((check, index) => ({
+  const resultChecks = Array.isArray(proposal.result?.checks) && proposal.result.checks.length ? proposal.result.checks : null;
+  const rawChecks = resultChecks ?? (Array.isArray(proposal.checks) ? proposal.checks : []);
+  const checks = rawChecks.map((check, index) => ({
     key: `${index}:${check?.check ?? "check"}`,
     step: check?.step ?? index + 1,
     check: String(check?.check ?? "check"),
@@ -480,6 +508,8 @@ export function proposalRow(proposal) {
     detail: String(check?.detail ?? ""),
   }));
   const status = String(proposal.status ?? "UNKNOWN");
+  const broker = proposal.result?.broker === "simulated-mt5" ? "simulated MT5"
+    : proposal.paperOrderId === null || proposal.paperOrderId === undefined ? "none" : "paper";
   const risk = finite(intent.riskPct);
   const strategy = intent.strategyId
     ? `${intent.strategyId}${intent.strategyVersion ? `@${intent.strategyVersion}` : ""}`
@@ -500,19 +530,20 @@ export function proposalRow(proposal) {
     intentText: [String(intent.side ?? ""), String(intent.type ?? "")].filter(Boolean).join(" ")
       + (isFiniteNumber(risk) ? ` · risk ${percentText(risk)}` : "")
       + (strategy ? ` · ${strategy}` : ""),
-    // Legacy's Broker column named the connector the proposal would use. In this port that
-    // is `none` until a paper submission exists and `paper` afterwards — never a broker name
-    // the platform has not reached.
-    broker: proposal.paperOrderId === null || proposal.paperOrderId === undefined ? "none" : "paper",
+    // The explicit simulator path stores its connector label in the result; Paper Trading
+    // remains separately identified by its own order id.
+    broker,
     status,
     tone: statusTone(status),
     decisionReason: proposal.decisionReason ?? null,
     decidedAt: proposal.decidedAt ?? null,
     paperOrderId: proposal.paperOrderId ?? null,
+    simulatorTicket: proposal.result?.broker === "simulated-mt5" ? proposal.result.ticket ?? null : null,
     checks,
     checkCount: checks.length,
     canDecide: status === "PENDING_APPROVAL",
     canSubmitPaper: status === "APPROVED",
+    canSubmitSimulator: status === "APPROVED",
   };
 }
 
@@ -526,9 +557,9 @@ export function passedChecks(row) {
 
 /**
  * `ExecutionSupervisor::automationLimits()`'s defaults, exactly as the PHP merges them under
- * `$state['automationLimits']`. This port stores no such state — there is no route that
- * reads or writes it — so the values are rendered as **legacy defaults**, never as the
- * host's configuration. The suite asserts them against the PHP literal.
+ * `$state['automationLimits']`. Kept for the parity test; the UI itself displays the values
+ * returned by the persisted Node `/execution/automation` endpoint. The suite asserts these
+ * defaults against the PHP literal.
  */
 export const LEGACY_AUTOMATION_LIMITS = Object.freeze({
   maxTradeNotionalUsd: 500,
@@ -542,11 +573,12 @@ export const LEGACY_AUTOMATION_LIMITS = Object.freeze({
 export function automationRows(limits = LEGACY_AUTOMATION_LIMITS) {
   const source = limits && typeof limits === "object" ? limits : {};
   const symbols = Array.isArray(source.approvedSymbols) ? source.approvedSymbols : [];
+  const note = source.updatedAt ? "persisted" : "default (not explicitly configured)";
   return [
-    { key: "maxTradeNotionalUsd", label: EXECUTION_COPY.envelopeNotional, legacy: moneyText(source.maxTradeNotionalUsd), note: "legacy default" },
-    { key: "maxDailyTrades", label: EXECUTION_COPY.envelopeDaily, legacy: countText(source.maxDailyTrades), note: "legacy default" },
-    { key: "maxRiskPerTradePct", label: EXECUTION_COPY.envelopeRisk, legacy: percentText(source.maxRiskPerTradePct), note: "legacy default" },
-    { key: "approvedSymbols", label: EXECUTION_COPY.envelopeSymbols, legacy: symbols.length ? symbols.join(", ") : EM_DASH, note: "legacy default — empty, so legacy permitted no automated symbol" },
+    { key: "maxTradeNotionalUsd", label: EXECUTION_COPY.envelopeNotional, value: moneyText(source.maxTradeNotionalUsd), note },
+    { key: "maxDailyTrades", label: EXECUTION_COPY.envelopeDaily, value: countText(source.maxDailyTrades), note },
+    { key: "maxRiskPerTradePct", label: EXECUTION_COPY.envelopeRisk, value: percentText(source.maxRiskPerTradePct), note },
+    { key: "approvedSymbols", label: EXECUTION_COPY.envelopeSymbols, value: symbols.length ? symbols.join(", ") : EM_DASH, note },
   ];
 }
 
@@ -564,10 +596,14 @@ export function executionStatusFacts(status) {
     paperSubmissionAvailable: status.paperSubmissionAvailable === true,
     brokerConnectorAvailable: status.brokerConnectorAvailable === true,
     brokerConnectorsConfigured: Number(status.brokerConnectorsConfigured ?? 0) || 0,
+    simulatedBrokerAvailable: status.simulatedBrokerAvailable === true,
+    simulatedOrderRoutingEnabled: status.simulatedOrderRoutingEnabled === true,
     automatedModesAvailable: status.automatedModesAvailable === true,
     approvalRequired: status.approvalRequired === true,
     expiryMinutes: Number(status.proposalExpiryMinutes ?? 0) || null,
     scope: status.scope ?? null,
+    automationScope: status.automationScope ?? null,
+    simulatorSubmissionScope: status.simulatorSubmissionScope ?? null,
   };
 }
 
@@ -577,6 +613,9 @@ export function governanceFacts(state) {
   const killSwitch = state.killSwitch && typeof state.killSwitch === "object" ? state.killSwitch : {};
   return {
     mode: state.tradingMode ?? "UNKNOWN",
+    tradingMode: state.tradingMode ?? "UNKNOWN",
+    executionMode: state.executionMode ?? "HUMAN_APPROVAL",
+    automationLimits: state.automationLimits && typeof state.automationLimits === "object" ? state.automationLimits : null,
     killSwitch: killSwitch.active === true,
     synthetic: state.allowSyntheticPaperData === true,
     simulated: state.simulationOnly === true,
@@ -593,8 +632,9 @@ export function banners(state, status) {
   const facts = executionStatusFacts(status);
   return {
     killSwitch: governance?.killSwitch === true,
-    modeBlocked: governance ? !["HUMAN_APPROVAL", "SEMI_AUTONOMOUS", "FULLY_AUTOMATED"].includes(governance.mode) : false,
+    modeBlocked: governance ? governance.tradingMode !== "PAPER_TRADING" : false,
     noBroker: facts ? !facts.brokerConnectorAvailable : true,
+    noSimulator: facts ? !facts.simulatedOrderRoutingEnabled : true,
     noAutomation: facts ? !facts.automatedModesAvailable : true,
   };
 }
@@ -612,22 +652,26 @@ export function banners(state, status) {
  */
 export const EXECUTION_READS = Object.freeze([
   { key: "status", method: "GET", path: "/api/v1/execution/status", permission: EXECUTION_PERMISSION, section: "Module scope" },
+  { key: "automation", method: "GET", path: "/api/v1/execution/automation", permission: EXECUTION_PERMISSION, section: "Automation envelope" },
   { key: "proposals", method: "GET", path: "/api/v1/execution/proposals", permission: EXECUTION_PERMISSION, section: "Proposals" },
   { key: "tradingState", method: "GET", path: "/api/v1/trading/mode", permission: EXECUTION_PERMISSION, section: "Governance strip" },
   { key: "accounts", method: "GET", path: "/api/v1/paper/accounts", permission: EXECUTION_PERMISSION, section: "Propose form" },
   { key: "strategies", method: "GET", path: "/api/v1/strategies", permission: null, section: "Propose form" },
 ]);
 
-/** The three writes the screen offers, each with its gate and legacy's own entry point. */
+/** The registered writes the screen offers, each with its actual permission gate. */
 export const EXECUTION_WRITES = Object.freeze([
   Object.freeze({ key: "propose", method: "POST", path: "/api/v1/execution/proposals", permission: EXECUTION_EXECUTE, label: "Run pipeline & create proposal", legacy: "Execution::propose → ExecutionSupervisor::propose()" }),
   Object.freeze({ key: "decide", method: "POST", path: "/api/v1/execution/proposals/:proposalId/decision", permission: EXECUTION_CONTROL, label: "approve / reject", legacy: "Execution::decide → ExecutionSupervisor::decide()" }),
-  Object.freeze({ key: "paperSubmit", method: "POST", path: "/api/v1/execution/proposals/:proposalId/paper-submit", permission: EXECUTION_EXECUTE, label: "Submit to paper", legacy: "Execution::route — the port's step 12 is the paper ledger" }),
+  Object.freeze({ key: "paperSubmit", method: "POST", path: "/api/v1/execution/proposals/:proposalId/paper-submit", permission: EXECUTION_EXECUTE, label: "Submit to paper", legacy: "Paper Trading simulation path" }),
+  Object.freeze({ key: "simulatorSubmit", method: "POST", path: "/api/v1/execution/proposals/:proposalId/simulator-submit", permission: EXECUTION_EXECUTE, label: "Submit to simulated MT5", legacy: "Distinct process-local demo route; never a real broker" }),
+  Object.freeze({ key: "automationLimits", method: "PATCH", path: "/api/v1/execution/automation-limits", permission: EXECUTION_CONTROL, label: "Update automation limits", legacy: "platform->updateAutomationLimits()" }),
+  Object.freeze({ key: "executionMode", method: "POST", path: "/api/v1/execution/mode", permission: EXECUTION_CONTROL, label: "Set execution mode", legacy: "SEMI_AUTONOMOUS / FULLY_AUTOMATED governance" }),
+  Object.freeze({ key: "automatedPaper", method: "POST", path: "/api/v1/execution/automated-paper", permission: EXECUTION_EXECUTE, label: "Run governed Paper Trading request", legacy: "ExecutionSupervisor::executeAutomated()" }),
 ]);
 
-/** Legacy's automation writes, absent here and named so the gap is checkable. */
+/** Boundaries that remain intentionally unported after the simulation-only path. */
 export const LEGACY_WRITES_NOT_PORTED = Object.freeze([
-  Object.freeze({ key: "limits", legacy: "POST /execution/limits → platform->updateAutomationLimits()", why: "no automation envelope is stored in this port" }),
-  Object.freeze({ key: "execute", legacy: "POST /execution/execute → ExecutionSupervisor::executeAutomated()", why: "no automated mode and no connector to route through" }),
-  Object.freeze({ key: "route", legacy: "POST /execution/:id/route → ExecutionSupervisor::route() (steps 12–15)", why: "broker-bound: row 13" }),
+  Object.freeze({ key: "liveRoute", legacy: "POST /execution/:id/route → real TradingConnector", why: "live/provider-backed routing remains disabled and unverified; only the separate in-process simulation route exists" }),
+  Object.freeze({ key: "unattendedLoop", legacy: "unattended strategy evaluation loop", why: "automated modes are request-based Paper Trading operations, not a background strategy loop" }),
 ]);

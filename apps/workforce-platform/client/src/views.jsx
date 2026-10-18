@@ -110,7 +110,7 @@ import {
   EXECUTION_PIPELINE, EXECUTION_PORT_COPY, EXECUTION_READS, EXECUTION_WINDOWS, EXECUTION_WRITES,
   LEGACY_AUTOMATION_LIMITS, LEGACY_PRICE_FALLBACKS, LEGACY_WRITES_NOT_PORTED, PIPELINE_STAGES, PORT_CHECKS,
   automationRows, banners as executionBanners, buildDecisionBody, buildProposalBody, decisionOutcome, executionStatusFacts,
-  governanceFacts as executionGovernanceFacts, holdsExecutionPermission, paperSubmitOutcome, passedChecks,
+  governanceFacts as executionGovernanceFacts, holdsExecutionPermission, paperSubmitOutcome, simulatorSubmitOutcome, passedChecks,
   proposalFormState, proposalOutcome, proposalRows, validateDecision, validateProposalForm,
   statusTone as executionStatusTone,
 } from "./execution.js";
@@ -120,8 +120,8 @@ import {
 import {
   BROKERS_COPY, BROKERS_PERMISSION, BROKERS_PORT_COPY, BROKERS_READS, CONNECTOR_STATES,
   LEGACY_ROUTES_NOT_PORTED,
-  connectorRows, flagText, governanceFacts as brokersGovernanceFacts,
-  plannedRows, routingBanner, simulationState, stateSummary,
+  accountRows as brokerAccountRows, connectorRows, flagText, governanceFacts as brokersGovernanceFacts,
+  plannedRows, quoteRows as brokerQuoteRows, routingBanner, simulationState, stateSummary,
 } from "./brokers.js";
 // Row 18 (Phase 41): the journal console. Its formatters are named for the module
 // (`journalNumber`, `journalPercent`, ...) rather than aliased at the import, because three
@@ -1676,19 +1676,14 @@ export function PaperConsoleView({ permissions }) {
  * The Execution Center (row 2, Phase 39) — the port of `Execution::index` →
  * `views/execution/index.php`.
  *
- * Legacy drew three panels over a fifteen-step supervisor: propose, decide/route, and the
- * broker executions that routing produced. This port has the first two and **cannot have
- * the third**: `GET /execution/status` reports `brokerConnectorAvailable: false` and
- * `automatedModesAvailable: false`, and `src/modules/execution/routes.js` registers no
- * route, no automated entry and no automation envelope. The screen shows the whole pipeline
- * and marks where the port stops, rather than rendering four checks as fifteen.
+ * Human-reviewed proposals can be submitted to Paper Trading or through the separate
+ * 15-step, in-process simulator route. The real connector boundary remains unroutable and
+ * no live order is possible. Persisted automation modes are request-based Paper Trading
+ * operations only; the screen does not pretend they are unattended strategy loops.
  *
- * Three departures are stated on the page, each because the API is what it is:
- *  - the form names a **paper account** (the port is owner- and account-scoped; legacy had
- *    one implicit portfolio) and offers a **risk fraction** instead of a volume (the Risk
- *    Engine sizes the position; the intent has no volume field);
- *  - a decision needs a **written reason** of 10–1000 characters (`DECISION_BODY`);
- *  - the step after approval is a **paper submission**, not legacy's broker route.
+ * The form names the owner-scoped Paper account, sizes risk rather than accepting volume,
+ * records a separate written approval reason, and presents Paper Trading and simulated MT5
+ * as distinct destinations with different audit/status outcomes.
  */
 export function ExecutionView({ permissions }) {
   const canControl = holdsExecutionPermission(permissions, EXECUTION_CONTROL);
@@ -1698,8 +1693,13 @@ export function ExecutionView({ permissions }) {
   const [errors, setErrors] = useState({});
   const [decision, setDecision] = useState(null);
   const [decisionError, setDecisionError] = useState("");
+  const [automationForm, setAutomationForm] = useState(null);
+  const [modeForm, setModeForm] = useState(null);
+  const [automatedForm, setAutomatedForm] = useState(null);
+  const [automationError, setAutomationError] = useState("");
 
   const status = useResource(() => endpoints.executionStatus(), []);
+  const automation = useResource(() => endpoints.executionAutomation(), []);
   const state = useResource(() => endpoints.tradingMode(), []);
   const proposals = useResource(() => endpoints.executionProposals(`?limit=${EXECUTION_WINDOWS.proposals}`), []);
   const accounts = useResource(() => endpoints.paperAccounts("?limit=50"), []);
@@ -1719,6 +1719,23 @@ export function ExecutionView({ permissions }) {
   const approvedStrategies = (Array.isArray(strategies.data?.strategies) ? strategies.data.strategies : [])
     .filter((entry) => String(entry?.latest?.lifecycle) === "APPROVED")
     .map((entry) => ({ id: entry.strategyId, version: entry.latest.version }));
+  const automationLimits = automation.data?.automationLimits ?? governance?.automationLimits ?? {};
+  const automationValues = automationForm ?? {
+    maxDailyTrades: String(automationLimits.maxDailyTrades ?? ""),
+    maxTradeNotionalUsd: String(automationLimits.maxTradeNotionalUsd ?? ""),
+    maxRiskPerTradePct: String(Number(automationLimits.maxRiskPerTradePct ?? 0) * 100 || ""),
+    approvedSymbols: Array.isArray(automationLimits.approvedSymbols) ? automationLimits.approvedSymbols.join(", ") : "",
+  };
+  const automatedValues = automatedForm ?? {
+    ...proposalFormState(accountRows),
+    strategyId: approvedStrategies[0]?.id ?? "",
+    strategyVersion: approvedStrategies[0]?.version ?? "",
+  };
+  const simulatorSubmissionReady = facts?.simulatedBrokerAvailable === true
+    && facts?.simulatedOrderRoutingEnabled === true
+    && governance?.tradingMode === "PAPER_TRADING"
+    && governance?.executionMode === "HUMAN_APPROVAL"
+    && governance?.killSwitch === false;
 
   async function act(label, work, refresh = []) {
     setAction({ status: "busy", tone: "ok", message: `${label}…` });
@@ -1778,13 +1795,85 @@ export function ExecutionView({ permissions }) {
     void act("Paper submission refused", async () => paperSubmitOutcome(await endpoints.submitExecutionPaper(row.id)), [proposals]);
   }
 
+  function submitSimulator(row) {
+    void act("Simulator submission refused", async () => simulatorSubmitOutcome(await endpoints.submitExecutionSimulator(row.id)), [proposals, status, state]);
+  }
+
+  function updateAutomationField(key, value) {
+    setAutomationForm({ ...automationValues, [key]: value });
+    setAutomationError("");
+  }
+
+  function saveAutomationLimits(event) {
+    event.preventDefault();
+    const maxDailyTrades = Number(automationValues.maxDailyTrades);
+    const maxTradeNotionalUsd = Number(automationValues.maxTradeNotionalUsd);
+    const riskPercent = Number(automationValues.maxRiskPerTradePct);
+    const approvedSymbols = String(automationValues.approvedSymbols ?? "").split(",").map((value) => value.trim().toUpperCase()).filter(Boolean);
+    if (!Number.isSafeInteger(maxDailyTrades) || maxDailyTrades < 1 || maxDailyTrades > 100
+      || !Number.isFinite(maxTradeNotionalUsd) || maxTradeNotionalUsd < 1 || maxTradeNotionalUsd > 100_000_000
+      || !Number.isFinite(riskPercent) || riskPercent < 0.01 || riskPercent > 5
+      || approvedSymbols.length > 100 || approvedSymbols.some((value) => !/^[A-Z0-9._-]{2,24}$/.test(value))) {
+      setAutomationError("Set daily trades to 1–100, notional to $1–$100,000,000, risk to 0.01%–5%, and at most 100 valid comma-separated symbols.");
+      return;
+    }
+    void act("Automation limits were not saved", async () => {
+      const saved = await endpoints.updateExecutionAutomationLimits({
+        maxDailyTrades,
+        maxTradeNotionalUsd,
+        maxRiskPerTradePct: riskPercent / 100,
+        approvedSymbols: [...new Set(approvedSymbols)],
+      });
+      setAutomationForm(null);
+      setAutomationError("");
+      return { tone: "ok", message: `Automation limits saved at ${saved.updatedAt}. Request-based Paper Trading only.` };
+    }, [automation, state]);
+  }
+
+  function setMode(event) {
+    event.preventDefault();
+    const mode = modeForm ?? automation.data?.executionMode ?? governance?.executionMode ?? "HUMAN_APPROVAL";
+    void act("Execution mode was not changed", async () => {
+      const result = await endpoints.setExecutionMode({ mode });
+      setModeForm(null);
+      return { tone: "ok", message: `Execution mode is now ${result.executionMode}. ${EXECUTION_PORT_COPY.envelopeNote}` };
+    }, [automation, state, status]);
+  }
+
+  function updateAutomatedField(key, value) {
+    setAutomatedForm({ ...automatedValues, [key]: value });
+    setErrors((current) => ({ ...current, [`automation.${key}`]: undefined }));
+  }
+
+  function submitAutomated(event) {
+    event.preventDefault();
+    const check = validateProposalForm(automatedValues);
+    const isAutomatedMode = ["SEMI_AUTONOMOUS", "FULLY_AUTOMATED"].includes(governance?.executionMode);
+    const nextErrors = { ...check.errors };
+    if (!isAutomatedMode) nextErrors.automationMode = "Choose a persisted automated mode before submitting a request.";
+    if (!automatedValues.strategyId || !automatedValues.strategyVersion) nextErrors.strategyId = "Choose an exact APPROVED strategy version.";
+    setErrors(nextErrors);
+    if (!check.ok || !isAutomatedMode || !automatedValues.strategyId || !automatedValues.strategyVersion) {
+      setAction({ status: "error", tone: "error", message: "The governed Paper Trading request needs attention." });
+      return;
+    }
+    void act("Automated Paper request refused", async () => {
+      const result = await endpoints.executeAutomatedPaper(buildProposalBody(automatedValues));
+      const paperOrder = result.paper?.order;
+      return {
+        tone: result.status === "REJECTED" ? "error" : "ok",
+        message: `${result.status} — ${paperOrder ? `Paper Trading order #${paperOrder.id} (${paperOrder.status})` : "no order was created"}; request-based simulation only, live trading disabled.`,
+      };
+    }, [proposals, state, automation]);
+  }
+
   return (
     <div className="view execution-view">
       <header className="view-header">
         <div>
           <div className="overline">{EXECUTION_COPY.eyebrow} <span className="overline-line" /></div>
           <h1>{EXECUTION_COPY.title}.</h1>
-          <p className="view-lede">{EXECUTION_COPY.lede}</p>
+          <p className="view-lede">{EXECUTION_PORT_COPY.pageLede}</p>
         </div>
       </header>
 
@@ -1797,13 +1886,14 @@ export function ExecutionView({ permissions }) {
       ) : null}
       {flags.modeBlocked && governance ? (
         <Notice tone="warn">
-          <b>{EXECUTION_COPY.modeBlockedPrefix}{governance.mode}{EXECUTION_COPY.modeBlockedSuffix}</b>{" "}
-          {EXECUTION_PORT_COPY.modeEnum}
+          <b>Trading mode is {governance.tradingMode}; approved submissions require PAPER_TRADING.</b>{" "}
+          Change trading mode through the governed Paper Trading controls before submitting an approved proposal.
         </Notice>
       ) : null}
-      {flags.noBroker || flags.noAutomation ? (
+      {flags.noBroker ? (
         <Notice tone="warn"><b>{EXECUTION_PORT_COPY.paperOnlyTitle}</b> — {EXECUTION_PORT_COPY.paperOnly}</Notice>
       ) : null}
+      {flags.noSimulator ? <Notice tone="info">Simulator order submission is disabled by configuration. Set both simulator flags at process start to enable approved-proposal simulation.</Notice> : null}
 
       <section className="panel exec-governance">
         <h2>Module scope</h2>
@@ -1812,24 +1902,29 @@ export function ExecutionView({ permissions }) {
             <>
               <div className="exec-facts">
                 <span>Paper submission <b className={facts.paperSubmissionAvailable ? "up" : "down"}>{facts.paperSubmissionAvailable ? "available" : "unavailable"}</b></span>
-                <span>Broker connector <b className="down">not routable</b></span>
-                <span>Configured connectors <b>{facts.brokerConnectorsConfigured}</b></span>
-                <span>Automated modes <b className="down">unavailable</b></span>
+                <span>Real broker connector <b className={facts.brokerConnectorAvailable ? "up" : "down"}>{facts.brokerConnectorAvailable ? "eligible" : "not routable"}</b></span>
+                <span>Configured real connectors <b>{facts.brokerConnectorsConfigured}</b></span>
+                <span>Simulator reads <b className={facts.simulatedBrokerAvailable ? "up" : "down"}>{facts.simulatedBrokerAvailable ? "enabled" : "disabled"}</b></span>
+                <span>Simulator orders <b className={facts.simulatedOrderRoutingEnabled ? "up" : "down"}>{facts.simulatedOrderRoutingEnabled ? "enabled" : "disabled"}</b></span>
+                <span>Automated modes <b className={facts.automatedModesAvailable ? "up" : "down"}>{facts.automatedModesAvailable ? "request-based Paper Trading" : "unavailable"}</b></span>
                 <span>Approval required <b>{facts.approvalRequired ? "yes" : "no"}</b></span>
                 <span>Proposal expiry <b>{facts.expiryMinutes ? `${facts.expiryMinutes} min` : "—"}</b></span>
               </div>
               <p className="muted">
                 {facts.scope ? <>The API describes this module as <code>{facts.scope}</code>. </> : null}
-                Live trading is <b>disabled</b>; <code>brokerConnectorAvailable</code> is false and{" "}
-                <code>automatedModesAvailable</code> is false. The broker connector count is configuration-only — it says
-                the environment variables were read, not that a bridge answered.
+                Live trading is <b>disabled</b>. The simulator is a process-local demo bridge, separate from real connectors;
+                its status flags are configuration facts, while each order still rechecks bridge readiness and governance.
+                Automation is request-based Paper Trading only, never an unattended strategy loop.
               </p>
+              <p className="muted">{EXECUTION_PORT_COPY.simulatorNote}</p>
+              <p className="muted">{EXECUTION_PORT_COPY.realBrokerAbsent}</p>
             </>
           ) : null}
         </StateBox>
         {governance ? (
           <div className="exec-facts">
-            <span>Mode <b>{governance.mode}</b></span>
+            <span>Trading mode <b>{governance.tradingMode}</b></span>
+            <span>Execution mode <b>{governance.executionMode}</b></span>
             <span>Kill switch <b className={governance.killSwitch ? "down" : "up"}>{governance.killSwitch ? "ACTIVE" : "released"}</b></span>
             <span>Synthetic paper prices <b>{governance.synthetic ? "ON" : "OFF"}</b></span>
           </div>
@@ -1928,8 +2023,8 @@ export function ExecutionView({ permissions }) {
 
           <section className="panel">
             <h2>{EXECUTION_COPY.executionsTitle}</h2>
-            <p className="muted">{EXECUTION_COPY.noExecutions}</p>
             <p className="muted">{EXECUTION_PORT_COPY.executionsAbsent}</p>
+            <p className="muted">{EXECUTION_PORT_COPY.realBrokerAbsent}</p>
           </section>
         </div>
 
@@ -1958,18 +2053,112 @@ export function ExecutionView({ permissions }) {
           </section>
 
           <section className="panel">
-            <h2>{EXECUTION_COPY.envelopeTitle}</h2>
-            <p className="muted">{EXECUTION_PORT_COPY.envelopeAbsent}</p>
-            <div className="status-list">
-              {automationRows().map((row) => (
-                <div className="status-row" key={row.key}>
-                  <span>{row.label} <small className="muted">— {row.note}</small></span>
-                  <b>{row.legacy}</b>
-                </div>
-              ))}
-            </div>
-            <p className="muted">{EXECUTION_PORT_COPY.modeEnum}</p>
+            <h2>{EXECUTION_PORT_COPY.envelopeTitle}</h2>
+            <p className="muted">{EXECUTION_PORT_COPY.envelopeNote}</p>
+            <StateBox status={automation.status} error={automation.error} retry={automation.retry} label="Loading persisted automation limits">
+              <div className="status-list">
+                {automationRows(automationLimits).map((row) => (
+                  <div className="status-row" key={row.key}>
+                    <span>{row.label} <small className="muted">— {row.note}</small></span>
+                    <b>{row.value}</b>
+                  </div>
+                ))}
+              </div>
+              {canControl ? (
+                <form className="exec-form" onSubmit={saveAutomationLimits}>
+                  <div className="exec-form-grid">
+                    <Field label={EXECUTION_COPY.envelopeDaily} htmlFor="exec-limit-daily">
+                      <input id="exec-limit-daily" type="number" min="1" max="100" step="1" value={automationValues.maxDailyTrades}
+                        disabled={busy} onChange={(event) => updateAutomationField("maxDailyTrades", event.target.value)} />
+                    </Field>
+                    <Field label={EXECUTION_COPY.envelopeNotional} htmlFor="exec-limit-notional">
+                      <input id="exec-limit-notional" type="number" min="1" max="100000000" step="1" value={automationValues.maxTradeNotionalUsd}
+                        disabled={busy} onChange={(event) => updateAutomationField("maxTradeNotionalUsd", event.target.value)} />
+                    </Field>
+                    <Field label={EXECUTION_COPY.envelopeRisk} htmlFor="exec-limit-risk">
+                      <input id="exec-limit-risk" type="number" min="0.01" max="5" step="0.01" value={automationValues.maxRiskPerTradePct}
+                        disabled={busy} onChange={(event) => updateAutomationField("maxRiskPerTradePct", event.target.value)} />
+                    </Field>
+                    <Field label={EXECUTION_COPY.envelopeSymbols} htmlFor="exec-limit-symbols">
+                      <input id="exec-limit-symbols" value={automationValues.approvedSymbols} placeholder="EURUSD, BTCUSDT"
+                        disabled={busy} onChange={(event) => updateAutomationField("approvedSymbols", event.target.value)} />
+                    </Field>
+                  </div>
+                  {automationError ? <p className="form-error" role="alert">{automationError}</p> : null}
+                  <button className="primary-button" type="submit" disabled={busy}>Update automation limits</button>
+                </form>
+              ) : <p className="muted">Updating limits requires <code>{EXECUTION_CONTROL}</code>.</p>}
+              <form className="exec-form" onSubmit={setMode}>
+                <Field label="Execution mode" htmlFor="exec-mode">
+                  <select id="exec-mode" name="executionMode" value={modeForm ?? automation.data?.executionMode ?? governance?.executionMode ?? "HUMAN_APPROVAL"}
+                    onChange={(event) => setModeForm(event.target.value)} disabled={!canControl || busy}>
+                    <option value="HUMAN_APPROVAL">HUMAN_APPROVAL</option>
+                    <option value="SEMI_AUTONOMOUS">SEMI_AUTONOMOUS</option>
+                    <option value="FULLY_AUTOMATED">FULLY_AUTOMATED</option>
+                  </select>
+                </Field>
+                <button className="secondary-button" type="submit" disabled={!canControl || busy}>Save execution mode</button>
+              </form>
+              <p className="muted">{EXECUTION_PORT_COPY.modeEnum}</p>
+            </StateBox>
           </section>
+
+          {["SEMI_AUTONOMOUS", "FULLY_AUTOMATED"].includes(governance?.executionMode) ? (
+            <section className="panel">
+              <h2>One explicit automated Paper Trading request</h2>
+              <p className="muted">This is a user-triggered request, not an unattended strategy loop. Every order is still simulation-only and rechecked against the persisted envelope and Risk Engine.</p>
+              <form className="exec-form" onSubmit={submitAutomated}>
+                <div className="exec-form-grid">
+                  <Field label="Paper account" htmlFor="exec-auto-account" error={errors.accountId}>
+                    <select id="exec-auto-account" value={automatedValues.accountId} disabled={busy}
+                      onChange={(event) => updateAutomatedField("accountId", event.target.value)}>
+                      {accountRows.map((entry) => { const account = entry?.account ?? entry; return <option key={account.id} value={account.id}>{account.name ?? `#${account.id}`}</option>; })}
+                    </select>
+                  </Field>
+                  <Field label="APPROVED strategy version" htmlFor="exec-auto-strategy" error={errors.strategyId}>
+                    <select id="exec-auto-strategy" value={automatedValues.strategyId && automatedValues.strategyVersion ? `${automatedValues.strategyId}@${automatedValues.strategyVersion}` : ""}
+                      disabled={busy || approvedStrategies.length === 0}
+                      onChange={(event) => {
+                        const [strategyId, strategyVersion] = event.target.value.split("@");
+                        setAutomatedForm({ ...automatedValues, strategyId: strategyId ?? "", strategyVersion: strategyVersion ?? "" });
+                      }}>
+                      <option value="">Choose an approved strategy</option>
+                      {approvedStrategies.map((entry) => <option key={`${entry.id}@${entry.version}`} value={`${entry.id}@${entry.version}`}>{entry.id}@{entry.version}</option>)}
+                    </select>
+                  </Field>
+                  <Field label="Symbol" htmlFor="exec-auto-symbol" error={errors.symbol}>
+                    <input id="exec-auto-symbol" value={automatedValues.symbol} disabled={busy} onChange={(event) => updateAutomatedField("symbol", event.target.value)} />
+                  </Field>
+                  <Field label="Market class" htmlFor="exec-auto-market" error={errors.marketClass}>
+                    <select id="exec-auto-market" value={automatedValues.marketClass} disabled={busy} onChange={(event) => updateAutomatedField("marketClass", event.target.value)}>
+                      {EXECUTION_MARKET_CLASSES.map((marketClass) => <option key={marketClass} value={marketClass}>{marketClass}</option>)}
+                    </select>
+                  </Field>
+                  <Field label="Side" htmlFor="exec-auto-side" error={errors.side}>
+                    <select id="exec-auto-side" value={automatedValues.side} disabled={busy} onChange={(event) => updateAutomatedField("side", event.target.value)}>
+                      {ORDER_SIDES.map((side) => <option key={side} value={side}>{side}</option>)}
+                    </select>
+                  </Field>
+                  <Field label="Stop loss" htmlFor="exec-auto-stop" error={errors.stopLoss}>
+                    <input id="exec-auto-stop" type="number" step="0.00001" value={automatedValues.stopLoss} disabled={busy} onChange={(event) => updateAutomatedField("stopLoss", event.target.value)} />
+                  </Field>
+                  <Field label="Take profit (optional)" htmlFor="exec-auto-take" error={errors.takeProfit}>
+                    <input id="exec-auto-take" type="number" step="0.00001" value={automatedValues.takeProfit} disabled={busy} onChange={(event) => updateAutomatedField("takeProfit", event.target.value)} />
+                  </Field>
+                  <Field label="Risk fraction (optional)" htmlFor="exec-auto-risk" error={errors.riskPct}>
+                    <input id="exec-auto-risk" type="number" min="0.000001" max="0.05" step="0.000001" value={automatedValues.riskPct} disabled={busy} onChange={(event) => updateAutomatedField("riskPct", event.target.value)} />
+                  </Field>
+                  <Field label="Reason" htmlFor="exec-auto-reason">
+                    <input id="exec-auto-reason" maxLength={500} value={automatedValues.reason} disabled={busy} onChange={(event) => updateAutomatedField("reason", event.target.value)} />
+                  </Field>
+                </div>
+                {errors.automationMode ? <p className="form-error" role="alert">{errors.automationMode}</p> : null}
+                <button className="primary-button" type="submit" disabled={!canExecute || busy || approvedStrategies.length === 0}>Run one governed Paper request</button>
+                {!canExecute ? <p className="muted">This request needs <code>{EXECUTION_EXECUTE}</code>.</p> : null}
+                {approvedStrategies.length === 0 ? <p className="muted">No APPROVED strategy version is available; the automated route will not accept a discretionary request.</p> : null}
+              </form>
+            </section>
+          ) : null}
 
           <section className="panel">
             <h2>What this screen reads and writes</h2>
@@ -2049,7 +2238,7 @@ export function ExecutionView({ permissions }) {
                         </span>
                         {row.decisionReason ? <><br /><span className="muted">decision: {row.decisionReason}</span></> : null}
                       </td>
-                      <td className="muted">{row.broker}</td>
+                      <td className="muted">{row.broker}{row.simulatorTicket ? <small> · ticket #{row.simulatorTicket}</small> : null}</td>
                       <td><span className={`badge ${row.tone}`}>{row.status}</span></td>
                       <td>
                         <details>
@@ -2075,8 +2264,13 @@ export function ExecutionView({ permissions }) {
                           </>
                         ) : null}
                         {row.canSubmitPaper ? (
-                          <button className="text-button" type="button" disabled={!canExecute || busy}
-                            onClick={() => submitPaper(row)}>{EXECUTION_PORT_COPY.submitPaper}</button>
+                          <>
+                            <button className="text-button" type="button" disabled={!canExecute || busy}
+                              onClick={() => submitPaper(row)}>{EXECUTION_PORT_COPY.submitPaper}</button>{" "}
+                            <button className="text-button" type="button" disabled={!canExecute || busy || !simulatorSubmissionReady}
+                              title={simulatorSubmissionReady ? "Run all 15 checks and submit only to the process-local demo simulator" : "Simulator order flag or required governance is not active"}
+                              onClick={() => submitSimulator(row)}>{EXECUTION_PORT_COPY.submitSimulator}</button>
+                          </>
                         ) : null}
                         {!row.canDecide && !row.canSubmitPaper ? <span className="muted">—</span> : null}
                       </td>
@@ -2115,9 +2309,10 @@ export function ExecutionView({ permissions }) {
  */
 export function BrokerCenterView({ permissions }) {
   const canView = holdsBrokersPermission(permissions, BROKERS_PERMISSION);
-  const brokers = useResource(() => endpoints.brokers(), []);
-  const state = useResource(() => endpoints.tradingMode(), []);
+  const brokers = useResource(() => canView ? endpoints.brokers() : Promise.resolve(null), [canView]);
+  const state = useResource(() => canView ? endpoints.tradingMode() : Promise.resolve(null), [canView]);
   const [symbol, setSymbol] = useState("EURUSD");
+  const [requestedSymbol, setRequestedSymbol] = useState("EURUSD");
 
   const payload = brokers.data;
   const banner = routingBanner(payload);
@@ -2127,6 +2322,20 @@ export function BrokerCenterView({ permissions }) {
   const simulation = simulationState(payload);
   const governance = brokersGovernanceFacts(state.data);
   const mt5 = payload?.brokers?.["mt5-bridge"] ?? null;
+  const mt5Configured = mt5?.configured === true;
+  const mt5Account = useResource(() => mt5Configured ? endpoints.brokerMt5Account() : Promise.resolve({ account: null }), [mt5Configured]);
+  const mt5Quote = useResource(() => mt5Configured ? endpoints.brokerMt5Quote(requestedSymbol) : Promise.resolve({ quote: null }), [mt5Configured, requestedSymbol]);
+  const simulatorAccount = useResource(() => simulation.enabled ? endpoints.brokerSimulationAccount() : Promise.resolve({ account: null }), [simulation.enabled]);
+  const simulatorQuote = useResource(() => simulation.enabled ? endpoints.brokerSimulationQuote(requestedSymbol) : Promise.resolve({ quote: null }), [simulation.enabled, requestedSymbol]);
+
+  function loadQuote(event) {
+    event.preventDefault();
+    const normalized = String(symbol ?? "").trim();
+    if (!/^[A-Za-z0-9._-]{2,32}$/.test(normalized)) return;
+    setRequestedSymbol(normalized);
+  }
+
+  if (!canView) return <div className="view broker-view"><Notice tone="warn">This screen requires <code>{BROKERS_PERMISSION}</code>; the server will enforce the same permission.</Notice></div>;
 
   return (
     <div className="view broker-view">
@@ -2158,18 +2367,19 @@ export function BrokerCenterView({ permissions }) {
 
         <section className="panel">
           <h2>{BROKERS_COPY.simulatedTitle} <span className="badge badge-amber">{BROKERS_COPY.simulatedBadge}</span></h2>
-          <p className="muted">
-            <b>{BROKERS_COPY.simulationRunning}</b> — {simulation.enabled
-              ? "the MT5 adapter reports a simulated bridge."
-              : BROKERS_COPY.simulatedBlocked}
-          </p>
-          <p className="muted">{BROKERS_PORT_COPY.simulatedAbsent}</p>
+          <div className="broker-facts">
+            <span>Bridge <b className={simulation.enabled ? "up" : "down"}>{simulation.state}</b></span>
+            <span>Reads <b className={simulation.enabled ? "up" : "down"}>{simulation.enabled ? "enabled" : "disabled"}</b></span>
+            <span>Order submission <b className={simulation.ordersEnabled ? "up" : "down"}>{simulation.ordersEnabled ? "enabled" : "disabled"}</b></span>
+            <span>Storage <b>{simulation.memoryOnly ? "process-local" : "—"}</b></span>
+            <span>Live trading <b className="down">disabled</b></span>
+          </div>
+          <p className="muted"><b>{simulation.enabled ? "SIMULATOR AVAILABLE" : "SIMULATOR DISABLED"}</b> — {simulation.message || (simulation.enabled ? "In-process demo bridge is ready for authenticated reads." : "In-process simulator is disabled by default.")}</p>
+          <p className="muted">{BROKERS_PORT_COPY.simulatedSummary}</p>
+          <p className="muted">{BROKERS_PORT_COPY.toggleAbsent}</p>
           <div className="broker-absences">
             <div className="status-row">
-              <span>
-                <code>{LEGACY_ROUTES_NOT_PORTED[0].route}</code>{" "}
-                <small className="muted">— {BROKERS_COPY.startSimulated} / {BROKERS_COPY.stopSimulated}</small>
-              </span>
+              <span><code>{LEGACY_ROUTES_NOT_PORTED[0].route}</code> <small className="muted">— runtime toggle intentionally absent</small></span>
               <b className="down">absent</b>
             </div>
           </div>
@@ -2221,33 +2431,58 @@ export function BrokerCenterView({ permissions }) {
         <div className="broker-panels">
           <section className="panel">
             <h2>{BROKERS_COPY.accountTitle}</h2>
-            <p className="muted">{BROKERS_COPY.accountEmpty}</p>
             <p className="muted">{BROKERS_PORT_COPY.accountAbsent}</p>
-            <div className="broker-absences">
-              <div className="status-row">
-                <span><code>GET /api/v1/brokers/mt5/account</code></span>
-                <b className="down">absent</b>
-              </div>
-            </div>
-            {mt5 ? <p className="muted">The MT5 adapter reports <code>{String(mt5.state)}</code>; an account read would need a deployed bridge.</p> : null}
+            {mt5Configured ? (
+              <StateBox status={mt5Account.status} error={mt5Account.error} retry={mt5Account.retry} label="Reading authenticated MT5 account">
+                {brokerAccountRows(mt5Account.data?.account).length ? (
+                  <div className="status-list">{brokerAccountRows(mt5Account.data?.account).map((row) => <div className="status-row" key={row.key}><span>{row.label}</span><b>{row.value}</b></div>)}</div>
+                ) : <p className="empty">No MT5 account data was returned.</p>}
+              </StateBox>
+            ) : <p className="empty">{BROKERS_COPY.accountEmpty}</p>}
+            <div className="broker-absences"><div className="status-row"><span><code>GET /api/v1/brokers/mt5/account</code></span><b className={mt5Configured ? "up" : "down"}>{mt5Configured ? "configured" : "not configured"}</b></div></div>
           </section>
 
           <section className="panel">
             <h2>{BROKERS_COPY.quoteTitle}</h2>
-            <form className="broker-quote" onSubmit={(event) => event.preventDefault()}>
-              <input name="symbol" value={symbol} aria-label="Symbol"
-                onChange={(event) => setSymbol(event.target.value)} />
-              <button className="secondary-button" type="button" disabled title="No MT5 quote route exists in this port">
-                {BROKERS_COPY.quoteFetch}
-              </button>
+            <form className="broker-quote" onSubmit={loadQuote}>
+              <input name="symbol" value={symbol} aria-label="MT5 quote symbol" onChange={(event) => setSymbol(event.target.value)} />
+              <button className="secondary-button" type="submit" disabled={!mt5Configured}>{BROKERS_COPY.quoteFetch}</button>
             </form>
-            <p className="muted">{BROKERS_PORT_COPY.quoteAbsent}</p>
-            <div className="broker-absences">
-              <div className="status-row">
-                <span><code>GET /api/v1/brokers/mt5/quote</code></span>
-                <b className="down">absent</b>
-              </div>
-            </div>
+            <StateBox status={mt5Quote.status} error={mt5Quote.error} retry={mt5Quote.retry} label="Reading authenticated MT5 quote">
+              {brokerQuoteRows(mt5Quote.data?.quote).length ? (
+                <div className="status-list">{brokerQuoteRows(mt5Quote.data?.quote).map((row) => <div className="status-row" key={row.key}><span>{row.label}</span><b>{row.value}</b></div>)}</div>
+              ) : <p className="empty">{mt5Configured ? "No MT5 quote data was returned." : BROKERS_PORT_COPY.quoteAbsent}</p>}
+            </StateBox>
+            <div className="broker-absences"><div className="status-row"><span><code>GET /api/v1/brokers/mt5/quote</code></span><b className={mt5Configured ? "up" : "down"}>{mt5Configured ? "configured" : "not configured"}</b></div></div>
+          </section>
+
+          <section className="panel">
+            <h2>Simulated account (read-only)</h2>
+            <p className="muted">This is the process-local demo account, separate from any owner-scoped Paper Trading account.</p>
+            {simulation.enabled ? (
+              <StateBox status={simulatorAccount.status} error={simulatorAccount.error} retry={simulatorAccount.retry} label="Reading simulated account">
+                {brokerAccountRows(simulatorAccount.data?.account).length ? (
+                  <div className="status-list">{brokerAccountRows(simulatorAccount.data?.account).map((row) => <div className="status-row" key={row.key}><span>{row.label}</span><b>{row.value}</b></div>)}</div>
+                ) : <p className="empty">No simulator account data was returned.</p>}
+              </StateBox>
+            ) : <p className="empty">The simulated bridge is disabled by configuration.</p>}
+            <div className="broker-absences"><div className="status-row"><span><code>GET /api/v1/brokers/simulation/account</code></span><b className={simulation.enabled ? "up" : "down"}>{simulation.enabled ? "available" : "disabled"}</b></div></div>
+          </section>
+
+          <section className="panel">
+            <h2>Simulated quote (read-only)</h2>
+            <form className="broker-quote" onSubmit={loadQuote}>
+              <input name="symbol" value={symbol} aria-label="Simulator quote symbol" onChange={(event) => setSymbol(event.target.value)} />
+              <button className="secondary-button" type="submit" disabled={!simulation.enabled}>{BROKERS_COPY.quoteFetch}</button>
+            </form>
+            {simulation.enabled ? (
+              <StateBox status={simulatorQuote.status} error={simulatorQuote.error} retry={simulatorQuote.retry} label={`Reading simulated quote for ${requestedSymbol}`}>
+                {brokerQuoteRows(simulatorQuote.data?.quote).length ? (
+                  <div className="status-list">{brokerQuoteRows(simulatorQuote.data?.quote).map((row) => <div className="status-row" key={row.key}><span>{row.label}</span><b>{row.value}</b></div>)}</div>
+                ) : <p className="empty">No simulated quote data was returned.</p>}
+              </StateBox>
+            ) : <p className="empty">{BROKERS_PORT_COPY.quoteAbsent}</p>}
+            <div className="broker-absences"><div className="status-row"><span><code>GET /api/v1/brokers/simulation/quote</code></span><b className={simulation.enabled ? "up" : "down"}>{simulation.enabled ? "available" : "disabled"}</b></div></div>
           </section>
         </div>
 

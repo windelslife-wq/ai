@@ -103,16 +103,34 @@ test("MySQL proposal decisions, expiry and submission use owner-bound compare-an
   assert.deepEqual(executor.calls[1].values.slice(-3), [id, 7, 7]);
 
   assert.equal(await repository.claimExecutionProposal(id, 7, NOW), true);
+  assert.match(executor.calls[2].sql, /SET p\.status = \?/);
   assert.match(executor.calls[2].sql, /p\.status = 'APPROVED'/);
-  assert.deepEqual(executor.calls[2].values, [NOW, id, 7, 7]);
+  assert.deepEqual(executor.calls[2].values, ["PAPER_SUBMITTING", NOW, id, 7, 7]);
 
   const completed = await repository.completeExecutionProposal(id, 7, {
     status: "PAPER_EXECUTED", paperOrderId: 41, result: { synthetic: true }, updatedAt: NOW,
   });
   assert.equal(completed.status, "PAPER_EXECUTED", "the repository reads back the finalized proposal state");
-  assert.match(executor.calls[3].sql, /p\.status = 'PAPER_SUBMITTING'/);
+  assert.match(executor.calls[3].sql, /p\.status = \?/);
   assert.deepEqual(executor.calls[3].values.slice(0, 3), ["PAPER_EXECUTED", 41, JSON.stringify({ synthetic: true })]);
-  assert.deepEqual(executor.calls[3].values.slice(-3), [id, 7, 7]);
+  assert.deepEqual(executor.calls[3].values.slice(-4), [id, 7, 7, "PAPER_SUBMITTING"]);
+});
+
+test("MySQL proposal claims isolate the broker-simulator in-progress status", async () => {
+  const executor = recordingExecutor({ rows: [mysqlRow({ status: "APPROVED" })] });
+  const repository = createExecutionRepository(executor);
+  const id = "330e8400-e29b-41d4-a716-446655440000";
+
+  assert.equal(await repository.claimExecutionProposal(id, 7, NOW, { submittingStatus: "SIMULATOR_SUBMITTING" }), true);
+  assert.deepEqual(executor.calls[0].values, ["SIMULATOR_SUBMITTING", NOW, id, 7, 7]);
+  const completed = await repository.completeExecutionProposal(id, 7, {
+    status: "SIMULATOR_EXECUTED",
+    result: { ticket: 22, simulationOnly: true },
+    updatedAt: NOW,
+    submittingStatus: "SIMULATOR_SUBMITTING",
+  });
+  assert.equal(completed.status, "SIMULATOR_EXECUTED");
+  assert.deepEqual(executor.calls[1].values.slice(-1), ["SIMULATOR_SUBMITTING"]);
 });
 
 test("file proposals persist in the WAL and remain private across restart", async (t) => {
@@ -147,4 +165,19 @@ test("file proposals persist in the WAL and remain private across restart", asyn
   const restored = await store.findExecutionProposal("330e8400-e29b-41d4-a716-446655440000", 7);
   assert.equal(restored.status, "PENDING_APPROVAL");
   assert.deepEqual(restored.intent, { symbol: "EURUSD", side: "BUY" });
+
+  await store.withPaperTransaction(async (tx) => {
+    assert.equal(await tx.decideExecutionProposal(restored.id, 7, {
+      status: "APPROVED", decisionByUserId: 7, reason: "Reviewed", decidedAt: NOW, updatedAt: NOW,
+    }), true);
+    assert.equal(await tx.claimExecutionProposal(restored.id, 7, NOW, { submittingStatus: "SIMULATOR_SUBMITTING" }), true);
+    const completed = await tx.completeExecutionProposal(restored.id, 7, {
+      status: "SIMULATOR_EXECUTED",
+      result: { ticket: 22, simulationOnly: true },
+      updatedAt: NOW,
+      submittingStatus: "SIMULATOR_SUBMITTING",
+    });
+    assert.equal(completed.status, "SIMULATOR_EXECUTED");
+  });
+  assert.equal((await store.findExecutionProposal(restored.id, 7)).status, "SIMULATOR_EXECUTED");
 });

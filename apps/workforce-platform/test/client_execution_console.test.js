@@ -37,7 +37,7 @@ import {
   ORDER_SIDES, ORDER_TYPES, PIPELINE_STAGES, PORT_CHECKS, PORT_PROPOSAL_STATUSES, SUPER_ADMIN_PERMISSION,
   automationRows, banners, buildDecisionBody, buildProposalBody, countText, decisionOutcome,
   executionStatusFacts, executionTimeText, governanceFacts, holdsExecutionPermission, moneyText,
-  paperSubmitOutcome, passedChecks, percentText, proposalFormState, proposalOutcome, proposalRow, proposalRows,
+  paperSubmitOutcome, simulatorSubmitOutcome, passedChecks, percentText, proposalFormState, proposalOutcome, proposalRow, proposalRows,
   statusTone, validateDecision, validateProposalForm,
 } from "../client/src/execution.js";
 import { PROPOSALS_QUERY, PROPOSAL_BODY } from "../src/modules/execution/contracts.js";
@@ -195,18 +195,18 @@ test("the fifteen steps are the supervisor's own, in its own order", () => {
     "the screen's pipeline is the supervisor's pipeline, not a paraphrase",
   );
   assert.equal(PIPELINE_STAGES.port.tone, "badge-green");
-  assert.equal(PIPELINE_STAGES.broker.tone, "badge-gray");
+  assert.equal(PIPELINE_STAGES.simulator.tone, "badge-sky");
   assert.equal(PIPELINE_STAGES.decision.tone, "badge-amber");
 });
 
-test("the port marks exactly the steps it performs, and says the rest are broker-bound", () => {
+test("the complete pipeline is divided between the API, the human decision and the isolated simulator", () => {
   const service = readFileSync(path.join(import.meta.dirname, "..", "src", "modules", "execution", "service.js"), "utf8");
   const emitted = [...new Set([...service.matchAll(/addCheck\("([a-z-]+)"/g)].map((match) => match[1]))];
   assert.deepEqual(emitted, [...PORT_CHECKS], "the checks a proposal carries are the module's own addCheck calls");
   const port = EXECUTION_PIPELINE.filter((step) => step.stage === "port").map((step) => step.key);
   assert.deepEqual(port, ["kill-switch", "trading-mode", "strategy", "audit-log"]);
-  const broker = EXECUTION_PIPELINE.filter((step) => step.stage === "broker").map((step) => step.step);
-  assert.deepEqual(broker, [4, 5, 6, 7, 8, 9, 10, 12, 13, 15], "the broker-bound steps are the ones with no route in this port");
+  const simulator = EXECUTION_PIPELINE.filter((step) => step.stage === "simulator").map((step) => step.step);
+  assert.deepEqual(simulator, [4, 5, 6, 7, 8, 9, 10, 12, 13, 15], "simulator-bound steps are exercised only against the process-local demo bridge");
   assert.deepEqual(EXECUTION_PIPELINE.filter((step) => step.stage === "decision").map((step) => step.step), [11]);
 });
 
@@ -221,7 +221,7 @@ test("the statuses are the two vocabularies the two platforms actually persist",
   for (const gone of ["READY_TO_ROUTE", "EXECUTED", "FAILED"]) {
     assert.ok(!PORT_PROPOSAL_STATUSES.includes(gone), `${gone} has no route to reach it in this port`);
   }
-  for (const added of ["DECLINED", "EXPIRED", "PAPER_EXECUTED"]) {
+  for (const added of ["DECLINED", "EXPIRED", "PAPER_EXECUTED", "SIMULATOR_EXECUTED", "SIMULATOR_PENDING"]) {
     assert.ok(!LEGACY_PROPOSAL_STATUSES.includes(added), `${added} is this port's word and must be stated as such`);
   }
   // Legacy's badge choices survive for the statuses both platforms share.
@@ -329,10 +329,15 @@ test("a proposal row reports the port's own fields and invents neither a volume 
   assert.equal(row.tone, "badge-sky");
   assert.equal(row.canDecide, false);
   assert.equal(row.canSubmitPaper, true);
+  assert.equal(row.canSubmitSimulator, true);
   assert.deepEqual(passedChecks(row), { passed: 2, total: 2 });
   const filled = proposalRow({ ...row, paperOrderId: 9, status: "PAPER_EXECUTED" });
   assert.equal(filled.broker, "paper", "a submitted proposal names the paper ledger, not a broker");
   assert.equal(filled.canSubmitPaper, false);
+  const simulated = proposalRow({ ...row, status: "SIMULATOR_EXECUTED", result: { broker: "simulated-mt5", ticket: 27, checks: [{ step: 1, check: "kill-switch", ok: true }] } });
+  assert.equal(simulated.broker, "simulated MT5");
+  assert.equal(simulated.simulatorTicket, 27);
+  assert.equal(simulated.checkCount, 1, "the stored full-path result checks take precedence over creation checks");
   assert.equal(proposalRow(null), null);
   assert.deepEqual(proposalRows(null), []);
 });
@@ -346,9 +351,12 @@ test("the empty states and the outcome sentences say what happened, not what leg
   const pending = paperSubmitOutcome({ proposal: { id: "p", status: "PAPER_PENDING" }, paper: { filled: false, order: { id: 3 } } });
   assert.match(pending.message, /PAPER_PENDING — paper order #3 pending/);
   assert.match(paperSubmitOutcome({ proposal: { id: "p", status: "PAPER_REJECTED" }, paper: { filled: false, order: null } }).message, /no paper order was created/);
+  const simulated = simulatorSubmitOutcome({ proposal: { id: "p", status: "SIMULATOR_EXECUTED" }, execution: { confirmed: true, simulationOnly: true, ticket: 44 } });
+  assert.match(simulated.message, /simulated order confirmed, ticket #44/);
+  assert.match(simulated.message, /process-local simulator/);
 });
 
-test("the automation envelope is legacy's default, labelled as a default and never as this host's configuration", () => {
+test("the legacy automation defaults remain available for parity, while the UI labels persisted Node values", () => {
   const php = supervisor();
   const literal = php.match(/'maxTradeNotionalUsd' => ([\d.]+), 'maxDailyTrades' => (\d+), 'maxRiskPerTradePct' => ([\d.]+), 'approvedSymbols' => \[\]/);
   assert.ok(literal, "ExecutionSupervisor::automationLimits() keeps its defaults in one literal");
@@ -356,33 +364,41 @@ test("the automation envelope is legacy's default, labelled as a default and nev
   assert.equal(Number(literal[2]), LEGACY_AUTOMATION_LIMITS.maxDailyTrades);
   assert.equal(Number(literal[3]), LEGACY_AUTOMATION_LIMITS.maxRiskPerTradePct);
   assert.deepEqual([...LEGACY_AUTOMATION_LIMITS.approvedSymbols], []);
-  const rows = automationRows();
-  assert.deepEqual(rows.map((row) => row.key), ["maxTradeNotionalUsd", "maxDailyTrades", "maxRiskPerTradePct", "approvedSymbols"]);
-  assert.deepEqual(rows.map((row) => row.legacy), ["500.00", "5", "1.00%", "—"]);
-  for (const row of rows) assert.match(row.note, /legacy default/);
+  const legacyRows = automationRows(LEGACY_AUTOMATION_LIMITS);
+  assert.deepEqual(legacyRows.map((row) => row.key), ["maxTradeNotionalUsd", "maxDailyTrades", "maxRiskPerTradePct", "approvedSymbols"]);
+  assert.deepEqual(legacyRows.map((row) => row.value), ["500.00", "5", "1.00%", "—"]);
+  for (const row of legacyRows) assert.match(row.note, /default/);
+  const persistedRows = automationRows({ ...LEGACY_AUTOMATION_LIMITS, maxDailyTrades: 3, approvedSymbols: ["EURUSD"], updatedAt: "2026-10-17T03:04:05.000Z" });
+  assert.equal(persistedRows[1].value, "3");
+  assert.equal(persistedRows[1].note, "persisted");
+  assert.equal(persistedRows[3].value, "EURUSD");
 });
 
-test("the module's scope and banners are read from the API's own answer", () => {
+test("module scope and banners use the API's real-connector, simulator and automation facts", () => {
   const snapshot = {
-    enabled: true, scope: "human-reviewed paper proposals only", simulationOnly: true,
+    enabled: true, scope: "human-reviewed proposals plus simulation-only execution", simulationOnly: true,
     paperSubmissionAvailable: true, liveTradingEnabled: false, brokerConnectorAvailable: false,
-    brokerConnectorsConfigured: 2, automatedModesAvailable: false, approvalRequired: true, proposalExpiryMinutes: 240,
+    brokerConnectorsConfigured: 2, simulatedBrokerAvailable: true, simulatedOrderRoutingEnabled: true,
+    automatedModesAvailable: true, approvalRequired: true, proposalExpiryMinutes: 240,
+    automationScope: "request-based Paper Trading only", simulatorSubmissionScope: "human-approved simulator proposals",
   };
   const facts = executionStatusFacts(snapshot);
   assert.equal(facts.brokerConnectorAvailable, false);
   assert.equal(facts.brokerConnectorsConfigured, 2);
-  assert.equal(facts.automatedModesAvailable, false);
+  assert.equal(facts.simulatedBrokerAvailable, true);
+  assert.equal(facts.simulatedOrderRoutingEnabled, true);
+  assert.equal(facts.automatedModesAvailable, true);
   assert.equal(facts.expiryMinutes, 240);
-  const flags = banners({ tradingMode: "PAPER_TRADING", killSwitch: { active: false } }, snapshot);
-  assert.deepEqual(flags, { killSwitch: false, modeBlocked: true, noBroker: true, noAutomation: true });
-  const stopped = banners({ tradingMode: "PAPER_TRADING", killSwitch: { active: true } }, snapshot);
+  const flags = banners({ tradingMode: "PAPER_TRADING", executionMode: "HUMAN_APPROVAL", killSwitch: { active: false } }, snapshot);
+  assert.deepEqual(flags, { killSwitch: false, modeBlocked: false, noBroker: true, noSimulator: false, noAutomation: false });
+  const stopped = banners({ tradingMode: "PAPER_TRADING", executionMode: "HUMAN_APPROVAL", killSwitch: { active: true } }, snapshot);
   assert.equal(stopped.killSwitch, true);
-  assert.deepEqual(governanceFacts({ tradingMode: "PAPER_TRADING", killSwitch: { active: false }, allowSyntheticPaperData: true, simulationOnly: true }), {
-    mode: "PAPER_TRADING", killSwitch: false, synthetic: true, simulated: true,
+  assert.deepEqual(governanceFacts({ tradingMode: "PAPER_TRADING", executionMode: "SEMI_AUTONOMOUS", automationLimits: { maxDailyTrades: 2 }, killSwitch: { active: false }, allowSyntheticPaperData: true, simulationOnly: true }), {
+    mode: "PAPER_TRADING", tradingMode: "PAPER_TRADING", executionMode: "SEMI_AUTONOMOUS", automationLimits: { maxDailyTrades: 2 }, killSwitch: false, synthetic: true, simulated: true,
   });
   assert.equal(executionStatusFacts(null), null);
-  // The mode endpoint's enum is the reason `modeBlocked` is always true here.
   assert.deepEqual([...TRADING_MODE_BODY.properties.mode.values], ["ANALYSIS_ONLY", "PAPER_TRADING"]);
+  assert.equal(banners({ tradingMode: "ANALYSIS_ONLY", killSwitch: { active: false } }, snapshot).modeBlocked, true);
 });
 
 test("the formatting helpers never invent a figure", () => {
@@ -399,7 +415,7 @@ test("the formatting helpers never invent a figure", () => {
 
 /* ----------------------------------------------------------------------- the wiring */
 
-test("every declared read and write is a registered route, and the broker-bound routes are absent", async (t) => {
+test("every declared read and write is registered, while a live broker route remains absent", async (t) => {
   const app = await instance(t);
   const inventory = (await get(app.app, "/api/v1/system/routes")).json().routes;
   for (const entry of [...EXECUTION_READS, ...EXECUTION_WRITES]) {
@@ -408,11 +424,11 @@ test("every declared read and write is a registered route, and the broker-bound 
     assert.equal(route.permission, entry.permission, `${entry.path} is declared with the wrong permission`);
     assert.equal(route.auth, true, `${entry.path} requires a session`);
   }
-  // The screen's boundary is only honest while these stay unregistered.
-  assert.ok(!inventory.some((route) => route.path === "/api/v1/execution"), "no automated execution entry");
-  assert.ok(!inventory.some((route) => route.path.endsWith("/route")), "no broker route");
-  assert.ok(!inventory.some((route) => route.path.includes("trading/limits")), "no automation envelope");
-  assert.deepEqual(LEGACY_WRITES_NOT_PORTED.map((entry) => entry.key).sort(), ["execute", "limits", "route"]);
+  assert.ok(!inventory.some((route) => route.path === "/api/v1/execution"), "no generic execution entry exists");
+  assert.ok(!inventory.some((route) => route.path.endsWith("/route")), "the legacy generic live route remains absent");
+  assert.ok(inventory.some((route) => route.path === "/api/v1/execution/automated-paper"), "governed request-based automation is registered");
+  assert.ok(inventory.some((route) => route.path === "/api/v1/execution/automation-limits"), "persisted automation limits are registered");
+  assert.deepEqual(LEGACY_WRITES_NOT_PORTED.map((entry) => entry.key).sort(), ["liveRoute", "unattendedLoop"]);
 });
 
 test("the screen is declared where the router and the navigation will find it", () => {
@@ -424,7 +440,7 @@ test("the screen is declared where the router and the navigation will find it", 
   assert.match(views, /export function ExecutionView\(\{ permissions \}\)/);
   assert.match(views, /\{ to: "\/app\/execution", label: "Execution", permission: EXECUTION_PERMISSION \}/);
   assert.match(views, /<h1>\{EXECUTION_COPY\.title\}\.<\/h1>/);
-  for (const name of ["executionStatus", "executionProposals", "proposeExecution", "decideExecution", "submitExecutionPaper", "paperAccounts", "strategies", "tradingMode"]) {
+  for (const name of ["executionStatus", "executionAutomation", "executionProposals", "proposeExecution", "decideExecution", "submitExecutionPaper", "submitExecutionSimulator", "updateExecutionAutomationLimits", "setExecutionMode", "executeAutomatedPaper", "paperAccounts", "strategies", "tradingMode"]) {
     assert.match(api, new RegExp(`\\n  ${name}:`), `${name} is a declared endpoint`);
     assert.ok(views.includes(`endpoints.${name}(`), `${name} is used by the console`);
   }
@@ -434,14 +450,14 @@ test("the screen is declared where the router and the navigation will find it", 
   assert.ok(!viewSource.includes("/api/v1/trading/"), "the execution screen carries no governance write");
   assert.match(viewSource, /disabled=\{!canExecute \|\| busy\}/);
   assert.match(viewSource, /disabled=\{!canControl \|\| busy\}/);
-  for (const key of ["paperOnly", "envelopeAbsent", "executionsAbsent", "volumeNote", "decisionReason", "modeEnum", "statusVocabulary", "pipelineNote"]) {
+  for (const key of ["paperOnly", "envelopeNote", "executionsAbsent", "volumeNote", "decisionReason", "modeEnum", "statusVocabulary", "pipelineNote", "simulatorNote", "realBrokerAbsent", "submitSimulator"]) {
     assert.ok(viewSource.includes(`EXECUTION_PORT_COPY.${key}`), `${key} is stated on the screen`);
   }
 });
 
 /* ------------------------------------------------------------------------- the HTTP */
 
-test("a viewer reads every surface and is refused all three writes", async (t) => {
+test("a viewer reads every surface and is refused every execution write", async (t) => {
   const app = await instance(t);
   const root = await signIn(app.app);
   await openGovernance(app.app, root.headers);
@@ -470,6 +486,17 @@ test("a viewer reads every surface and is refused all three writes", async (t) =
   const submit = await post(app.app, `/api/v1/execution/proposals/${proposalId}/paper-submit`, viewer.headers, {});
   assert.equal(submit.statusCode, 403, submit.body);
   assert.equal(submit.json().error.code, "PERMISSION_DENIED");
+  const simulatorSubmit = await post(app.app, `/api/v1/execution/proposals/${proposalId}/simulator-submit`, viewer.headers, {});
+  assert.equal(simulatorSubmit.statusCode, 403, simulatorSubmit.body);
+  assert.equal(simulatorSubmit.json().error.code, "PERMISSION_DENIED");
+  const updateLimits = await app.app.inject({ method: "PATCH", url: "/api/v1/execution/automation-limits", headers: viewer.headers, payload: { maxDailyTrades: 2 } });
+  assert.equal(updateLimits.statusCode, 403, updateLimits.body);
+  const setMode = await post(app.app, "/api/v1/execution/mode", viewer.headers, { mode: "HUMAN_APPROVAL" });
+  assert.equal(setMode.statusCode, 403, setMode.body);
+  const automated = await post(app.app, "/api/v1/execution/automated-paper", viewer.headers, {
+    accountId, ...INTENT, strategyId: "momentum", strategyVersion: "v1",
+  });
+  assert.equal(automated.statusCode, 403, automated.body);
 });
 
 test("a proposal persists the checks the port runs, and the screen renders them", async (t) => {
@@ -598,22 +625,25 @@ test("the proposer cannot approve their own proposal: the decision is a separate
   assert.equal(early.json().error.code, "PAPER_SUBMISSION_NOT_APPROVED");
 });
 
-test("the status snapshot is the source of the paper-only claim on the screen", async (t) => {
+test("the status snapshot reports the process-local route separately from real connector and automation scope", async (t) => {
   const app = await instance(t);
   const root = await signIn(app.app);
   const snapshot = (await get(app.app, "/api/v1/execution/status", root.headers)).json();
   const facts = executionStatusFacts(snapshot);
   assert.equal(facts.enabled, true);
   assert.equal(facts.paperSubmissionAvailable, true);
-  assert.equal(facts.brokerConnectorAvailable, false, "the screen can only claim this because the API says it");
-  assert.equal(facts.automatedModesAvailable, false);
+  assert.equal(facts.brokerConnectorAvailable, false, "no real adapter is provider-verified");
+  assert.equal(facts.simulatedBrokerAvailable, false, "the test host leaves the opt-in demo bridge disabled");
+  assert.equal(facts.simulatedOrderRoutingEnabled, false);
+  assert.equal(facts.automatedModesAvailable, true, "governed modes are request-based Paper Trading routes");
   assert.equal(facts.approvalRequired, true);
   assert.equal(facts.expiryMinutes, 240, "the supervisor's four-hour window");
   assert.equal(snapshot.liveTradingEnabled, false);
   const flags = banners((await get(app.app, "/api/v1/trading/mode", root.headers)).json(), snapshot);
   assert.equal(flags.noBroker, true);
-  assert.equal(flags.noAutomation, true);
-  assert.equal(flags.modeBlocked, true, "the mode endpoint's enum cannot produce an execution mode");
+  assert.equal(flags.noAutomation, false);
+  assert.equal(flags.noSimulator, true);
+  assert.equal(flags.modeBlocked, true, "the default ANALYSIS_ONLY trading mode blocks order submission");
 });
 
 test("the shared StateBox renders a ready resource's content, and no empty state hides it", () => {
@@ -641,7 +671,7 @@ test("the served shell carries the screen, and the deep link answers", async (t)
   const assets = [...html.body.matchAll(/assets\/index-[A-Za-z0-9_-]+\.js/g)].map((match) => match[0]);
   assert.ok(assets.length >= 1, "the shell must reference the built bundle");
   const bundle = readFileSync(path.resolve(CLIENT, "..", "..", "public", "app", ...assets[0].split("/")), "utf8");
-  for (const needle of ["Execution", "Paper-only supervisor", "Run pipeline & create proposal", "Submit to paper", "/app/execution"]) {
+  for (const needle of ["Execution", "Simulation-only execution", "Run pipeline & create proposal", "Submit to paper", "Submit to simulated MT5", "/app/execution"]) {
     assert.ok(bundle.includes(needle), `the served bundle carries ${JSON.stringify(needle)}`);
   }
   // The screen's window is legacy's 40, not the contract's 500 ceiling.

@@ -392,6 +392,13 @@ export const BROKER_CONNECTOR_ENV = Object.freeze([
 export const LICENSED_DATA_ENV_SUFFIXES = Object.freeze(["URL", "HEALTH_URL", "TOKEN", "LICENSE", "ENABLED", "DELAYED", "SYMBOLS"]);
 export const BROKER_ENV_SUFFIXES = Object.freeze(["URL", "TOKEN", "ENABLED", "TRADING_ENABLED", "LIVE_ALLOWED"]);
 
+/** Explicit in-process simulator flags. The order flag never enables real routing. */
+export const SIMULATED_BROKER_ENV_NAMES = Object.freeze([
+  "WF_SIMULATED_BROKER_ENABLED",
+  "WF_SIMULATED_BROKER_ORDERS_ENABLED",
+  "WF_SIMULATED_BROKER_INITIAL_BALANCE",
+]);
+
 /**
  * The five variable names one connector actually reads.
  *
@@ -452,8 +459,19 @@ function loadBrokerConfig(env, { production }) {
     });
   }
 
+  const simulationEnabled = boolean(env.WF_SIMULATED_BROKER_ENABLED, "WF_SIMULATED_BROKER_ENABLED", false);
+  const simulationOrdersEnabled = boolean(env.WF_SIMULATED_BROKER_ORDERS_ENABLED, "WF_SIMULATED_BROKER_ORDERS_ENABLED", false);
+  if (simulationOrdersEnabled && !simulationEnabled) {
+    throw new Error("WF_SIMULATED_BROKER_ORDERS_ENABLED requires WF_SIMULATED_BROKER_ENABLED=1");
+  }
+
   return Object.freeze({
     connectors: Object.freeze(connectors),
+    simulation: Object.freeze({
+      enabled: simulationEnabled,
+      ordersEnabled: simulationOrdersEnabled,
+      initialBalance: integer(env.WF_SIMULATED_BROKER_INITIAL_BALANCE, "WF_SIMULATED_BROKER_INITIAL_BALANCE", { fallback: 10_000, min: 100, max: 1_000_000_000 }),
+    }),
     // Legacy used an 8 s timeout in the generic connector and 5 s in the MT5
     // bridge. One budget applies to every connector here; it is deliberately
     // shorter than the market-data deadline because a bridge call sits on the

@@ -1057,7 +1057,8 @@ test("F-02 the status surface is honest about unported modules, and F-03 the rou
   assert.equal(body.trading.enabled, true, "paper trading is available but remains simulation-only");
   assert.equal(body.trading.simulationOnly, true);
   assert.equal(body.trading.liveTradingEnabled, false);
-  assert.match(body.trading.reason, /no adapter is verified and no order can be routed/i);
+  assert.match(body.trading.reason, /process-local MT5-shaped simulator may submit only an approved proposal after all fifteen checks/i);
+  assert.match(body.trading.reason, /real adapters remain unverified and live trading is disabled/i);
   assert.equal(body.trading.paperProposalWorkflowAvailable, true);
   assert.equal(body.modules.find((module) => module.key === "identity").state, "ported");
   assert.equal(body.modules.find((module) => module.key === "publicSite").state, "ported", "the public site moved to ported in Phase 43 when the grounded chat assistant and floating widget landed");
@@ -1139,28 +1140,26 @@ test("F-02 the status surface is honest about unported modules, and F-03 the rou
   // adds human-reviewed paper proposals, not the full supervisor or a live route.
   assert.equal(body.modules.find((module) => module.key === "paperTrading").state, "ported");
   assert.equal(body.modules.find((module) => module.key === "risk").state, "ported");
-  // Phase 13 reconciles the execution module against `ExecutionSupervisor.php` step by
-  // step. It stays `partial`, and the label must carry *why* — nine of fifteen steps
-  // read broker state that does not exist here — so that `partial` is not read as
-  // "the governance work is unfinished". It must also name the evidence this phase
-  // added: a submission refused by the kill switch used to leave no trace at all.
+  // Execution's full 15-step path exists only against the process-local simulator.
+  // It stays partial because neither real provider-backed routing nor an unattended
+  // strategy loop is claimed; request-based automation remains Paper Trading only.
+  const executionLabel = body.modules.find((module) => module.key === "execution").label;
   assert.equal(body.modules.find((module) => module.key === "execution").state, "partial");
-  assert.match(body.modules.find((module) => module.key === "execution").label, /blocked-submission evidence/i);
-  assert.match(body.modules.find((module) => module.key === "execution").label, /broker-bound/i);
-  assert.match(body.modules.find((module) => module.key === "execution").label, /no live route/i);
-  assert.match(body.modules.find((module) => module.key === "execution").label, /no automated mode/i);
-  // Phase 39 ported `Execution::index` to `/app/execution`; the label must name the
-  // console so `partial` cannot be read as "the screen is still missing".
-  assert.match(body.modules.find((module) => module.key === "execution").label, /\/app\/execution/);
-  // Phase 14 ports the broker connector boundary. `partial` must say that what is
-  // missing is a *verified adapter and an order path*, not the boundary itself, or a
-  // reader cannot tell "half-built" from "built and switched off" — which is the
-  // whole distinction this module exists to make.
+  assert.match(executionLabel, /full fifteen-step execution pipeline/i);
+  assert.match(executionLabel, /process-local simulated MT5 bridge/i);
+  assert.match(executionLabel, /request-based Paper Trading only/i);
+  assert.match(executionLabel, /no unattended strategy loop/i);
+  assert.match(executionLabel, /real MT5 terminal verification is external/i);
+  assert.match(executionLabel, /\/app\/execution/);
+  // Broker Center has authenticated reads and a distinct in-process simulator, but
+  // no real provider-backed order route or external MT5 terminal verification.
+  const brokersLabel = body.modules.find((module) => module.key === "brokers").label;
   assert.equal(body.modules.find((module) => module.key === "brokers").state, "partial");
-  assert.match(body.modules.find((module) => module.key === "brokers").label, /all disabled by default/i);
-  assert.match(body.modules.find((module) => module.key === "brokers").label, /no order routing/i);
-  assert.match(body.modules.find((module) => module.key === "brokers").label, /no adapter verified against its provider/i);
-  assert.match(body.modules.find((module) => module.key === "brokers").label, /one read-only route/i);
+  assert.match(brokersLabel, /disabled or unverified by default/i);
+  assert.match(brokersLabel, /authenticated status plus MT5\/simulator account and quote reads/i);
+  assert.match(brokersLabel, /owner-scoped, human-approved Execution proposal/i);
+  assert.match(brokersLabel, /no real provider-backed order route/i);
+  assert.match(brokersLabel, /no real MT5 demo-terminal verification/i);
   // Phase 15 moved `sports` from not-ported to partial, Phase 16 gave it persistence,
   // and Phase 48 moved it to ported — by porting its last unported area, stake sizing,
   // as bounded record-only sizing (DV-27). This is still the label that has to work
@@ -1244,7 +1243,7 @@ test("F-02 the status surface is honest about unported modules, and F-03 the rou
     assert.match(lotteryLabel, pattern);
   }
   assert.ok(!/console screens are not ported/i.test(lotteryLabel), "the ported label must not still carry the F-29 hedge");
-  assert.equal(body.modules.filter((module) => module.state === "partial").length, 2, "execution (the remaining supervisor steps are broker-bound, no live route, no automated mode) and brokers (no verified adapter, no order routing) remain partial — lottery left the list in Phase 30, the public site left it in Phase 43 when the grounded chat assistant and floating widget landed, scheduled jobs left it in Phase 44 when the 80/70/60% early-warning tiers, leverage check and correlation-group enforcement landed, and sports left it in Phase 48 when bounded record-only stake sizing (DV-27) emptied its not-ported matrix");
+  assert.equal(body.modules.filter((module) => module.state === "partial").length, 2, "execution (simulator-only 15-step routing, request-based Paper automation and no unattended/live route) and brokers (authenticated demo reads, no verified real adapter or real order route) remain partial");
   assert.equal(body.modules.filter((module) => module.state === "not-ported").length, 0, "Phase 46 ported languageLearning, so zero modules remain not-ported");
   assert.equal(body.modules.filter((module) => module.state === "ported").length, 15, "15 modules are ported as of Phase 48");
   assert.equal(body.modules.length, 17, "the ledger keeps listing every module, ported or not");

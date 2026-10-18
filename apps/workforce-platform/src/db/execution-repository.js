@@ -169,28 +169,28 @@ export function createExecutionRepository(executor) {
       return Number(result.affectedRows) === 1;
     },
 
-    /** Atomically reserve an approved proposal for one paper submission attempt. */
-    async claimExecutionProposal(id, ownerUserId, updatedAt) {
+    /** Atomically reserve an approved proposal for one paper or simulator submission attempt. */
+    async claimExecutionProposal(id, ownerUserId, updatedAt, { submittingStatus = "PAPER_SUBMITTING" } = {}) {
       const [result] = await executor.execute(
         `UPDATE wf_execution_proposals p
            JOIN wf_paper_accounts a ON a.id = p.account_id
-            SET p.status = 'PAPER_SUBMITTING', p.updated_at = ?
+            SET p.status = ?, p.updated_at = ?
           WHERE p.proposal_id = ? AND p.owner_user_id = ? AND a.owner_user_id = ?
             AND p.status = 'APPROVED'`,
-        [String(updatedAt), String(id), Number(ownerUserId), Number(ownerUserId)],
+        [String(submittingStatus), String(updatedAt), String(id), Number(ownerUserId), Number(ownerUserId)],
       );
       return Number(result.affectedRows) === 1;
     },
 
     /** Finalize only the submission attempt which successfully claimed the row. */
-    async completeExecutionProposal(id, ownerUserId, { status, paperOrderId = null, result: outcome = null, updatedAt }) {
+    async completeExecutionProposal(id, ownerUserId, { status, paperOrderId = null, result: outcome = null, updatedAt, submittingStatus = "PAPER_SUBMITTING" }) {
       const [update] = await executor.execute(
         `UPDATE wf_execution_proposals p
            JOIN wf_paper_accounts a ON a.id = p.account_id
             SET p.status = ?, p.paper_order_id = ?, p.result_json = ?, p.updated_at = ?
           WHERE p.proposal_id = ? AND p.owner_user_id = ? AND a.owner_user_id = ?
-            AND p.status = 'PAPER_SUBMITTING'`,
-        [String(status), paperOrderId === null ? null : Number(paperOrderId), outcome === null ? null : JSON.stringify(outcome), String(updatedAt), String(id), Number(ownerUserId), Number(ownerUserId)],
+            AND p.status = ?`,
+        [String(status), paperOrderId === null ? null : Number(paperOrderId), outcome === null ? null : JSON.stringify(outcome), String(updatedAt), String(id), Number(ownerUserId), Number(ownerUserId), String(submittingStatus)],
       );
       if (Number(update.affectedRows) !== 1) return null;
       return this.findExecutionProposal(id, ownerUserId);

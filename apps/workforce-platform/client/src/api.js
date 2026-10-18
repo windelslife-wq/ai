@@ -195,10 +195,14 @@ export const endpoints = {
   riskLimits: () => api("/api/v1/risk/limits"),
   updateRiskLimits: (patch) => api("/api/v1/risk/limits/update", { method: "POST", body: patch }),
   portfolioRiskScan: (query = "") => api(`/api/v1/portfolio/risk-scan${query}`),
-  // The Broker Center console (Phase 40). One read, and it is the module's only route:
-  // `trading.view` on the server. There is deliberately no enable, toggle, order or MT5
-  // read here — `src/modules/brokers/routes.js` registers none of them.
+  // Broker Center (Phase 40, extended): authenticated broker readiness plus MT5 and
+  // in-process simulator account/quote reads. There is still no direct broker-order route;
+  // proposal submission to the demo bridge is separately permissioned under execution.
   brokers: () => api("/api/v1/brokers"),
+  brokerMt5Account: () => api("/api/v1/brokers/mt5/account"),
+  brokerMt5Quote: (symbol) => api(`/api/v1/brokers/mt5/quote?symbol=${encodeURIComponent(symbol)}`),
+  brokerSimulationAccount: () => api("/api/v1/brokers/simulation/account"),
+  brokerSimulationQuote: (symbol) => api(`/api/v1/brokers/simulation/quote?symbol=${encodeURIComponent(symbol)}`),
   // The journal console (Phase 41). Three session-only reads, exactly the guards the
   // strategies module's routes carry; the module's one write (`POST /journal/manual`) is
   // deliberately not wrapped — the screen does not draw it, as legacy's page did not.
@@ -208,18 +212,21 @@ export const endpoints = {
   // prefix before `${`, and a `?groupBy=` inside it would look like an unregistered path.
   journalSummary: (groupBy) => api(`/api/v1/journal/analytics/summary${groupBy ? `?groupBy=${encodeURIComponent(groupBy)}` : ""}`),
   journalCalibration: () => api("/api/v1/journal/analytics/calibration"),
-  // The Execution Center console (Phase 39). Every read is `trading.view` except the
-  // strategy list, which the server guards with authentication alone; proposing and
-  // paper submission are `trading.execute`, and the decision — a governance act — is
-  // `trading.control`. The screen checks the same permissions before offering a control,
-  // and the API re-checks them either way. There is deliberately no route for broker
-  // routing, automated execution or the automation envelope: `routes.js` registers none.
+  // The Execution Center: proposal/status/automation reads use `trading.view`; proposal,
+  // Paper Trading, simulator and request-based automated Paper submissions use
+  // `trading.execute`; mode/limit/approval governance uses `trading.control`. The simulator
+  // route is owner-scoped and human-approved, and cannot reach a real broker connector.
   executionStatus: () => api("/api/v1/execution/status"),
+  executionAutomation: () => api("/api/v1/execution/automation"),
   executionProposals: (query = "") => api(`/api/v1/execution/proposals${query}`),
   executionProposal: (proposalId) => api(`/api/v1/execution/proposals/${encodeURIComponent(proposalId)}`),
   proposeExecution: (payload) => api("/api/v1/execution/proposals", { method: "POST", body: payload }),
   decideExecution: (proposalId, payload) => api(`/api/v1/execution/proposals/${encodeURIComponent(proposalId)}/decision`, { method: "POST", body: payload }),
   submitExecutionPaper: (proposalId) => api(`/api/v1/execution/proposals/${encodeURIComponent(proposalId)}/paper-submit`, { method: "POST", body: {} }),
+  submitExecutionSimulator: (proposalId) => api(`/api/v1/execution/proposals/${encodeURIComponent(proposalId)}/simulator-submit`, { method: "POST", body: {} }),
+  updateExecutionAutomationLimits: (payload) => api("/api/v1/execution/automation-limits", { method: "PATCH", body: payload }),
+  setExecutionMode: (payload) => api("/api/v1/execution/mode", { method: "POST", body: payload }),
+  executeAutomatedPaper: (payload) => api("/api/v1/execution/automated-paper", { method: "POST", body: payload }),
   // Sports Intelligence console (Phase 36). Every read here is `sports.view` on the
   // server except the active configuration, which is one of the module's two
   // `sports.manage` reads; the two writes are `sports.approve` (the decision, which also
