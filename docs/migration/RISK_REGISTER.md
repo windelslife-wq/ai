@@ -413,7 +413,7 @@ route-inventory count and the persistence-contract length — and both enumerate
 structure rather than scanning source text, which is why neither has a comparable blind spot.
 **F-14 was the only one scanning text.** Related: F-14, F-30, F-31.
 
-### F-26 — no PHP↔Node differential harness (closed in Phase 15 for the sports foundation, extended in Phase 16; extended in Phase 50 to the analysis indicator set and MathUtils; coverage still owed elsewhere)
+### F-26 — no PHP↔Node differential harness (closed in Phase 15 for the sports foundation, extended in Phase 16; extended in Phase 50 to the analysis indicator set and MathUtils and in Phase 51 to the backtest engine, metrics and journal analytics; coverage still owed elsewhere)
 
 Open since Phase 4 and restated at every phase since: both suites were green and
 **nothing compared the two implementations against each other**, so a port could be
@@ -446,11 +446,16 @@ verified that they were.
 
 **What this closure does *not* cover, stated so the finding is not read as retired:**
 
-- The optimizer, regime/setup/scenario generation, strategy and journal
-  metrics, and the notification rules are still un-diffed — the reference to
-  F-26 for each **stands**. The indicator set and `MathUtils` (plus the
-  formatting verbs the payloads embed) are diffed exact in Phase 50: see
-  `PHASE50_ANALYSIS_PARITY.md`; its first run surfaced **F-47** and fixed it.
+- The optimizer (portfolio and strategy-grid), the regime/setup/scenario
+  generation layer, and the notification rules are still un-diffed — the
+  reference to F-26 for each of those **stands**. The indicator set and
+  `MathUtils` (+ the formatting verbs the payloads embed) are diffed exact in
+  Phase 50, and the backtest engine (all four built-ins end to end),
+  `Backtest\Metrics` and `Journal\Analytics` in Phase 51: see
+  `PHASE50_ANALYSIS_PARITY.md` and `PHASE51_STRATEGIES_PARITY.md`. Those runs
+  surfaced and fixed **F-47** (round-tie semantics) and recorded **F-48**
+  (PHP `Backtester::iso()` emits a double-Z timestamp; the Node port keeps
+  the canonicalised string, proven evidence-for-evidence by the harness).
 - **DV-10** must appear in any future numeric diff as an *expected* difference:
   Node's `RiskEngine` vetoes zero, negative and non-finite equity where legacy PHP
   approves it.
@@ -709,3 +714,28 @@ new cases: 1 354/1 354, so no existing expected value had ever pinned the naive
 result.
 
 Related: F-26, `PHASE50_ANALYSIS_PARITY.md`.
+
+---
+
+## Additions after Phase 51 (2026-10-17, branch `arena/d57504c6-ai`)
+
+### F-48 — `Backtester::iso()` emits a double-Z timestamp (recorded; Node canonicalises)
+
+**Found when the strategies golden was read at all** (its first trade row):
+PHP's `Backtester::iso()` is `gmdate('Y-m-d\TH:i:s\Z') . '.' . sprintf('%03d', ms) . 'Z'`
+— the gmdate mask already carries the `Z`, so the emitted string is
+`2024-10-08T11:00:00Z.000Z`. It denotes the right instant but is not parseable
+ISO-8601, and it feeds `execution_time`/`entry_time` TEXT columns over which
+`Journal\Analytics::analyze` sorts (DV-5). The Node port reports the canonical
+`Date.toISOString()` form for the same instant (`2024-10-08T11:00:00.000Z`).
+Re-recording PHP's malformed string in the port would degrade the platform, so
+the port keeps the canonical form and the parity harness
+(`test/strategies_parity.test.js`) proves the correction evidence-for-evidence:
+it asserts the malformed shape REALLY is in the golden, then canonicalises it
+before an otherwise exact, no-tolerance comparison. Cutover implication, stated
+not hidden: on a table that mixes legacy-written and Node-written rows, text
+ordering of `execution_time` differs inside a second ('Z' sorts after '.'),
+which the already-recorded DV-5 note generalises.
+
+Related: F-26, DV-5, F-36/F-37 (the evidence-not-expectation pattern this
+follows), `PHASE51_STRATEGIES_PARITY.md`.

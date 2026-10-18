@@ -2,7 +2,27 @@
 
 **Updated:** 2026-10-17 · **Branch:** `arena/d57504c6-ai`
 
-## Current Phase 50 status (2026-10-17)
+## Current Phase 51 status (2026-10-17)
+
+**F-26 is now closed for the Strategy Lab as well:** the whole
+`Backtester::simulate` engine — SeriesView look-ahead-proof windows, next-open
+fills, pessimistic stop-first, fees/spread/slippage, mark-to-market equity —
+is diffed **end to end** against WASM PHP 8.2 through all four built-in
+strategies (7 market-shape simulations: 28 recorded trades, the
+`ignoredSignals` path with its verbatim warning, the no-trade empty case),
+plus `Backtest\Metrics` and `Journal\Analytics` (`bucketMetrics`, `analyze`,
+`calibration`, en-dash bucket keys, verbatim verdict strings). 27 golden
+cases, exact, no tolerance — and, unlike the analysis slice, **zero code
+repair**: Phase 6's ports were what they claimed. Recorded finding **F-48**:
+PHP's `Backtester::iso()` emits a malformed double-Z timestamp
+(`…T00:00:00Z.000Z`); the Node port keeps the canonical form of the same
+instant, pinned evidence-for-evidence by the harness. **Still standing under
+F-26:** the strategy-optimizer grid search, the portfolio optimizer, the
+analysis regime/setup/scenario layer and the notification rules. Full record:
+[`PHASE51_STRATEGIES_PARITY.md`](PHASE51_STRATEGIES_PARITY.md). Suite:
+**1 384 / 1 384** Node (+30), 367 / 367 PHP oracle, 30 / 30 verify:install.
+
+## Earlier Phase 50 status (2026-10-17)
 
 **F-26 is closed for the analysis module's pure numeric policies** — the 16
 `Indicators` methods, the analysis-layer half of `MathUtils` (PRNG/gaussian
