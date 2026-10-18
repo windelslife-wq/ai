@@ -25,6 +25,7 @@
 import { createBrokerManager } from "./manager.js";
 import { createTradingConnector } from "./connector.js";
 import { createBridgeTransport } from "./transport.js";
+import { createSimulatedMt5Bridge } from "./simulator.js";
 
 export const BROKER_CONNECTOR_ROSTER = Object.freeze([
   {
@@ -158,7 +159,39 @@ export function plannedConnectors() {
 export function createBrokerRegistry({ brokers, now, transportFactory } = {}) {
   const settings = brokers ?? {};
   const perConnector = settings.connectors ?? {};
-  const manager = createBrokerManager();
+  const simulationSettings = settings.simulation ?? {};
+  const simulationEnabled = simulationSettings.enabled === true;
+  const simulationOrdersEnabled = simulationEnabled && simulationSettings.ordersEnabled === true;
+  let simulationConnector = null;
+  if (simulationEnabled) {
+    const bridge = createSimulatedMt5Bridge({
+      now,
+      initialBalance: simulationSettings.initialBalance ?? 10_000,
+      accountId: "SIM-0001",
+      ordersEnabled: simulationOrdersEnabled,
+    });
+    simulationConnector = createTradingConnector({
+      id: "simulated-mt5",
+      displayName: "In-process MT5 simulator",
+      envPrefix: "WF_SIMULATED_BROKER",
+      marketClasses: ["forex", "crypto", "stock", "etf", "futures", "options"],
+      // The URL is a syntactically valid inert placeholder. Its transport is the
+      // in-process function above and never opens a network connection.
+      url: "http://in-process-simulator.invalid",
+      token: "in-process-no-network",
+      enabled: true,
+      tradingEnabled: simulationOrdersEnabled,
+      liveAllowed: false,
+      transport: bridge.transport,
+      now,
+      healthTtlMs: settings.healthTtlMs,
+      requestTimeoutMs: settings.requestTimeoutMs,
+    });
+  }
+  const manager = createBrokerManager({
+    simulationConnector,
+    simulationStatus: { enabled: simulationEnabled, ordersEnabled: simulationOrdersEnabled },
+  });
 
   for (const entry of BROKER_CONNECTOR_ROSTER) {
     const configured = perConnector[entry.id] ?? {};

@@ -1,4 +1,4 @@
-/** Strict contracts for the paper-only Execution Supervisor workflow. */
+/** Strict contracts for the simulation-only Execution Supervisor workflow. */
 
 const SYMBOL = /^[A-Za-z0-9._-]{2,24}$/;
 const MARKET_CLASS = /^(forex|crypto|stock|etf|commodity|futures|options|indices|bonds)$/i;
@@ -36,7 +36,7 @@ export const PROPOSAL_BODY = Object.freeze({
 export const PROPOSALS_QUERY = Object.freeze({
   status: Object.freeze({
     type: "string",
-    values: ["REJECTED", "PENDING_APPROVAL", "APPROVED", "DECLINED", "EXPIRED", "PAPER_SUBMITTING", "PAPER_EXECUTED", "PAPER_PENDING", "PAPER_REJECTED", "PAPER_FAILED"],
+    values: ["REJECTED", "PENDING_APPROVAL", "APPROVED", "DECLINED", "EXPIRED", "PAPER_SUBMITTING", "PAPER_EXECUTED", "PAPER_PENDING", "PAPER_REJECTED", "PAPER_FAILED", "SIMULATOR_SUBMITTING", "SIMULATOR_EXECUTED", "SIMULATOR_PENDING", "SIMULATOR_FAILED"],
   }),
   limit: Object.freeze({ type: "integer", min: 1, max: 500, default: 100 }),
 });
@@ -48,6 +48,31 @@ export const DECISION_BODY = Object.freeze({
   properties: Object.freeze({
     approve: Object.freeze({ type: "boolean" }),
     reason: Object.freeze({ type: "string", minLength: 10, maxLength: 1_000, trim: true }),
+  }),
+});
+
+export const EXECUTION_MODE_BODY = Object.freeze({
+  type: "object",
+  additionalProperties: false,
+  required: ["mode"],
+  properties: Object.freeze({
+    mode: Object.freeze({ type: "string", values: ["HUMAN_APPROVAL", "SEMI_AUTONOMOUS", "FULLY_AUTOMATED"] }),
+  }),
+});
+
+export const AUTOMATION_LIMITS_BODY = Object.freeze({
+  type: "object",
+  additionalProperties: false,
+  properties: Object.freeze({
+    maxDailyTrades: Object.freeze({ type: "integer", min: 1, max: 100 }),
+    maxTradeNotionalUsd: Object.freeze({ type: "number", min: 1, max: 100_000_000 }),
+    maxRiskPerTradePct: Object.freeze({ type: "number", min: 0.0001, max: 0.05 }),
+    approvedSymbols: Object.freeze({
+      type: "array",
+      maxItems: 100,
+      uniqueItems: true,
+      items: Object.freeze({ type: "string", minLength: 2, maxLength: 24, pattern: SYMBOL }),
+    }),
   }),
 });
 

@@ -52,9 +52,11 @@ test("the broker route requires a session and then requires trading.view (F-32)"
 
   const viewer = await addViewerWithoutTradingPermission(instance.store);
   const limited = await signIn(instance.app, viewer.username, "Broker viewer phrase");
-  const forbidden = await instance.app.inject({ method: "GET", url: "/api/v1/brokers", headers: limited.headers });
-  assert.equal(forbidden.statusCode, 403, "a signed-in user without trading.view is refused");
-  assert.equal(forbidden.json().error.code, "PERMISSION_DENIED");
+  for (const url of ["/api/v1/brokers", "/api/v1/brokers/mt5/account", "/api/v1/brokers/mt5/quote?symbol=EURUSD", "/api/v1/brokers/simulation/account", "/api/v1/brokers/simulation/quote?symbol=EURUSD"]) {
+    const forbidden = await instance.app.inject({ method: "GET", url, headers: limited.headers });
+    assert.equal(forbidden.statusCode, 403, `${url} refuses a signed-in user without trading.view`);
+    assert.equal(forbidden.json().error.code, "PERMISSION_DENIED");
+  }
 
   const root = await signIn(instance.app);
   const allowed = await instance.app.inject({ method: "GET", url: "/api/v1/brokers", headers: root.headers });
@@ -83,7 +85,16 @@ test("a default host reports ten disabled connectors, routes nothing, and leaks 
   }
 
   assert.equal(body.routable, false, "no connector may route, so nothing can be routed");
-  assert.match(body.notice, /No connector is READY with effective order submission/i);
+  assert.match(body.notice, /No real connector is READY with effective order submission/i);
+  assert.deepEqual(body.simulation, {
+    enabled: false,
+    ordersEnabled: false,
+    memoryOnly: true,
+    accountType: "demo",
+    liveTradingEnabled: false,
+    state: "DISABLED",
+    message: "In-process simulator is disabled by default.",
+  });
   assert.equal(body.planned.length, 9, "the nine unverified adapters are named as PLANNED");
   assert.ok(body.planned.every((entry) => entry.status === "PLANNED"));
 
@@ -95,7 +106,50 @@ test("a default host reports ten disabled connectors, routes nothing, and leaks 
   assert.equal(serialized.includes("Bearer"), false, "no authorization header appears");
 });
 
-test("there is no broker write route, no order route and no simulated-bridge toggle", async (t) => {
+test("the optional simulator is explicit, read-only over HTTP, and never makes real routing available", async (t) => {
+  const instance = await createFileStoreApp({
+    configOverrides: {
+      env: {
+        WF_SIMULATED_BROKER_ENABLED: "1",
+        WF_SIMULATED_BROKER_ORDERS_ENABLED: "1",
+        WF_SIMULATED_BROKER_INITIAL_BALANCE: "25000",
+      },
+    },
+  });
+  t.after(() => instance.cleanup());
+  const { headers } = await signIn(instance.app);
+
+  const center = await instance.app.inject({ method: "GET", url: "/api/v1/brokers", headers });
+  assert.equal(center.statusCode, 200, center.body);
+  assert.equal(center.json().routable, false, "the simulated connector never counts as real broker routing");
+  assert.equal(center.json().simulation.enabled, true);
+  assert.equal(center.json().simulation.ordersEnabled, true);
+  assert.equal(center.json().simulation.memoryOnly, true);
+  assert.equal(center.json().simulation.liveTradingEnabled, false);
+
+  const account = await instance.app.inject({ method: "GET", url: "/api/v1/brokers/simulation/account", headers });
+  assert.equal(account.statusCode, 200, account.body);
+  assert.equal(account.json().account.balance, 25_000);
+  assert.equal(account.json().account.accountId, "SIM-0001");
+  assert.equal(account.json().simulationOnly, true);
+  assert.equal(account.json().memoryOnly, true);
+
+  const quote = await instance.app.inject({ method: "GET", url: "/api/v1/brokers/simulation/quote?symbol=EURUSD", headers });
+  assert.equal(quote.statusCode, 200, quote.body);
+  assert.equal(quote.json().quote.symbol, "EURUSD");
+  assert.equal(quote.json().simulationOnly, true);
+  assert.equal(quote.json().memoryOnly, true);
+
+  const missingSymbol = await instance.app.inject({ method: "GET", url: "/api/v1/brokers/simulation/quote", headers });
+  assert.equal(missingSymbol.statusCode, 400);
+  assert.equal(missingSymbol.json().error.code, "INVALID_REQUEST");
+
+  const realAccount = await instance.app.inject({ method: "GET", url: "/api/v1/brokers/mt5/account", headers });
+  assert.equal(realAccount.statusCode, 503, "an enabled simulator is never a substitute for a configured MT5 bridge");
+  assert.equal(realAccount.json().error.code, "BROKER_NOT_CONFIGURED");
+});
+
+test("Broker Center has no direct write/toggle route; the only simulator write is proposal-gated in Execution", async (t) => {
   const instance = await createFileStoreApp({});
   t.after(() => instance.cleanup());
   const { headers } = await signIn(instance.app);
@@ -104,8 +158,14 @@ test("there is no broker write route, no order route and no simulated-bridge tog
   const brokerRoutes = inventory.filter((route) => route.path.includes("/brokers"));
   assert.deepEqual(
     brokerRoutes.map((route) => `${route.method} ${route.path}`),
-    ["GET /api/v1/brokers"],
-    "exactly one broker route exists and it is a read",
+    [
+      "GET /api/v1/brokers",
+      "GET /api/v1/brokers/mt5/account",
+      "GET /api/v1/brokers/mt5/quote",
+      "GET /api/v1/brokers/simulation/account",
+      "GET /api/v1/brokers/simulation/quote",
+    ],
+    "the Broker Center exposes only authenticated status/account/quote reads",
   );
 
   // Legacy's console had `Brokers::sim_toggle()`, which wrote a marker file its dev
@@ -118,21 +178,15 @@ test("there is no broker write route, no order route and no simulated-bridge tog
     }
   }
 
-  // No route may place, modify, cancel or close a *broker* order. The paper module
-  // legitimately owns order and position routes — those reach the simulation engine,
-  // never a connector — so the assertion is that every order-shaped route lives under
-  // /api/v1/paper and that none lives under /api/v1/brokers or /api/v1/execution.
-  const orderShaped = inventory.filter((route) => /\/(orders?|positions?|route|place|close|cancel|modify)(\/|$)/i.test(route.path) || /\/(orders?|positions?|close|cancel|modify)$/i.test(route.path));
-  assert.ok(orderShaped.length > 0, "the paper module's own order routes are present, so this assertion is not vacuous");
-  const outsidePaper = orderShaped.filter((route) => !route.path.startsWith("/api/v1/paper"));
-  assert.deepEqual(
-    outsidePaper.map((route) => `${route.method} ${route.path}`),
-    [],
-    "every order-shaped route belongs to the paper simulation, not to a broker connector",
-  );
-
   const writeRoutes = inventory.filter((route) => route.path.includes("/brokers") && route.method !== "GET");
-  assert.deepEqual(writeRoutes, []);
+  assert.deepEqual(writeRoutes, [], "Broker Center exposes no direct broker order or toggle write");
+  const simulatorSubmit = inventory.find((route) => route.path === "/api/v1/execution/proposals/:proposalId/simulator-submit");
+  assert.ok(simulatorSubmit, "simulator orders are submitted only from an owner-scoped proposal");
+  assert.equal(simulatorSubmit.method, "POST");
+  assert.equal(simulatorSubmit.permission, "trading.execute");
+  assert.equal(simulatorSubmit.auth, true);
+  assert.equal(inventory.some((route) => route.path === "/api/v1/execution/route" || route.path === "/api/v1/brokers/orders"), false,
+    "there is no generic real-broker order route");
 });
 
 test("the public status surface reports broker readiness without probing anything", async (t) => {
@@ -149,7 +203,10 @@ test("the public status surface reports broker readiness without probing anythin
   assert.equal(body.trading.liveTradingEnabled, false);
   assert.equal(body.trading.brokerConnectorAvailable, false);
   assert.equal(body.trading.brokerConnectorsConfigured, 0, "nothing is configured on a default host");
-  assert.match(body.trading.reason, /no adapter is verified and no order can be routed/i);
+  assert.match(body.trading.reason, /process-local MT5-shaped simulator may submit only an approved proposal after all fifteen checks/i);
+  assert.match(body.trading.reason, /real adapters remain unverified and live trading is disabled/i);
+  assert.equal(body.trading.simulatedBrokerAvailable, false);
+  assert.equal(body.trading.simulatedOrderRoutingEnabled, false);
   assert.match(body.trading.reason, /GET \/api\/v1\/brokers/, "the reason points at the surface that does probe");
 
   const features = await instance.app.inject({ method: "GET", url: "/api/v1/system/features" });
@@ -164,7 +221,9 @@ test("the public status surface reports broker readiness without probing anythin
   assert.equal(execution.brokerConnectorAvailable, false);
   assert.equal(execution.brokerConnectorsConfigured, 0);
   assert.equal(execution.liveTradingEnabled, false);
-  assert.equal(execution.automatedModesAvailable, false, "the automated modes still do not exist");
+  assert.equal(execution.automatedModesAvailable, true, "the automated modes are available only through governed Paper Trading");
+  assert.deepEqual(execution.availableModes, ["HUMAN_APPROVAL", "SEMI_AUTONOMOUS", "FULLY_AUTOMATED"]);
+  assert.match(execution.automationScope, /Paper Trading only/);
 });
 
 test("a configured bridge that cannot be reached reports DOWN and still routes nothing", async (t) => {
@@ -244,6 +303,19 @@ test("the environment gate refuses an unsafe bridge URL and accepts a loopback o
     () => loadConfig({ SESSION_SECRET: SECRET, NODE_ENV: "test", AEGIS_MT5_BRIDGE_ENABLED: "maybe" }),
     { message: /AEGIS_MT5_BRIDGE_ENABLED must be true or false/ },
   );
+  assert.deepEqual(defaults.brokers.simulation, { enabled: false, ordersEnabled: false, initialBalance: 10_000 });
+  assert.throws(
+    () => loadConfig({ SESSION_SECRET: SECRET, NODE_ENV: "test", WF_SIMULATED_BROKER_ORDERS_ENABLED: "1" }),
+    { message: /WF_SIMULATED_BROKER_ORDERS_ENABLED requires WF_SIMULATED_BROKER_ENABLED=1/ },
+  );
+  const simulationOn = loadConfig({
+    SESSION_SECRET: SECRET,
+    NODE_ENV: "test",
+    WF_SIMULATED_BROKER_ENABLED: "1",
+    WF_SIMULATED_BROKER_ORDERS_ENABLED: "1",
+    WF_SIMULATED_BROKER_INITIAL_BALANCE: "25000",
+  });
+  assert.deepEqual(simulationOn.brokers.simulation, { enabled: true, ordersEnabled: true, initialBalance: 25_000 });
   assert.throws(
     () => loadConfig({ SESSION_SECRET: SECRET, NODE_ENV: "test", BROKER_REQUEST_TIMEOUT_MS: "10" }),
     { message: /BROKER_REQUEST_TIMEOUT_MS must be an integer between 1000 and 60000/ },

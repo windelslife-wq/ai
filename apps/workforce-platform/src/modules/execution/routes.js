@@ -1,14 +1,20 @@
 /**
- * Paper-only Execution Supervisor routes (Phase 8A).
- *
- * Approval is a separate `trading.control` action; paper submission requires
- * `trading.execute` and calls the existing Paper Trading service. No live-order
- * or broker route is registered here.
+ * Execution Supervisor routes. Broker-independent proposal submission remains
+ * simulation-only through Paper Trading. Governed automated modes are also
+ * confined to the same Paper Trading service; no endpoint routes live money.
  */
 
 import { createAuthenticator, requirePermission } from "../platform/guards.js";
 import { createExecutionService } from "./service.js";
-import { DECISION_BODY, EMPTY_BODY, PROPOSAL_BODY, PROPOSAL_PARAMS, PROPOSALS_QUERY } from "./contracts.js";
+import {
+  AUTOMATION_LIMITS_BODY,
+  DECISION_BODY,
+  EMPTY_BODY,
+  EXECUTION_MODE_BODY,
+  PROPOSAL_BODY,
+  PROPOSAL_PARAMS,
+  PROPOSALS_QUERY,
+} from "./contracts.js";
 
 export function executionRoutes(app, { store, config, service = null, paper = null, strategies = null, log = app.log }) {
   const execution = service || createExecutionService({ store, paper, strategies, log });
@@ -24,6 +30,26 @@ export function executionRoutes(app, { store, config, service = null, paper = nu
   const control = guardFor("trading.control");
 
   app.get("/execution/status", { preHandler: view }, async () => execution.statusSnapshot());
+  app.get("/execution/automation", { preHandler: view }, async (request) => execution.automationConfig(actorOf(request)));
+
+  app.patch("/execution/automation-limits", {
+    preHandler: control,
+    bodySchema: AUTOMATION_LIMITS_BODY,
+  }, async (request) => execution.updateAutomationLimits(actorOf(request), request.body));
+
+  app.post("/execution/mode", {
+    preHandler: control,
+    bodySchema: EXECUTION_MODE_BODY,
+  }, async (request) => execution.setExecutionMode(actorOf(request), request.body.mode));
+
+  app.post("/execution/automated-paper", {
+    preHandler: execute,
+    bodySchema: PROPOSAL_BODY,
+  }, async (request, reply) => {
+    const result = await execution.executeAutomated(actorOf(request), request.body);
+    const status = result.status === "REJECTED" ? 409 : result.status === "PAPER_PENDING" ? 202 : 201;
+    return reply.code(status).send(result);
+  });
 
   app.post("/execution/proposals", {
     preHandler: execute,
@@ -50,12 +76,20 @@ export function executionRoutes(app, { store, config, service = null, paper = nu
     preHandler: execute,
     paramsSchema: PROPOSAL_PARAMS,
     bodySchema: EMPTY_BODY,
-  }, async (_request, reply) => {
-    const proposalId = _request.params.proposalId;
-    const ownerUserId = _request.auth?.user?.id ?? null;
-    const result = await execution.submitToPaper(ownerUserId, proposalId);
+  }, async (request, reply) => {
+    const result = await execution.submitToPaper(request.auth?.user?.id ?? null, request.params.proposalId);
     const status = result.proposal.status === "PAPER_REJECTED" ? 409
       : result.proposal.status === "PAPER_PENDING" ? 202 : 201;
+    return reply.code(status).send(result);
+  });
+
+  app.post("/execution/proposals/:proposalId/simulator-submit", {
+    preHandler: execute,
+    paramsSchema: PROPOSAL_PARAMS,
+    bodySchema: EMPTY_BODY,
+  }, async (request, reply) => {
+    const result = await execution.submitToSimulator(request.auth?.user?.id ?? null, request.params.proposalId);
+    const status = result.proposal.status === "SIMULATOR_PENDING" ? 202 : 201;
     return reply.code(status).send(result);
   });
 }

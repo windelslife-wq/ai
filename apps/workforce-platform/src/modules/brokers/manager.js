@@ -21,6 +21,8 @@
 /**
  * @param {object} [options]
  * @param {Array<object>} [options.connectors] connectors to register at construction
+ * @param {object|null} [options.simulationConnector] isolated simulator, never included in real routing
+ * @param {object} [options.simulationStatus] simulator configuration summary
  */
 export function createBrokerManager(options = {}) {
   /** @type {Map<string, object>} insertion-ordered, as legacy's PHP array was */
@@ -143,6 +145,31 @@ export function createBrokerManager(options = {}) {
     return total;
   }
 
+  /**
+   * An explicit simulator lookup that is deliberately disjoint from
+   * `tradingConnector()` and `routable()`. A simulation can never make the
+   * platform claim that a real broker is order-routable.
+   */
+  function simulationConnector() {
+    return options.simulationStatus?.enabled === true ? options.simulationConnector ?? null : null;
+  }
+
+  function simulationStatus() {
+    return Object.freeze({
+      enabled: options.simulationStatus?.enabled === true,
+      ordersEnabled: options.simulationStatus?.ordersEnabled === true,
+      memoryOnly: true,
+      accountType: "demo",
+      liveTradingEnabled: false,
+      state: options.simulationStatus?.enabled === true ? "READY" : "DISABLED",
+      message: options.simulationStatus?.enabled === true
+        ? (options.simulationStatus?.ordersEnabled === true
+          ? "In-process simulator ready; all orders are simulated and reset when the process restarts."
+          : "In-process simulator is read-only; simulated order submission is disabled.")
+        : "In-process simulator is disabled by default.",
+    });
+  }
+
   return Object.freeze({
     register,
     get,
@@ -151,6 +178,8 @@ export function createBrokerManager(options = {}) {
     allStatus,
     tradingConnector,
     routable,
+    simulationConnector,
+    simulationStatus,
     isOrderCapable,
     get size() {
       return connectors.size;

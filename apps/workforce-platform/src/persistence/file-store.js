@@ -714,15 +714,15 @@ export async function createFileStore({ dir, logger = console, idFactory = () =>
           });
           return true;
         },
-        async claimExecutionProposal(id, ownerUserId, updatedAt) {
+        async claimExecutionProposal(id, ownerUserId, updatedAt, { submittingStatus = "PAPER_SUBMITTING" } = {}) {
           const row = await this.findExecutionProposal(id, ownerUserId);
           if (!row || row.status !== "APPROVED") return false;
-          txPut("executionProposals", { ...row, status: "PAPER_SUBMITTING", updated_at: String(updatedAt) });
+          txPut("executionProposals", { ...row, status: String(submittingStatus), updated_at: String(updatedAt) });
           return true;
         },
-        async completeExecutionProposal(id, ownerUserId, { status, paperOrderId = null, result = null, updatedAt }) {
+        async completeExecutionProposal(id, ownerUserId, { status, paperOrderId = null, result = null, updatedAt, submittingStatus = "PAPER_SUBMITTING" }) {
           const row = await this.findExecutionProposal(id, ownerUserId);
-          if (!row || row.status !== "PAPER_SUBMITTING") return null;
+          if (!row || row.status !== String(submittingStatus)) return null;
           return txPut("executionProposals", {
             ...row,
             status: String(status),
