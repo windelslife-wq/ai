@@ -19,8 +19,12 @@ async function api(url, options = {}) {
       ...options.headers,
     },
   });
-  const data = await res.json();
-  if (!res.ok) throw Error(data.error?.code || "Request failed");
+  const data = await res.json().catch(() => null);
+  if (!res.ok) {
+    const message = data?.error?.code || data?.error?.message || `Request failed (${res.status})`;
+    throw Object.assign(new Error(message), { status: res.status, code: data?.error?.code });
+  }
+  if (data === null) throw new Error("The server returned an invalid response.");
   return data;
 }
 const table = (columns, rows) =>
@@ -56,11 +60,14 @@ async function render(name = tab) {
           try {
             const g = await api("/api/admin/generation-report");
             if (g.generation) $("#stage").textContent = g.generation.stage;
-          } catch {}
+          } catch (error) {
+            const stage = $("#stage");
+            if (stage) stage.textContent = `Generation status unavailable: ${error instanceof Error ? error.message : "request failed"}`;
+          }
         }, 1000);
         try {
           await api("/api/admin/generate-ticket", { method: "POST" });
-          await render(name);
+          if (tab === name) await render(name);
         } catch (err) {
           clearInterval(timer);
           $("#stage").textContent = err.message;
@@ -254,24 +261,45 @@ async function render(name = tab) {
       `<div class="panel error">${esc(err.message)}</div>`;
   }
 }
-(async () => {
+function showBootstrapError(message, { denied = false } = {}) {
+  clearInterval(timer);
+  $("#heading").textContent = denied ? "Administrator access required" : "Connection error";
+  const content = $("#content");
+  content.innerHTML = `<div class="panel ${denied ? "error" : "notice"}" role="alert">${esc(message)}</div><div class="controls"><button class="button secondary" id="retry-bootstrap">Retry</button><a class="button secondary" href="/login.html">Administrator sign in</a></div>`;
+  $("#retry-bootstrap").onclick = () => void bootAdmin();
+}
+
+async function bootAdmin() {
+  $("#heading").textContent = "Checking administrator session…";
+  $("#content").textContent = "Loading secure controls…";
   try {
-    await api("/api/auth/me");
+    const session = await api("/api/auth/me");
+    if (session.user?.role !== "ADMIN") {
+      showBootstrapError("The signed-in account is not an administrator. Sign in with an administrator account to continue.", { denied: true });
+      return;
+    }
     csrf = (await api("/api/auth/csrf", { method: "POST" })).csrfToken;
-    $("#tabs").onclick = (e) => {
-      const b = e.target.closest("[data-tab]");
-      if (b) render(b.dataset.tab);
+    $("#tabs").onclick = (event) => {
+      const button = event.target.closest("[data-tab]");
+      if (button) void render(button.dataset.tab);
     };
     $("#logout").onclick = async () => {
       try {
         await api("/api/auth/logout", { method: "POST" });
         location.replace("/login.html");
-      } catch (err) {
-        alert(err.message);
+      } catch (error) {
+        alert(error instanceof Error ? error.message : "Sign out failed.");
       }
     };
     await render();
-  } catch {
-    location.replace("/login.html");
+  } catch (error) {
+    if (error?.status === 401) { location.replace("/login.html"); return; }
+    if (error?.status === 403 && error?.code === "ADMIN_REQUIRED") {
+      showBootstrapError("Administrator access is required for this control center.", { denied: true });
+      return;
+    }
+    showBootstrapError(error instanceof Error ? error.message : "Unable to load administrator controls.");
   }
-})();
+}
+
+void bootAdmin();

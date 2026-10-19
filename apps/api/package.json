@@ -11,13 +11,15 @@
     "test": "node --import tsx --test test/*.test.ts"
   },
   "dependencies": {
-    "@fastify/jwt": "10.2.2",
-    "fastify": "5.12.1",
-    "bcryptjs": "3.0.2",
     "@fastify/cors": "11.3.0",
-    "pg": "8.15.6",
+    "@fastify/jwt": "10.2.2",
+    "bcryptjs": "3.0.2",
+    "fastify": "5.12.7",
     "ioredis": "5.6.1",
+    "pg": "8.15.6",
     "zod": "3.24.4"
   },
-  "devDependencies": { "@types/pg": "8.11.13" }
+  "devDependencies": {
+    "@types/pg": "8.11.13"
+  }
 }
