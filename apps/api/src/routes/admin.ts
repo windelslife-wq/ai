@@ -56,8 +56,11 @@ export async function adminRoutes(app: FastifyInstance): Promise<void> {
   app.patch("/users/:id", async request => {
     const principal = await admin(request); const userId = UserId(request); const input = UserUpdateSchema.parse(request.body);
     if (userId === principal.sub && input.active === false) throw Object.assign(new Error("you cannot deactivate your own administrator account"), { statusCode: 400 });
-    const membership = await app.db.query("SELECT 1 FROM organization_members WHERE organization_id=$1 AND user_id=$2", [principal.organizationId, userId]);
+    const membership = await app.db.query("SELECT role FROM organization_members WHERE organization_id=$1 AND user_id=$2", [principal.organizationId, userId]);
     if (!membership.rows[0]) throw Object.assign(new Error("user is not a member of this organization"), { statusCode: 404 });
+    const currentRole = String(membership.rows[0].role);
+    if (currentRole === "owner" && input.role !== undefined) throw Object.assign(new Error("owner role cannot be changed"), { statusCode: 400 });
+    if (userId === principal.sub && input.role !== undefined && input.role !== currentRole) throw Object.assign(new Error("you cannot change your own administrator role"), { statusCode: 400 });
     if (input.active !== undefined || input.displayName !== undefined) {
       const updates: string[] = []; const values: unknown[] = [];
       if (input.active !== undefined) { values.push(input.active); updates.push(`active=$${values.length}`); }

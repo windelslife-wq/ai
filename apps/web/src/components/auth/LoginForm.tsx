@@ -5,15 +5,23 @@ import { useRouter } from "next/navigation";
 import { useState, type FormEvent } from "react";
 import { authApi } from "../../lib/leadDiscovery";
 import { clearSessionTokens, saveSessionTokens } from "../../lib/session";
+import { loginDestination } from "../../lib/loginDestination";
 
 export function LoginForm({ admin = false }: { admin?: boolean }) {
   const [email, setEmail] = useState(""); const [password, setPassword] = useState(""); const [error, setError] = useState(""); const [busy, setBusy] = useState(false); const router = useRouter();
   const submit = async (event: FormEvent) => {
-    event.preventDefault(); setBusy(true); setError("");
+    event.preventDefault(); if (busy) return; setBusy(true); setError("");
     try {
       const session = await authApi.login(email, password);
-      if (admin && !session.permissions.includes("lead.admin")) { await authApi.logout(session.refreshToken).catch(() => undefined); clearSessionTokens(); throw new Error("This account does not have administrator access."); }
-      saveSessionTokens(session.token, session.refreshToken); router.push(admin ? "/admin" : "/app/leads");
+      const destination = loginDestination(session.permissions, admin);
+      if (!destination) {
+        let revocationWarning = "";
+        try { await authApi.logout(session.refreshToken); }
+        catch (exception) { revocationWarning = ` Server session revocation also failed: ${exception instanceof Error ? exception.message : "request failed"}.`; }
+        clearSessionTokens();
+        throw new Error(`This account does not have administrator access.${revocationWarning}`);
+      }
+      saveSessionTokens(session.token, session.refreshToken); router.push(destination);
     } catch (exception) { setError(exception instanceof Error ? exception.message : "Sign in failed"); }
     finally { setBusy(false); }
   };
@@ -59,6 +67,8 @@ export function LoginForm({ admin = false }: { admin?: boolean }) {
               <input
                 type="email"
                 required
+                maxLength={190}
+                disabled={busy}
                 autoComplete="email"
                 value={email}
                 onChange={event => setEmail(event.target.value)}
@@ -70,6 +80,8 @@ export function LoginForm({ admin = false }: { admin?: boolean }) {
               <input
                 type="password"
                 required
+                maxLength={512}
+                disabled={busy}
                 autoComplete="current-password"
                 value={password}
                 onChange={event => setPassword(event.target.value)}
@@ -88,7 +100,8 @@ export function LoginForm({ admin = false }: { admin?: boolean }) {
               {busy ? "Signing in…" : "Sign in"}
             </button>
           </form>
-          <p className="mt-6 text-center text-sm text-slate-500">
+          <p className="mt-6 text-center text-sm text-slate-500">Need access? Ask your organization administrator to provision an account; public self-registration is not available.</p>
+          <p className="mt-4 text-center text-sm text-slate-500">
             <a className="text-cyan-300 hover:underline" href="/">
               Back to website
             </a>

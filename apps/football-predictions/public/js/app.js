@@ -8,8 +8,13 @@ const esc = (x) =>
   );
 async function get(url) {
   const r = await fetch(url);
-  if (!r.ok) throw Error("Unable to load data");
-  return r.json();
+  const payload = await r.json().catch(() => null);
+  if (!r.ok) {
+    const message = payload?.error?.code || payload?.error?.message || `Request failed (${r.status})`;
+    throw Object.assign(new Error(message), { status: r.status, code: payload?.error?.code });
+  }
+  if (payload === null) throw new Error("The server returned an invalid response.");
+  return payload;
 }
 function formatDate(value) {
   return value
@@ -63,44 +68,92 @@ function ticketView(data) {
     }
     if (page === "history") {
       let pageN = 1;
+      let loading = false;
       const container = document.getElementById("history"),
         more = document.getElementById("more");
       async function load() {
-        const { data } = await get("/api/tickets/history?page=" + pageN);
-        const html = data
-          .map(
-            (t) =>
-              `<a class="panel match" href="/ticket.html?id=${encodeURIComponent(t.id)}"><div><span class="eyebrow">${esc(t.day)}</span><h3>Over 1.5 Goals · Ticket #${esc(t.id)}</h3><span class="badge">${esc(t.result)}</span></div><span class="odds">${esc(Number(t.original_odds).toFixed(2))}</span></a>`,
-          )
-          .join("");
-        if (pageN === 1)
-          container.innerHTML =
-            html || '<div class="panel">No published tickets yet.</div>';
-        else container.insertAdjacentHTML("beforeend", html);
-        more.hidden = data.length < 20;
-        pageN++;
+        if (loading) return;
+        loading = true;
+        more.disabled = true;
+        more.textContent = "Loading…";
+        container.setAttribute("aria-busy", "true");
+        try {
+          const { data } = await get("/api/tickets/history?page=" + pageN);
+          container.querySelector("[data-history-error]")?.remove();
+          const html = data
+            .map(
+              (t) =>
+                `<a class="panel match" href="/ticket.html?id=${encodeURIComponent(t.id)}"><div><span class="eyebrow">${esc(t.day)}</span><h3>Over 1.5 Goals · Ticket #${esc(t.id)}</h3><span class="badge">${esc(t.result)}</span></div><span class="odds">${esc(Number(t.original_odds).toFixed(2))}</span></a>`,
+            )
+            .join("");
+          if (pageN === 1)
+            container.innerHTML =
+              html || '<div class="panel">No published tickets yet.</div>';
+          else container.insertAdjacentHTML("beforeend", html);
+          pageN += 1;
+          more.hidden = data.length < 20;
+          more.textContent = "Load more";
+        } catch (error) {
+          const message = error instanceof Error ? error.message : "Unable to load ticket history.";
+          if (pageN === 1) container.textContent = message;
+          else {
+            container.querySelector("[data-history-error]")?.remove();
+            const notice = document.createElement("p");
+            notice.dataset.historyError = "true";
+            notice.className = "panel error";
+            notice.setAttribute("role", "alert");
+            notice.textContent = message;
+            container.append(notice);
+          }
+          more.hidden = false;
+          more.textContent = "Retry";
+        } finally {
+          loading = false;
+          more.disabled = false;
+          container.setAttribute("aria-busy", "false");
+        }
       }
-      more.onclick = load;
+      more.onclick = () => void load();
       await load();
     }
     if (page === "login") {
-      const existing = await fetch("/api/auth/me");
-      if (existing.ok) location.replace("/admin.html");
       const form = document.getElementById("login");
+      const msg = document.getElementById("message");
+      try {
+        const existing = await fetch("/api/auth/me");
+        if (existing.ok) {
+          const session = await existing.json().catch(() => ({}));
+          if (session.user?.role === "ADMIN") { location.replace("/admin.html"); return; }
+          if (session.user) msg.textContent = "The current account is not an administrator. Sign in with an administrator account.";
+        }
+      } catch (error) {
+        msg.textContent = `Unable to verify the current session: ${error instanceof Error ? error.message : "request failed"}`;
+      }
       form.onsubmit = async (e) => {
         e.preventDefault();
-        const msg = document.getElementById("message");
+        const submit = form.querySelector("button");
+        if (submit?.disabled) return;
+        const originalText = submit?.textContent;
+        if (submit) { submit.disabled = true; submit.textContent = "Signing in…"; }
+        msg.textContent = "";
         try {
           const body = Object.fromEntries(new FormData(form));
-          const r = await fetch("/api/auth/login", {
+          const response = await fetch("/api/auth/login", {
             method: "POST",
             headers: { "content-type": "application/json" },
             body: JSON.stringify(body),
           });
-          if (!r.ok) throw Error("Sign in failed");
+          const payload = await response.json().catch(() => null);
+          if (!response.ok) {
+            const message = payload?.error?.code || payload?.error?.message || `Sign in failed (${response.status})`;
+            throw new Error(message);
+          }
+          if (payload?.user?.role !== "ADMIN") throw new Error("This account does not have administrator access.");
           location.replace("/admin.html");
-        } catch (err) {
-          msg.textContent = err.message;
+        } catch (error) {
+          msg.textContent = error instanceof Error ? error.message : "Sign in failed.";
+        } finally {
+          if (submit) { submit.disabled = false; submit.textContent = originalText || "Sign in →"; }
         }
       };
     }

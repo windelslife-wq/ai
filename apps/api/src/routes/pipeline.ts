@@ -19,6 +19,13 @@ export async function pipelineRoutes(app: FastifyInstance): Promise<void> {
   app.get("/summary", async request => { const user = await requireLeadAccess(request); return app.leadPipeline.summary(user.organizationId); });
   app.get("/pipeline", async request => { const user = await requireLeadAccess(request); return app.leadPipeline.pipeline(user.organizationId); });
 
+  // A display-name-only roster lets lead writers assign owners without exposing member emails.
+  app.get("/members", async request => {
+    const user = await requireLeadAccess(request);
+    const result = await app.db.query("SELECT u.id,u.display_name,u.active FROM users u JOIN organization_members om ON om.user_id=u.id WHERE om.organization_id=$1 ORDER BY lower(COALESCE(u.display_name,'')),u.id", [user.organizationId]);
+    return { members: result.rows.map(row => ({ id: String(row.id), displayName: row.display_name == null ? null : String(row.display_name), active: row.active === true })) };
+  });
+
   app.patch("/leads/:id/status", async request => {
     const user = await writable(request); const leadId = id(request, "id");
     const body = ChangeLeadStatusSchema.parse(request.body);

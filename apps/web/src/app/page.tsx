@@ -10,8 +10,8 @@ const capabilities = [
 ];
 
 const howItWorks = [
-  ["01", "Create account", "Register as a platform member. Role is determined securely by backend/session/database."],
-  ["02", "Open workspace", "Login sends you to your dashboard. Admins are routed to admin dashboard securely — no public Admin Login button."],
+  ["01", "Get account access", "Your organization administrator provisions accounts and memberships; public self-registration is not available in this workspace."],
+  ["02", "Open workspace", "Sign in with your organization account. Backend permissions route administrators to control center and members to lead discovery."],
   ["03", "Choose a module", "Language Teacher, AI Workforce, Leads, Trading, and other tools — all behind authentication."],
   ["04", "Stay governed", "Kill switch, RBAC, CSRF, labelled simulation, audit trail. Nothing is faked to look complete."],
 ];
@@ -25,9 +25,9 @@ const agents = [
 ];
 
 const features = [
-  ["Persistent Dashboard", "Sidebar remains mounted while navigating. Back/Forward controls use real navigation history."],
-  ["Professional AI Visual", "AI agent avatar displays correctly on desktop, tablet, mobile — no stretch, no overflow, no clipping."],
-  ["Secure Auth", "Public sees only Login/Register/Forgot. Admins still authenticate via normal secure system, role checked server-side."],
+  ["Responsive Navigation", "Shared top navigation reaches the overview, discovery, pipeline, intelligence, collections, and account pages across desktop and mobile layouts."],
+  ["Professional AI Visual", "The WINDELS AI agent artwork anchors the product experience; responsive layouts adapt cards and tables to narrow screens."],
+  ["Secure Auth", "Protected tools use authenticated API requests with organization-scoped data and server-side role checks. Organization admins provision accounts."],
   ["Voice & Audio", "Listen to words, sentences, AI responses with correct locale voices (nl-NL, es-ES, it-IT, fr-FR, de-DE, en-GB). Speed control, replay, stop."],
   ["Auto Language Detection", "Detects input language, compares with target, translates/explains without accidentally changing target language."],
   ["Responsive & Balanced", "Homepage has clear hierarchy, balanced spacing, no scattered components, no dashboard elements in public pages."],
@@ -41,7 +41,7 @@ const useCases = [
 ];
 
 const faqs = [
-  ["Can I open the dashboard without an account?", "No. /dashboard and module consoles redirect visitors to login."],
+  ["Can I use the dashboard without an account?", "No. Protected workspaces require a valid session; visitors see a sign-in prompt and the API enforces access server-side."],
   ["What is WINDELS AI WORKFORCE?", "An AI-powered workforce platform: language learning, market analysis, sports/lottery research, lead discovery. Evidence-first, audited, fail-closed."],
   ["How does language switching work?", "Your target language only changes when you explicitly select a new language or clearly request it. Typing another language for translation does not change your profile."],
   ["Is voice real?", "Yes. Uses real text-to-speech via browser SpeechSynthesis where available, with locale-correct voices. No fake audio."],
@@ -68,14 +68,14 @@ export default function HomePage() {
             </p>
             <div className="mt-8 flex flex-wrap gap-3">
               <Link href="/login" className="rounded-xl bg-cyan-400 px-5 py-3 font-semibold text-slate-950 transition hover:bg-cyan-300">
-                Get started
+                Sign in
               </Link>
               <Link href="/app/leads" className="rounded-xl border border-slate-700 px-5 py-3 font-semibold text-slate-200 transition hover:border-cyan-600">
-                Explore workforce
+                Explore lead discovery
               </Link>
             </div>
             <div className="mt-8 flex flex-wrap gap-2 text-xs text-slate-500">
-              <span className="rounded-full border border-slate-700 px-3 py-1">Persistent sidebar</span>
+              <span className="rounded-full border border-slate-700 px-3 py-1">Responsive top navigation</span>
               <span className="rounded-full border border-slate-700 px-3 py-1">Back/Forward history</span>
               <span className="rounded-full border border-slate-700 px-3 py-1">Real TTS voices</span>
               <span className="rounded-full border border-slate-700 px-3 py-1">Secure role check</span>
@@ -92,13 +92,13 @@ export default function HomePage() {
                   </div>
                   <div className="min-w-0">
                     <p className="text-sm font-bold text-white">WINDELS Assistant</p>
-                    <p className="text-xs text-cyan-300">AI Workforce · Online</p>
-                    <p className="mt-1 text-[11px] text-slate-500">Grounded responses · no fake data</p>
+                    <p className="text-xs text-cyan-300">Product illustration</p>
+                    <p className="mt-1 text-[11px] text-slate-500">Example conversation · not a live session</p>
                   </div>
                 </div>
                 <div className="mt-5 space-y-3">
                   <div className="rounded-xl bg-slate-900 px-3 py-2 text-sm text-slate-300">
-                    <span className="text-cyan-400">AI:</span> Hallo! Hoe gaat het met je? <span className="ml-2 inline-flex rounded bg-cyan-900/40 px-1.5 py-0.5 text-[10px] text-cyan-300">🔊 Listen</span>
+                    <span className="text-cyan-400">AI:</span> Hallo! Hoe gaat het met je? <span className="ml-2 inline-flex rounded bg-cyan-900/40 px-1.5 py-0.5 text-[10px] text-cyan-300">🔊 Example audio</span>
                   </div>
                   <div className="ml-6 rounded-xl bg-cyan-400 px-3 py-2 text-sm font-medium text-slate-950">
                     Hello, how are you?
@@ -122,7 +122,7 @@ export default function HomePage() {
               </div>
             </div>
             <p className="mx-auto mt-6 max-w-[380px] text-center text-[12px] leading-4 text-slate-500">
-              Grounded assistant · real voices · no invented scores
+              Illustrative preview only · live actions require sign-in
             </p>
           </div>
         </section>
@@ -218,15 +218,15 @@ export default function HomePage() {
           <div className="flex flex-col gap-5 sm:flex-row sm:items-center sm:justify-between">
             <div>
               <p className="text-xs font-semibold uppercase tracking-[.24em] text-cyan-300">Ready to open a workspace?</p>
-              <h2 className="mt-2 text-2xl font-bold text-white">Create an account. No public admin button.</h2>
-              <p className="mt-2 max-w-xl text-slate-400">Admins still authenticate through the normal secure system. Role determined by backend/session/database. Admin routes protected server-side.</p>
+              <h2 className="mt-2 text-2xl font-bold text-white">Workspace access is organization-managed.</h2>
+              <p className="mt-2 max-w-xl text-slate-400">Sign in with your account. If you do not have one yet, ask your organization administrator to provision access. Administrator permissions are checked by the backend.</p>
             </div>
             <div className="flex gap-3">
               <Link href="/login" className="shrink-0 rounded-xl bg-white px-5 py-3 text-center font-semibold text-slate-950 hover:bg-cyan-100">
                 Sign in
               </Link>
-              <Link href="/" className="shrink-0 rounded-xl border border-slate-700 px-5 py-3 text-center font-semibold text-slate-200">
-                Learn more
+              <Link href="/app/leads" className="shrink-0 rounded-xl border border-slate-700 px-5 py-3 text-center font-semibold text-slate-200">
+                Open lead discovery
               </Link>
             </div>
           </div>
@@ -256,18 +256,18 @@ export default function HomePage() {
             <div className="flex gap-6">
               <div>
                 <p className="text-xs uppercase tracking-wide text-slate-400">Explore</p>
-                <div className="mt-2 space-y-1">
-                  <p>AI Workforce</p>
-                  <p>Language Teacher</p>
-                  <p>Lead Discovery</p>
+                <div className="mt-2 flex flex-col items-start gap-1">
+                  <Link href="/app/leads" className="hover:text-cyan-300">Lead discovery</Link>
+                  <Link href="/app/lead-pipeline" className="hover:text-cyan-300">Pipeline</Link>
+                  <Link href="/intelligence" className="hover:text-cyan-300">Intelligence</Link>
+                  <Link href="/collections" className="hover:text-cyan-300">Collections</Link>
                 </div>
               </div>
               <div>
                 <p className="text-xs uppercase tracking-wide text-slate-400">Account</p>
-                <div className="mt-2 space-y-1">
-                  <p>Login</p>
-                  <p>Register</p>
-                  <p>Forgot Password</p>
+                <div className="mt-2 flex flex-col items-start gap-1">
+                  <Link href="/login" className="hover:text-cyan-300">Sign in</Link>
+                  <Link href="/account" className="hover:text-cyan-300">Account</Link>
                 </div>
               </div>
             </div>
